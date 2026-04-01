@@ -1,0 +1,38 @@
+name: codeql-analysis
+
+on:
+  push:
+    branches:
+      - trunk
+    paths-ignore:
+      - README.md
+      - LICENSE
+
+permissions:
+  contents: read
+
+jobs:
+  context:
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: read
+      statuses: read
+    uses: escapace/workflows/.github/workflows/context.yaml@trunk
+
+  codeql-analysis:
+    needs:
+      - context
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    uses: escapace/workflows/.github/workflows/ci-typescript.yaml@trunk
+    with:
+      enable-codeql: true
+      enable-test: false
+      node-version: ${{ needs.context.outputs.node-version }}
+      pnpm-version: ${{ needs.context.outputs.pnpm-version }}
+      ref: ${{ needs.context.outputs.ref }}
+      version: ${{ needs.context.outputs.version }}

@@ -1,0 +1,75 @@
+{
+  "name": "@escapace/reconcile",
+  "description": "Detached snapshots, draft-based next-value construction, and in-place reconciliation for JavaScript objects, arrays, maps, and sets.",
+  "version": "0.0.0",
+  "author": {
+    "name": "escapace",
+    "email": "opensource@escapace.com"
+  },
+  "bugs": "https://github.com/escapace/reconcile/issues",
+  "devDependencies": {
+    "@commitlint/cli": "20.5.0",
+    "@commitlint/config-conventional": "20.5.0",
+    "@escapace/pnpm-pack": "0.8.0",
+    "@escapace/syncpack-configuration": "0.1.0",
+    "@ls-lint/ls-lint": "2.3.1",
+    "@vitest/coverage-v8": "4.1.2",
+    "alien-deepsignals": "0.3.1",
+    "eslint": "9.39.4",
+    "eslint-config-escapace": "5.15.0",
+    "esroll": "1.1.5",
+    "immer": "11.1.4",
+    "knip": "6.2.0",
+    "lefthook": "2.1.4",
+    "prettier": "3.8.1",
+    "prettier-config-escapace": "1.2.2",
+    "syncpack": "14.3.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.2",
+    "vue": "3.5.31"
+  },
+  "engines": {
+    "pnpm": ">=10.29.2"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "import": "./lib/neutral/index.js"
+    }
+  },
+  "files": [
+    "lib/neutral",
+    "lib/types"
+  ],
+  "homepage": "https://github.com/escapace/reconcile#readme",
+  "license": "MPL-2.0",
+  "module": "lib/neutral/index.js",
+  "peerDependencies": {
+    "coastal": "^0.4.0",
+    "es-toolkit": "^1.45.1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": "escapace/reconcile",
+  "scripts": {
+    "bench": "vitest bench --run",
+    "build": "tsx scripts/build.ts",
+    "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --no-error-on-unmatched-pattern -uw .",
+    "lint": "ls-lint --config .ls-lint.yaml && knip --no-config-hints && eslint",
+    "ls-lint": "ls-lint --config .ls-lint.yaml",
+    "pack": "pnpm-pack package --pack-destination lib",
+    "prepare": "lefthook install",
+    "profile": "tsx scripts/profile.ts",
+    "syncpack": "syncpack fix && syncpack format",
+    "test": "vitest --no-watch --coverage",
+    "typecheck": "tsc --noEmit",
+    "update": "ncu --cooldown 7 -p pnpm -u --peer --dep dev,peer,prod,optional && pnpm run syncpack"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "types": "lib/types/index.d.ts"
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "{scripts,perf}/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}",
+    "**/*.{test,spec}.?(c|m)[jt]s?(x)",
+    "**/test/**/*.?(c|m)[jt]s?(x)",
+    "eslint.config.mjs",
+    "src/**/example*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,vue}",
+    "src/cli.ts!",
+    "src/index.ts!",
+    "src/types.ts",
+    "vitest.config.*.ts",
+    "vitest.config.ts"
+  ],
+  "ignore": ["**/*.d.+([a-zA-Z0-9]).ts", "**/*.d.ts", "lib/**"],
+  "ignoreBinaries": ["ncu", "taze"],
+  "ignoreDependencies": [
+    "@commitlint/cli",
+    "@escapace/syncpack-configuration",
+    "@microsoft/api-extractor",
+    "eslint-config-escapace",
+    "prettier",
+    "syncpack"
+  ],
+  "ignoreExportsUsedInFile": {
+    "interface": true,
+    "type": true
+  },
+  "lefthook": {
+    "config": []
+  },
+  "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,vue}"]
+}

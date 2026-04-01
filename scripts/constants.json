@@ -1,0 +1,21 @@
+{
+  "builds": {
+    "neutral": {
+      "define": {
+        "__ENVIRONMENT__": "\"production\"",
+        "__PLATFORM__": "\"neutral\""
+      },
+      "entryPoints": ["src/index.ts"],
+      "mainFields": ["module", "main"],
+      "outdir": "lib/neutral",
+      "platform": "neutral",
+      "target": ["es2020"]
+    }
+  },
+  "declaration": {
+    "declarationRollup": true,
+    "documentation": true,
+    "entryPoints": ["src/index.ts"],
+    "tsconfig": "tsconfig-build.json"
+  }
+}

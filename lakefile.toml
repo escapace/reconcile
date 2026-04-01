@@ -1,0 +1,41 @@
+name = "Reconcile"
+version = "0.0.0"
+defaultTargets = ["Reconcile"]
+
+[leanOptions]
+relaxedAutoImplicit = false
+maxSynthPendingDepth = 3
+
+pp.unicode.fun = true
+
+weak.linter.mathlibStandardSet = true
+
+weak.linter.style.longLine = false
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.28.0"
+
+[[lean_lib]]
+name = "Reconcile"
+srcDir = "lean"
+roots = [
+  "Defs",
+  "WF",
+  "SnapshotSpec",
+  "SnapshotSoundness",
+  "ReconcileSpec",
+  "ReconcileSoundness",
+  "Algorithm",
+  "Test",
+  "PatchDraftDefs",
+  "PatchDraftSpec",
+  "PatchDraftSoundness",
+  "PatchFinalizeCoherence",
+  "PatchFinalizeCoherenceSoundness",
+  "PatchSpec",
+  "PatchSoundness",
+  "PatchOrder",
+  "PatchLocality",
+]
