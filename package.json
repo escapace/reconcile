@@ -13,21 +13,21 @@
     "@escapace/pnpm-pack": "0.8.0",
     "@escapace/syncpack-configuration": "0.1.1",
     "@ls-lint/ls-lint": "2.3.1",
-    "@vitest/coverage-v8": "4.1.2",
+    "@vitest/coverage-v8": "4.1.4",
     "alien-deepsignals": "0.3.1",
     "eslint": "9.39.4",
     "eslint-config-escapace": "5.16.1",
     "esroll": "1.2.0",
     "immer": "11.1.4",
-    "knip": "6.2.0",
-    "lefthook": "2.1.4",
-    "prettier": "3.8.1",
+    "knip": "6.4.1",
+    "lefthook": "2.1.5",
+    "prettier": "3.8.3",
     "prettier-config-escapace": "1.2.2",
     "syncpack": "14.3.0",
     "tsx": "4.21.0",
     "typescript": "6.0.2",
-    "vitest": "4.1.2",
-    "vue": "3.5.31"
+    "vitest": "4.1.4",
+    "vue": "3.5.32"
   },
   "engines": {
     "pnpm": ">=10.29.2"
