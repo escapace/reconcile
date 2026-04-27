@@ -29,8 +29,12 @@
     "vitest": "4.1.4",
     "vue": "3.5.32"
   },
-  "engines": {
-    "pnpm": ">=10.29.2"
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "onFail": "warn",
+      "version": "^10.33.0"
+    }
   },
   "exports": {
     ".": {
@@ -63,7 +67,6 @@
     "ls-lint": "ls-lint --config .ls-lint.yaml",
     "pack": "pnpm-pack package --pack-destination lib",
     "prepare": "lefthook install",
-    "profile": "tsx scripts/profile.ts",
     "syncpack": "syncpack fix && syncpack format",
     "test": "vitest --no-watch --coverage",
     "typecheck": "tsc --noEmit",
