@@ -13,21 +13,21 @@
     "@escapace/pnpm-pack": "0.8.0",
     "@escapace/syncpack-configuration": "0.2.0",
     "@ls-lint/ls-lint": "2.3.1",
-    "@vitest/coverage-v8": "4.1.4",
+    "@vitest/coverage-v8": "4.1.5",
     "alien-deepsignals": "0.3.1",
-    "eslint": "10.2.0",
+    "eslint": "10.2.1",
     "eslint-config-escapace": "5.17.0",
     "esroll": "1.2.2",
     "immer": "11.1.4",
-    "knip": "6.4.1",
-    "lefthook": "2.1.5",
+    "knip": "6.6.1",
+    "lefthook": "2.1.6",
     "prettier": "3.8.3",
     "prettier-config-escapace": "1.2.2",
     "syncpack": "14.3.0",
     "tsx": "4.21.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.4",
-    "vue": "3.5.32"
+    "vitest": "4.1.5",
+    "vue": "3.5.33"
   },
   "devEngines": {
     "packageManager": {
@@ -51,7 +51,7 @@
   "module": "lib/neutral/index.js",
   "peerDependencies": {
     "coastal": "^0.4.0",
-    "es-toolkit": "^1.45.1"
+    "es-toolkit": "^1.46.0"
   },
   "private": false,
   "publishConfig": {
