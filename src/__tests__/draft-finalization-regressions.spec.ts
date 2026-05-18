@@ -134,6 +134,86 @@ describe('draft finalization regressions', () => {
     ])
   })
 
+  it('clears cached array children before copyWithin readdresses slots', () => {
+    const current = [{ nested: { label: 'a' } }, { nested: { label: 'b' } }]
+
+    const result = createPatch(current, (draft) => {
+      const previouslyAtIndexOne = draft[1]
+      draft.copyWithin(1, 0, 1)
+      draft[1].nested.label = 'copied'
+      previouslyAtIndexOne.nested.label = 'stale'
+      return draft
+    })
+
+    assert.equal(current[0].nested.label, 'a')
+    assert.equal(current[1].nested.label, 'b')
+    assert.equal(result[0].nested.label, 'copied')
+    assert.equal(result[1], result[0])
+  })
+
+  it('clears cached array children before fill replaces slots', () => {
+    const current = [{ nested: { label: 'a' } }, { nested: { label: 'b' } }]
+
+    const result = createPatch(current, (draft) => {
+      const previouslyAtIndexOne = draft[1]
+      draft.fill(draft[0], 1)
+      draft[1].nested.label = 'changed'
+      previouslyAtIndexOne.nested.label = 'stale'
+      return draft
+    })
+
+    assert.equal(current[0].nested.label, 'a')
+    assert.equal(current[1].nested.label, 'b')
+    assert.equal(result[0].nested.label, 'changed')
+    assert.equal(result[1], result[0])
+  })
+
+  it('defensively normalizes unchanged clone-on-read values inserted into current-backed slots', () => {
+    const current = {
+      box: { date: new Date(0) },
+      date: new Date(0),
+      flag: 0,
+    }
+    current.box.date = current.date
+
+    const result = createPatch(current, (draft) => {
+      const dateClone = draft.date
+      // This side effect is not recommended recipe style; it guards defensive finalization when
+      // user code mutates captured current state during a recipe.
+      current.box.date = dateClone
+      draft.flag = 1
+      return draft
+    })
+
+    assert.equal(result.box.date, current.date)
+    assert.notEqual(result.box.date, current.box.date)
+    assert.equal(result.box.date.getTime(), 0)
+  })
+
+  it('defensively keeps changed clone-on-read values inserted into current-backed slots', () => {
+    const current = {
+      box: { date: new Date(0) },
+      date: new Date(0),
+      flag: 0,
+    }
+    current.box.date = current.date
+
+    const result = createPatch(current, (draft) => {
+      const dateClone = draft.date
+      // This side effect is not recommended recipe style; it guards defensive finalization when
+      // user code mutates captured current state during a recipe.
+      current.box.date = dateClone
+      dateClone.setTime(1)
+      draft.flag = 1
+      return draft
+    })
+
+    assert.notEqual(result.box.date, current.date)
+    assert.equal(result.box.date, current.box.date)
+    assert.equal(result.box.date.getTime(), 1)
+    assert.equal(current.date.getTime(), 0)
+  })
+
   it('finalizes nested draft handles in values inserted with mutating array methods', () => {
     const pushed = createPatch([{ nestedArray: [] as number[] }], (draft) => {
       draft.push({ ...draft[0] })

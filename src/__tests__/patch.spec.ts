@@ -15,6 +15,12 @@ const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
 const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
 const returnedValue = () => 'ok'
 const bytesOfArrayBuffer = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
+const assertSameReference = (actual: unknown, expected: unknown): void => {
+  assert.equal(actual, expected)
+}
+const assertNotSameReference = (actual: unknown, expected: unknown): void => {
+  assert.notEqual(actual, expected)
+}
 
 interface PatchCyclic {
   nested: { count: number }
@@ -122,7 +128,7 @@ describe('patch', () => {
       return draft.left
     })
 
-    assert.equal(result, current)
+    assertSameReference(result, current)
     assert.deepEqual(result, { count: 3 })
   })
 
@@ -136,7 +142,7 @@ describe('patch', () => {
       return { replace: true as const }
     })
 
-    assert.equal(result, current)
+    assertSameReference(result, current)
     assert.deepEqual(result, { replace: true })
   })
 
@@ -1378,8 +1384,8 @@ describe('patch', () => {
       view: DataView
     }
 
-    assert.equal(result, current)
-    assert.notEqual(result.typed, typedReference)
+    assertSameReference(result, current)
+    assertNotSameReference(result.typed, typedReference)
     assert.notEqual(result.view, viewReference)
     assert.equal(result.typed.buffer, result.view.buffer)
     assert.equal(result.typed.constructor, Uint16Array)
@@ -1402,7 +1408,7 @@ describe('patch', () => {
       return { wrapped: draft.nested }
     })
 
-    assert.equal(result, current)
+    assertSameReference(result, current)
     assert.deepEqual(result, { wrapped: { count: 6 } })
   })
 

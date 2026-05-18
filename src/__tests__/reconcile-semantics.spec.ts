@@ -21,6 +21,12 @@ import { assert, describe, it } from 'vitest'
 import { reconcile, snapshot } from '../index'
 
 const returnFortyTwo = (): number => 42
+const assertSameReference = (actual: unknown, expected: unknown): void => {
+  assert.equal(actual, expected)
+}
+const assertNotSameReference = (actual: unknown, expected: unknown): void => {
+  assert.notEqual(actual, expected)
+}
 
 // ============================================================================
 // §5.2 — Root rule (ReconcileRootSpec)
@@ -705,7 +711,7 @@ describe('§6.7 TypedArray', () => {
     const result = reconcile(current, next)
 
     // Different constructor tags => replacement
-    assert.notEqual(result, current)
+    assertNotSameReference(result, current)
     assert.instanceOf(result, Int8Array)
   })
 
@@ -1412,7 +1418,7 @@ describe('Edge cases', () => {
       const next = { x: null }
       const result = reconcile(current, next)
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.equal(result.x, null)
     })
   })

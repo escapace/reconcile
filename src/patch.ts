@@ -21,13 +21,6 @@ const PATCH_STATE_SYMBOL = Symbol('@escapace/reconcile/patch')
 const UNSUPPORTED_COLLECTION_ITERATION_MESSAGE =
   'Map and Set draft iteration methods are not supported.'
 
-interface PatchContext {
-  readonly specialCloneBaseToClone: WeakMap<object, object>
-  readonly specialCloneCloneToBase: WeakMap<object, object>
-  readonly statesByBase: WeakMap<object, DraftState>
-  readonly statesByHandle: WeakMap<object, DraftState>
-}
-
 interface BaseDraftState {
   readonly base: object
   readonly context: PatchContext
@@ -116,109 +109,17 @@ function prepareSetCopy(state: SetDraftState): Set<unknown> {
   return state.copy as Set<unknown>
 }
 
-function cloneSpecialValue(
-  context: PatchContext,
-  value: object,
-  kind:
-    | typeof OBJECT_KIND_ARRAY_BUFFER
-    | typeof OBJECT_KIND_DATA_VIEW
-    | typeof OBJECT_KIND_DATE
-    | typeof OBJECT_KIND_TYPED_ARRAY,
-): object {
-  const cached = context.specialCloneBaseToClone.get(value)
-
-  if (cached !== undefined) {
-    // Clone-on-read specials must stay stable within one recipe so repeated reads preserve aliasing
-    // and shared references collapse to one clone image.
-    //
-    // Current public call sites usually observe this stability through the surrounding child cache
-    // before they would re-enter `cloneSpecialValue(...)`, so this branch mainly preserves helper
-    // idempotence if internal call paths broaden later.
-    return cached
-  }
-
-  const replacement = snapshotObjectByKindAfterMiss(kind, value, context.specialCloneBaseToClone)
-
-  context.specialCloneCloneToBase.set(replacement, value)
-  return replacement
-}
-
-function materializeChild<K>(
-  context: PatchContext,
-  children: Map<K, unknown>,
-  key: K,
-  value: object,
-): object {
-  const existingState = context.statesByBase.get(value)
-
-  if (existingState !== undefined) {
-    const existingDraft =
-      existingState.kind === OBJECT_KIND_MAP || existingState.kind === OBJECT_KIND_SET
-        ? existingState.wrapper
-        : existingState.proxy
-
-    const draft =
-      existingDraft ??
-      // Reuse the existing state even when its outward proxy or wrapper has not been created yet.
-      // That preserves one draft identity per base object across all paths that reach it.
-      (existingState.kind === OBJECT_KIND_MAP
-        ? ensureDraftMap(existingState)
-        : existingState.kind === OBJECT_KIND_SET
-          ? ensureDraftSet(existingState)
-          : ensureObjectArrayProxy(existingState))
-
-    children.set(key, draft)
-    return draft
-  }
-
-  const existingClone = context.specialCloneBaseToClone.get(value)
-
-  if (existingClone !== undefined) {
-    children.set(key, existingClone)
-    return existingClone
-  }
-
-  const kind = objectKindOf(value)
-  let child: object
-
-  switch (kind) {
-    case OBJECT_KIND_ARRAY:
+function draftHandleOf(state: DraftState): object | undefined {
+  switch (state.kind) {
     case OBJECT_KIND_MAP:
-    case OBJECT_KIND_PLAIN:
     case OBJECT_KIND_SET:
-      child = ensureDraft(context, value, kind)
-      break
-    case OBJECT_KIND_ARRAY_BUFFER:
-    case OBJECT_KIND_DATA_VIEW:
-    case OBJECT_KIND_DATE:
-    case OBJECT_KIND_TYPED_ARRAY:
-      child = cloneSpecialValue(context, value, kind)
-      break
+      return state.wrapper
     default:
-      // Defensive fallback: objectKindOf() currently classifies every object into one of the
-      // branches above, but keeping the raw value here avoids surprising breakage if the shared
-      // classifier broadens before this call site is updated.
-      //
-      // The supported public API does not intentionally route values here, so a direct test would
-      // be white-box and coupled to internal classifier broadening.
-      return value
+      return state.proxy
   }
-
-  children.set(key, child)
-  return child
 }
 
 function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
-  if (state.proxy !== undefined) {
-    // Repeated ensure calls must reuse the same outward proxy so object identity stays stable
-    // within one recipe.
-    //
-    // Current public call paths usually consult existing outward handles before they would call
-    // back into this helper, so this guard is mostly internal idempotence rather than a distinct
-    // public behavior target.
-    return state.proxy
-  }
-
   const target: object =
     state.kind === OBJECT_KIND_ARRAY
       ? new Array<unknown>()
@@ -278,7 +179,7 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
         return value
       }
 
-      return materializeChild(state.context, state.children, property, value)
+      return state.context.materializeChild(state.children, property, value)
     },
     getOwnPropertyDescriptor(_target, property) {
       const source = draftValue<Record<PropertyKey, unknown> | unknown[]>(state)
@@ -335,57 +236,39 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
   return proxy
 }
 
-function normalizeMapKey(context: PatchContext, key: unknown): unknown {
-  if (!isObject(key)) {
-    return key
-  }
-
-  return context.statesByHandle.get(key)?.base ?? key
-}
-
 const LOOKUP_MISS = Symbol('@escapace/reconcile/lookup-not-found')
 
-function resolveSetMember(context: PatchContext, source: Set<unknown>, value: unknown): unknown {
-  if (source.has(value)) {
-    return value
-  }
-
-  if (!isObject(value)) {
-    return LOOKUP_MISS
-  }
-
-  const draftState = context.statesByHandle.get(value)
-
-  if (draftState !== undefined) {
-    const baseValue = draftState.base
-
-    if (source.has(baseValue)) {
-      return baseValue
-    }
-
-    return LOOKUP_MISS
-  }
-
-  const baseState = context.statesByBase.get(value)
-
-  if (baseState !== undefined) {
-    const handle =
-      baseState.kind === OBJECT_KIND_MAP || baseState.kind === OBJECT_KIND_SET
-        ? baseState.wrapper
-        : baseState.proxy
-
-    if (handle !== undefined && source.has(handle)) {
-      return handle
-    }
-  }
-
-  return LOOKUP_MISS
+function throwUnsupportedCollectionIteration(): never {
+  throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
 }
 
-class DraftMap {
+abstract class UnsupportedDraftCollectionIteration {
+  entries(): never {
+    return throwUnsupportedCollectionIteration()
+  }
+
+  forEach(): never {
+    return throwUnsupportedCollectionIteration()
+  }
+
+  keys(): never {
+    return throwUnsupportedCollectionIteration()
+  }
+
+  values(): never {
+    return throwUnsupportedCollectionIteration()
+  }
+
+  [Symbol.iterator](): never {
+    return throwUnsupportedCollectionIteration()
+  }
+}
+
+class DraftMap extends UnsupportedDraftCollectionIteration {
   readonly [PATCH_STATE_SYMBOL]: MapDraftState
 
   constructor(state: MapDraftState) {
+    super()
     this[PATCH_STATE_SYMBOL] = state
   }
 
@@ -411,7 +294,7 @@ class DraftMap {
   delete(key: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Map<unknown, unknown>>(state)
-    const normalizedKey = normalizeMapKey(state.context, key)
+    const normalizedKey = state.context.normalizeMapKey(key)
 
     if (!source.has(normalizedKey)) {
       // Deleting a missing key is a true no-op and does not mark the draft modified.
@@ -424,18 +307,10 @@ class DraftMap {
     return true
   }
 
-  entries(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
-  forEach(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
   get(key: unknown): unknown {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Map<unknown, unknown>>(state)
-    const normalizedKey = normalizeMapKey(state.context, key)
+    const normalizedKey = state.context.normalizeMapKey(key)
     const childDraft = state.children.get(normalizedKey)
 
     if (childDraft !== undefined) {
@@ -452,21 +327,17 @@ class DraftMap {
       return value
     }
 
-    return materializeChild(state.context, state.children, normalizedKey, value)
+    return state.context.materializeChild(state.children, normalizedKey, value)
   }
 
   has(key: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
-    return draftValue<Map<unknown, unknown>>(state).has(normalizeMapKey(state.context, key))
-  }
-
-  keys(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
+    return draftValue<Map<unknown, unknown>>(state).has(state.context.normalizeMapKey(key))
   }
 
   set(key: unknown, value: unknown): this {
     const state = this[PATCH_STATE_SYMBOL]
-    const normalizedKey = normalizeMapKey(state.context, key)
+    const normalizedKey = state.context.normalizeMapKey(key)
     const source = draftValue<Map<unknown, unknown>>(state)
     const currentValue = source.get(normalizedKey)
 
@@ -485,36 +356,20 @@ class DraftMap {
     state.modified = true
     return this
   }
-
-  values(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
-  [Symbol.iterator](): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
 }
 
 function ensureDraftMap(state: MapDraftState): DraftMap {
-  if (state.wrapper !== undefined) {
-    // Repeated ensure calls must reuse the same outward wrapper so one base map corresponds to
-    // one draft-facing identity.
-    //
-    // Current public call paths usually observe this through earlier existing-handle checks, so
-    // this branch mainly keeps the helper idempotent for internal reuse.
-    return state.wrapper
-  }
-
   const wrapper = new DraftMap(state)
   state.wrapper = wrapper
   state.context.statesByHandle.set(wrapper, state)
   return wrapper
 }
 
-class DraftSet {
+class DraftSet extends UnsupportedDraftCollectionIteration {
   readonly [PATCH_STATE_SYMBOL]: SetDraftState
 
   constructor(state: SetDraftState) {
+    super()
     this[PATCH_STATE_SYMBOL] = state
   }
 
@@ -527,7 +382,7 @@ class DraftSet {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Set<unknown>>(state)
 
-    if (resolveSetMember(state.context, source, value) !== LOOKUP_MISS) {
+    if (state.context.resolveSetMember(source, value) !== LOOKUP_MISS) {
       // Duplicate add is a true no-op and does not mark the draft modified.
       return this
     }
@@ -553,7 +408,7 @@ class DraftSet {
   delete(value: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Set<unknown>>(state)
-    const target = resolveSetMember(state.context, source, value)
+    const target = state.context.resolveSetMember(source, value)
 
     if (target === LOOKUP_MISS) {
       // Deleting a missing element is a true no-op and does not mark the draft modified.
@@ -567,122 +422,18 @@ class DraftSet {
     return removed
   }
 
-  entries(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
-  forEach(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
   has(value: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Set<unknown>>(state)
-    return resolveSetMember(state.context, source, value) !== LOOKUP_MISS
-  }
-
-  keys(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
-  values(): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
-  }
-
-  [Symbol.iterator](): never {
-    throw new TypeError(UNSUPPORTED_COLLECTION_ITERATION_MESSAGE)
+    return state.context.resolveSetMember(source, value) !== LOOKUP_MISS
   }
 }
 
 function ensureDraftSet(state: SetDraftState): DraftSet {
-  if (state.wrapper !== undefined) {
-    // Repeated ensure calls must reuse the same outward wrapper so one base set corresponds to
-    // one draft-facing identity.
-    //
-    // Current public call paths usually observe this through earlier existing-handle checks, so
-    // this branch mainly keeps the helper idempotent for internal reuse.
-    return state.wrapper
-  }
-
   const wrapper = new DraftSet(state)
   state.wrapper = wrapper
   state.context.statesByHandle.set(wrapper, state)
   return wrapper
-}
-
-function ensureDraft(
-  context: PatchContext,
-  value: object,
-  knownKind: DraftableKind | undefined = undefined,
-): object {
-  const existing = context.statesByBase.get(value)
-
-  if (existing !== undefined) {
-    // Re-ensuring an already tracked base must reuse its existing draft state and outward handle
-    // instead of allocating a second state for the same object.
-    //
-    // `materializeChild(...)` short-circuits most public repeated reaches before they would call
-    // back into `ensureDraft(...)`, so this branch is primarily an internal coherence guard.
-    switch (existing.kind) {
-      case OBJECT_KIND_MAP:
-        return ensureDraftMap(existing)
-      case OBJECT_KIND_SET:
-        return ensureDraftSet(existing)
-      default:
-        return ensureObjectArrayProxy(existing)
-    }
-  }
-
-  const kind = knownKind ?? objectKindOf(value)
-
-  switch (kind) {
-    case OBJECT_KIND_ARRAY:
-    case OBJECT_KIND_PLAIN: {
-      const state: ObjectArrayDraftState = {
-        base: value,
-        children: new Map<PropertyKey, unknown>(),
-        context,
-        copy: undefined,
-        kind,
-        modified: false,
-        proxy: undefined,
-      }
-      context.statesByBase.set(value, state)
-      return ensureObjectArrayProxy(state)
-    }
-    case OBJECT_KIND_MAP: {
-      const state: MapDraftState = {
-        base: value,
-        children: new Map<unknown, unknown>(),
-        context,
-        copy: undefined,
-        kind,
-        modified: false,
-        wrapper: undefined,
-      }
-      context.statesByBase.set(value, state)
-      return ensureDraftMap(state)
-    }
-    case OBJECT_KIND_SET: {
-      const state: SetDraftState = {
-        base: value,
-        context,
-        copy: undefined,
-        kind,
-        modified: false,
-        wrapper: undefined,
-      }
-      context.statesByBase.set(value, state)
-      return ensureDraftSet(state)
-    }
-    default:
-      // Defensive fallback for future classifier broadening or accidental internal misuse. Current
-      // supported call sites do not intentionally route unmatched kinds through ensureDraft().
-      //
-      // The public API is expected to reach special values through dedicated branches before this
-      // point, so testing this directly would require white-box coupling to internal dispatch.
-      return cloneSpecialValue(context, value, kind)
-  }
 }
 
 type CloneOnReadKind =
@@ -698,71 +449,6 @@ function cloneOnReadSpecialKind(kind: ObjectKind): CloneOnReadKind | undefined {
     kind === OBJECT_KIND_TYPED_ARRAY
     ? kind
     : undefined
-}
-
-function shouldReuseCurrentBackedCloneOnReadSpecial(
-  context: PatchContext,
-  value: object,
-  kind: CloneOnReadKind,
-): boolean {
-  if (context.specialCloneCloneToBase.get(value) !== undefined) {
-    return false
-  }
-
-  const mappedClone = context.specialCloneBaseToClone.get(value)
-
-  if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
-    const buffer = (value as ArrayBufferView).buffer
-    const mappedBufferClone = context.specialCloneBaseToClone.get(buffer)
-
-    if (
-      mappedBufferClone !== undefined &&
-      !isSpecialValueEquivalent(buffer, mappedBufferClone, OBJECT_KIND_ARRAY_BUFFER)
-    ) {
-      return false
-    }
-  }
-
-  if (mappedClone !== undefined) {
-    return isSpecialValueEquivalent(value, mappedClone, kind)
-  }
-
-  return true
-}
-
-function materializeContainerSlot(
-  context: PatchContext,
-  value: unknown,
-  isCurrentBackedSlot: boolean,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-): unknown {
-  if (!isCurrentBackedSlot) {
-    return materializeValue(context, value, memo, requiresMemo)
-  }
-
-  if (!isObject(value)) {
-    return value
-  }
-
-  const cached = memo.get(value)
-
-  if (cached !== undefined) {
-    return cached
-  }
-
-  const kind = objectKindOf(value)
-  const cloneOnReadKind = cloneOnReadSpecialKind(kind)
-
-  if (
-    cloneOnReadKind !== undefined &&
-    shouldReuseCurrentBackedCloneOnReadSpecial(context, value, cloneOnReadKind)
-  ) {
-    memo.set(value, value)
-    return value
-  }
-
-  return materializeUncachedObjectValue(context, value, kind, memo, requiresMemo, value)
 }
 
 function isSpecialValueEquivalent(
@@ -843,486 +529,675 @@ function isSpecialValueEquivalent(
   }
 }
 
-// Under the monotonic write model, object, array, map, and set drafts use a sticky `modified`
-// bit as the primary unchanged predicate: the first real mutation permanently marks the draft
-// modified for the rest of the recipe, and no later write collapses it back to unmodified.
-//
-// A draft that is itself unmodified can still need finalization when a descendant reached
-// through its base graph is modified or clone-on-read, for example a shared object touched only
-// through a sibling path or a `Date` read-through. `needsMaterialization(...)` recursively walks
-// the base graph and answers that question coherently, and `materializeState(...)` delegates to
-// it for unmodified draft states so the shared-descendant case still finalizes correctly.
-//
-// Clone-on-read specials (`Date`, `ArrayBuffer`, `DataView`, typed arrays) stay on the existing
-// semantic-equivalence policy and are unified into the same materialization pipeline through
-// `isSpecialValueEquivalent(...)` at finalization time, because they mutate outside the proxy
-// write path and cannot be tracked by the monotonic draft `modified` bit.
-function needsMaterialization(
-  context: PatchContext,
-  value: unknown,
-  memo: WeakMap<object, boolean>,
-): boolean {
-  if (!isObject(value)) {
-    return false
+class PatchContext {
+  private materializationRequired: WeakMap<object, boolean> | undefined
+  private materializedValues: WeakMap<object, unknown> | undefined
+  readonly specialCloneBaseToClone = new WeakMap<object, object>()
+  readonly specialCloneCloneToBase = new WeakMap<object, object>()
+  readonly statesByBase = new WeakMap<object, DraftState>()
+  readonly statesByHandle = new WeakMap<object, DraftState>()
+
+  private getMaterializationRequired(): WeakMap<object, boolean> {
+    this.materializationRequired ??= new WeakMap<object, boolean>()
+
+    return this.materializationRequired
   }
 
-  const cached = memo.get(value)
+  private getMaterializedValues(): WeakMap<object, unknown> {
+    this.materializedValues ??= new WeakMap<object, unknown>()
 
-  if (cached !== undefined) {
-    return cached
+    return this.materializedValues
   }
 
-  const draftState = context.statesByHandle.get(value) ?? context.statesByBase.get(value)
-
-  // Clone-on-read specials always require finalization whenever they are tracked. Their
-  // unchanged-vs-changed decision is made by `isSpecialValueEquivalent(...)` later in the
-  // materialize pipeline.
-  if (
-    draftState === undefined &&
-    (context.specialCloneCloneToBase.get(value) !== undefined ||
-      context.specialCloneBaseToClone.get(value) !== undefined)
-  ) {
-    memo.set(value, true)
-    return true
+  private draftStateFor(value: object): DraftState | undefined {
+    return this.statesByHandle.get(value) ?? this.statesByBase.get(value)
   }
 
-  if (draftState !== undefined) {
-    if (draftState.modified) {
+  private cloneSpecialValueAfterMiss(value: object, kind: CloneOnReadKind): object {
+    const replacement = snapshotObjectByKindAfterMiss(kind, value, this.specialCloneBaseToClone)
+
+    this.specialCloneCloneToBase.set(replacement, value)
+    return replacement
+  }
+
+  createDraft<T>(current: T): T {
+    if (!isObject(current)) {
+      return current
+    }
+
+    const kind = objectKindOf(current)
+
+    switch (kind) {
+      case OBJECT_KIND_ARRAY:
+      case OBJECT_KIND_MAP:
+      case OBJECT_KIND_PLAIN:
+      case OBJECT_KIND_SET:
+        return this.createDraftHandleAfterMiss(current, kind) as T
+      default:
+        return this.cloneSpecialValueAfterMiss(current, kind) as T
+    }
+  }
+
+  private createDraftHandleAfterMiss(value: object, kind: DraftableKind): object {
+    switch (kind) {
+      case OBJECT_KIND_ARRAY:
+      case OBJECT_KIND_PLAIN: {
+        const state: ObjectArrayDraftState = {
+          base: value,
+          children: new Map<PropertyKey, unknown>(),
+          context: this,
+          copy: undefined,
+          kind,
+          modified: false,
+          proxy: undefined,
+        }
+        this.statesByBase.set(value, state)
+        return ensureObjectArrayProxy(state)
+      }
+      case OBJECT_KIND_MAP: {
+        const state: MapDraftState = {
+          base: value,
+          children: new Map<unknown, unknown>(),
+          context: this,
+          copy: undefined,
+          kind,
+          modified: false,
+          wrapper: undefined,
+        }
+        this.statesByBase.set(value, state)
+        return ensureDraftMap(state)
+      }
+      case OBJECT_KIND_SET: {
+        const state: SetDraftState = {
+          base: value,
+          context: this,
+          copy: undefined,
+          kind,
+          modified: false,
+          wrapper: undefined,
+        }
+        this.statesByBase.set(value, state)
+        return ensureDraftSet(state)
+      }
+    }
+  }
+
+  materializeChild<K>(children: Map<K, unknown>, key: K, value: object): object {
+    if (this.statesByHandle.get(value) !== undefined) {
+      children.set(key, value)
+      return value
+    }
+
+    const existingState = this.statesByBase.get(value)
+
+    if (existingState !== undefined) {
+      const draft = draftHandleOf(existingState)!
+
+      children.set(key, draft)
+      return draft
+    }
+
+    const existingClone = this.specialCloneBaseToClone.get(value)
+
+    if (existingClone !== undefined) {
+      children.set(key, existingClone)
+      return existingClone
+    }
+
+    const kind = objectKindOf(value)
+    let child: object
+
+    switch (kind) {
+      case OBJECT_KIND_ARRAY:
+      case OBJECT_KIND_MAP:
+      case OBJECT_KIND_PLAIN:
+      case OBJECT_KIND_SET:
+        child = this.createDraftHandleAfterMiss(value, kind)
+        break
+      case OBJECT_KIND_ARRAY_BUFFER:
+      case OBJECT_KIND_DATA_VIEW:
+      case OBJECT_KIND_DATE:
+      case OBJECT_KIND_TYPED_ARRAY:
+        child = this.cloneSpecialValueAfterMiss(value, kind)
+        break
+      default:
+        // Defensive fallback: objectKindOf() currently classifies every object into one of the
+        // branches above, but keeping the raw value here avoids surprising breakage if the shared
+        // classifier broadens before this call site is updated.
+        //
+        // The supported public API does not intentionally route values here, so a direct test
+        // would be white-box and coupled to internal classifier broadening.
+        return value
+    }
+
+    children.set(key, child)
+    return child
+  }
+
+  normalizeMapKey(key: unknown): unknown {
+    if (!isObject(key)) {
+      return key
+    }
+
+    return this.statesByHandle.get(key)?.base ?? key
+  }
+
+  resolveSetMember(source: Set<unknown>, value: unknown): unknown {
+    if (source.has(value)) {
+      return value
+    }
+
+    if (!isObject(value)) {
+      return LOOKUP_MISS
+    }
+
+    const draftState = this.statesByHandle.get(value)
+
+    if (draftState !== undefined) {
+      const baseValue = draftState.base
+
+      if (source.has(baseValue)) {
+        return baseValue
+      }
+
+      return LOOKUP_MISS
+    }
+
+    const baseState = this.statesByBase.get(value)
+
+    if (baseState !== undefined) {
+      const handle = draftHandleOf(baseState)
+      if (handle !== undefined && source.has(handle)) {
+        return handle
+      }
+    }
+
+    return LOOKUP_MISS
+  }
+
+  materializeValue(value: unknown): unknown {
+    if (!isObject(value)) {
+      return value
+    }
+
+    const memo = this.getMaterializedValues()
+    const cached = memo.get(value)
+
+    if (cached !== undefined) {
+      return cached
+    }
+
+    return this.materializeUncachedObjectValue(value)
+  }
+
+  needsMaterialization(value: unknown, knownKind: ObjectKind | undefined = undefined): boolean {
+    if (!isObject(value)) {
+      return false
+    }
+
+    const memo = this.getMaterializationRequired()
+    const cached = memo.get(value)
+
+    if (cached !== undefined) {
+      return cached
+    }
+
+    const draftState = this.draftStateFor(value)
+
+    // Clone-on-read specials always require finalization whenever they are tracked. Their
+    // unchanged-vs-changed decision is made by `isSpecialValueEquivalent(...)` later in the
+    // materialize pipeline.
+    if (
+      draftState === undefined &&
+      (this.specialCloneCloneToBase.get(value) !== undefined ||
+        this.specialCloneBaseToClone.get(value) !== undefined)
+    ) {
       memo.set(value, true)
       return true
     }
 
-    // An unmodified managed draft can still need materialization if any descendant reached
-    // through its base graph is modified or clone-on-read. Walk the base to answer that.
-    const base = draftState.base
-    const baseCached = memo.get(base)
-
-    if (baseCached !== undefined) {
-      if (base !== value) {
-        memo.set(value, baseCached)
+    if (draftState !== undefined) {
+      if (draftState.modified) {
+        memo.set(value, true)
+        return true
       }
-      return baseCached
+
+      // An unmodified managed draft can still need materialization if any descendant reached
+      // through its base graph is modified or clone-on-read. Walk the base to answer that.
+      const base = draftState.base
+
+      if (base !== value) {
+        const baseCached = memo.get(base)
+
+        if (baseCached !== undefined) {
+          memo.set(value, baseCached)
+          return baseCached
+        }
+      }
+
+      // Speculate no before recursing so cyclic base graphs terminate cleanly.
+      memo.set(value, false)
+      if (base !== value) {
+        memo.set(base, false)
+      }
+
+      const descendantResult = this.walkDescendantsForMaterialization(base, draftState.kind)
+
+      if (descendantResult) {
+        memo.set(value, true)
+        if (base !== value) {
+          memo.set(base, true)
+        }
+      }
+
+      return descendantResult
     }
 
-    // Speculate no before recursing so cyclic base graphs terminate cleanly.
+    // Speculate no before recursing so cyclic graphs terminate cleanly.
     memo.set(value, false)
-    if (base !== value) {
-      memo.set(base, false)
-    }
 
-    const descendantResult = walkDescendantsForMaterialization(context, base, memo)
+    const result = this.walkDescendantsForMaterialization(value, knownKind)
 
-    if (descendantResult) {
+    if (result) {
       memo.set(value, true)
-      if (base !== value) {
-        memo.set(base, true)
+    }
+
+    return result
+  }
+
+  private shouldReuseCurrentBackedCloneOnReadSpecial(
+    value: object,
+    kind: CloneOnReadKind,
+  ): boolean {
+    const mappedClone = this.specialCloneBaseToClone.get(value)
+
+    if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
+      const buffer = (value as ArrayBufferView).buffer
+      const mappedBufferClone = this.specialCloneBaseToClone.get(buffer)
+
+      if (
+        mappedBufferClone !== undefined &&
+        !isSpecialValueEquivalent(buffer, mappedBufferClone, OBJECT_KIND_ARRAY_BUFFER)
+      ) {
+        return false
       }
     }
 
-    return descendantResult
-  }
-
-  // Speculate no before recursing so cyclic graphs terminate cleanly.
-  memo.set(value, false)
-
-  const result = walkDescendantsForMaterialization(context, value, memo)
-
-  if (result) {
-    memo.set(value, true)
-  }
-
-  return result
-}
-
-function walkDescendantsForMaterialization(
-  context: PatchContext,
-  value: object,
-  memo: WeakMap<object, boolean>,
-): boolean {
-  switch (objectKindOf(value)) {
-    case OBJECT_KIND_ARRAY: {
-      const arrayValue = value as unknown[]
-
-      for (let index = 0; index < arrayValue.length; index += 1) {
-        if (!(index in arrayValue)) {
-          continue
-        }
-
-        if (needsMaterialization(context, arrayValue[index], memo)) {
-          return true
-        }
-      }
-
-      return false
+    if (mappedClone !== undefined) {
+      return isSpecialValueEquivalent(value, mappedClone, kind)
     }
-    case OBJECT_KIND_MAP:
-      for (const [key, entry] of value as Map<unknown, unknown>) {
-        if (
-          needsMaterialization(context, key, memo) ||
-          needsMaterialization(context, entry, memo)
-        ) {
-          return true
-        }
-      }
 
-      return false
-    case OBJECT_KIND_PLAIN: {
-      const objectValue = value as Record<PropertyKey, unknown>
-      const objectOwnKeys = ownKeys(value)
-
-      for (let index = 0; index < objectOwnKeys.length; index += 1) {
-        if (needsMaterialization(context, objectValue[objectOwnKeys[index]], memo)) {
-          return true
-        }
-      }
-
-      return false
-    }
-    case OBJECT_KIND_SET:
-      for (const entry of value as Set<unknown>) {
-        if (needsMaterialization(context, entry, memo)) {
-          return true
-        }
-      }
-
-      return false
-    default:
-      return false
+    return true
   }
-}
 
-function materializePlainObject(
-  context: PatchContext,
-  source: Record<PropertyKey, unknown>,
-  state: ObjectArrayDraftState | undefined,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-  memoKey: object,
-  currentBackedBase?: Record<PropertyKey, unknown>,
-): Record<PropertyKey, unknown> {
-  const replacement = Object.create(Object.getPrototypeOf(source) as object | null) as Record<
-    PropertyKey,
-    unknown
-  >
-  memo.set(memoKey, replacement)
+  private materializeArray(
+    source: unknown[],
+    state: ObjectArrayDraftState | undefined,
+    memoKey: object,
+    currentBackedBase?: unknown[],
+  ): unknown[] {
+    const replacement = new Array<unknown>(source.length)
+    this.getMaterializedValues().set(memoKey, replacement)
+    const children = state?.children
+    const base = (state?.base as unknown[] | undefined) ?? currentBackedBase
 
-  const sourceOwnKeys = ownKeys(source)
-  const children = state?.children
-  const base = (state?.base as Record<PropertyKey, unknown> | undefined) ?? currentBackedBase
+    for (let index = 0; index < source.length; index += 1) {
+      if (!(index in source)) {
+        continue
+      }
 
-  for (let index = 0; index < sourceOwnKeys.length; index += 1) {
-    const key = sourceOwnKeys[index]
-    const descriptor = Object.getOwnPropertyDescriptor(source, key)
-    const childDraft = children?.get(key)
-
-    if (descriptor !== undefined && 'value' in descriptor) {
-      const baseDescriptor =
-        childDraft === undefined && base !== undefined
-          ? Object.getOwnPropertyDescriptor(base, key)
-          : undefined
+      const childKey = String(index)
+      const childDraft = children?.get(childKey)
+      const sourceValue = source[index]
       const isCurrentBackedSlot =
         childDraft === undefined &&
-        baseDescriptor !== undefined &&
-        'value' in baseDescriptor &&
-        Object.is(descriptor.value, baseDescriptor.value)
+        base !== undefined &&
+        index in base &&
+        Object.is(sourceValue, base[index])
 
-      descriptor.value = materializeContainerSlot(
-        context,
-        childDraft ?? descriptor.value,
+      replacement[index] = this.materializeContainerSlot(
+        childDraft ?? sourceValue,
         isCurrentBackedSlot,
-        memo,
-        requiresMemo,
       )
-      Object.defineProperty(replacement, key, descriptor)
-      continue
     }
 
-    const sourceValue = source[key]
-    const isCurrentBackedSlot =
-      childDraft === undefined && base !== undefined && Object.is(sourceValue, base[key])
-
-    replacement[key] = materializeContainerSlot(
-      context,
-      childDraft ?? sourceValue,
-      isCurrentBackedSlot,
-      memo,
-      requiresMemo,
-    )
+    return replacement
   }
 
-  return replacement
-}
-
-function materializeArray(
-  context: PatchContext,
-  source: unknown[],
-  state: ObjectArrayDraftState | undefined,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-  memoKey: object,
-  currentBackedBase?: unknown[],
-): unknown[] {
-  const replacement = new Array<unknown>(source.length)
-  memo.set(memoKey, replacement)
-  const children = state?.children
-  const base = (state?.base as unknown[] | undefined) ?? currentBackedBase
-
-  for (let index = 0; index < source.length; index += 1) {
-    if (!(index in source)) {
-      continue
+  private materializeContainerSlot(value: unknown, isCurrentBackedSlot: boolean): unknown {
+    if (!isCurrentBackedSlot) {
+      return this.materializeValue(value)
     }
 
-    const childKey = String(index)
-    const childDraft = children?.get(childKey)
-    const sourceValue = source[index]
-    const isCurrentBackedSlot =
-      childDraft === undefined &&
-      base !== undefined &&
-      index in base &&
-      Object.is(sourceValue, base[index])
+    if (!isObject(value)) {
+      return value
+    }
 
-    replacement[index] = materializeContainerSlot(
-      context,
-      childDraft ?? sourceValue,
-      isCurrentBackedSlot,
-      memo,
-      requiresMemo,
-    )
+    const memo = this.getMaterializedValues()
+    const cached = memo.get(value)
+
+    if (cached !== undefined) {
+      return cached
+    }
+
+    const draftState = this.draftStateFor(value)
+
+    if (draftState !== undefined) {
+      return this.materializeState(draftState, value)
+    }
+
+    const specialCloneBase = this.specialCloneCloneToBase.get(value)
+
+    if (specialCloneBase !== undefined) {
+      const finalized = isSpecialValueEquivalent(specialCloneBase, value) ? specialCloneBase : value
+
+      memo.set(value, finalized)
+      return finalized
+    }
+
+    const kind = objectKindOf(value)
+    const cloneOnReadKind = cloneOnReadSpecialKind(kind)
+
+    if (
+      cloneOnReadKind !== undefined &&
+      this.shouldReuseCurrentBackedCloneOnReadSpecial(value, cloneOnReadKind)
+    ) {
+      memo.set(value, value)
+      return value
+    }
+
+    return this.materializeUnmanagedUncachedObjectValue(value, kind, value)
   }
 
-  return replacement
-}
+  private materializeMap(
+    source: Map<unknown, unknown>,
+    state: MapDraftState | undefined,
+    memoKey: object,
+    currentBackedBase?: Map<unknown, unknown>,
+  ): Map<unknown, unknown> {
+    const replacement = new Map<unknown, unknown>()
+    this.getMaterializedValues().set(memoKey, replacement)
+    const children = state?.children
+    const base = (state?.base as Map<unknown, unknown> | undefined) ?? currentBackedBase
 
-function materializeMap(
-  context: PatchContext,
-  source: Map<unknown, unknown>,
-  state: MapDraftState | undefined,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-  memoKey: object,
-  currentBackedBase?: Map<unknown, unknown>,
-): Map<unknown, unknown> {
-  const replacement = new Map<unknown, unknown>()
-  memo.set(memoKey, replacement)
-  const children = state?.children
-  const base = (state?.base as Map<unknown, unknown> | undefined) ?? currentBackedBase
+    for (const [key, value] of source) {
+      const baseHasKey = base?.has(key) === true
+      const finalizedKey = isObject(key) ? this.materializeContainerSlot(key, baseHasKey) : key
 
-  for (const [key, value] of source) {
-    const baseHasKey = base?.has(key) === true
-    const baseValue = baseHasKey && base !== undefined ? base.get(key) : undefined
-    const finalizedKey = isObject(key)
-      ? materializeContainerSlot(context, key, baseHasKey, memo, requiresMemo)
-      : key
-
-    const childDraft = children?.get(key)
-    const isCurrentBackedValue =
-      childDraft === undefined && baseHasKey && Object.is(value, baseValue)
-    const finalizedValue = materializeContainerSlot(
-      context,
-      childDraft ?? value,
-      isCurrentBackedValue,
-      memo,
-      requiresMemo,
-    )
-
-    replacement.set(finalizedKey, finalizedValue)
-  }
-
-  return replacement
-}
-
-function materializeSet(
-  context: PatchContext,
-  source: Set<unknown>,
-  state: SetDraftState | undefined,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-  memoKey: object,
-  currentBackedBase?: Set<unknown>,
-): Set<unknown> {
-  const replacement = new Set<unknown>()
-  memo.set(memoKey, replacement)
-  const base = (state?.base as Set<unknown> | undefined) ?? currentBackedBase
-
-  for (const entry of source) {
-    replacement.add(
-      materializeContainerSlot(context, entry, base?.has(entry) === true, memo, requiresMemo),
-    )
-  }
-
-  return replacement
-}
-
-function materializeState(
-  context: PatchContext,
-  state: DraftState,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-): object {
-  const cached = memo.get(state.base)
-
-  if (cached !== undefined) {
-    return cached as object
-  }
-
-  // Monotonic model: a draft that is itself unmodified reuses base as-is unless a descendant
-  // reached through its base graph forces materialization (shared draft touched via a sibling,
-  // clone-on-read special, etc.). `needsMaterialization(...)` centralizes that recursive check.
-  if (!state.modified && !needsMaterialization(context, state.base, requiresMemo)) {
-    memo.set(state.base, state.base)
-    return state.base
-  }
-
-  const source = draftValue(state)
-
-  switch (state.kind) {
-    case OBJECT_KIND_ARRAY:
-      return materializeArray(context, source as unknown[], state, memo, requiresMemo, state.base)
-    case OBJECT_KIND_MAP:
-      return materializeMap(
-        context,
-        source as Map<unknown, unknown>,
-        state,
-        memo,
-        requiresMemo,
-        state.base,
+      const childDraft = children?.get(key)
+      const isCurrentBackedValue =
+        childDraft === undefined &&
+        baseHasKey &&
+        base !== undefined &&
+        Object.is(value, base.get(key))
+      const finalizedValue = this.materializeContainerSlot(
+        childDraft ?? value,
+        isCurrentBackedValue,
       )
-    case OBJECT_KIND_PLAIN:
-      return materializePlainObject(
-        context,
-        source as Record<PropertyKey, unknown>,
-        state,
-        memo,
-        requiresMemo,
-        state.base,
-      )
-    case OBJECT_KIND_SET:
-      return materializeSet(context, source as Set<unknown>, state, memo, requiresMemo, state.base)
-  }
-}
 
-function materializeUncachedObjectValue(
-  context: PatchContext,
-  value: object,
-  kind: ObjectKind,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-  currentBackedBase?: object,
-): unknown {
-  const draftState = context.statesByHandle.get(value) ?? context.statesByBase.get(value)
-
-  if (draftState !== undefined) {
-    return materializeState(context, draftState, memo, requiresMemo)
-  }
-
-  const specialCloneBase = context.specialCloneCloneToBase.get(value)
-
-  if (specialCloneBase !== undefined) {
-    const finalized = isSpecialValueEquivalent(specialCloneBase, value) ? specialCloneBase : value
-
-    memo.set(value, finalized)
-    return finalized
-  }
-
-  const mappedClone = context.specialCloneBaseToClone.get(value)
-
-  if (mappedClone !== undefined) {
-    memo.set(value, mappedClone)
-    return mappedClone
-  }
-
-  switch (kind) {
-    case OBJECT_KIND_ARRAY_BUFFER: {
-      const replacement = (value as ArrayBuffer).slice(0)
-      memo.set(value, replacement)
-      return replacement
+      replacement.set(finalizedKey, finalizedValue)
     }
-    case OBJECT_KIND_DATA_VIEW:
-    case OBJECT_KIND_TYPED_ARRAY: {
-      const sourceView = value as ArrayBufferView
-      const replacement = cloneBufferView(
-        sourceView,
-        materializeValue(context, sourceView.buffer, memo, requiresMemo) as ArrayBuffer,
-      )
-      memo.set(value, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_DATE: {
-      const replacement = new Date((value as Date).getTime())
-      memo.set(value, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_ARRAY:
-    case OBJECT_KIND_MAP:
-    case OBJECT_KIND_PLAIN:
-    case OBJECT_KIND_SET:
-      if (!needsMaterialization(context, value, requiresMemo)) {
-        memo.set(value, value)
-        return value
+
+    return replacement
+  }
+
+  private materializePlainObject(
+    source: Record<PropertyKey, unknown>,
+    state: ObjectArrayDraftState | undefined,
+    memoKey: object,
+    currentBackedBase?: Record<PropertyKey, unknown>,
+  ): Record<PropertyKey, unknown> {
+    const replacement = Object.create(Object.getPrototypeOf(source) as object | null) as Record<
+      PropertyKey,
+      unknown
+    >
+    this.getMaterializedValues().set(memoKey, replacement)
+
+    const sourceOwnKeys = ownKeys(source)
+    const children = state?.children
+    const base = (state?.base as Record<PropertyKey, unknown> | undefined) ?? currentBackedBase
+
+    for (let index = 0; index < sourceOwnKeys.length; index += 1) {
+      const key = sourceOwnKeys[index]
+      const descriptor = Object.getOwnPropertyDescriptor(source, key)
+      const childDraft = children?.get(key)
+
+      if (descriptor !== undefined && 'value' in descriptor) {
+        const baseDescriptor =
+          childDraft === undefined && base !== undefined
+            ? Object.getOwnPropertyDescriptor(base, key)
+            : undefined
+        const isCurrentBackedSlot =
+          childDraft === undefined &&
+          baseDescriptor !== undefined &&
+          'value' in baseDescriptor &&
+          Object.is(descriptor.value, baseDescriptor.value)
+
+        descriptor.value = this.materializeContainerSlot(
+          childDraft ?? descriptor.value,
+          isCurrentBackedSlot,
+        )
+        Object.defineProperty(replacement, key, descriptor)
+        continue
       }
 
-      switch (kind) {
-        case OBJECT_KIND_ARRAY:
-          return materializeArray(
-            context,
-            value as unknown[],
-            undefined,
-            memo,
-            requiresMemo,
-            value,
-            currentBackedBase as unknown[] | undefined,
-          )
-        case OBJECT_KIND_MAP:
-          return materializeMap(
-            context,
-            value as Map<unknown, unknown>,
-            undefined,
-            memo,
-            requiresMemo,
-            value,
-            currentBackedBase as Map<unknown, unknown> | undefined,
-          )
-        case OBJECT_KIND_PLAIN:
-          return materializePlainObject(
-            context,
-            value as Record<PropertyKey, unknown>,
-            undefined,
-            memo,
-            requiresMemo,
-            value,
-            currentBackedBase as Record<PropertyKey, unknown> | undefined,
-          )
-        case OBJECT_KIND_SET:
-          return materializeSet(
-            context,
-            value as Set<unknown>,
-            undefined,
-            memo,
-            requiresMemo,
-            value,
-            currentBackedBase as Set<unknown> | undefined,
-          )
+      const sourceValue = source[key]
+      const isCurrentBackedSlot =
+        childDraft === undefined && base !== undefined && Object.is(sourceValue, base[key])
+
+      replacement[key] = this.materializeContainerSlot(
+        childDraft ?? sourceValue,
+        isCurrentBackedSlot,
+      )
+    }
+
+    return replacement
+  }
+
+  private materializeSet(
+    source: Set<unknown>,
+    state: SetDraftState | undefined,
+    memoKey: object,
+    currentBackedBase?: Set<unknown>,
+  ): Set<unknown> {
+    const replacement = new Set<unknown>()
+    this.getMaterializedValues().set(memoKey, replacement)
+    const base = (state?.base as Set<unknown> | undefined) ?? currentBackedBase
+
+    for (const entry of source) {
+      replacement.add(this.materializeContainerSlot(entry, base?.has(entry) === true))
+    }
+
+    return replacement
+  }
+
+  private materializeDraftableObject(
+    kind: DraftableKind,
+    source: object,
+    state: DraftState | undefined,
+    memoKey: object,
+    currentBackedBase?: object,
+  ): object {
+    switch (kind) {
+      case OBJECT_KIND_ARRAY:
+        return this.materializeArray(
+          source as unknown[],
+          state as ObjectArrayDraftState | undefined,
+          memoKey,
+          currentBackedBase as unknown[] | undefined,
+        )
+      case OBJECT_KIND_MAP:
+        return this.materializeMap(
+          source as Map<unknown, unknown>,
+          state as MapDraftState | undefined,
+          memoKey,
+          currentBackedBase as Map<unknown, unknown> | undefined,
+        )
+      case OBJECT_KIND_PLAIN:
+        return this.materializePlainObject(
+          source as Record<PropertyKey, unknown>,
+          state as ObjectArrayDraftState | undefined,
+          memoKey,
+          currentBackedBase as Record<PropertyKey, unknown> | undefined,
+        )
+      case OBJECT_KIND_SET:
+        return this.materializeSet(
+          source as Set<unknown>,
+          state as SetDraftState | undefined,
+          memoKey,
+          currentBackedBase as Set<unknown> | undefined,
+        )
+    }
+  }
+
+  private materializeState(state: DraftState, knownUncachedValue?: object): object {
+    const memo = this.getMaterializedValues()
+
+    if (knownUncachedValue !== state.base) {
+      const cached = memo.get(state.base)
+
+      if (cached !== undefined) {
+        return cached as object
       }
-  }
-}
+    }
 
-function materializeValue(
-  context: PatchContext,
-  value: unknown,
-  memo: WeakMap<object, unknown>,
-  requiresMemo: WeakMap<object, boolean>,
-): unknown {
-  if (!isObject(value)) {
-    return value
-  }
+    // Monotonic model: a draft that is itself unmodified reuses base as-is unless a descendant
+    // reached through its base graph forces materialization (shared draft touched via a sibling,
+    // clone-on-read special, etc.). `needsMaterialization(...)` centralizes that recursive check.
+    if (!state.modified && !this.needsMaterialization(state.base)) {
+      memo.set(state.base, state.base)
+      return state.base
+    }
 
-  const cached = memo.get(value)
+    const source = draftValue(state)
 
-  if (cached !== undefined) {
-    return cached
+    return this.materializeDraftableObject(state.kind, source, state, state.base)
   }
 
-  return materializeUncachedObjectValue(context, value, objectKindOf(value), memo, requiresMemo)
+  private materializeUncachedObjectValue(
+    value: object,
+    knownKind: ObjectKind | undefined = undefined,
+    currentBackedBase?: object,
+  ): unknown {
+    const draftState = this.draftStateFor(value)
+
+    if (draftState !== undefined) {
+      return this.materializeState(draftState, value)
+    }
+
+    return this.materializeUnmanagedUncachedObjectValue(value, knownKind, currentBackedBase)
+  }
+
+  private materializeUnmanagedUncachedObjectValue(
+    value: object,
+    knownKind: ObjectKind | undefined = undefined,
+    currentBackedBase?: object,
+  ): unknown {
+    const memo = this.getMaterializedValues()
+    const specialCloneBase = this.specialCloneCloneToBase.get(value)
+
+    if (specialCloneBase !== undefined) {
+      const finalized = isSpecialValueEquivalent(specialCloneBase, value) ? specialCloneBase : value
+
+      memo.set(value, finalized)
+      return finalized
+    }
+
+    const mappedClone = this.specialCloneBaseToClone.get(value)
+
+    if (mappedClone !== undefined) {
+      memo.set(value, mappedClone)
+      return mappedClone
+    }
+
+    const kind = knownKind ?? objectKindOf(value)
+
+    switch (kind) {
+      case OBJECT_KIND_ARRAY:
+      case OBJECT_KIND_MAP:
+      case OBJECT_KIND_PLAIN:
+      case OBJECT_KIND_SET:
+        if (!this.needsMaterialization(value, kind)) {
+          memo.set(value, value)
+          return value
+        }
+
+        return this.materializeDraftableObject(kind, value, undefined, value, currentBackedBase)
+      case OBJECT_KIND_ARRAY_BUFFER: {
+        const replacement = (value as ArrayBuffer).slice(0)
+        memo.set(value, replacement)
+        return replacement
+      }
+      case OBJECT_KIND_DATA_VIEW:
+      case OBJECT_KIND_TYPED_ARRAY: {
+        const sourceView = value as ArrayBufferView
+        const replacement = cloneBufferView(
+          sourceView,
+          this.materializeValue(sourceView.buffer) as ArrayBuffer,
+        )
+        memo.set(value, replacement)
+        return replacement
+      }
+      case OBJECT_KIND_DATE: {
+        const replacement = new Date((value as Date).getTime())
+        memo.set(value, replacement)
+        return replacement
+      }
+    }
+  }
+
+  private walkDescendantsForMaterialization(
+    value: object,
+    knownKind: ObjectKind | undefined = undefined,
+  ): boolean {
+    switch (knownKind ?? objectKindOf(value)) {
+      case OBJECT_KIND_ARRAY: {
+        const arrayValue = value as unknown[]
+
+        for (let index = 0; index < arrayValue.length; index += 1) {
+          if (!(index in arrayValue)) {
+            continue
+          }
+
+          if (this.needsMaterialization(arrayValue[index])) {
+            return true
+          }
+        }
+
+        return false
+      }
+      case OBJECT_KIND_MAP:
+        for (const [key, entry] of value as Map<unknown, unknown>) {
+          if (this.needsMaterialization(key) || this.needsMaterialization(entry)) {
+            return true
+          }
+        }
+
+        return false
+      case OBJECT_KIND_PLAIN: {
+        const objectValue = value as Record<PropertyKey, unknown>
+        const objectOwnKeys = ownKeys(value)
+
+        for (let index = 0; index < objectOwnKeys.length; index += 1) {
+          if (this.needsMaterialization(objectValue[objectOwnKeys[index]])) {
+            return true
+          }
+        }
+
+        return false
+      }
+      case OBJECT_KIND_SET:
+        for (const entry of value as Set<unknown>) {
+          if (this.needsMaterialization(entry)) {
+            return true
+          }
+        }
+
+        return false
+      default:
+        return false
+    }
+  }
 }
 
 /**
@@ -1373,28 +1248,8 @@ function materializeValue(
  * @throws When the recipe calls out-of-scope `Map` or `Set` draft iterator or callback APIs.
  */
 export function createPatch<T, R>(current: T, recipe: (draft: T) => R): R {
-  const context: PatchContext = {
-    specialCloneBaseToClone: new WeakMap<object, object>(),
-    specialCloneCloneToBase: new WeakMap<object, object>(),
-    statesByBase: new WeakMap<object, DraftState>(),
-    statesByHandle: new WeakMap<object, DraftState>(),
-  }
-  let draft = current
-
-  if (isObject(current)) {
-    const kind = objectKindOf(current)
-
-    switch (kind) {
-      case OBJECT_KIND_ARRAY:
-      case OBJECT_KIND_MAP:
-      case OBJECT_KIND_PLAIN:
-      case OBJECT_KIND_SET:
-        draft = ensureDraft(context, current, kind) as T
-        break
-      default:
-        draft = cloneSpecialValue(context, current, kind) as T
-    }
-  }
+  const context = new PatchContext()
+  const draft = context.createDraft(current)
 
   const result = recipe(draft)
 
@@ -1409,9 +1264,7 @@ export function createPatch<T, R>(current: T, recipe: (draft: T) => R): R {
     return result
   }
 
-  const requiresMemo = new WeakMap<object, boolean>()
-
-  if (!needsMaterialization(context, result, requiresMemo)) {
+  if (!context.needsMaterialization(result)) {
     // When the recipe returns a draft handle whose state is unmodified and whose descendants do
     // not need materialization, the handle must be unwrapped to its backing base before return.
     // Returning the handle would leak the proxy or collection wrapper to the caller.
@@ -1424,7 +1277,7 @@ export function createPatch<T, R>(current: T, recipe: (draft: T) => R): R {
     return result
   }
 
-  return materializeValue(context, result, new WeakMap<object, unknown>(), requiresMemo) as R
+  return context.materializeValue(result) as R
 }
 
 /**

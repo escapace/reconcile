@@ -4,6 +4,12 @@ import { isReactive, reactive } from 'vue'
 import { reconcile, snapshot as takeSnapshot } from '../index'
 
 const returnOne = () => 1
+const assertSameReference = (actual: unknown, expected: unknown): void => {
+  assert.equal(actual, expected)
+}
+const assertNotSameReference = (actual: unknown, expected: unknown): void => {
+  assert.notEqual(actual, expected)
+}
 
 interface ObjectSurface {
   list: unknown[]
@@ -1889,7 +1895,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, next)
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.equal(result.left.child, result.right.child)
       assert.deepEqual(result.left, { child: { count: 1 } })
       assert.deepEqual(result.right, { child: { count: 1 } })
@@ -1908,7 +1914,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, next)
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.equal(result.child.parent, result)
     })
 
@@ -1947,9 +1953,9 @@ describe('context runtime direct contracts', () => {
         keep: { count: 1 },
       })
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.equal(result.keep, currentKeep)
-      assert.notEqual(result.change, currentChange)
+      assertNotSameReference(result.change, currentChange)
       assert.deepEqual(result.change, [10, 20])
       assert.deepEqual(result.keep, { count: 1 })
     })
@@ -1968,7 +1974,7 @@ describe('context runtime direct contracts', () => {
         child: nextChild,
       })
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.notEqual(result.child, nextChild)
       assert.equal(Object.getPrototypeOf(result.child), prototype)
       assert.equal(Object.hasOwn(result.child, 'value'), true)
@@ -1984,7 +1990,7 @@ describe('context runtime direct contracts', () => {
         child: { bad: returnOne },
       })
 
-      assert.equal(result, current)
+      assertSameReference(result, current)
       assert.equal(result.child.bad, returnOne)
 
       const snapshot = takeSnapshot(result) as typeof result

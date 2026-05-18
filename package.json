@@ -18,6 +18,7 @@
     "eslint": "10.3.0",
     "eslint-config-escapace": "5.19.0",
     "esroll": "1.2.3",
+    "fast-check": "4.7.0",
     "immer": "11.1.6",
     "knip": "6.11.0",
     "lefthook": "2.1.6",
