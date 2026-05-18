@@ -9,15 +9,15 @@ on:
   workflow_dispatch:
     inputs:
       merge-strategy:
-        default: rebase,squash
         description: 'ranked merge strategy preference'
+        default: rebase,squash
+        required: false
+        type: choice
         options:
           - squash,rebase
           - rebase,squash
           - squash
           - rebase
-        required: false
-        type: choice
       pr-number:
         description: 'single pr number'
         required: false

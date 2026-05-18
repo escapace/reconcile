@@ -12,6 +12,7 @@ import {
   OBJECT_KIND_SET,
   OBJECT_KIND_TYPED_ARRAY,
 } from './object-kind'
+import type { ObjectKind } from './object-kind'
 import { reconcile } from './reconcile'
 import { snapshotObjectByKindAfterMiss } from './snapshot'
 
@@ -207,17 +208,6 @@ function materializeChild<K>(
   return child
 }
 
-type ArrayMutatorName =
-  | 'copyWithin'
-  | 'fill'
-  | 'pop'
-  | 'push'
-  | 'reverse'
-  | 'shift'
-  | 'sort'
-  | 'splice'
-  | 'unshift'
-
 function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
   if (state.proxy !== undefined) {
     // Repeated ensure calls must reuse the same outward proxy so object identity stays stable
@@ -261,9 +251,7 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
           case 'sort':
           case 'splice':
           case 'unshift': {
-            const method = Array.prototype[property as ArrayMutatorName] as (
-              ...arguments_: unknown[]
-            ) => unknown
+            const method = Array.prototype[property] as (...arguments_: unknown[]) => unknown
 
             return function (this: unknown, ...arguments_: unknown[]) {
               // Mutating array methods may shift indices, so cached child handles for the old
@@ -697,8 +685,92 @@ function ensureDraft(
   }
 }
 
-function isSpecialValueEquivalent(base: object, candidate: object): boolean {
-  switch (objectKindOf(base)) {
+type CloneOnReadKind =
+  | typeof OBJECT_KIND_ARRAY_BUFFER
+  | typeof OBJECT_KIND_DATA_VIEW
+  | typeof OBJECT_KIND_DATE
+  | typeof OBJECT_KIND_TYPED_ARRAY
+
+function cloneOnReadSpecialKind(kind: ObjectKind): CloneOnReadKind | undefined {
+  return kind === OBJECT_KIND_ARRAY_BUFFER ||
+    kind === OBJECT_KIND_DATA_VIEW ||
+    kind === OBJECT_KIND_DATE ||
+    kind === OBJECT_KIND_TYPED_ARRAY
+    ? kind
+    : undefined
+}
+
+function shouldReuseCurrentBackedCloneOnReadSpecial(
+  context: PatchContext,
+  value: object,
+  kind: CloneOnReadKind,
+): boolean {
+  if (context.specialCloneCloneToBase.get(value) !== undefined) {
+    return false
+  }
+
+  const mappedClone = context.specialCloneBaseToClone.get(value)
+
+  if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
+    const buffer = (value as ArrayBufferView).buffer
+    const mappedBufferClone = context.specialCloneBaseToClone.get(buffer)
+
+    if (
+      mappedBufferClone !== undefined &&
+      !isSpecialValueEquivalent(buffer, mappedBufferClone, OBJECT_KIND_ARRAY_BUFFER)
+    ) {
+      return false
+    }
+  }
+
+  if (mappedClone !== undefined) {
+    return isSpecialValueEquivalent(value, mappedClone, kind)
+  }
+
+  return true
+}
+
+function materializeContainerSlot(
+  context: PatchContext,
+  value: unknown,
+  isCurrentBackedSlot: boolean,
+  memo: WeakMap<object, unknown>,
+  requiresMemo: WeakMap<object, boolean>,
+): unknown {
+  if (!isCurrentBackedSlot) {
+    return materializeValue(context, value, memo, requiresMemo)
+  }
+
+  if (!isObject(value)) {
+    return value
+  }
+
+  const cached = memo.get(value)
+
+  if (cached !== undefined) {
+    return cached
+  }
+
+  const kind = objectKindOf(value)
+  const cloneOnReadKind = cloneOnReadSpecialKind(kind)
+
+  if (
+    cloneOnReadKind !== undefined &&
+    shouldReuseCurrentBackedCloneOnReadSpecial(context, value, cloneOnReadKind)
+  ) {
+    memo.set(value, value)
+    return value
+  }
+
+  return materializeUncachedObjectValue(context, value, kind, memo, requiresMemo, value)
+}
+
+function isSpecialValueEquivalent(
+  base: object,
+  candidate: object,
+  knownKind: CloneOnReadKind = cloneOnReadSpecialKind(objectKindOf(base))!,
+): boolean {
+  switch (knownKind) {
     case OBJECT_KIND_ARRAY_BUFFER: {
       const left = base as ArrayBuffer
       const right = candidate as ArrayBuffer
@@ -743,11 +815,18 @@ function isSpecialValueEquivalent(base: object, candidate: object): boolean {
         return false
       }
 
-      const leftBytes = new Uint8Array(left.buffer, left.byteOffset, left.byteLength)
-      const rightBytes = new Uint8Array(right.buffer, right.byteOffset, right.byteLength)
+      const leftBuffer = left.buffer
+      const rightBuffer = right.buffer
 
-      for (let index = 0; index < leftBytes.length; index += 1) {
-        if (leftBytes[index] !== rightBytes[index]) {
+      if (leftBuffer.byteLength !== rightBuffer.byteLength) {
+        return false
+      }
+
+      const leftBufferBytes = new Uint8Array(leftBuffer)
+      const rightBufferBytes = new Uint8Array(rightBuffer)
+
+      for (let index = 0; index < leftBufferBytes.length; index += 1) {
+        if (leftBufferBytes[index] !== rightBufferBytes[index]) {
           return false
         }
       }
@@ -919,6 +998,7 @@ function materializePlainObject(
   memo: WeakMap<object, unknown>,
   requiresMemo: WeakMap<object, boolean>,
   memoKey: object,
+  currentBackedBase?: Record<PropertyKey, unknown>,
 ): Record<PropertyKey, unknown> {
   const replacement = Object.create(Object.getPrototypeOf(source) as object | null) as Record<
     PropertyKey,
@@ -928,6 +1008,7 @@ function materializePlainObject(
 
   const sourceOwnKeys = ownKeys(source)
   const children = state?.children
+  const base = (state?.base as Record<PropertyKey, unknown> | undefined) ?? currentBackedBase
 
   for (let index = 0; index < sourceOwnKeys.length; index += 1) {
     const key = sourceOwnKeys[index]
@@ -935,9 +1016,20 @@ function materializePlainObject(
     const childDraft = children?.get(key)
 
     if (descriptor !== undefined && 'value' in descriptor) {
-      descriptor.value = materializeValue(
+      const baseDescriptor =
+        childDraft === undefined && base !== undefined
+          ? Object.getOwnPropertyDescriptor(base, key)
+          : undefined
+      const isCurrentBackedSlot =
+        childDraft === undefined &&
+        baseDescriptor !== undefined &&
+        'value' in baseDescriptor &&
+        Object.is(descriptor.value, baseDescriptor.value)
+
+      descriptor.value = materializeContainerSlot(
         context,
         childDraft ?? descriptor.value,
+        isCurrentBackedSlot,
         memo,
         requiresMemo,
       )
@@ -945,7 +1037,17 @@ function materializePlainObject(
       continue
     }
 
-    replacement[key] = materializeValue(context, childDraft ?? source[key], memo, requiresMemo)
+    const sourceValue = source[key]
+    const isCurrentBackedSlot =
+      childDraft === undefined && base !== undefined && Object.is(sourceValue, base[key])
+
+    replacement[key] = materializeContainerSlot(
+      context,
+      childDraft ?? sourceValue,
+      isCurrentBackedSlot,
+      memo,
+      requiresMemo,
+    )
   }
 
   return replacement
@@ -958,10 +1060,12 @@ function materializeArray(
   memo: WeakMap<object, unknown>,
   requiresMemo: WeakMap<object, boolean>,
   memoKey: object,
+  currentBackedBase?: unknown[],
 ): unknown[] {
   const replacement = new Array<unknown>(source.length)
   memo.set(memoKey, replacement)
   const children = state?.children
+  const base = (state?.base as unknown[] | undefined) ?? currentBackedBase
 
   for (let index = 0; index < source.length; index += 1) {
     if (!(index in source)) {
@@ -970,7 +1074,20 @@ function materializeArray(
 
     const childKey = String(index)
     const childDraft = children?.get(childKey)
-    replacement[index] = materializeValue(context, childDraft ?? source[index], memo, requiresMemo)
+    const sourceValue = source[index]
+    const isCurrentBackedSlot =
+      childDraft === undefined &&
+      base !== undefined &&
+      index in base &&
+      Object.is(sourceValue, base[index])
+
+    replacement[index] = materializeContainerSlot(
+      context,
+      childDraft ?? sourceValue,
+      isCurrentBackedSlot,
+      memo,
+      requiresMemo,
+    )
   }
 
   return replacement
@@ -983,16 +1100,30 @@ function materializeMap(
   memo: WeakMap<object, unknown>,
   requiresMemo: WeakMap<object, boolean>,
   memoKey: object,
+  currentBackedBase?: Map<unknown, unknown>,
 ): Map<unknown, unknown> {
   const replacement = new Map<unknown, unknown>()
   memo.set(memoKey, replacement)
   const children = state?.children
+  const base = (state?.base as Map<unknown, unknown> | undefined) ?? currentBackedBase
 
   for (const [key, value] of source) {
-    const finalizedKey = isObject(key) ? materializeValue(context, key, memo, requiresMemo) : key
+    const baseHasKey = base?.has(key) === true
+    const baseValue = baseHasKey && base !== undefined ? base.get(key) : undefined
+    const finalizedKey = isObject(key)
+      ? materializeContainerSlot(context, key, baseHasKey, memo, requiresMemo)
+      : key
 
     const childDraft = children?.get(key)
-    const finalizedValue = materializeValue(context, childDraft ?? value, memo, requiresMemo)
+    const isCurrentBackedValue =
+      childDraft === undefined && baseHasKey && Object.is(value, baseValue)
+    const finalizedValue = materializeContainerSlot(
+      context,
+      childDraft ?? value,
+      isCurrentBackedValue,
+      memo,
+      requiresMemo,
+    )
 
     replacement.set(finalizedKey, finalizedValue)
   }
@@ -1003,15 +1134,20 @@ function materializeMap(
 function materializeSet(
   context: PatchContext,
   source: Set<unknown>,
+  state: SetDraftState | undefined,
   memo: WeakMap<object, unknown>,
   requiresMemo: WeakMap<object, boolean>,
   memoKey: object,
+  currentBackedBase?: Set<unknown>,
 ): Set<unknown> {
   const replacement = new Set<unknown>()
   memo.set(memoKey, replacement)
+  const base = (state?.base as Set<unknown> | undefined) ?? currentBackedBase
 
   for (const entry of source) {
-    replacement.add(materializeValue(context, entry, memo, requiresMemo))
+    replacement.add(
+      materializeContainerSlot(context, entry, base?.has(entry) === true, memo, requiresMemo),
+    )
   }
 
   return replacement
@@ -1061,26 +1197,18 @@ function materializeState(
         state.base,
       )
     case OBJECT_KIND_SET:
-      return materializeSet(context, source as Set<unknown>, memo, requiresMemo, state.base)
+      return materializeSet(context, source as Set<unknown>, state, memo, requiresMemo, state.base)
   }
 }
 
-function materializeValue(
+function materializeUncachedObjectValue(
   context: PatchContext,
-  value: unknown,
+  value: object,
+  kind: ObjectKind,
   memo: WeakMap<object, unknown>,
   requiresMemo: WeakMap<object, boolean>,
+  currentBackedBase?: object,
 ): unknown {
-  if (!isObject(value)) {
-    return value
-  }
-
-  const cached = memo.get(value)
-
-  if (cached !== undefined) {
-    return cached
-  }
-
   const draftState = context.statesByHandle.get(value) ?? context.statesByBase.get(value)
 
   if (draftState !== undefined) {
@@ -1102,8 +1230,6 @@ function materializeValue(
     memo.set(value, mappedClone)
     return mappedClone
   }
-
-  const kind = objectKindOf(value)
 
   switch (kind) {
     case OBJECT_KIND_ARRAY_BUFFER: {
@@ -1137,7 +1263,15 @@ function materializeValue(
 
       switch (kind) {
         case OBJECT_KIND_ARRAY:
-          return materializeArray(context, value as unknown[], undefined, memo, requiresMemo, value)
+          return materializeArray(
+            context,
+            value as unknown[],
+            undefined,
+            memo,
+            requiresMemo,
+            value,
+            currentBackedBase as unknown[] | undefined,
+          )
         case OBJECT_KIND_MAP:
           return materializeMap(
             context,
@@ -1146,6 +1280,7 @@ function materializeValue(
             memo,
             requiresMemo,
             value,
+            currentBackedBase as Map<unknown, unknown> | undefined,
           )
         case OBJECT_KIND_PLAIN:
           return materializePlainObject(
@@ -1155,11 +1290,39 @@ function materializeValue(
             memo,
             requiresMemo,
             value,
+            currentBackedBase as Record<PropertyKey, unknown> | undefined,
           )
         case OBJECT_KIND_SET:
-          return materializeSet(context, value as Set<unknown>, memo, requiresMemo, value)
+          return materializeSet(
+            context,
+            value as Set<unknown>,
+            undefined,
+            memo,
+            requiresMemo,
+            value,
+            currentBackedBase as Set<unknown> | undefined,
+          )
       }
   }
+}
+
+function materializeValue(
+  context: PatchContext,
+  value: unknown,
+  memo: WeakMap<object, unknown>,
+  requiresMemo: WeakMap<object, boolean>,
+): unknown {
+  if (!isObject(value)) {
+    return value
+  }
+
+  const cached = memo.get(value)
+
+  if (cached !== undefined) {
+    return cached
+  }
+
+  return materializeUncachedObjectValue(context, value, objectKindOf(value), memo, requiresMemo)
 }
 
 /**

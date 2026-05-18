@@ -403,10 +403,7 @@ describe('createPatch public api coverage', () => {
         fromBase: current.item,
         fromDraft: draft.item,
       }
-    }) as {
-      fromBase: { count: number }
-      fromDraft: { count: number }
-    }
+    })
 
     expect(result.fromDraft).toBe(result.fromBase)
     expect(result.fromDraft).not.toBe(current.item)
@@ -432,10 +429,7 @@ describe('createPatch public api coverage', () => {
         left: first,
         right: second,
       }
-    }) as {
-      left: Date
-      right: Date
-    }
+    })
 
     expect(result.left).toBe(result.right)
     expect(result.left.getUTCFullYear()).toBe(2025)
@@ -479,10 +473,7 @@ describe('createPatch public api coverage', () => {
         left: first,
         right: second,
       }
-    }) as {
-      left: Map<string, { count: number }>
-      right: Map<string, { count: number }>
-    }
+    })
 
     expect(result.left).toBe(result.right)
     expect(result.left.get('item')).toEqual({ count: 1 })
@@ -588,10 +579,7 @@ describe('createPatch public api coverage', () => {
         map: new Map<object, string>([[key, 'value']]),
         touched: draft.touched,
       }
-    }) as {
-      map: Map<object, string>
-      touched: { count: number }
-    }
+    })
 
     const [resultKey] = Array.from(result.map.keys()) as Array<{ child: { count: number } }>
     assert.notEqual(resultKey, key)

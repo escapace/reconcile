@@ -70,7 +70,7 @@ describe('README publication semantics', () => {
 
       assert.equal(reconcile(1, 2), 2)
 
-      const result = reconcile(current, next) as { fn: () => number }
+      const result = reconcile(current, next)
       const detached = snapshot(result) as { fn: () => number }
 
       assert.equal(result.fn, returnFortyTwo)
@@ -84,7 +84,7 @@ describe('README publication semantics', () => {
       // eslint-disable-next-line perfectionist/sort-objects
       const next = { b: x, a: y }
 
-      const result = reconcile(current, next) as { a: typeof x; b: typeof y }
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.a, x)
@@ -233,10 +233,7 @@ describe('README publication semantics', () => {
         right: { value: 1 },
       }
 
-      const result = reconcile(current, next) as {
-        left: { value: number }
-        right: { value: number }
-      }
+      const result = reconcile(current, next)
 
       assert.notEqual(result.left, result.right)
       assert.deepEqual(result, next)
@@ -249,7 +246,7 @@ describe('README publication semantics', () => {
       const next: { value: number; self?: unknown } = { value: 1 }
       next.self = next
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.self, result)
@@ -267,7 +264,7 @@ describe('README publication semantics', () => {
         view: new DataView(new Uint8Array([9, 10, 11, 12]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.notEqual(result.view.buffer, result.buffer)
       assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])

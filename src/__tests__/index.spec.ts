@@ -285,7 +285,7 @@ const createRandomSupportedValue: RandomSupportedValueFactory = (random, depth) 
       case 1:
         return new Date(Date.UTC(2024, Math.floor(random() * 12), Math.floor(random() * 28) + 1))
       case 2:
-        return createRandomTypedArrayValue(random) as SupportedSpecValue
+        return createRandomTypedArrayValue(random)
       default:
         return createRandomPrimitiveValue(random)
     }
@@ -297,13 +297,13 @@ const createRandomSupportedValue: RandomSupportedValueFactory = (random, depth) 
     case 0:
       return createRandomPrimitiveValue(random)
     case 1:
-      return createRandomArrayValue(random, depth) as SupportedSpecValue
+      return createRandomArrayValue(random, depth)
     case 2:
-      return createRandomPlainObjectValue(random, depth) as SupportedSpecValue
+      return createRandomPlainObjectValue(random, depth)
     case 3:
       return new Date(Date.UTC(2024, Math.floor(random() * 12), Math.floor(random() * 28) + 1))
     default:
-      return createRandomTypedArrayValue(random) as SupportedSpecValue
+      return createRandomTypedArrayValue(random)
   }
 }
 
@@ -1151,7 +1151,7 @@ const runObjectSurfaceContract = (testCase: ObjectSurfaceCase) => {
       left: shared,
       nested: { count: 1 },
       right: shared,
-    }) as typeof current
+    })
 
     assert.equal(result, current)
     assert.equal(result.left, result.right)
@@ -1348,7 +1348,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(new Uint8Array([11, 12]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.date, dateReference)
@@ -1387,7 +1387,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, {
         list: [{ count: 1 }, 2],
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.list, listReference)
@@ -1404,21 +1404,21 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let sets = 0
 
-      map.clear = (() => {
+      map.clear = () => {
         clears += 1
         return clear()
-      }) as typeof map.clear
-      map.set = ((key: string, value: { count: number }) => {
+      }
+      map.set = (key: string, value: { count: number }) => {
         sets += 1
         return set(key, value)
-      }) as typeof map.set
+      }
 
       const current = { map }
       const mapReference = current.map
 
       const result = reconcile(current, {
         map: new Map<string, { count: number }>([['shared', { count: 1 }]]),
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.map, mapReference)
@@ -1436,14 +1436,14 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let sets = 0
 
-      map.clear = (() => {
+      map.clear = () => {
         clears += 1
         return clear()
-      }) as typeof map.clear
-      map.set = ((key: string, value: number | { count: number }) => {
+      }
+      map.set = (key: string, value: number | { count: number }) => {
         sets += 1
         return set(key, value)
-      }) as typeof map.set
+      }
 
       const current = { map }
       const mapReference = current.map
@@ -1454,7 +1454,7 @@ describe('context runtime direct contracts', () => {
           ['shared', { count: 1 }],
           ['added', 2],
         ]),
-      }) as typeof current
+      })
       /* eslint-enable perfectionist/sort-maps */
 
       assert.equal(result, current)
@@ -1486,21 +1486,21 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let sets = 0
 
-      map.clear = (() => {
+      map.clear = () => {
         clears += 1
         return clear()
-      }) as typeof map.clear
-      map.set = ((key: string, value: { count: number }) => {
+      }
+      map.set = (key: string, value: { count: number }) => {
         sets += 1
         return set(key, value)
-      }) as typeof map.set
+      }
 
       const current = { map }
       const mapReference = current.map
 
       const result = reconcile(current, {
         map: new Map<string, { count: number }>([['shared', { count: 1 }]]),
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.map, mapReference)
@@ -1520,7 +1520,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, {
         set: new Set<number | undefined>([1, undefined]),
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.set, setReference)
@@ -1535,21 +1535,21 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let adds = 0
 
-      set.clear = (() => {
+      set.clear = () => {
         clears += 1
         return clear()
-      }) as typeof set.clear
-      set.add = ((value: { count: number }) => {
+      }
+      set.add = (value: { count: number }) => {
         adds += 1
         return add(value)
-      }) as typeof set.add
+      }
 
       const current = { set }
       const setReference = current.set
 
       const result = reconcile(current, {
         set: new Set<{ count: number }>([{ count: 1 }]),
-      }) as typeof current
+      })
       const [entry] = result.set.values()
 
       assert.equal(result, current)
@@ -1568,21 +1568,21 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let adds = 0
 
-      set.clear = (() => {
+      set.clear = () => {
         clears += 1
         return clear()
-      }) as typeof set.clear
-      set.add = ((value: number | { count: number }) => {
+      }
+      set.add = (value: number | { count: number }) => {
         adds += 1
         return add(value)
-      }) as typeof set.add
+      }
 
       const current = { set }
       const setReference = current.set
 
       const result = reconcile(current, {
         set: new Set<number | { count: number }>([{ count: 1 }, 2]),
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.set, setReference)
@@ -1602,21 +1602,21 @@ describe('context runtime direct contracts', () => {
       let clears = 0
       let adds = 0
 
-      set.clear = (() => {
+      set.clear = () => {
         clears += 1
         return clear()
-      }) as typeof set.clear
-      set.add = ((value: { count: number }) => {
+      }
+      set.add = (value: { count: number }) => {
         adds += 1
         return add(value)
-      }) as typeof set.add
+      }
 
       const current = { set }
       const setReference = current.set
 
       const result = reconcile(current, {
         set: new Set<{ count: number }>([{ count: 1 }]),
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.set, setReference)
@@ -1644,7 +1644,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, {
         list: [{ count: 1 }, 2],
-      }) as typeof current
+      })
 
       assert.equal(result, current)
       assert.equal(result.list, listReference)
@@ -1692,9 +1692,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, {
         map: new Map<object, string>([[new Uint16Array([3, 4]), 'value']]),
-      }) as {
-        map: Map<object, string>
-      }
+      })
       const resultKey = Array.from(result.map.keys())[0] as Uint16Array | Uint8Array
 
       assert.equal(result, current)
@@ -1713,9 +1711,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, {
         map: new Map<string, Uint16Array | Uint8Array>([['value', new Uint16Array([3, 4])]]),
-      }) as {
-        map: Map<string, Uint16Array | Uint8Array>
-      }
+      })
       const resultValue = result.map.get('value')!
 
       assert.equal(result, current)
@@ -1740,9 +1736,7 @@ describe('context runtime direct contracts', () => {
           ['changed', new Uint16Array([3, 4])],
           ['tail', 9],
         ]),
-      }) as {
-        map: Map<string, number | Uint16Array | Uint8Array>
-      }
+      })
       const resultEntries = [...result.map.entries()]
       const resultValue = result.map.get('changed')!
 
@@ -1768,9 +1762,7 @@ describe('context runtime direct contracts', () => {
       const result = reconcile(current, {
         // eslint-disable-next-line perfectionist/sort-sets
         set: new Set<number | Uint16Array | Uint8Array>([new Uint16Array([3, 4]), 9]),
-      }) as {
-        set: Set<number | Uint16Array | Uint8Array>
-      }
+      })
       const resultEntries = [...result.set.values()]
       const resultEntry = resultEntries[0] as Uint16Array | Uint8Array
 
@@ -1796,7 +1788,7 @@ describe('context runtime direct contracts', () => {
     for (const testCase of reconcileTopologySplitCases) {
       it(`reconcile splits previously shared ${testCase.name} when next requires distinct nodes`, () => {
         const { assertResult, current, next } = testCase.create()
-        const result = reconcile(current, next) as typeof current
+        const result = reconcile(current, next)
 
         assert.equal(result, current)
         assertResult(result)
@@ -1806,7 +1798,7 @@ describe('context runtime direct contracts', () => {
     for (const testCase of reconcileEqualFastPathTopologyCases) {
       it(`reconcile preserves next-sharing through equal fast paths for ${testCase.name}`, () => {
         const { assertResult, current, next } = testCase.createSharedNextCase()
-        const result = reconcile(current, next) as typeof current
+        const result = reconcile(current, next)
 
         assert.equal(result, current)
         assertResult(result)
@@ -1814,7 +1806,7 @@ describe('context runtime direct contracts', () => {
 
       it(`reconcile preserves splitting through equal fast paths for ${testCase.name}`, () => {
         const { assertResult, current, next } = testCase.createSplitNextCase()
-        const result = reconcile(current, next) as typeof current
+        const result = reconcile(current, next)
 
         assert.equal(result, current)
         assertResult(result)
@@ -1832,7 +1824,7 @@ describe('context runtime direct contracts', () => {
         right: createSparseArray([[2, 20]], 4),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.left, result.right)
@@ -1855,7 +1847,7 @@ describe('context runtime direct contracts', () => {
         beta: shared,
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.alpha, result.beta)
@@ -1874,7 +1866,7 @@ describe('context runtime direct contracts', () => {
         beta: shared,
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.alpha, result.beta)
@@ -1897,7 +1889,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, next)
 
-      assert.equal(result, current as unknown)
+      assert.equal(result, current)
       assert.equal(result.left.child, result.right.child)
       assert.deepEqual(result.left, { child: { count: 1 } })
       assert.deepEqual(result.right, { child: { count: 1 } })
@@ -1914,13 +1906,9 @@ describe('context runtime direct contracts', () => {
       }
       next.child.parent = next
 
-      const result = reconcile(current, next) as {
-        child: {
-          parent: unknown
-        }
-      }
+      const result = reconcile(current, next)
 
-      assert.equal(result, current as unknown)
+      assert.equal(result, current)
       assert.equal(result.child.parent, result)
     })
 
@@ -1937,7 +1925,7 @@ describe('context runtime direct contracts', () => {
         right: { child: nextSharedChild, label: 'right' },
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.left, result.right)
@@ -1957,16 +1945,11 @@ describe('context runtime direct contracts', () => {
       const result = reconcile(current, {
         change: [10, 20],
         keep: { count: 1 },
-      }) as {
-        change: number[]
-        keep: {
-          count: number
-        }
-      }
+      })
 
-      assert.equal(result, current as unknown)
+      assert.equal(result, current)
       assert.equal(result.keep, currentKeep)
-      assert.notEqual(result.change, currentChange as unknown)
+      assert.notEqual(result.change, currentChange)
       assert.deepEqual(result.change, [10, 20])
       assert.deepEqual(result.keep, { count: 1 })
     })
@@ -1983,13 +1966,9 @@ describe('context runtime direct contracts', () => {
       }
       const result = reconcile(current, {
         child: nextChild,
-      }) as {
-        child: {
-          value: number
-        }
-      }
+      })
 
-      assert.equal(result, current as unknown)
+      assert.equal(result, current)
       assert.notEqual(result.child, nextChild)
       assert.equal(Object.getPrototypeOf(result.child), prototype)
       assert.equal(Object.hasOwn(result.child, 'value'), true)
@@ -2003,13 +1982,9 @@ describe('context runtime direct contracts', () => {
       }
       const result = reconcile(current, {
         child: { bad: returnOne },
-      }) as {
-        child: {
-          bad: () => number
-        }
-      }
+      })
 
-      assert.equal(result, current as unknown)
+      assert.equal(result, current)
       assert.equal(result.child.bad, returnOne)
 
       const snapshot = takeSnapshot(result) as typeof result
@@ -2027,7 +2002,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(nextBuffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.view.buffer, result.buffer)
@@ -2046,7 +2021,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(new Uint8Array([9, 10, 11, 12]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.view.buffer, result.buffer)
@@ -2065,7 +2040,7 @@ describe('context runtime direct contracts', () => {
         typed: new Uint8Array(nextBuffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.typed.buffer, result.buffer)
@@ -2084,7 +2059,7 @@ describe('context runtime direct contracts', () => {
         typed: new Uint8Array(new Uint8Array([9, 10, 11, 12]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.typed.buffer, result.buffer)
@@ -2103,7 +2078,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(nextBuffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.typed.buffer, result.view.buffer)
@@ -2124,7 +2099,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(sharedBuffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.typed, typedReference)
@@ -2146,7 +2121,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(new Uint8Array([9, 10, 11, 12]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.typed.buffer, result.view.buffer)
@@ -2165,7 +2140,7 @@ describe('context runtime direct contracts', () => {
         right: new Uint8Array(nextBuffer, 2, 2),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left.buffer, result.right.buffer)
@@ -2184,7 +2159,7 @@ describe('context runtime direct contracts', () => {
         right: new Uint8Array(new Uint8Array([7, 8]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.left.buffer, result.right.buffer)
@@ -2203,7 +2178,7 @@ describe('context runtime direct contracts', () => {
         right: new DataView(nextBuffer, 2, 2),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left.buffer, result.right.buffer)
@@ -2222,7 +2197,7 @@ describe('context runtime direct contracts', () => {
         right: new DataView(new Uint8Array([7, 8]).buffer),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.left.buffer, result.right.buffer)
@@ -2239,7 +2214,7 @@ describe('context runtime direct contracts', () => {
         view: new DataView(nextBuffer, 1, 2),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.view.byteOffset, 1)
@@ -2260,7 +2235,7 @@ describe('context runtime direct contracts', () => {
         right: sharedNextView,
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left, result.right)
@@ -2282,7 +2257,7 @@ describe('context runtime direct contracts', () => {
         right: sharedNextTyped,
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left, result.right)
@@ -2304,7 +2279,7 @@ describe('context runtime direct contracts', () => {
       }
       const typedReference = current.typed
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.notEqual(result.typed, typedReference)
@@ -2476,7 +2451,7 @@ describe('context runtime direct contracts', () => {
         writable: true,
       })
 
-      const result = reconcile(current, {}) as typeof current
+      const result = reconcile(current, {})
 
       assert.equal(result, current)
       assert.equal('fixed' in result, false)

@@ -75,7 +75,7 @@ describe('nested authoritative finalization coverage', () => {
       })
 
       const entries = Array.from(result.values())
-      const finalizedShared = entries[1] as { count: number }
+      const finalizedShared = entries[1]
 
       assert.notEqual(result, current.right)
       assert.notEqual(finalizedShared, shared)
@@ -95,9 +95,7 @@ describe('nested authoritative finalization coverage', () => {
       const result = createPatch(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
-      }) as {
-        wrapped: { shared: { count: number } }
-      }
+      })
 
       assert.notEqual(result.wrapped, current.right)
       assert.notEqual(result.wrapped.shared, shared)
@@ -114,9 +112,7 @@ describe('nested authoritative finalization coverage', () => {
       const result = createPatch(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
-      }) as {
-        wrapped: Array<{ count: number }>
-      }
+      })
 
       assert.notEqual(result.wrapped, current.right)
       assert.notEqual(result.wrapped[0], shared)
@@ -133,9 +129,7 @@ describe('nested authoritative finalization coverage', () => {
       const result = createPatch(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
-      }) as {
-        wrapped: Map<string, { count: number }>
-      }
+      })
 
       assert.notEqual(result.wrapped, current.right)
       assert.notEqual(result.wrapped.get('key'), shared)
@@ -152,9 +146,7 @@ describe('nested authoritative finalization coverage', () => {
       const result = createPatch(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
-      }) as {
-        wrapped: Set<{ count: number }>
-      }
+      })
 
       const entry = firstSetEntry(result.wrapped)
       assert.notEqual(result.wrapped, current.right)

@@ -51,9 +51,7 @@ describe('nested authoritative finalization coherence regressions', () => {
     const result = createPatch(current, (draft) => {
       draft.left.shared.count = 2
       return { wrapped: draft.right }
-    }) as {
-      wrapped: { shared: { count: number } }
-    }
+    })
 
     assert.notEqual(result.wrapped, current.right)
     assert.notEqual(result.wrapped.shared, shared)

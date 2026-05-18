@@ -127,10 +127,7 @@ describe('patch finalization diagnostics', () => {
         left: draft.item,
         right: draft.item,
       }
-    }) as {
-      left: { count: number }
-      right: { count: number }
-    }
+    })
 
     expect(result.left).toBe(result.right)
     expect(result).toEqual({
@@ -152,10 +149,7 @@ describe('patch finalization diagnostics', () => {
         list: [draft.item],
         map: new Map<string, { count: number }>([['item', draft.item]]),
       }
-    }) as {
-      list: Array<{ count: number }>
-      map: Map<string, { count: number }>
-    }
+    })
 
     expect(result.list[0]).toBe(result.map.get('item'))
     expect(result.list[0]).toEqual({ count: 3 })

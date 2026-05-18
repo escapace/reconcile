@@ -122,7 +122,7 @@ describe('patch', () => {
       return draft.left
     })
 
-    assert.equal(result, current as unknown)
+    assert.equal(result, current)
     assert.deepEqual(result, { count: 3 })
   })
 
@@ -136,7 +136,7 @@ describe('patch', () => {
       return { replace: true as const }
     })
 
-    assert.equal(result, current as unknown)
+    assert.equal(result, current)
     assert.deepEqual(result, { replace: true })
   })
 
@@ -421,7 +421,7 @@ describe('patch', () => {
       const moved = draft.left as { count: number }
       delete draft.left
       draft.right = moved
-      ;(draft.right as { count: number }).count = 4
+      draft.right.count = 4
       return draft
     }) as {
       right: { count: number }
@@ -520,9 +520,7 @@ describe('patch', () => {
     const result = patch(current, (draft) => {
       draft.list[0].count = 7
       return draft
-    }) as {
-      list: Array<{ count: number }>
-    }
+    })
 
     assert.equal(result, current)
     assert.equal(result.list, listReference)
@@ -642,10 +640,7 @@ describe('patch', () => {
       draft.item.count = 12
       draft.list.splice(0, 0, draft.item)
       return draft
-    }) as {
-      item: { count: number }
-      list: Array<{ count: number } | { keep: true }>
-    }
+    })
 
     assert.equal(result.list[0], result.item)
     assert.deepEqual(result.list, [{ count: 12 }, { keep: true }])
@@ -677,10 +672,7 @@ describe('patch', () => {
       draft.item.count = 14
       draft.set.add(draft.item)
       return draft
-    }) as {
-      item: { count: number }
-      set: Set<object>
-    }
+    })
 
     assert.equal(result.set.size, 1)
     assert.equal(firstSetEntry(result.set), result.item)
@@ -702,12 +694,7 @@ describe('patch', () => {
       draft.map.set('item', draft.item)
       draft.set.add(draft.item)
       return draft
-    }) as {
-      item: { count: number }
-      list: Array<{ count: number }>
-      map: Map<string, { count: number }>
-      set: Set<object>
-    }
+    })
 
     assert.equal(result.list[0], result.item)
     assert.equal(result.list[1], result.item)
@@ -905,10 +892,7 @@ describe('patch', () => {
       const value = draft.map.get(storedKey) as { count: number }
       value.count = 3
       return draft
-    }) as {
-      key: { id: string }
-      map: Map<object, { count: number }>
-    }
+    })
 
     assert.equal(result, current)
     assert.equal(result.map, mapReference)
@@ -1095,10 +1079,7 @@ describe('patch', () => {
       draft.set.add(draft.item)
       assert.equal(draft.set.size, 1)
       return draft
-    }) as {
-      item: { count: number }
-      set: Set<object>
-    }
+    })
 
     assert.equal(result, current)
     assert.equal(result.set, setReference)
@@ -1203,7 +1184,7 @@ describe('patch', () => {
 
     const run = (callback: (draft: { map: Map<string, number> }) => void) =>
       patch(current, (draft) => {
-        callback(draft as { map: Map<string, number> })
+        callback(draft)
         return draft
       })
 
@@ -1237,7 +1218,7 @@ describe('patch', () => {
 
     const run = (callback: (draft: { set: Set<number> }) => void) =>
       patch(current, (draft) => {
-        callback(draft as { set: Set<number> })
+        callback(draft)
         return draft
       })
 
@@ -1397,8 +1378,8 @@ describe('patch', () => {
       view: DataView
     }
 
-    assert.equal(result, current as unknown)
-    assert.notEqual(result.typed, typedReference as unknown)
+    assert.equal(result, current)
+    assert.notEqual(result.typed, typedReference)
     assert.notEqual(result.view, viewReference)
     assert.equal(result.typed.buffer, result.view.buffer)
     assert.equal(result.typed.constructor, Uint16Array)
@@ -1419,11 +1400,9 @@ describe('patch', () => {
     const result = patch(current, (draft) => {
       draft.nested.count = 6
       return { wrapped: draft.nested }
-    }) as {
-      wrapped: { count: number }
-    }
+    })
 
-    assert.equal(result, current as unknown)
+    assert.equal(result, current)
     assert.deepEqual(result, { wrapped: { count: 6 } })
   })
 

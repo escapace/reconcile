@@ -125,7 +125,7 @@ describe('§5.2 Root rule', () => {
       const nested = { x: 1 }
       const current = { child: 42 }
       const next = { child: nested }
-      const result = reconcile(current, next) as { child: { x: number } }
+      const result = reconcile(current, next)
 
       // Result child is surface-equivalent but different identity
       assert.notEqual(result.child, nested)
@@ -144,7 +144,7 @@ describe('§5.3 Recursive value rule', () => {
       const nested = { x: 1 }
       const current = { child: 42 }
       const next = { child: nested }
-      const result = reconcile(current, next) as { child: { x: number } }
+      const result = reconcile(current, next)
 
       assert.notEqual(result.child, nested)
       assert.deepEqual(result.child, nested)
@@ -161,7 +161,7 @@ describe('§5.3 Recursive value rule', () => {
       const nextB = { count: 2 }
       const next = { a: nextA, b: nextB }
 
-      const result = reconcile(current, next) as { a: { count: number }; b: { count: number } }
+      const result = reconcile(current, next)
 
       // 'a' consumes shared, 'b' must snapshot because shared is consumed
       assert.equal(result.a, shared)
@@ -188,7 +188,7 @@ describe('§5.3 Recursive value rule', () => {
       const currentChild = { x: 1 }
       const current = { child: currentChild }
       const next = { child: { x: 2 } }
-      const result = reconcile(current, next) as { child: { x: number } }
+      const result = reconcile(current, next)
 
       assert.equal(result.child, currentChild)
       assert.equal(currentChild.x, 2)
@@ -227,7 +227,7 @@ describe('§5.4 Shared-object fast path', () => {
 
       // 'a' reconciles: shared consumed for nextA
       assert.equal(result.a, shared)
-      assert.equal((shared as { count: number }).count, 5)
+      assert.equal(shared.count, 5)
 
       // 'b' sees current=shared, next=shared
       // But shared was consumed for nextA (a different next node)
@@ -279,7 +279,7 @@ describe('§5.5 Entry rule', () => {
   it('returns current for SameValue atoms', () => {
     const current = { x: 42 }
     const next = { x: 42 }
-    const result = reconcile(current, next) as { x: number }
+    const result = reconcile(current, next)
     assert.equal(result.x, 42)
   })
 
@@ -294,7 +294,7 @@ describe('§5.5 Entry rule', () => {
   it('delegates to recursive rule for different values', () => {
     const current = { x: 1 }
     const next = { x: 2 }
-    const result = reconcile(current, next) as { x: number }
+    const result = reconcile(current, next)
     assert.equal(result.x, 2)
   })
 })
@@ -468,9 +468,9 @@ describe('§6.3 Map', () => {
     assert.equal(result, current)
     const [[resultKey, resultValue]] = [...result.entries()]
     assert.equal(resultKey, currentKey)
-    assert.equal((resultKey as { id: number }).id, 2)
+    assert.equal(resultKey.id, 2)
     assert.equal(resultValue, currentValue)
-    assert.equal((resultValue as { count: number }).count, 5)
+    assert.equal(resultValue.count, 5)
   })
 
   it('grows map when next is larger', () => {
@@ -552,7 +552,7 @@ describe('§6.4 Set', () => {
     assert.equal(result, current)
     const [resultValue] = [...result]
     assert.equal(resultValue, currentValue)
-    assert.equal((currentValue as { count: number }).count, 5)
+    assert.equal(currentValue.count, 5)
   })
 
   it('grows set when next is larger', () => {
@@ -705,7 +705,7 @@ describe('§6.7 TypedArray', () => {
     const result = reconcile(current, next)
 
     // Different constructor tags => replacement
-    assert.notEqual(result as unknown, current as unknown)
+    assert.notEqual(result, current)
     assert.instanceOf(result, Int8Array)
   })
 
@@ -904,7 +904,7 @@ describe('§6.8 Plain objects', () => {
       const currentNested = { y: 1 }
       const current = { x: currentNested }
       const next = { x: { y: 10 } }
-      const result = reconcile(current, next) as { x: { y: number } }
+      const result = reconcile(current, next)
 
       assert.equal(result.x, currentNested)
       assert.equal(currentNested.y, 10)
@@ -1026,7 +1026,7 @@ describe('§7.2 Topology preservation', () => {
       const current = { a: [0], b: [0] }
       const next = { a: nextA, b: nextB }
 
-      const result = reconcile(current, next) as { a: number[]; b: number[] }
+      const result = reconcile(current, next)
 
       assert.notEqual(result.a, result.b)
     })
@@ -1086,7 +1086,7 @@ describe('§7.2 Topology preservation', () => {
       nextB.other = nextA
       const next = { a: nextA, b: nextB }
 
-      const result = reconcile(current, next) as { a: Node; b: Node }
+      const result = reconcile(current, next)
 
       assert.equal(result.a.other, result.b)
       assert.equal(result.b.other, result.a)
@@ -1113,7 +1113,7 @@ describe('§7.2 Topology preservation', () => {
       n3.next = n1
       const next = { start: n1 }
 
-      const result = reconcile(current, next) as { start: Node }
+      const result = reconcile(current, next)
 
       assert.equal(result.start.next!.next!.next, result.start)
       assert.equal(result.start.value, 1)
@@ -1138,7 +1138,7 @@ describe('§7.2 Topology preservation', () => {
         view2: new DataView(nextBuffer, 4, 4),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result.view1.buffer, result.view2.buffer)
     })
@@ -1158,7 +1158,7 @@ describe('§7.2 Topology preservation', () => {
         arr2: new Uint8Array(nextBuffer, 4, 4),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.equal(result.arr1.buffer, result.arr2.buffer)
     })
@@ -1177,7 +1177,7 @@ describe('§7.2 Topology preservation', () => {
         view2: new DataView(nextBuffer2),
       }
 
-      const result = reconcile(current, next) as typeof current
+      const result = reconcile(current, next)
 
       assert.notEqual(result.view1.buffer, result.view2.buffer)
     })
@@ -1233,9 +1233,9 @@ describe('R10 Locality of replacement', () => {
     }
 
     // All ancestor objects are retained
-    assert.equal(result as unknown, current as unknown)
-    assert.equal(result.level1 as unknown, current.level1 as unknown)
-    assert.equal(result.level1.level2 as unknown, current.level1.level2 as unknown)
+    assert.equal(result, current)
+    assert.equal(result.level1, current.level1)
+    assert.equal(result.level1.level2, current.level1.level2)
     // Only the incompatible leaf is replaced
     assert.notEqual(result.level1.level2.level3, deepArray)
     assert.deepEqual(result.level1.level2.level3, { converted: true })
@@ -1410,9 +1410,9 @@ describe('Edge cases', () => {
     it('handles null values in objects', () => {
       const current = { x: { y: 1 } }
       const next = { x: null }
-      const result = reconcile(current, next) as { x: null }
+      const result = reconcile(current, next)
 
-      assert.equal(result as unknown, current as unknown)
+      assert.equal(result, current)
       assert.equal(result.x, null)
     })
   })
@@ -1421,7 +1421,7 @@ describe('Edge cases', () => {
     it('preserves functions by reference', () => {
       const current = { fn: (): number => 0 }
       const next = { fn: returnFortyTwo }
-      const result = reconcile(current, next) as { fn: () => number }
+      const result = reconcile(current, next)
 
       assert.equal(result.fn, returnFortyTwo)
     })
@@ -1429,7 +1429,7 @@ describe('Edge cases', () => {
     it('handles functions in snapshot replacements', () => {
       const current = { child: 'not-an-object' }
       const next = { child: { fn: returnFortyTwo } }
-      const result = reconcile(current, next) as { child: { fn: () => number } }
+      const result = reconcile(current, next)
 
       // child is snapshotted, function preserved by reference
       assert.equal(result.child.fn, returnFortyTwo)

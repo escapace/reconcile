@@ -120,9 +120,7 @@ describe('createPatch', () => {
     const result = createPatch(current, (draft) => {
       draft.nested.count = 6
       return { wrapped: draft.nested }
-    }) as {
-      wrapped: { count: number }
-    }
+    })
 
     assert.deepEqual(result, { wrapped: { count: 6 } })
     assert.deepEqual(current, { nested: { count: 0 } })
@@ -313,10 +311,7 @@ describe('createPatch', () => {
     const result = createPatch(current, (draft) => {
       draft.touched.count = 4
       return draft
-    }) as {
-      map: Map<object, object>
-      touched: { count: number }
-    }
+    })
 
     assert.notEqual(result.map, map)
     assert.equal(firstMapEntry(result.map)[0], key)
@@ -336,10 +331,7 @@ describe('createPatch', () => {
     const result = createPatch(current, (draft) => {
       draft.touched.count = 5
       return draft
-    }) as {
-      set: Set<object>
-      touched: { count: number }
-    }
+    })
 
     assert.notEqual(result.set, set)
     assert.equal(firstSetEntry(result.set), result.touched)
@@ -365,11 +357,7 @@ describe('createPatch', () => {
         openWrapper,
         touched: draft.touched,
       }
-    }) as {
-      closed: typeof closed
-      openWrapper: { child: { count: number } }
-      touched: { count: number }
-    }
+    })
 
     assert.equal(result.closed, closed)
     assert.notEqual(result.openWrapper, openWrapper)
@@ -392,7 +380,7 @@ describe('createPatch', () => {
       const moved = draft.left as { count: number }
       delete draft.left
       draft.right = moved
-      ;(draft.right as { count: number }).count = 4
+      draft.right.count = 4
       return draft
     }) as {
       right: { count: number }
@@ -418,12 +406,7 @@ describe('createPatch', () => {
       draft.map.set('item', draft.item)
       draft.set.add(draft.item)
       return draft
-    }) as {
-      item: { count: number }
-      list: Array<{ count: number }>
-      map: Map<string, { count: number }>
-      set: Set<object>
-    }
+    })
 
     assert.equal(result.list[0], result.item)
     assert.equal(result.map.get('item'), result.item)
@@ -723,10 +706,7 @@ describe('createPatch', () => {
         key: draft.key,
         map: draft.map,
       }
-    }) as {
-      key: { label: string }
-      map: Map<object, number>
-    }
+    })
 
     const [resultKey] = firstMapEntry(result.map)
 

@@ -499,10 +499,7 @@ describe('Plain object with shared object identities', () => {
 
       const current = { left: x, right: y }
       const next = { left: y, right: x }
-      const result = reconcile(current, next) as {
-        left: { a: { id: string }; b: { id: string } }
-        right: { a: { id: string }; b: { id: string } }
-      }
+      const result = reconcile(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left, x)

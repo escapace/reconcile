@@ -364,10 +364,7 @@ describe('patch no-restoration comprehensive semantics', () => {
           label: 'replacement',
           wrapped: draft.item,
         }
-      }) as {
-        label: string
-        wrapped: { count: number }
-      }
+      })
 
       assert.deepEqual(result, {
         label: 'replacement',
