@@ -35,7 +35,7 @@ importers:
         version: 4.1.8(vitest@4.1.8)
       alien-deepsignals:
         specifier: 0.3.1
-        version: 0.3.1(alien-signals@3.1.2)
+        version: 0.3.1(alien-signals@3.2.1)
       eslint:
         specifier: 10.4.1
         version: 10.4.1(jiti@2.7.0)
@@ -1473,8 +1473,8 @@ packages:
     peerDependencies:
       alien-signals: ^3.0.1
 
-  alien-signals@3.1.2:
-    resolution: {integrity: sha512-d9dYqZTS90WLiU0I5c6DHj/HcKkF8ZyGN3G5x8wSbslulz70KOxaqCT0hQCo9KOyhVqzqGojvNdJXoTumZOtcw==}
+  alien-signals@3.2.1:
+    resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
 
   ansi-regex@6.2.2:
     resolution: {integrity: sha512-Bq3SmSpyFHaWjPk8If9yc6svM8c56dB5BAtW4Qbw5jHTwwXXcTLoRMkpDJp6VL0XzlWaCHTXrkFURMYmD0sLqg==}
@@ -4622,11 +4622,11 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  alien-deepsignals@0.3.1(alien-signals@3.1.2):
+  alien-deepsignals@0.3.1(alien-signals@3.2.1):
     dependencies:
-      alien-signals: 3.1.2
+      alien-signals: 3.2.1
 
-  alien-signals@3.1.2: {}
+  alien-signals@3.2.1: {}
 
   ansi-regex@6.2.2: {}
 
