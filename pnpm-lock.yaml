@@ -34,8 +34,8 @@ importers:
         specifier: 4.1.8
         version: 4.1.8(vitest@4.1.8)
       alien-deepsignals:
-        specifier: 0.3.1
-        version: 0.3.1(alien-signals@3.2.1)
+        specifier: 0.4.2
+        version: 0.4.2
       eslint:
         specifier: 10.4.1
         version: 10.4.1(jiti@2.7.0)
@@ -52,14 +52,14 @@ importers:
         specifier: 11.1.8
         version: 11.1.8
       knip:
-        specifier: 6.15.0
-        version: 6.15.0
+        specifier: 6.16.1
+        version: 6.16.1
       lefthook:
         specifier: 2.1.9
         version: 2.1.9
       prettier:
-        specifier: 3.8.3
-        version: 3.8.3
+        specifier: 3.8.4
+        version: 3.8.4
       prettier-config-escapace:
         specifier: 1.2.2
         version: 1.2.2
@@ -1468,10 +1468,8 @@ packages:
   ajv@8.18.0:
     resolution: {integrity: sha512-PlXPeEWMXMZ7sPYOHqmDyCJzcfNrUr3fGNKtezX14ykXOEIvyK81d+qydx89KY5O71FKMPaQ2vBfBFI5NHR63A==}
 
-  alien-deepsignals@0.3.1:
-    resolution: {integrity: sha512-deS3p1iS7hNyGPWbLyVrvVqr14JKlphGedrTb/uM0pN9jSzSMcoddXssWqQWparALgtR+pouoPfMA534T7//yQ==}
-    peerDependencies:
-      alien-signals: ^3.0.1
+  alien-deepsignals@0.4.2:
+    resolution: {integrity: sha512-a+Rdid1D6uV/CCb+9HId4E006h+YSlGXz0yiaTLXsvlGwTifc9INj3K0yKiuzEz4dslg2STIH1tSLKYtPYMTjg==}
 
   alien-signals@3.2.1:
     resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
@@ -2387,8 +2385,8 @@ packages:
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
-  knip@6.15.0:
-    resolution: {integrity: sha512-uBaKFEGcu/HG4EY2gWFBMr+fBF43Jftoc2riJX51TKME1Z46C8UQIbNEusenYbEWihphxe2PY0Kns0yPvPYz4A==}
+  knip@6.16.1:
+    resolution: {integrity: sha512-TKMn1rxgH6h9vXR9Y0B+Cq7AdPTr9EI02IwoT65NzqYUkvoDQAaJ/aPybiFpAhZ1px6cNYYwXf86iHkBgzCo9w==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
@@ -2761,8 +2759,8 @@ packages:
     resolution: {integrity: sha512-taCRdqpCvU5QO5lFBbd07RhTMTUvuW74fq7bjPQwn+KRf2DP3Z38bV6d+AQ1UDVklQf8o6eIB1ACJ6r4IdF5ag==}
     engines: {pnpm: '>=10.29.2'}
 
-  prettier@3.8.3:
-    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
+  prettier@3.8.4:
+    resolution: {integrity: sha512-N2MylSdi48+5N/6S5j+maeHbUSIzzZ5uOcX5Hm4QpV8Dkb1HFjfAKTKX6yNPJQD9AhcT3ifHNB66tWTTJDi11Q==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -4622,7 +4620,7 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
-  alien-deepsignals@0.3.1(alien-signals@3.2.1):
+  alien-deepsignals@0.4.2:
     dependencies:
       alien-signals: 3.2.1
 
@@ -5627,13 +5625,12 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
-  knip@6.15.0:
+  knip@6.16.1:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.4)
       formatly: 0.3.0
       get-tsconfig: 4.14.0
       jiti: 2.7.0
-      minimist: 1.2.8
       oxc-parser: 0.133.0
       oxc-resolver: 11.20.0
       picomatch: 4.0.4
@@ -6162,7 +6159,7 @@ snapshots:
 
   prettier-config-escapace@1.2.2: {}
 
-  prettier@3.8.3: {}
+  prettier@3.8.4: {}
 
   pretty-bytes@7.1.0: {}
 
