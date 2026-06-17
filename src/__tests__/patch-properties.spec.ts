@@ -153,6 +153,7 @@ const supportedValueArbitrary = fc.letrec((tie) => ({
   set: fc.array(primitiveArbitrary, { maxLength: 3 }).map((values) => new Set(values)),
   special: fc.oneof(arrayBufferArbitrary, dataViewArbitrary, typedArrayArbitrary, dateArbitrary),
   value: fc.oneof(
+    { depthSize: 'small', withCrossShrink: true },
     primitiveArbitrary,
     tie('special'),
     tie('array'),
@@ -161,6 +162,123 @@ const supportedValueArbitrary = fc.letrec((tie) => ({
     tie('set'),
   ),
 })).value
+
+type ContainerKind = 'array' | 'map' | 'object'
+type SpecialKind = 'arrayBuffer' | 'dataView' | 'date' | 'typedArray'
+
+const containerKindArbitrary = fc.constantFrom<ContainerKind>('array', 'map', 'object')
+const specialKindArbitrary = fc.constantFrom<SpecialKind>(
+  'arrayBuffer',
+  'dataView',
+  'date',
+  'typedArray',
+)
+const deepPathArbitrary = fc
+  .integer({ max: 8, min: 1 })
+  .chain((depth) => fc.array(containerKindArbitrary, { maxLength: depth, minLength: depth }))
+
+const wrapDeepChild = (kind: ContainerKind, child: unknown): unknown => {
+  switch (kind) {
+    case 'array':
+      return [child, child, new Set([child])]
+    case 'map':
+      return new Map<string, unknown>([
+        ['alias', child],
+        ['child', child],
+        ['set', new Set([child])],
+      ])
+    case 'object':
+      return { alias: child, child, set: new Set([child]) }
+  }
+}
+
+const buildDeepValue = (path: readonly ContainerKind[], leaf: unknown): unknown =>
+  path.reduceRight((child, kind) => wrapDeepChild(kind, child), leaf)
+
+const childAt = (container: unknown, kind: ContainerKind): unknown => {
+  switch (kind) {
+    case 'array':
+      return (container as unknown[])[0]
+    case 'map':
+      return (container as Map<string, unknown>).get('child')
+    case 'object':
+      return (container as { child: unknown }).child
+  }
+}
+
+const navigateDeep = (root: unknown, path: readonly ContainerKind[]): unknown => {
+  let current = root
+
+  for (const kind of path) {
+    current = childAt(current, kind)
+  }
+
+  return current
+}
+
+const assertDeepAliases = (root: unknown, path: readonly ContainerKind[]): void => {
+  let current = root
+
+  for (const kind of path) {
+    const child = childAt(current, kind)
+    let aliasSet: Set<unknown>
+
+    switch (kind) {
+      case 'array':
+        assert.equal((current as unknown[])[1], child)
+        aliasSet = (current as unknown[])[2] as Set<unknown>
+        break
+      case 'map':
+        assert.equal((current as Map<string, unknown>).get('alias'), child)
+        aliasSet = (current as Map<string, unknown>).get('set') as Set<unknown>
+        break
+      case 'object':
+        assert.equal((current as { alias: unknown }).alias, child)
+        aliasSet = (current as { set: Set<unknown> }).set
+        break
+    }
+
+    assert.equal(aliasSet.has(child), true)
+    current = child
+  }
+}
+
+const makeSpecial = (kind: SpecialKind, bytes: Uint8Array, time: number): object => {
+  switch (kind) {
+    case 'arrayBuffer':
+      return cloneBufferFrom(bytes)
+    case 'dataView':
+      return new DataView(cloneBufferFrom(bytes))
+    case 'date':
+      return new Date(time)
+    case 'typedArray':
+      return new Uint8Array(cloneBufferFrom(bytes))
+  }
+}
+
+const mutateSpecial = (value: object, kind: SpecialKind): void => {
+  switch (kind) {
+    case 'arrayBuffer': {
+      const bytes = new Uint8Array(value as ArrayBuffer)
+      bytes[0] = (bytes[0] + 1) % 256
+      return
+    }
+    case 'dataView': {
+      const view = value as DataView
+      view.setUint8(0, (view.getUint8(0) + 1) % 256)
+      return
+    }
+    case 'date': {
+      const date = value as Date
+      date.setTime(date.getTime() + 1)
+      return
+    }
+    case 'typedArray': {
+      const typed = value as Uint8Array
+      typed[0] = (typed[0] + 1) % 256
+    }
+  }
+}
 
 describe('patch property semantics', () => {
   it('keeps no-op createPatch recipes on the original supported value', () => {
@@ -319,6 +437,97 @@ describe('patch property semantics', () => {
         assert.equal(result.view.buffer, result.buffer)
         assert.equal(new Uint8Array(result.buffer)[0], nextByte)
       }),
+    )
+  })
+
+  it('preserves shared topology for ordinary mutations at generated depths', () => {
+    fc.assert(
+      fc.property(
+        deepPathArbitrary,
+        fc.integer(),
+        fc.integer({ max: 100, min: 1 }),
+        (path, count, delta) => {
+          const leaf = { count }
+          const current = buildDeepValue(path, leaf)
+          const before = normalize(current)
+
+          const result = createPatch(current, (draft) => {
+            ;(navigateDeep(draft, path) as { count: number }).count += delta
+            return draft
+          })
+
+          assert.deepEqual(normalize(current), before)
+          assertDeepAliases(result, path)
+          assert.equal((navigateDeep(result, path) as { count: number }).count, count + delta)
+        },
+      ),
+    )
+  })
+
+  it('finalizes draft handles captured from generated depths inside ordinary returned roots', () => {
+    fc.assert(
+      fc.property(deepPathArbitrary, fc.integer(), (path, count) => {
+        const current = buildDeepValue(path, { count })
+        const before = normalize(current)
+
+        const result = createPatch(current, (draft) => {
+          const picked = navigateDeep(draft, path)
+          ;(picked as { count: number }).count += 1
+          return { picked, root: draft }
+        })
+
+        assert.deepEqual(normalize(current), before)
+        assertDeepAliases(result.root, path)
+        assert.equal(result.picked, navigateDeep(result.root, path))
+        assert.deepEqual(result.picked, { count: count + 1 })
+      }),
+    )
+  })
+
+  it('preserves cycles that close from generated-depth leaves back to the root', () => {
+    fc.assert(
+      fc.property(deepPathArbitrary, fc.integer(), (path, count) => {
+        const leaf: { count: number; root?: unknown } = { count }
+        const current = buildDeepValue(path, leaf)
+        leaf.root = current
+        const before = normalize(current)
+
+        const result = createPatch(current, (draft) => {
+          ;(navigateDeep(draft, path) as { count: number }).count += 1
+          return draft
+        })
+        const resultLeaf = navigateDeep(result, path) as { count: number; root?: unknown }
+
+        assert.deepEqual(normalize(current), before)
+        assertDeepAliases(result, path)
+        assert.equal(resultLeaf.count, count + 1)
+        assert.equal(resultLeaf.root, result)
+      }),
+    )
+  })
+
+  it('preserves clone-on-read isolation and alias topology at generated depths', () => {
+    fc.assert(
+      fc.property(
+        deepPathArbitrary,
+        specialKindArbitrary,
+        binaryArbitrary,
+        fc.integer({ max: 10_000, min: 0 }),
+        (path, kind, bytes, time) => {
+          const special = makeSpecial(kind, bytes, time)
+          const current = buildDeepValue(path, special)
+          const before = normalize(current)
+
+          const result = createPatch(current, (draft) => {
+            mutateSpecial(navigateDeep(draft, path) as object, kind)
+            return draft
+          })
+
+          assert.deepEqual(normalize(current), before)
+          assertDeepAliases(result, path)
+          assert.notDeepEqual(normalize(navigateDeep(result, path)), normalize(special))
+        },
+      ),
     )
   })
 
