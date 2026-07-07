@@ -8,27 +8,27 @@
   },
   "bugs": "https://github.com/escapace/reconcile/issues",
   "devDependencies": {
-    "@commitlint/cli": "21.1.0",
-    "@commitlint/config-conventional": "21.1.0",
+    "@commitlint/cli": "21.2.0",
+    "@commitlint/config-conventional": "21.2.0",
     "@escapace/pnpm-pack": "0.9.1",
     "@escapace/syncpack-configuration": "0.3.0",
     "@ls-lint/ls-lint": "2.3.1",
     "@vitest/coverage-v8": "4.1.9",
     "alien-deepsignals": "0.4.3",
-    "eslint": "10.5.0",
+    "eslint": "10.6.0",
     "eslint-config-escapace": "5.20.0",
     "esroll": "1.2.3",
     "fast-check": "4.8.0",
     "immer": "11.1.8",
-    "knip": "6.18.0",
+    "knip": "6.23.0",
     "lefthook": "2.1.9",
-    "prettier": "3.8.4",
+    "prettier": "3.9.4",
     "prettier-config-escapace": "1.2.2",
     "syncpack": "15.3.2",
     "tsx": "4.22.4",
     "typescript": "6.0.3",
     "vitest": "4.1.9",
-    "vue": "3.5.38"
+    "vue": "3.5.39"
   },
   "devEngines": {
     "packageManager": {
@@ -52,7 +52,7 @@
   "module": "lib/neutral/index.js",
   "peerDependencies": {
     "coastal": "^0.4.0",
-    "es-toolkit": "^1.48.1"
+    "es-toolkit": "^1.49.0"
   },
   "private": false,
   "publishConfig": {
