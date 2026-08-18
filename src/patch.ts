@@ -152,6 +152,7 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
           case 'sort':
           case 'splice':
           case 'unshift': {
+            // eslint-disable-next-line typescript/unbound-method
             const method = Array.prototype[property] as (...arguments_: unknown[]) => unknown
 
             return function (this: unknown, ...arguments_: unknown[]) {
