@@ -48,7 +48,7 @@ The same rules apply to wrappers that behave like objects, arrays, maps, or sets
 
 # API
 
-## function createPatch [↗](src/patch.ts#L1267-L1289 'createPatch')
+## function createPatch [↗](src/patch.ts#L1280-L1302 'createPatch')
 
 Runs `recipe` against a temporary writable draft of `current` and returns the resulting next value without applying it back onto `current`.
 
@@ -85,7 +85,7 @@ Array drafts support normal array iteration, including `for...of`, `entries()`, 
 
 `createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy. `patch(...)` applies the result through `reconcile(current, next)`.
 
-## function patch [↗](src/patch.ts#L1328-L1330 'patch')
+## function patch [↗](src/patch.ts#L1341-L1343 'patch')
 
 Runs `recipe` against a temporary writable draft of `current`, then applies the resulting next value back onto `current` through `reconcile(...)`.
 

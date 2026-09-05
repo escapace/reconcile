@@ -129,8 +129,8 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
     deleteProperty(_target, property) {
       const source = draftValue<Record<PropertyKey, unknown> | unknown[]>(state)
 
-      if (!Reflect.has(source, property)) {
-        // Deleting a missing property is a true no-op and never marks the draft modified.
+      if (!Object.prototype.hasOwnProperty.call(source, property)) {
+        // Deletion cannot remove inherited properties, so only own properties mark a change.
         return true
       }
 
@@ -217,7 +217,7 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
       if (Object.prototype.hasOwnProperty.call(source, property)) {
         const currentValue: unknown = Reflect.get(source, property) as unknown
 
-        if (Object.is(currentValue, value)) {
+        if (state.context.isSameDraftValue(currentValue, value)) {
           // SameValue write against an existing present slot is a no-op. It does not mark the
           // draft modified and it does not clear any cached child handle, so mutations made
           // through that child handle remain sticky.
@@ -352,7 +352,7 @@ class DraftMap extends UnsupportedDraftCollectionIteration {
     const currentValue = source.get(normalizedKey)
 
     if (
-      Object.is(currentValue, value) &&
+      state.context.isSameDraftValue(currentValue, value) &&
       (currentValue !== undefined || source.has(normalizedKey))
     ) {
       // SameValue write against an existing present entry is a no-op. It does not mark the draft
@@ -691,6 +691,15 @@ class PatchContext {
 
     children.set(key, child)
     return child
+  }
+
+  isSameDraftValue(currentValue: unknown, value: unknown): boolean {
+    // Structural handles represent their bases; special writable clones remain distinct values.
+    const currentBase = isObject(currentValue)
+      ? (this.statesByHandle.get(currentValue)?.base ?? currentValue)
+      : currentValue
+    const assignedBase = isObject(value) ? (this.statesByHandle.get(value)?.base ?? value) : value
+    return Object.is(currentBase, assignedBase)
   }
 
   normalizeMapKey(key: unknown): unknown {
@@ -1168,6 +1177,10 @@ class PatchContext {
     knownKind: ObjectKind | undefined = undefined,
   ): boolean {
     switch (knownKind ?? objectKindOf(value)) {
+      case OBJECT_KIND_DATA_VIEW:
+      case OBJECT_KIND_TYPED_ARRAY:
+        // An unread view can still depend on a buffer changed through another view.
+        return this.needsMaterialization((value as ArrayBufferView).buffer)
       case OBJECT_KIND_ARRAY: {
         const arrayValue = value as unknown[]
 
