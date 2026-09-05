@@ -48,7 +48,7 @@ The same rules apply to wrappers that behave like objects, arrays, maps, or sets
 
 # API
 
-## function createPatch [↗](src/patch.ts#L1280-L1302 'createPatch')
+## function createPatch [↗](src/patch.ts#L1333-L1355 'createPatch')
 
 Runs `recipe` against a temporary writable draft of `current` and returns the resulting next value without applying it back onto `current`.
 
@@ -77,6 +77,8 @@ When the recipe calls out-of-scope `Map` or `Set` draft iterator or callback API
 
 Supported values match `snapshot(...)` and `reconcile(current, next)`. Plain objects, arrays, `Map`, and `Set` are drafted structurally. `Set` drafts keep normal set membership behavior within one recipe. When the recipe reads a `Date`, `ArrayBuffer`, `DataView`, or typed array, it sees a writable copy rather than a partially wrapped live value. If that copy is left unchanged, the result reuses the original `Date`, buffer, or view references. If it is changed, the result contains changed copies and preserves `ArrayBuffer` or view aliasing. Primitive values and functions are treated as single values. Other object types, including many class instances or prototype-bearing values, are handled on a best-effort basis rather than rejected up front.
 
+Replacement values can contain both draft values and ordinary JavaScript values. When finalization rebuilds a replacement, it may also copy ordinary `Date`, `ArrayBuffer`, `DataView`, and typed-array values. Every reference to the same value resolves consistently, including references inside nested containers. A container may therefore be rebuilt even if the recipe did not modify it directly. This preserves sharing within the result; it does not make the entire result detached from its inputs.
+
 For plain objects, arrays, `Map`, and `Set`, reads do not mark changes, and writing the same value back does not count as a change. Once a real change happens on one draft node, later writes do not restore that node to the original reference, even if the final contents match `current` again.
 
 The returned value is not frozen and it is not guaranteed to be detached from `current`. Untouched subtrees may stay shared. Supported results preserve plain-object key order, sparse-array holes, cycles, shared references, and `ArrayBuffer` or view aliasing. The same behavior also applies to common reactive or signal-backed wrappers when they expose object, array, map, or set behavior.
@@ -85,7 +87,7 @@ Array drafts support normal array iteration, including `for...of`, `entries()`, 
 
 `createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy. `patch(...)` applies the result through `reconcile(current, next)`.
 
-## function patch [↗](src/patch.ts#L1341-L1343 'patch')
+## function patch [↗](src/patch.ts#L1394-L1396 'patch')
 
 Runs `recipe` against a temporary writable draft of `current`, then applies the resulting next value back onto `current` through `reconcile(...)`.
 

@@ -304,7 +304,7 @@ class DraftMap extends UnsupportedDraftCollectionIteration {
   delete(key: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Map<unknown, unknown>>(state)
-    const normalizedKey = state.context.normalizeMapKey(key)
+    const normalizedKey = state.context.resolveMapKey(source, key)
 
     if (!source.has(normalizedKey)) {
       // Deleting a missing key is a true no-op and does not mark the draft modified.
@@ -320,7 +320,7 @@ class DraftMap extends UnsupportedDraftCollectionIteration {
   get(key: unknown): unknown {
     const state = this[PATCH_STATE_SYMBOL]
     const source = draftValue<Map<unknown, unknown>>(state)
-    const normalizedKey = state.context.normalizeMapKey(key)
+    const normalizedKey = state.context.resolveMapKey(source, key)
     const childDraft = state.children.get(normalizedKey)
 
     if (childDraft !== undefined) {
@@ -342,13 +342,14 @@ class DraftMap extends UnsupportedDraftCollectionIteration {
 
   has(key: unknown): boolean {
     const state = this[PATCH_STATE_SYMBOL]
-    return draftValue<Map<unknown, unknown>>(state).has(state.context.normalizeMapKey(key))
+    const source = draftValue<Map<unknown, unknown>>(state)
+    return source.has(state.context.resolveMapKey(source, key))
   }
 
   set(key: unknown, value: unknown): this {
     const state = this[PATCH_STATE_SYMBOL]
-    const normalizedKey = state.context.normalizeMapKey(key)
     const source = draftValue<Map<unknown, unknown>>(state)
+    const normalizedKey = state.context.resolveMapKey(source, key)
     const currentValue = source.get(normalizedKey)
 
     if (
@@ -540,6 +541,7 @@ function isSpecialValueEquivalent(
 }
 
 class PatchContext {
+  private discoveredUntrackedSpecial = false
   private materializationRequired: WeakMap<object, boolean> | undefined
   private materializationVisited: Set<object> | undefined
   private materializedValues: WeakMap<object, unknown> | undefined
@@ -547,6 +549,7 @@ class PatchContext {
   readonly specialCloneCloneToBase = new WeakMap<object, object>()
   readonly statesByBase = new WeakMap<object, DraftState>()
   readonly statesByHandle = new WeakMap<object, DraftState>()
+  private readonly untrackedSpecialsToClone = new WeakSet<object>()
 
   private getMaterializationRequired(): WeakMap<object, boolean> {
     this.materializationRequired ??= new WeakMap<object, boolean>()
@@ -565,6 +568,15 @@ class PatchContext {
   }
 
   private cloneSpecialValueAfterMiss(value: object, kind: CloneOnReadKind): object {
+    if (
+      (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) &&
+      this.specialCloneCloneToBase.has((value as ArrayBufferView).buffer)
+    ) {
+      // Recipe-created views already use a writable draft buffer. Keep that backing store;
+      // finalization will rebind the view if the unchanged buffer returns to its base.
+      return value
+    }
+
     const replacement = snapshotObjectByKindAfterMiss(kind, value, this.specialCloneBaseToClone)
 
     this.specialCloneCloneToBase.set(replacement, value)
@@ -702,12 +714,20 @@ class PatchContext {
     return Object.is(currentBase, assignedBase)
   }
 
-  normalizeMapKey(key: unknown): unknown {
-    if (!isObject(key)) {
+  resolveMapKey(source: Map<unknown, unknown>, key: unknown): unknown {
+    // Newly assigned maps may store handles, while existing maps normally store bases.
+    if (source.has(key) || !isObject(key)) {
       return key
     }
 
-    return this.statesByHandle.get(key)?.base ?? key
+    const draftState = this.statesByHandle.get(key)
+    if (draftState !== undefined) {
+      return draftState.base
+    }
+
+    const baseState = this.statesByBase.get(key)
+    const handle = baseState === undefined ? undefined : draftHandleOf(baseState)
+    return handle !== undefined && source.has(handle) ? handle : key
   }
 
   resolveSetMember(source: Set<unknown>, value: unknown): unknown {
@@ -741,6 +761,20 @@ class PatchContext {
     }
 
     return LOOKUP_MISS
+  }
+
+  materializeResult(value: object): unknown {
+    let result: unknown
+    do {
+      // A cloned special can also occur inside an otherwise unchanged subtree. Repeat
+      // with those clone requirements known so every alias uses the same final image.
+      // Each additional pass discovers at least one previously unmarked special.
+      this.discoveredUntrackedSpecial = false
+      this.materializationRequired = undefined
+      this.materializedValues = undefined
+      result = this.materializeValue(value)
+    } while (this.discoveredUntrackedSpecial)
+    return result
   }
 
   materializeValue(value: unknown): unknown {
@@ -810,6 +844,7 @@ class PatchContext {
 
     if (
       state?.modified === true ||
+      this.untrackedSpecialsToClone.has(value) ||
       (state === undefined &&
         (this.specialCloneCloneToBase.has(value) || this.specialCloneBaseToClone.has(value)))
     ) {
@@ -835,10 +870,16 @@ class PatchContext {
     value: object,
     kind: CloneOnReadKind,
   ): boolean {
+    if (this.untrackedSpecialsToClone.has(value)) {
+      return false
+    }
     const mappedClone = this.specialCloneBaseToClone.get(value)
 
     if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
       const buffer = (value as ArrayBufferView).buffer
+      if (this.specialCloneCloneToBase.has(buffer)) {
+        return this.materializeValue(buffer) === buffer
+      }
       const mappedBufferClone = this.specialCloneBaseToClone.get(buffer)
 
       if (
@@ -1132,11 +1173,16 @@ class PatchContext {
     const mappedClone = this.specialCloneBaseToClone.get(value)
 
     if (mappedClone !== undefined) {
-      memo.set(value, mappedClone)
-      return mappedClone
+      const finalized = this.materializeValue(mappedClone)
+      memo.set(value, finalized)
+      return finalized
     }
 
     const kind = knownKind ?? objectKindOf(value)
+    if (cloneOnReadSpecialKind(kind) !== undefined && !this.untrackedSpecialsToClone.has(value)) {
+      this.untrackedSpecialsToClone.add(value)
+      this.discoveredUntrackedSpecial = true
+    }
 
     switch (kind) {
       case OBJECT_KIND_ARRAY:
@@ -1253,6 +1299,13 @@ class PatchContext {
  * functions are treated as single values. Other object types, including many class instances or
  * prototype-bearing values, are handled on a best-effort basis rather than rejected up front.
  *
+ * Replacement values can contain both draft values and ordinary JavaScript values. When
+ * finalization rebuilds a replacement, it may also copy ordinary `Date`, `ArrayBuffer`,
+ * `DataView`, and typed-array values. Every reference to the same value resolves consistently,
+ * including references inside nested containers. A container may therefore be rebuilt even if
+ * the recipe did not modify it directly. This preserves sharing within the result; it does not
+ * make the entire result detached from its inputs.
+ *
  * For plain objects, arrays, `Map`, and `Set`, reads do not mark changes, and writing the same
  * value back does not count as a change. Once a real change happens on one draft node, later
  * writes do not restore that node to the original reference, even if the final contents match
@@ -1298,7 +1351,7 @@ export function createPatch<T, R>(current: T, recipe: (draft: T) => R): R {
     return result
   }
 
-  return context.materializeValue(result) as R
+  return context.materializeResult(result) as R
 }
 
 /**
