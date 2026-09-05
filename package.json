@@ -34,7 +34,7 @@
     "packageManager": {
       "name": "pnpm",
       "onFail": "warn",
-      "version": "^11.7.0"
+      "version": "^11.20.0"
     }
   },
   "exports": {
@@ -63,13 +63,13 @@
   "scripts": {
     "bench": "vitest bench --run",
     "build": "tsx scripts/build.ts",
-    "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --no-error-on-unmatched-pattern -uw .",
+    "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --log-level warn --no-error-on-unmatched-pattern -uw .",
     "lint": "ls-lint --config .ls-lint.yaml && knip --no-config-hints && eslint",
     "ls-lint": "ls-lint --config .ls-lint.yaml",
     "pack": "pnpm-pack package --pack-destination lib",
     "prepare": "lefthook install",
     "syncpack": "syncpack fix && syncpack format",
-    "test": "vitest --no-watch --coverage",
+    "test": "vitest --no-watch --coverage --coverage.reporter=text-summary",
     "typecheck": "tsc --noEmit",
     "update": "ncu --cooldown 7 -p pnpm -u --peer --dep dev,peer,prod,optional && pnpm run syncpack"
   },
