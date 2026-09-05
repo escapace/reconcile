@@ -1,3 +1,4 @@
+import { setOwnProperty } from './set-own-property'
 import { isObject, ownKeys } from 'coastal'
 
 import { cloneBufferView } from './clone-buffer-view'
@@ -13,24 +14,13 @@ import {
   OBJECT_KIND_TYPED_ARRAY,
   objectKindOf,
 } from './object-kind'
-import { snapshotObjectByKindAfterMiss } from './snapshot'
+import { snapshot, snapshotObjectByKindAfterMiss } from './snapshot'
 
 type CurrentObjectMap = WeakMap<object, ObjectKind>
-type PlannedSources = WeakMap<object, object>
 
-/**
- * Records every object reachable from the current graph and caches its runtime kind.
- *
- * @remarks
- * The shared-identity reorder fix needs a cheap way to ask whether a next-side object is also
- * reachable from current; `currentObjects.has(...)` answers that. The prepass also memoizes the
- * `ObjectKind` it computes while walking so later current-side dispatch can reuse it instead of
- * calling `objectKindOf` a second time. Absence from the map means either primitive or
- * not-reachable-from-current and must not be reinterpreted as "not an object". The map itself
- * doubles as the recursion-termination set: any value already present has been walked, so cycles
- * and repeated references terminate without a separate `visited` structure.
- */
-function collectCurrentObjects(value: unknown, objects: CurrentObjectMap): void {
+// Collect reachable identities and their kinds for overlap detection and current-side
+// dispatch. Register before descending so cycles terminate without a separate visited set.
+function collectObjectKinds(value: unknown, objects: CurrentObjectMap): void {
   // Primitives and already-recorded objects cannot add any new reachable identities. Using
   // `objects.has` as the cycle guard avoids a parallel WeakSet on the hot prepass path.
   if (!isObject(value) || objects.has(value)) {
@@ -46,7 +36,7 @@ function collectCurrentObjects(value: unknown, objects: CurrentObjectMap): void 
       const arrayValue = value as unknown[]
       for (let index = 0; index < arrayValue.length; index += 1) {
         if (index in arrayValue) {
-          collectCurrentObjects(arrayValue[index], objects)
+          collectObjectKinds(arrayValue[index], objects)
         }
       }
       return
@@ -56,12 +46,12 @@ function collectCurrentObjects(value: unknown, objects: CurrentObjectMap): void 
       return
     case OBJECT_KIND_DATA_VIEW:
     case OBJECT_KIND_TYPED_ARRAY:
-      collectCurrentObjects((value as ArrayBufferView).buffer, objects)
+      collectObjectKinds((value as ArrayBufferView).buffer, objects)
       return
     case OBJECT_KIND_MAP: {
       for (const [key, entry] of (value as Map<unknown, unknown>).entries()) {
-        collectCurrentObjects(key, objects)
-        collectCurrentObjects(entry, objects)
+        collectObjectKinds(key, objects)
+        collectObjectKinds(entry, objects)
       }
       return
     }
@@ -69,267 +59,31 @@ function collectCurrentObjects(value: unknown, objects: CurrentObjectMap): void 
       const objectValue = value as Record<PropertyKey, unknown>
       const objectOwnKeys = ownKeys(objectValue)
       for (let index = 0; index < objectOwnKeys.length; index += 1) {
-        collectCurrentObjects(objectValue[objectOwnKeys[index]], objects)
+        collectObjectKinds(objectValue[objectOwnKeys[index]], objects)
       }
       return
     }
     case OBJECT_KIND_SET: {
       for (const entry of (value as Set<unknown>).values()) {
-        collectCurrentObjects(entry, objects)
+        collectObjectKinds(entry, objects)
       }
       return
     }
   }
 }
 
-/**
- * Schedules a detached read source for a next-side object that is unsafe to read live.
- *
- * @remarks
- * A next object becomes unsafe when it is also reachable from current and a handler is about to
- * mutate the aligned current slot before later reads finish. In that case this helper snapshots the
- * object into `plannedSources`, keyed by the original next identity. Objects outside current's
- * reachable set are skipped because reading them live cannot be polluted by in-place publication.
- */
-function planNextSource(
-  nextValue: unknown,
-  currentObjects: CurrentObjectMap,
-  plannedSources: PlannedSources,
-): void {
-  // Only objects that also live somewhere in current can be polluted by in-place publication.
-  // `WeakMap.prototype.get` returns `undefined` for non-object keys per spec, so this single
-  // lookup subsumes both the primitive filter and the current-reachability check while also
-  // surfacing the cached `ObjectKind` populated by the prepass.
-  const kind = currentObjects.get(nextValue as object)
-  if (kind === undefined || plannedSources.has(nextValue as object)) {
-    return
-  }
-
-  // Dispatch straight into the cache-miss snapshot entry point: the kind is already known, the
-  // value is already known to be an object, and `plannedSources` was just verified to be a miss.
-  // Going through the public `snapshot(...)` would redo all three checks internally.
-  snapshotObjectByKindAfterMiss(kind, nextValue as object, plannedSources)
-}
-
-/**
- * Resolves the concrete read source for one aligned next entry.
- *
- * @remarks
- * Reconciliation keeps two notions of the next side separate: the original `nextValue` identity for
- * witness maps and sharing, and the `nextSourceValue` used for property, element, or entry reads.
- * When a handler planned a detached source for `nextValue`, this helper returns that snapshot;
- * otherwise it falls back to the live source value already aligned for the slot.
- */
-function resolveNextSource(
-  nextValue: unknown,
-  nextSourceValue: unknown,
-  plannedSources: PlannedSources,
-): unknown {
-  // Primitive reads never need detached planning. Keep this typeof guard before the
-  // `plannedSources.get` lookup: removing it (and relying on `WeakMap.prototype.get` returning
-  // `undefined` for non-object keys) measurably regresses this hot per-slot site, likely from V8
-  // taking a slow path for primitive keys inside the WeakMap inline cache.
-  if (!isObject(nextValue)) {
-    return nextSourceValue
-  }
-
-  // Prefer the planned detached source when one exists; otherwise keep reading the live slot value.
-  return plannedSources.get(nextValue) ?? nextSourceValue
-}
-
-/**
- * Clones one aligned next-side value while preserving sharing by original next identities.
- *
- * @remarks
- * This helper is used on replacement branches where current cannot be reused. Primitive values are
- * forwarded directly from `nextSource`. Object values are cloned from `nextSource`, but the cache is
- * keyed by `nextValue` so repeated references and cycles in the next graph still collapse to one
- * finalized image.
- */
-function snapshotAlignedValue(
-  nextValue: unknown,
-  nextSource: unknown,
-  nextToResult: WeakMap<object, object>,
-): unknown {
-  // Primitive replacement values can be forwarded directly from the detached source.
-  if (!isObject(nextValue)) {
-    return nextSource
-  }
-
-  // Preserve next-side sharing by reusing the first finalized image for this next identity.
-  const cached = nextToResult.get(nextValue)
-  if (cached !== undefined) {
-    return cached
-  }
-
-  // Cache check is done; dispatch into the cache-miss entry point so the inner walker does not
-  // repeat the same `nextToResult.get` lookup.
-  return snapshotAlignedObjectAfterMiss(
-    objectKindOf(nextValue),
-    nextValue,
-    nextSource as object,
-    nextToResult,
-  )
-}
-
-/**
- * Cache-miss entry point for aligned next-side object snapshots.
- *
- * @remarks
- * Callers that have already verified `nextToResult.get(nextValue)` is a miss — and that already
- * know the runtime kind — should call this directly to skip both the redundant cache lookup and
- * the redundant `objectKindOf` call. The body mirrors the supported object kinds and recurses
- * through aligned child pairs so replacement subtrees preserve repeated references, cycles, and
- * buffer or view aliasing exactly once.
- */
-function snapshotAlignedObjectAfterMiss(
-  kind: ObjectKind,
-  nextValue: object,
-  nextSource: object,
-  nextToResult: WeakMap<object, object>,
-): object {
-  switch (kind) {
-    case OBJECT_KIND_ARRAY: {
-      const nextArray = nextValue as unknown[]
-      const sourceArray = nextSource as unknown[]
-      const replacement = new Array<unknown>(sourceArray.length)
-      // Cache before recursing so self-referential arrays can resolve back to this image.
-      nextToResult.set(nextValue, replacement)
-
-      for (let index = 0; index < sourceArray.length; index += 1) {
-        if (index in sourceArray) {
-          replacement[index] = snapshotAlignedValue(
-            nextArray[index],
-            sourceArray[index],
-            nextToResult,
-          )
-        }
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_ARRAY_BUFFER: {
-      const replacement = (nextSource as ArrayBuffer).slice(0)
-      // Buffers are cloned eagerly so later view snapshots can share one backing store.
-      nextToResult.set(nextValue, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_DATA_VIEW:
-    case OBJECT_KIND_TYPED_ARRAY: {
-      const nextView = nextValue as ArrayBufferView
-      const sourceView = nextSource as ArrayBufferView
-      const replacement = cloneBufferView(
-        sourceView,
-        // Recurse through the aligned backing buffers so aliased views stay aliased in the
-        // result.
-        snapshotAlignedValue(nextView.buffer, sourceView.buffer, nextToResult) as ArrayBuffer,
-      )
-      nextToResult.set(nextValue, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_DATE: {
-      const replacement = new Date((nextSource as Date).getTime())
-      nextToResult.set(nextValue, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_MAP: {
-      const nextMap = nextValue as Map<unknown, unknown>
-      const replacement = new Map<unknown, unknown>()
-      // Cache first so cyclic map graphs can point back to this replacement during recursion.
-      nextToResult.set(nextValue, replacement)
-      const nextEntries = nextMap.entries()
-
-      for (const [sourceKey, sourceEntry] of (nextSource as Map<unknown, unknown>).entries()) {
-        const nextPair = nextEntries.next().value!
-        replacement.set(
-          snapshotAlignedValue(nextPair[0], sourceKey, nextToResult),
-          snapshotAlignedValue(nextPair[1], sourceEntry, nextToResult),
-        )
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_PLAIN: {
-      const nextObject = nextValue as Record<PropertyKey, unknown>
-      const sourceObject = nextSource as Record<PropertyKey, unknown>
-      const replacement = Object.create(
-        Object.getPrototypeOf(nextSource) as object | null,
-      ) as Record<PropertyKey, unknown>
-      // Cache first so object cycles and repeated references resolve to one replacement.
-      nextToResult.set(nextValue, replacement)
-      const objectOwnKeys = ownKeys(sourceObject)
-
-      for (let index = 0; index < objectOwnKeys.length; index += 1) {
-        const key = objectOwnKeys[index]
-        replacement[key] = snapshotAlignedValue(nextObject[key], sourceObject[key], nextToResult)
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_SET: {
-      const nextSet = nextValue as Set<unknown>
-      const replacement = new Set<unknown>()
-      // Cache first so cyclic set graphs can revisit the same finalized set.
-      nextToResult.set(nextValue, replacement)
-      const nextEntries = nextSet.values()
-
-      for (const sourceEntry of (nextSource as Set<unknown>).values()) {
-        replacement.add(snapshotAlignedValue(nextEntries.next().value, sourceEntry, nextToResult))
-      }
-
-      return replacement
-    }
-  }
-}
-
-/**
- * Reconciles one aligned child value pair.
- *
- * @remarks
- * This is the entry rule for child comparisons: array indices, plain-object keys, map ordinals,
- * set ordinals, and buffer-view backing buffers. When the current and next entries are
- * `Object.is`-equal and object-like, the function delegates to {@link reconcileSharedObject}
- * so shared-reference topology is preserved through the result. Otherwise it follows the ordinary
- * nested-value path, returning the next primitive directly or descending into object reconciliation.
- */
+// Object children always visit their descendants. Equal identities do not prove
+// that another branch will preserve those descendants' next-side topology.
 function reconcileEntry(
   currentEntry: unknown,
   nextEntry: unknown,
-  nextEntrySource: unknown,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): unknown {
-  // SameValue equality on object children must go through the shared-object fast path only when
-  // the original next object itself is still the read source for this slot. On this branch
-  // `nextEntry === currentEntry`, so the value is either a primitive or an object the prepass
-  // walked. `currentObjects.has` answers "is this an object reachable from current" in one call
-  // and returns `false` for primitives per `WeakMap.prototype.has` spec, replacing a separate
-  // `isObject` typeof check.
-  if (Object.is(currentEntry, nextEntry) && Object.is(nextEntry, nextEntrySource)) {
-    return currentObjects.has(currentEntry as object)
-      ? reconcileSharedObject(
-          currentEntry as object,
-          nextEntry as object,
-          currentObjects,
-          currentToNext,
-          nextToResult,
-        )
-      : currentEntry
-  }
-
-  // On the non-equal path, primitive source values publish directly and object-like next values
-  // continue into the nested object reconciliation rule.
   return isObject(nextEntry)
-    ? reconcileKnownNextObject(
-        currentEntry,
-        nextEntry,
-        nextEntrySource as object,
-        currentObjects,
-        currentToNext,
-        nextToResult,
-      )
-    : nextEntrySource
+    ? reconcileKnownNextObject(currentEntry, nextEntry, currentObjects, currentToNext, nextToResult)
+    : nextEntry
 }
 
 // ── Kind-specific handlers ────────────────────────────────────────────────────
@@ -351,16 +105,14 @@ function reconcileEntry(
 function reconcilePlainObject(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): object {
   const currentObject = currentValue as Record<PropertyKey, unknown>
   const nextObject = nextValue as Record<PropertyKey, unknown>
-  const nextSourceObject = nextSource as Record<PropertyKey, unknown>
   const currentOwnKeys = ownKeys(currentObject)
-  const nextOwnKeys = ownKeys(nextSourceObject)
+  const nextOwnKeys = ownKeys(nextObject)
   const currentLength = currentOwnKeys.length
   const nextLength = nextOwnKeys.length
   const overlap = Math.min(currentLength, nextLength)
@@ -375,32 +127,19 @@ function reconcilePlainObject(
     }
   }
 
-  const plannedSources = new WeakMap<object, object>()
-
-  for (let index = 0; index < nextLength; index += 1) {
-    const key = nextOwnKeys[index]
-    const nextEntry = nextObject[key]
-    const nextEntrySource = nextSourceObject[key]
-
-    if (
-      Object.is(nextEntry, nextEntrySource) &&
-      (!aligned || !Object.is(currentObject[key], nextEntry))
-    ) {
-      planNextSource(nextEntry, currentObjects, plannedSources)
-    }
-  }
-
   let changedEntries: unknown[] | undefined
   const reconciledEntries = aligned ? undefined : new Array<unknown>(nextLength)
 
   for (let index = 0; index < nextLength; index += 1) {
     const key = nextOwnKeys[index]
-    const currentEntry = currentObject[key]
+    const currentEntry =
+      key === '__proto__' && !Object.prototype.hasOwnProperty.call(currentObject, key)
+        ? undefined
+        : currentObject[key]
     const nextEntry = nextObject[key]
     const reconciledEntry = reconcileEntry(
       currentEntry,
       nextEntry,
-      resolveNextSource(nextEntry, nextSourceObject[key], plannedSources),
       currentObjects,
       currentToNext,
       nextToResult,
@@ -411,7 +150,10 @@ function reconcilePlainObject(
       // complete so unchanged entries do not trigger redundant assignments. Only check property
       // presence in the one ambiguous case where the reconciled value is still `Object.is`-equal
       // to the current read: trailing additions may still need an own property materialized.
-      if (!Object.is(reconciledEntry, currentEntry) || !Reflect.has(currentObject, key)) {
+      if (
+        !Object.is(reconciledEntry, currentEntry) ||
+        !Object.prototype.hasOwnProperty.call(currentObject, key)
+      ) {
         changedEntries ??= []
         changedEntries.push(key, reconciledEntry)
       }
@@ -424,7 +166,11 @@ function reconcilePlainObject(
     if (changedEntries !== undefined) {
       // Apply only the entries whose reconciled values changed.
       for (let index = 0; index < changedEntries.length; index += 2) {
-        currentObject[changedEntries[index] as PropertyKey] = changedEntries[index + 1]
+        setOwnProperty(
+          currentObject,
+          changedEntries[index] as PropertyKey,
+          changedEntries[index + 1],
+        )
       }
     }
 
@@ -447,7 +193,7 @@ function reconcilePlainObject(
   }
 
   for (let index = 0; index < nextLength; index += 1) {
-    currentObject[nextOwnKeys[index]] = reconciledEntries[index]
+    setOwnProperty(currentObject, nextOwnKeys[index], reconciledEntries[index])
   }
 
   return currentObject
@@ -466,40 +212,23 @@ function reconcilePlainObject(
 function reconcileArray(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): unknown[] {
   const currentArray = currentValue as unknown[]
   const nextArray = nextValue as unknown[]
-  const nextSourceArray = nextSource as unknown[]
-  const nextLength = nextSourceArray.length
-  const plannedSources = new WeakMap<object, object>()
-
-  for (let index = 0; index < nextLength; index += 1) {
-    if (index in nextSourceArray) {
-      const nextEntry = nextArray[index]
-      const nextEntrySource = nextSourceArray[index]
-
-      if (!Object.is(currentArray[index], nextEntry) && Object.is(nextEntry, nextEntrySource)) {
-        planNextSource(nextEntry, currentObjects, plannedSources)
-      }
-    }
-  }
-
+  const nextLength = nextArray.length
   // Publish the next length once before visiting individual indices.
   currentArray.length = nextLength
 
   for (let index = 0; index < nextLength; index += 1) {
-    if (index in nextSourceArray) {
+    if (index in nextArray) {
       const currentEntry = currentArray[index]
       const nextEntry = nextArray[index]
-      const nextEntrySource = resolveNextSource(nextEntry, nextSourceArray[index], plannedSources)
       const reconciledEntry = reconcileEntry(
         currentEntry,
         nextEntry,
-        nextEntrySource,
         currentObjects,
         currentToNext,
         nextToResult,
@@ -539,49 +268,26 @@ function reconcileArray(
 function reconcileMap(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): Map<unknown, unknown> {
   const currentMap = currentValue as Map<unknown, unknown>
   const nextMap = nextValue as Map<unknown, unknown>
-  const nextSourceMap = nextSource as Map<unknown, unknown>
-  const nextSize = nextSourceMap.size
+  const nextSize = nextMap.size
   let reconciledEntries: unknown[] | undefined
   let backfillLimit = 0
   let entryOffset = 0
-  const plannedSources = new WeakMap<object, object>()
-  const currentEntriesForPlanning = currentMap.entries()
-  const nextSourceEntriesForPlanning = nextSourceMap.entries()
-
-  for (const [nextKey, nextEntry] of nextMap.entries()) {
-    const nextSourceEntry = nextSourceEntriesForPlanning.next().value!
-    const currentEntryPair = currentEntriesForPlanning.next().value
-    const currentKey = currentEntryPair?.[0]
-    const currentEntry = currentEntryPair?.[1]
-
-    if (!Object.is(currentKey, nextKey) && Object.is(nextKey, nextSourceEntry[0])) {
-      planNextSource(nextKey, currentObjects, plannedSources)
-    }
-    if (!Object.is(currentEntry, nextEntry) && Object.is(nextEntry, nextSourceEntry[1])) {
-      planNextSource(nextEntry, currentObjects, plannedSources)
-    }
-  }
-
   const currentEntries = currentMap.entries()
-  const nextSourceEntries = nextSourceMap.entries()
 
   // Ordinal alignment: compare the i-th current entry with the i-th next entry.
   for (const [nextKey, nextEntry] of nextMap.entries()) {
-    const nextSourceEntry = nextSourceEntries.next().value!
     const currentEntryPair = currentEntries.next().value
     const currentKey = currentEntryPair?.[0]
     const currentEntry = currentEntryPair?.[1]
     const reconciledKey = reconcileEntry(
       currentKey,
       nextKey,
-      resolveNextSource(nextKey, nextSourceEntry[0], plannedSources),
       currentObjects,
       currentToNext,
       nextToResult,
@@ -589,7 +295,6 @@ function reconcileMap(
     const reconciledEntry = reconcileEntry(
       currentEntry,
       nextEntry,
-      resolveNextSource(nextEntry, nextSourceEntry[1], plannedSources),
       currentObjects,
       currentToNext,
       nextToResult,
@@ -664,33 +369,17 @@ function reconcileMap(
 function reconcileSet(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): Set<unknown> {
   const currentSet = currentValue as Set<unknown>
   const nextSet = nextValue as Set<unknown>
-  const nextSourceSet = nextSource as Set<unknown>
-  const nextSize = nextSourceSet.size
+  const nextSize = nextSet.size
   let reconciledEntries: unknown[] | undefined
   let backfillLimit = 0
   let index = 0
-  const plannedSources = new WeakMap<object, object>()
-  const currentEntriesForPlanning = currentSet.values()
-  const nextSourceEntriesForPlanning = nextSourceSet.values()
-
-  for (const nextEntry of nextSet.values()) {
-    const nextSourceEntry = nextSourceEntriesForPlanning.next().value
-    const currentEntry = currentEntriesForPlanning.next().value
-
-    if (!Object.is(currentEntry, nextEntry) && Object.is(nextEntry, nextSourceEntry)) {
-      planNextSource(nextEntry, currentObjects, plannedSources)
-    }
-  }
-
   const currentEntries = currentSet.values()
-  const nextSourceEntries = nextSourceSet.values()
 
   // Ordinal alignment: compare the i-th current value with the i-th next value.
   for (const nextEntry of nextSet.values()) {
@@ -699,7 +388,6 @@ function reconcileSet(
     const reconciledEntry = reconcileEntry(
       currentEntry,
       nextEntry,
-      resolveNextSource(nextEntry, nextSourceEntries.next().value, plannedSources),
       currentObjects,
       currentToNext,
       nextToResult,
@@ -764,11 +452,10 @@ function reconcileSet(
 function reconcileArrayBuffer(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   nextToResult: WeakMap<object, object>,
 ): ArrayBuffer {
   const currentBuffer = currentValue as ArrayBuffer
-  const nextBuffer = nextSource as ArrayBuffer
+  const nextBuffer = nextValue as ArrayBuffer
 
   // Equal-length buffers can publish next bytes into the existing backing store.
   if (currentBuffer.byteLength !== nextBuffer.byteLength) {
@@ -797,20 +484,17 @@ function reconcileArrayBuffer(
 function reconcileBufferView(
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
 ): ArrayBufferView {
   const currentView = currentValue as ArrayBufferView
   const nextView = nextValue as ArrayBufferView
-  const nextSourceView = nextSource as ArrayBufferView
 
   // Reconcile the aligned buffer child before checking whether the current view can survive.
   const reconciledBuffer = reconcileEntry(
     currentView.buffer,
     nextView.buffer,
-    nextSourceView.buffer,
     currentObjects,
     currentToNext,
     nextToResult,
@@ -820,14 +504,14 @@ function reconcileBufferView(
   // still compatible.
   if (
     currentView.buffer === reconciledBuffer &&
-    currentView.constructor === nextSourceView.constructor &&
-    currentView.byteOffset === nextSourceView.byteOffset &&
-    currentView.byteLength === nextSourceView.byteLength
+    currentView.constructor === nextView.constructor &&
+    currentView.byteOffset === nextView.byteOffset &&
+    currentView.byteLength === nextView.byteLength
   ) {
     return currentView
   }
 
-  const replacement = cloneBufferView(nextSourceView, reconciledBuffer)
+  const replacement = cloneBufferView(nextView, reconciledBuffer)
 
   // reconcileObjectByKind pre-registered nextView -> currentView. Overwrite that provisional cache
   // entry so later encounters with the same next view return the replacement instead.
@@ -848,7 +532,6 @@ function reconcileObjectByKind(
   kind: ObjectKind,
   currentValue: object,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
@@ -860,98 +543,34 @@ function reconcileObjectByKind(
 
   switch (kind) {
     case OBJECT_KIND_ARRAY:
-      return reconcileArray(
-        currentValue,
-        nextValue,
-        nextSource,
-        currentObjects,
-        currentToNext,
-        nextToResult,
-      )
+      return reconcileArray(currentValue, nextValue, currentObjects, currentToNext, nextToResult)
     case OBJECT_KIND_ARRAY_BUFFER:
-      return reconcileArrayBuffer(currentValue, nextValue, nextSource, nextToResult)
+      return reconcileArrayBuffer(currentValue, nextValue, nextToResult)
     case OBJECT_KIND_DATA_VIEW:
     case OBJECT_KIND_TYPED_ARRAY:
       return reconcileBufferView(
         currentValue,
         nextValue,
-        nextSource,
         currentObjects,
         currentToNext,
         nextToResult,
       )
     case OBJECT_KIND_DATE:
-      ;(currentValue as Date).setTime((nextSource as Date).getTime())
+      ;(currentValue as Date).setTime((nextValue as Date).getTime())
       return currentValue
     case OBJECT_KIND_MAP:
-      return reconcileMap(
-        currentValue,
-        nextValue,
-        nextSource,
-        currentObjects,
-        currentToNext,
-        nextToResult,
-      )
+      return reconcileMap(currentValue, nextValue, currentObjects, currentToNext, nextToResult)
     case OBJECT_KIND_PLAIN:
       return reconcilePlainObject(
         currentValue,
         nextValue,
-        nextSource,
         currentObjects,
         currentToNext,
         nextToResult,
       )
     case OBJECT_KIND_SET:
-      return reconcileSet(
-        currentValue,
-        nextValue,
-        nextSource,
-        currentObjects,
-        currentToNext,
-        nextToResult,
-      )
+      return reconcileSet(currentValue, nextValue, currentObjects, currentToNext, nextToResult)
   }
-}
-
-/**
- * Handles the `Object.is`-equal object fast path for aligned child entries.
- *
- * @remarks
- * This function is called only when the current and next values are the same object identity. It
- * first checks whether the next object already has a cached reconciled image. That cache lookup
- * must happen before the consumed-current check: once a result has been recorded for `nextValue`,
- * that cached result remains correct even if `currentValue` was consumed earlier through another
- * alignment. If no cached image exists and the current object was already consumed, the next object
- * is snapshotted to preserve distinct next-side topology. Otherwise the function records the fresh
- * alignment and reuses the current object directly.
- */
-function reconcileSharedObject(
-  currentValue: object,
-  nextValue: object,
-  currentObjects: CurrentObjectMap,
-  currentToNext: WeakMap<object, object>,
-  nextToResult: WeakMap<object, object>,
-): object {
-  const cached = nextToResult.get(nextValue)
-
-  // A cached image for nextValue is always authoritative, even if currentValue was consumed earlier
-  // through a different path.
-  if (cached !== undefined) {
-    return cached
-  }
-
-  // The current object cannot serve two distinct next-side alignments. Split topology by snapshotting
-  // the next object into a fresh result subtree. Because this branch is reached only on the
-  // SameValue object path, `nextValue === currentValue`, which is a current-reachable object the
-  // prepass already walked, so its kind is guaranteed to be in `currentObjects`.
-  if (currentToNext.get(currentValue) !== undefined) {
-    return snapshotObjectByKindAfterMiss(currentObjects.get(nextValue)!, nextValue, nextToResult)
-  }
-
-  // First encounter for both sides: record the alignment and reuse the current object directly.
-  currentToNext.set(currentValue, nextValue)
-  nextToResult.set(nextValue, currentValue)
-  return currentValue
 }
 
 /**
@@ -968,7 +587,6 @@ function reconcileSharedObject(
 function reconcileKnownNextObject(
   currentValue: unknown,
   nextValue: object,
-  nextSource: object,
   currentObjects: CurrentObjectMap,
   currentToNext: WeakMap<object, object>,
   nextToResult: WeakMap<object, object>,
@@ -988,14 +606,14 @@ function reconcileKnownNextObject(
   // `isObject(currentValue)` typeof check while also reusing the cached kind.
   // The function-entry `nextToResult.get(nextValue)` above already proved this is a cache miss,
   // so every snapshot path in this function dispatches through the cache-miss entry point to
-  // avoid a redundant lookup inside `snapshotAlignedObject`.
+  // avoid a redundant lookup inside `snapshot`.
   const currentKind = currentObjects.get(currentValue as object)
   const nextKind = objectKindOf(nextValue)
 
   // Current was consumed by a different next node. Reusing it here would collapse distinct next
   // topology into one object.
   if (currentKind === undefined || currentToNext.get(currentValue as object) !== undefined) {
-    return snapshotAlignedObjectAfterMiss(nextKind, nextValue, nextSource, nextToResult)
+    return snapshotObjectByKindAfterMiss(nextKind, nextValue, nextToResult)
   }
 
   // In-place reconciliation is only valid for matching runtime kinds. The kind has already been
@@ -1005,12 +623,11 @@ function reconcileKnownNextObject(
         currentKind,
         currentValue as object,
         nextValue,
-        nextSource,
         currentObjects,
         currentToNext,
         nextToResult,
       ) as object)
-    : snapshotAlignedObjectAfterMiss(nextKind, nextValue, nextSource, nextToResult)
+    : snapshotObjectByKindAfterMiss(nextKind, nextValue, nextToResult)
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -1066,15 +683,27 @@ export function reconcile(current: unknown, next: unknown): unknown {
   }
 
   const currentObjects = new WeakMap<object, ObjectKind>()
-  collectCurrentObjects(current, currentObjects)
+  collectObjectKinds(current, currentObjects)
+
+  // Shared next graphs need stable edges as well as stable payloads. Per-container
+  // snapshots cannot recover an original child identity after an earlier branch replaces it.
+  const nextObjects = new Map<object, ObjectKind>()
+  collectObjectKinds(next, nextObjects)
+  let nextSource = next
+
+  for (const object of nextObjects.keys()) {
+    if (currentObjects.has(object)) {
+      nextSource = snapshot(next) as object
+      break
+    }
+  }
 
   // Allocate the witness maps once for the entire reconcile walk, then dispatch into the matching
   // kind handler.
   return reconcileObjectByKind(
     rootKind,
     current,
-    next,
-    next,
+    nextSource,
     currentObjects,
     new WeakMap<object, object>(),
     new WeakMap<object, object>(),

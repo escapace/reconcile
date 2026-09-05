@@ -411,6 +411,8 @@ reconcileRoot(current, next):
     return next
   if kind(current) ≠ kind(next):
     return next
+  if current and next have any reachable object identity in common:
+    next := snapshot(next)
   return reconcileObjectByKind(current, next, emptyReuse, emptyImage)
 ```
 
@@ -442,36 +444,23 @@ This is the source of the root-versus-nested asymmetry:
 - root primitive or root kind mismatch returns the exact `next` root,
 - nested primitive or nested kind mismatch snapshots the next subtree instead.
 
-### 5.4 — Shared-object fast path
+### 5.4 — Shared next graphs
 
-When two aligned entries are equal by `SameValue` and are object-like, `reconcile` uses the following rule.
+After the root fast paths, the runtime checks whether the current and next graphs share any reachable object identity. If they do, it snapshots the next graph before publication begins. Both the values and the reference edges used by recursive reconciliation therefore represent next before any current-side writes. The snapshot preserves next-side sharing, distinct references, cycles, and buffer aliasing.
 
-```text
-reconcileSharedObject(current, next, reuse, image):
-  if image(next) is defined:
-    return image(next)
-  if reuse(current) is defined:
-    return snapshot(next, image)
-  reuse(current) := next
-  image(next) := current
-  return current
-```
+A child cannot be returned unchanged solely because its original current and next identities were equal. Its descendants still need witness registration: a later branch may align one of those descendants with a distinct next node. Recursive object children therefore follow §5.3, including when their original identities matched.
 
-This preserves equal-next sharing while preventing reuse of one current node for two distinct next nodes.
+This replaces the former runtime shared-object shortcut. That shortcut could leave descendants unregistered and let sibling writes corrupt the next graph. The Lean model's separate current and next namespaces do not by themselves model these host-language overlapping heaps; its shared-object witness is not a runtime recipe for skipping descendant traversal.
 
 ### 5.5 — Entry rule
 
-For aligned child entries, `reconcileEntry(currentEntry, nextEntry, reuse, image)` is:
+For aligned child entries, `reconcileEntry(currentEntry, nextEntry, reuse, image)` follows the recursive value rule:
 
 ```text
-if SameValue(currentEntry, nextEntry):
-  if nextEntry is object-like:
-    return reconcileSharedObject(currentEntry, nextEntry, reuse, image)
-  else:
-    return currentEntry
-else:
-  return reconcileValue(currentEntry, nextEntry, reuse, image)
+return reconcileValue(currentEntry, nextEntry, reuse, image)
 ```
+
+The root SameValue fast path remains unchanged. Nested object entries honor cached images and otherwise visit their descendants.
 
 ### 5.6 — Object-by-kind dispatcher
 

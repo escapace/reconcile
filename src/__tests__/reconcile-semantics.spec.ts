@@ -240,7 +240,8 @@ describe('§5.4 Shared-object fast path', () => {
       // Per Lean spec §5.1: current can only be consumed for ONE next node
       // Since shared was consumed for nextA, and nextA !== shared, must snapshot
       assert.notEqual(result.b, shared)
-      assert.equal((result.b as { count: number }).count, 5)
+      // Preserve next.b as it was before publication, not the write made through next.a.
+      assert.equal((result.b as { count: number }).count, 0)
     })
 
     it('consumes current for next when both are fresh', () => {
@@ -885,19 +886,19 @@ describe('§6.8 Plain objects', () => {
 
   describe('Prototype handling', () => {
     it('retains current prototype (not next prototype)', () => {
-      const proto1 = { inherited: 'from-current' }
-      const proto2 = { inherited: 'from-next' }
-      const current = Object.create(proto1, {
+      const prototype1 = { inherited: 'from-current' }
+      const prototype2 = { inherited: 'from-next' }
+      const current = Object.create(prototype1, {
         x: { configurable: true, enumerable: true, value: 1, writable: true },
       }) as { x: number }
-      const next = Object.create(proto2, {
+      const next = Object.create(prototype2, {
         x: { configurable: true, enumerable: true, value: 10, writable: true },
       }) as { x: number }
 
       const result = reconcile(current, next)
 
       assert.equal(result, current)
-      assert.equal(Object.getPrototypeOf(result), proto1)
+      assert.equal(Object.getPrototypeOf(result), prototype1)
       assert.equal(
         (Object.getPrototypeOf(result) as { inherited: string }).inherited,
         'from-current',

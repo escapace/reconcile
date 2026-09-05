@@ -1,7 +1,7 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
-import { version } from './package.json'
-import { builds } from './scripts/constants.json'
-import configShared from './vitest.config'
+import packageJSON from './package.json' with { type: 'json' }
+import constants from './scripts/constants.json' with { type: 'json' }
+import configShared from './vitest.config.ts'
 
 export default mergeConfig(
   configShared,
@@ -10,12 +10,14 @@ export default mergeConfig(
       ...['neutral', 'browser', 'node']
         .map(
           (target) =>
-            (Reflect.get(builds, target) as { define?: Record<string, string> } | undefined)
-              ?.define,
+            (
+              Reflect.get(constants.builds, target) as
+                { define?: Record<string, string> } | undefined
+            )?.define,
         )
         .find((value) => value !== undefined),
       __ENVIRONMENT__: JSON.stringify('development'),
-      __VERSION__: JSON.stringify(version),
+      __VERSION__: JSON.stringify(packageJSON.version),
       __VITEST_PROJECT__: JSON.stringify('neutral'),
     },
     test: {

@@ -48,7 +48,7 @@ The same rules apply to wrappers that behave like objects, arrays, maps, or sets
 
 # API
 
-## function createPatch [↗](src/patch.ts#L1250-L1281 'createPatch')
+## function createPatch [↗](src/patch.ts#L1267-L1289 'createPatch')
 
 Runs `recipe` against a temporary writable draft of `current` and returns the resulting next value without applying it back onto `current`.
 
@@ -85,7 +85,7 @@ Array drafts support normal array iteration, including `for...of`, `entries()`, 
 
 `createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy. `patch(...)` applies the result through `reconcile(current, next)`.
 
-## function patch [↗](src/patch.ts#L1320-L1322 'patch')
+## function patch [↗](src/patch.ts#L1328-L1330 'patch')
 
 Runs `recipe` against a temporary writable draft of `current`, then applies the resulting next value back onto `current` through `reconcile(...)`.
 
@@ -118,7 +118,7 @@ After the recipe finishes, `patch(...)` applies the next value through `reconcil
 
 `createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy.
 
-## function reconcile [↗](src/reconcile.ts#L1049-L1082 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L666-L711 'reconcile')
 
 Applies `next` onto `current` by updating existing objects and collections when possible.
 
@@ -147,7 +147,7 @@ Supported values include plain JavaScript objects, arrays, maps, sets, `Date`, `
 
 Primitive values are handled directly. If either root is not object-like, or if the root kinds differ, the function returns `next`.
 
-## function snapshot [↗](src/snapshot.ts#L36-L51 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L37-L52 'snapshot')
 
 Creates a detached snapshot of `value`.
 

@@ -1,3 +1,4 @@
+import { setOwnProperty } from './set-own-property'
 import { isObject } from 'coastal'
 
 import { cloneBufferView } from './clone-buffer-view'
@@ -128,7 +129,7 @@ export function snapshotObjectByKindAfterMiss(
 
       for (let index = 0; index < ownNames.length; index += 1) {
         const key = ownNames[index]
-        replacement[key] = snapshot(sourceObject[key], seen)
+        setOwnProperty(replacement, key, snapshot(sourceObject[key], seen))
       }
 
       const ownSymbols = Object.getOwnPropertySymbols(sourceObject)
@@ -136,7 +137,7 @@ export function snapshotObjectByKindAfterMiss(
       if (ownSymbols.length > 0) {
         for (let index = 0; index < ownSymbols.length; index += 1) {
           const key = ownSymbols[index]
-          replacement[key] = snapshot(sourceObject[key], seen)
+          setOwnProperty(replacement, key, snapshot(sourceObject[key], seen))
         }
       }
 

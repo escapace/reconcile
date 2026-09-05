@@ -552,3 +552,75 @@ describe('patch property semantics', () => {
     )
   })
 })
+
+describe('overlapping and cyclic graph regressions', () => {
+  it('publishes the original next topology for generated overlapping heaps', () => {
+    interface Node {
+      value: number
+      a?: Node
+      b?: Node
+    }
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            a: fc.integer({ max: 7, min: -1 }),
+            b: fc.integer({ max: 7, min: -1 }),
+            value: fc.integer(),
+          }),
+          { maxLength: 8, minLength: 8 },
+        ),
+        (edges) => {
+          const nodes: Node[] = edges.map(({ value }) => ({ value }))
+          for (let index = 0; index < nodes.length; index += 1) {
+            const edge = edges[index]
+            nodes[index].a = edge.a < 0 ? undefined : nodes[edge.a]
+            nodes[index].b = edge.b < 0 ? undefined : nodes[edge.b]
+          }
+          const current = { a: nodes[0], b: nodes[1] }
+          const next = { a: nodes[4], b: nodes[5] }
+          const expected = normalize(next)
+          assert.deepEqual(normalize(reconcile(current, next)), expected)
+        },
+      ),
+      { numRuns: 250, seed: 20_260_905 },
+    )
+  })
+
+  it('redirects every edge in a cycle after changing one payload', () => {
+    interface Node {
+      payload: { value: number }
+      next?: Node
+    }
+    fc.assert(
+      fc.property(fc.integer({ max: 8, min: 1 }), fc.nat(7), (length, offset) => {
+        const nodes: Node[] = Array.from({ length }, () => ({
+          next: undefined,
+          payload: { value: 0 },
+        }))
+        for (let index = 0; index < length; index += 1) {
+          nodes[index].next = nodes[(index + 1) % length]
+        }
+        const root = nodes[0]
+        const before = normalize(root)
+        const result = createPatch(root, (draft) => {
+          let node = draft
+          for (let index = 0; index < offset % length; index += 1) {
+            node = node.next!
+          }
+          node.payload.value = 1
+          return draft
+        })
+        let node = result
+        for (let index = 0; index < length; index += 1) {
+          assert.notEqual(node, nodes[index])
+          assert.equal(node.payload.value, index === offset % length ? 1 : 0)
+          node = node.next!
+        }
+        assert.equal(node, result)
+        assert.deepEqual(normalize(root), before)
+      }),
+      { numRuns: 100, seed: 20_260_905 },
+    )
+  })
+})

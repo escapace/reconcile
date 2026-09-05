@@ -213,7 +213,8 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
     set(_target, property, value) {
       const source = draftValue<Record<PropertyKey, unknown> | unknown[]>(state)
 
-      if (Reflect.has(source, property)) {
+      // An inherited equal value still needs an own property created by this write.
+      if (Object.prototype.hasOwnProperty.call(source, property)) {
         const currentValue: unknown = Reflect.get(source, property) as unknown
 
         if (Object.is(currentValue, value)) {
@@ -227,6 +228,14 @@ function ensureObjectArrayProxy(state: ObjectArrayDraftState): object {
       const copy = prepareObjectArrayCopy(state) as Record<PropertyKey, unknown>
       state.children.delete(property)
       copy[property] = value
+      if (state.kind === OBJECT_KIND_ARRAY && property === 'length') {
+        // A length write deletes indices without invoking this proxy's delete trap.
+        for (const key of state.children.keys()) {
+          if (!Object.prototype.hasOwnProperty.call(copy, key)) {
+            state.children.delete(key)
+          }
+        }
+      }
       state.modified = true
       return true
     },
@@ -521,7 +530,7 @@ function isSpecialValueEquivalent(
       return true
     }
     case OBJECT_KIND_DATE:
-      return (base as Date).getTime() === (candidate as Date).getTime()
+      return Object.is((base as Date).getTime(), (candidate as Date).getTime())
     default:
       // Defensive fallback: callers currently use this helper for clone-on-read specials, but the
       // generic SameValue path keeps the helper safe if that discipline broadens later.
@@ -532,6 +541,7 @@ function isSpecialValueEquivalent(
 
 class PatchContext {
   private materializationRequired: WeakMap<object, boolean> | undefined
+  private materializationVisited: Set<object> | undefined
   private materializedValues: WeakMap<object, unknown> | undefined
   readonly specialCloneBaseToClone = new WeakMap<object, object>()
   readonly specialCloneCloneToBase = new WeakMap<object, object>()
@@ -558,6 +568,14 @@ class PatchContext {
     const replacement = snapshotObjectByKindAfterMiss(kind, value, this.specialCloneBaseToClone)
 
     this.specialCloneCloneToBase.set(replacement, value)
+    if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
+      // Snapshotting a view also clones its buffer. Register that indirect clone
+      // so a later buffer read finalizes to the same backing store as the view.
+      this.specialCloneCloneToBase.set(
+        (replacement as ArrayBufferView).buffer,
+        (value as ArrayBufferView).buffer,
+      )
+    }
     return replacement
   }
 
@@ -624,7 +642,7 @@ class PatchContext {
   }
 
   materializeChild<K>(children: Map<K, unknown>, key: K, value: object): object {
-    if (this.statesByHandle.get(value) !== undefined) {
+    if (this.statesByHandle.has(value) || this.specialCloneCloneToBase.has(value)) {
       children.set(key, value)
       return value
     }
@@ -732,75 +750,73 @@ class PatchContext {
   }
 
   needsMaterialization(value: unknown, knownKind: ObjectKind | undefined = undefined): boolean {
+    if (this.materializationVisited !== undefined) {
+      return this.checkMaterialization(value, knownKind, this.materializationVisited)
+    }
+
+    const visited = new Set<object>()
+    this.materializationVisited = visited
+
+    try {
+      const result = this.checkMaterialization(value, knownKind, visited)
+
+      // A cycle guard is provisional. Cache negative answers only when the entire
+      // reachable search found no changes; a later sibling may change an ancestor.
+      if (!result) {
+        const memo = this.getMaterializationRequired()
+        for (const node of visited) {
+          memo.set(node, false)
+        }
+      }
+
+      return result
+    } finally {
+      this.materializationVisited = undefined
+    }
+  }
+
+  private checkMaterialization(
+    value: unknown,
+    knownKind: ObjectKind | undefined,
+    visited: Set<object>,
+  ): boolean {
     if (!isObject(value)) {
       return false
     }
 
+    // A handle needs unwrapping even when its base is unchanged. Do not cache
+    // this answer against the base: materializeState can still reuse that base.
+    if (this.statesByHandle.has(value)) {
+      return true
+    }
+
+    const state = this.draftStateFor(value)
+    const base = state?.base ?? value
     const memo = this.getMaterializationRequired()
-    const cached = memo.get(value)
+    const cached = memo.get(base)
 
     if (cached !== undefined) {
       return cached
     }
 
-    const draftState = this.draftStateFor(value)
-
-    // Clone-on-read specials always require finalization whenever they are tracked. Their
-    // unchanged-vs-changed decision is made by `isSpecialValueEquivalent(...)` later in the
-    // materialize pipeline.
     if (
-      draftState === undefined &&
-      (this.specialCloneCloneToBase.get(value) !== undefined ||
-        this.specialCloneBaseToClone.get(value) !== undefined)
+      state?.modified === true ||
+      (state === undefined &&
+        (this.specialCloneCloneToBase.has(value) || this.specialCloneBaseToClone.has(value)))
     ) {
-      memo.set(value, true)
+      memo.set(base, true)
       return true
     }
 
-    if (draftState !== undefined) {
-      if (draftState.modified) {
-        memo.set(value, true)
-        return true
-      }
-
-      // An unmodified managed draft can still need materialization if any descendant reached
-      // through its base graph is modified or clone-on-read. Walk the base to answer that.
-      const base = draftState.base
-
-      if (base !== value) {
-        const baseCached = memo.get(base)
-
-        if (baseCached !== undefined) {
-          memo.set(value, baseCached)
-          return baseCached
-        }
-      }
-
-      // Speculate no before recursing so cyclic base graphs terminate cleanly.
-      memo.set(value, false)
-      if (base !== value) {
-        memo.set(base, false)
-      }
-
-      const descendantResult = this.walkDescendantsForMaterialization(base, draftState.kind)
-
-      if (descendantResult) {
-        memo.set(value, true)
-        if (base !== value) {
-          memo.set(base, true)
-        }
-      }
-
-      return descendantResult
+    if (visited.has(base)) {
+      return false
     }
 
-    // Speculate no before recursing so cyclic graphs terminate cleanly.
-    memo.set(value, false)
-
-    const result = this.walkDescendantsForMaterialization(value, knownKind)
+    visited.add(base)
+    const result = this.walkDescendantsForMaterialization(base, state?.kind ?? knownKind)
 
     if (result) {
-      memo.set(value, true)
+      memo.set(base, true)
     }
 
     return result
@@ -1266,15 +1282,6 @@ export function createPatch<T, R>(current: T, recipe: (draft: T) => R): R {
   }
 
   if (!context.needsMaterialization(result)) {
-    // When the recipe returns a draft handle whose state is unmodified and whose descendants do
-    // not need materialization, the handle must be unwrapped to its backing base before return.
-    // Returning the handle would leak the proxy or collection wrapper to the caller.
-    const handleState = context.statesByHandle.get(result)
-
-    if (handleState !== undefined) {
-      return handleState.base as R
-    }
-
     return result
   }
 
