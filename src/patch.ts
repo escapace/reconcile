@@ -540,8 +540,17 @@ function isSpecialValueEquivalent(
   }
 }
 
+interface MaterializationPlan {
+  clonesSpecialValues: boolean
+  readonly deferred: Map<object, () => unknown>
+  parent: object | undefined
+  readonly parents: WeakMap<object, Set<object>>
+  readonly pending: object[]
+  readonly required: WeakSet<object>
+}
+
 class PatchContext {
-  private discoveredUntrackedSpecial = false
+  private materializationPlan: MaterializationPlan | undefined
   private materializationRequired: WeakMap<object, boolean> | undefined
   private materializationVisited: Set<object> | undefined
   private materializedValues: WeakMap<object, unknown> | undefined
@@ -764,17 +773,57 @@ class PatchContext {
   }
 
   materializeResult(value: object): unknown {
+    const plan: MaterializationPlan = {
+      clonesSpecialValues: false,
+      deferred: new Map<object, () => unknown>(),
+      parent: undefined,
+      parents: new WeakMap<object, Set<object>>(),
+      pending: [],
+      required: new WeakSet<object>(),
+    }
+    this.materializationPlan = plan
+    this.materializationRequired = undefined
     let result: unknown
-    do {
-      // A cloned special can also occur inside an otherwise unchanged subtree. Repeat
-      // with those clone requirements known so every alias uses the same final image.
-      // Each additional pass discovers at least one previously unmarked special.
-      this.discoveredUntrackedSpecial = false
+    try {
+      // Discover clone requirements using the same slot rules as final publication.
+      // Only previously skipped subtrees need expansion when a new requirement arrives.
+      result = this.materializeValue(value)
+      for (let index = 0; index < plan.pending.length; index += 1) {
+        const node = plan.pending[index]
+        const expand = plan.deferred.get(node)
+        if (expand !== undefined) {
+          plan.deferred.delete(node)
+          this.getMaterializedValues().delete(node)
+          expand()
+        }
+      }
+    } finally {
+      this.materializationPlan = undefined
       this.materializationRequired = undefined
       this.materializedValues = undefined
-      result = this.materializeValue(value)
-    } while (this.discoveredUntrackedSpecial)
-    return result
+    }
+    return plan.clonesSpecialValues ? this.materializeValue(value) : result
+  }
+
+  private requireMaterialization(value: object, plan: MaterializationPlan): void {
+    const pending = [value]
+    for (let index = 0; index < pending.length; index += 1) {
+      const node = pending[index]
+      if (plan.required.has(node)) {
+        continue
+      }
+      plan.required.add(node)
+      this.getMaterializationRequired().set(node, true)
+      if (plan.deferred.has(node)) {
+        plan.pending.push(node)
+      }
+      const parents = plan.parents.get(node)
+      if (parents !== undefined) {
+        for (const parent of parents) {
+          pending.push(parent)
+        }
+      }
+    }
   }
 
   materializeValue(value: unknown): unknown {
@@ -793,6 +842,19 @@ class PatchContext {
   }
 
   needsMaterialization(value: unknown, knownKind: ObjectKind | undefined = undefined): boolean {
+    const plan = this.materializationPlan
+    if (plan?.parent !== undefined && isObject(value)) {
+      const child = this.draftStateFor(value)?.base ?? value
+      let parents = plan.parents.get(child)
+      if (parents === undefined) {
+        parents = new Set<object>()
+        plan.parents.set(child, parents)
+      }
+      parents.add(plan.parent)
+      if (plan.required.has(child)) {
+        this.requireMaterialization(plan.parent, plan)
+      }
+    }
     if (this.materializationVisited !== undefined) {
       return this.checkMaterialization(value, knownKind, this.materializationVisited)
     }
@@ -836,6 +898,9 @@ class PatchContext {
     const state = this.draftStateFor(value)
     const base = state?.base ?? value
     const memo = this.getMaterializationRequired()
+    if (this.materializationPlan?.required.has(base) === true) {
+      return true
+    }
     const cached = memo.get(base)
 
     if (cached !== undefined) {
@@ -877,6 +942,9 @@ class PatchContext {
 
     if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
       const buffer = (value as ArrayBufferView).buffer
+      if (this.untrackedSpecialsToClone.has(buffer)) {
+        return false
+      }
       if (this.specialCloneCloneToBase.has(buffer)) {
         return this.materializeValue(buffer) === buffer
       }
@@ -1132,6 +1200,7 @@ class PatchContext {
     // reached through its base graph forces materialization (shared draft touched via a sibling,
     // clone-on-read special, etc.). `needsMaterialization(...)` centralizes that recursive check.
     if (!state.modified && !this.needsMaterialization(state.base)) {
+      this.materializationPlan?.deferred.set(state.base, () => this.materializeState(state))
       memo.set(state.base, state.base)
       return state.base
     }
@@ -1181,7 +1250,10 @@ class PatchContext {
     const kind = knownKind ?? objectKindOf(value)
     if (cloneOnReadSpecialKind(kind) !== undefined && !this.untrackedSpecialsToClone.has(value)) {
       this.untrackedSpecialsToClone.add(value)
-      this.discoveredUntrackedSpecial = true
+      if (this.materializationPlan !== undefined) {
+        this.materializationPlan.clonesSpecialValues = true
+        this.requireMaterialization(value, this.materializationPlan)
+      }
     }
 
     switch (kind) {
@@ -1190,6 +1262,9 @@ class PatchContext {
       case OBJECT_KIND_PLAIN:
       case OBJECT_KIND_SET:
         if (!this.needsMaterialization(value, kind)) {
+          this.materializationPlan?.deferred.set(value, () =>
+            this.materializeUnmanagedUncachedObjectValue(value, kind, currentBackedBase),
+          )
           memo.set(value, value)
           return value
         }
@@ -1221,6 +1296,24 @@ class PatchContext {
   private walkDescendantsForMaterialization(
     value: object,
     knownKind: ObjectKind | undefined = undefined,
+  ): boolean {
+    const plan = this.materializationPlan
+    const previousParent = plan?.parent
+    if (plan !== undefined) {
+      plan.parent = value
+    }
+    try {
+      return this.checkDescendantsForMaterialization(value, knownKind)
+    } finally {
+      if (plan !== undefined) {
+        plan.parent = previousParent
+      }
+    }
+  }
+
+  private checkDescendantsForMaterialization(
+    value: object,
+    knownKind: ObjectKind | undefined,
   ): boolean {
     switch (knownKind ?? objectKindOf(value)) {
       case OBJECT_KIND_DATA_VIEW:
