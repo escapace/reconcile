@@ -1248,11 +1248,12 @@ class PatchContext {
     }
 
     const kind = knownKind ?? objectKindOf(value)
-    if (cloneOnReadSpecialKind(kind) !== undefined && !this.untrackedSpecialsToClone.has(value)) {
-      this.untrackedSpecialsToClone.add(value)
-      if (this.materializationPlan !== undefined) {
-        this.materializationPlan.clonesSpecialValues = true
-        this.requireMaterialization(value, this.materializationPlan)
+    if (cloneOnReadSpecialKind(kind) !== undefined) {
+      this.planSpecialClone(value)
+      if (kind === OBJECT_KIND_DATA_VIEW || kind === OBJECT_KIND_TYPED_ARRAY) {
+        // A planning cache hit may reuse this buffer even though publication will
+        // clone it. Record the backing-store requirement before consulting that cache.
+        this.planSpecialClone((value as ArrayBufferView).buffer)
       }
     }
 
@@ -1290,6 +1291,21 @@ class PatchContext {
         memo.set(value, replacement)
         return replacement
       }
+    }
+  }
+
+  private planSpecialClone(value: object): void {
+    if (
+      this.specialCloneBaseToClone.has(value) ||
+      this.specialCloneCloneToBase.has(value) ||
+      this.untrackedSpecialsToClone.has(value)
+    ) {
+      return
+    }
+    this.untrackedSpecialsToClone.add(value)
+    if (this.materializationPlan !== undefined) {
+      this.materializationPlan.clonesSpecialValues = true
+      this.requireMaterialization(value, this.materializationPlan)
     }
   }
 
