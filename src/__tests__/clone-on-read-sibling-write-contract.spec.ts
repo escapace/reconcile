@@ -1,6 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
-import { createPatch } from '../patch'
+import { produce } from '../produce'
 
 const bytesOf = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
 const viewBytesOf = (value: ArrayBufferView): number[] =>
@@ -14,7 +14,7 @@ describe('clone-on-read sibling-write contract', () => {
       touched: { count: 0 },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -32,7 +32,7 @@ describe('clone-on-read sibling-write contract', () => {
       touched: { count: 0 },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -51,7 +51,7 @@ describe('clone-on-read sibling-write contract', () => {
       view,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -72,7 +72,7 @@ describe('clone-on-read sibling-write contract', () => {
       typed,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -103,7 +103,7 @@ describe('clone-on-read sibling-write contract', () => {
       viewRight: view,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -133,7 +133,7 @@ describe('clone-on-read sibling-write contract', () => {
       view,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -152,7 +152,7 @@ describe('clone-on-read sibling-write contract', () => {
       right: new Uint8Array(buffer, 2, 2),
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       void draft.left
       draft.right[0] = 9
       return draft
@@ -174,7 +174,7 @@ describe('clone-on-read sibling-write contract', () => {
       right: new Uint8Array(buffer, 2, 2),
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       void draft.left
       draft.right[0] = 9
       return draft
@@ -203,7 +203,7 @@ describe('clone-on-read sibling-write contract', () => {
       typeof touched,
     ]
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft[4].count = 1
       return draft
     })
@@ -229,7 +229,7 @@ describe('clone-on-read sibling-write contract', () => {
       [dateKey, valueDate],
     ])
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       ;(draft.get('touched') as typeof touched).count = 1
       return draft
     })
@@ -249,7 +249,7 @@ describe('clone-on-read sibling-write contract', () => {
     const current = new Set<unknown>([buffer, date, typed, view])
 
     const inserted = { count: 1 }
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.add(inserted)
       return draft
     })
@@ -273,7 +273,7 @@ describe('clone-on-read sibling-write contract', () => {
       touched,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -303,7 +303,7 @@ describe('clone-on-read sibling-write contract', () => {
       touched,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -329,7 +329,7 @@ describe('clone-on-read sibling-write contract', () => {
     ])
     const current = { map, touched }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -349,7 +349,7 @@ describe('clone-on-read sibling-write contract', () => {
     const set = new Set<unknown>([buffer, date, touched, typed, view])
     const current = { set, touched }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.touched.count = 1
       return draft
     })
@@ -375,7 +375,7 @@ describe('clone-on-read sibling-write contract', () => {
       view,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.item.count = 1
       return { buffer, date, item: draft.item, typed, view }
     })

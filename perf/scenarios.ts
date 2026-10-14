@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 
 import { cloneDeep } from 'es-toolkit'
-import { enableMapSet, produce, setAutoFreeze } from 'immer'
+import { enableMapSet, produce as immerProduce, setAutoFreeze } from 'immer'
 
-import { createPatch } from '../src/index'
+import { produce } from '../src/index'
 import { reconcile } from '../src/reconcile'
 import { snapshot } from '../src/snapshot'
 
-export const BATCH_SIZE = 150
+import { BATCH_SIZE } from './config'
+export { BATCH_SIZE } from './config'
 const INPUT_COUNT = 64
 
 let sink: unknown
@@ -488,7 +489,67 @@ export const createContextRuntimeSnapshotBenchmarks = () => {
   }
 }
 
+const assertOrderedGraph = (actual: object, expected: object): void => {
+  const images = new Map<object, object>()
+  const reverse = new Map<object, object>()
+  const visit = (left: unknown, right: unknown): void => {
+    if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+      assert.ok(Object.is(left, right))
+      return
+    }
+    if (images.has(right)) {
+      assert.equal(left, images.get(right))
+      return
+    }
+    assert.ok(!reverse.has(left))
+    images.set(right, left)
+    reverse.set(left, right)
+    if (left instanceof Map && right instanceof Map) {
+      const entries = right.entries()
+      for (const [key, value] of left) {
+        const other = entries.next().value!
+        visit(key, other[0])
+        visit(value, other[1])
+      }
+    } else if (left instanceof Set && right instanceof Set) {
+      const values = right.values()
+      for (const value of left) visit(value, values.next().value)
+    } else if (ArrayBuffer.isView(left) && ArrayBuffer.isView(right)) {
+      visit(left.buffer, right.buffer)
+    } else {
+      assert.deepStrictEqual(Reflect.ownKeys(left), Reflect.ownKeys(right))
+      for (const key of Reflect.ownKeys(right))
+        visit(Reflect.get(left, key), Reflect.get(right, key))
+    }
+  }
+  assert.deepStrictEqual(actual, expected)
+  visit(actual, expected)
+}
+
+// Validate the operation contract outside timed batches. The clone comparison below
+// is a detached-copy reference, not an alternative implementation of publication.
+const validateReconcileScenario = <T extends { sharedLeft: object; sharedRight: object; self?: T }>(
+  factory: (seed: number, variant: 0 | 1) => T,
+): void => {
+  for (let seed = 1; seed <= INPUT_COUNT; seed += 1) {
+    const current = structuredClone(factory(seed, 0))
+    const shared = current.sharedLeft
+    for (const variant of [1, 0] as const) {
+      const next = factory(seed, variant)
+      const before = structuredClone(next)
+      assert.equal(reconcile(current, next), current)
+      assertOrderedGraph(current, before)
+      assertOrderedGraph(next, before)
+      assert.deepStrictEqual(Reflect.ownKeys(current), Reflect.ownKeys(next))
+      assert.equal(current.self, current)
+      assert.equal(current.sharedLeft, shared)
+      assert.equal(current.sharedRight, shared)
+    }
+  }
+}
+
 export const createContextRuntimeReconcileBenchmarks = () => {
+  validateReconcileScenario(createReconcileTarget)
   const baselineReconcileBatch = createReconcileBatchRunner(
     (_current, next) => cloneDeep(next),
     createReconcileSlots(),
@@ -525,6 +586,7 @@ function createPlainObjectBatchRunner(
 }
 
 export const createContextRuntimeReconcilePlainObjectBenchmarks = () => {
+  validateReconcileScenario(createPlainObjectTarget)
   const baselineReconcilePlainObjectBatch = createPlainObjectBatchRunner(
     (_current, next) => cloneDeep(next),
     createPlainObjectSlots(),
@@ -544,7 +606,7 @@ enableMapSet()
 setAutoFreeze(false)
 
 /**
- * Shared-surface `createPatch` vs Immer benchmark.
+ * Shared-surface `produce` vs Immer benchmark.
  *
  * Included on purpose:
  * - plain objects
@@ -563,7 +625,7 @@ setAutoFreeze(false)
  * Immer is configured with `enableMapSet()` and `setAutoFreeze(false)` so this measures draft
  * update work rather than freeze costs, and both runtimes execute the same toggle recipe.
  */
-interface CreatePatchImmerItem {
+interface ProduceImmerItem {
   done: boolean
   id: string
   nested: {
@@ -573,7 +635,7 @@ interface CreatePatchImmerItem {
   scores: number[]
 }
 
-interface CreatePatchImmerMapValue {
+interface ProduceImmerMapValue {
   done: boolean
   meta: {
     label: string
@@ -581,7 +643,7 @@ interface CreatePatchImmerMapValue {
   }
 }
 
-interface CreatePatchImmerObjectState {
+interface ProduceImmerObjectState {
   counts: {
     active: number
     total: number
@@ -597,20 +659,20 @@ interface CreatePatchImmerObjectState {
   note?: string
 }
 
-interface CreatePatchImmerState {
+interface ProduceImmerState {
   id: number
-  items: CreatePatchImmerItem[]
-  object: CreatePatchImmerObjectState
+  items: ProduceImmerItem[]
+  object: ProduceImmerObjectState
   phase: 0 | 1
-  table: Map<string, CreatePatchImmerMapValue>
+  table: Map<string, ProduceImmerMapValue>
   tags: Set<string>
 }
 
-interface CreatePatchImmerSlot {
-  current: CreatePatchImmerState
+interface ProduceImmerSlot {
+  current: ProduceImmerState
 }
 
-const createPatchImmerPrimaryItem = (seed: number, phase: 0 | 1): CreatePatchImmerItem => ({
+const produceImmerPrimaryItem = (seed: number, phase: 0 | 1): ProduceImmerItem => ({
   done: phase === 1,
   id: `primary-${seed}`,
   nested: {
@@ -620,7 +682,7 @@ const createPatchImmerPrimaryItem = (seed: number, phase: 0 | 1): CreatePatchImm
   scores: phase === 0 ? [seed, seed + 1, seed + 2] : [seed, seed + 11, seed + 2],
 })
 
-const createPatchImmerSecondaryItem = (seed: number, phase: 0 | 1): CreatePatchImmerItem =>
+const produceImmerSecondaryItem = (seed: number, phase: 0 | 1): ProduceImmerItem =>
   phase === 0
     ? {
         done: false,
@@ -641,7 +703,7 @@ const createPatchImmerSecondaryItem = (seed: number, phase: 0 | 1): CreatePatchI
         scores: [seed + 20, seed + 21],
       }
 
-const createPatchImmerTailItem = (seed: number): CreatePatchImmerItem => ({
+const produceImmerTailItem = (seed: number): ProduceImmerItem => ({
   done: false,
   id: `tail-${seed}`,
   nested: {
@@ -651,7 +713,7 @@ const createPatchImmerTailItem = (seed: number): CreatePatchImmerItem => ({
   scores: [seed + 30, seed + 31, seed + 32],
 })
 
-const createPatchImmerAlphaMapValue = (seed: number, phase: 0 | 1): CreatePatchImmerMapValue => ({
+const produceImmerAlphaMapValue = (seed: number, phase: 0 | 1): ProduceImmerMapValue => ({
   done: phase === 1,
   meta: {
     label: phase === 0 ? `alpha-cold-${seed}` : `alpha-hot-${seed}`,
@@ -659,7 +721,7 @@ const createPatchImmerAlphaMapValue = (seed: number, phase: 0 | 1): CreatePatchI
   },
 })
 
-const createPatchImmerBetaMapValue = (seed: number): CreatePatchImmerMapValue => ({
+const produceImmerBetaMapValue = (seed: number): ProduceImmerMapValue => ({
   done: true,
   meta: {
     label: `beta-${seed}`,
@@ -667,7 +729,7 @@ const createPatchImmerBetaMapValue = (seed: number): CreatePatchImmerMapValue =>
   },
 })
 
-const createPatchImmerGammaMapValue = (seed: number): CreatePatchImmerMapValue => ({
+const produceImmerGammaMapValue = (seed: number): ProduceImmerMapValue => ({
   done: false,
   meta: {
     label: `gamma-${seed}`,
@@ -675,7 +737,7 @@ const createPatchImmerGammaMapValue = (seed: number): CreatePatchImmerMapValue =
   },
 })
 
-const createPatchImmerObjectState = (seed: number, phase: 0 | 1): CreatePatchImmerObjectState =>
+const produceImmerObjectState = (seed: number, phase: 0 | 1): ProduceImmerObjectState =>
   phase === 0
     ? {
         counts: {
@@ -703,90 +765,51 @@ const createPatchImmerObjectState = (seed: number, phase: 0 | 1): CreatePatchImm
         },
       }
 
-const createPatchImmerItems = (seed: number, phase: 0 | 1): CreatePatchImmerItem[] =>
+const produceImmerItems = (seed: number, phase: 0 | 1): ProduceImmerItem[] =>
   phase === 0
-    ? [createPatchImmerPrimaryItem(seed, 0), createPatchImmerSecondaryItem(seed, 0)]
+    ? [produceImmerPrimaryItem(seed, 0), produceImmerSecondaryItem(seed, 0)]
     : [
-        createPatchImmerPrimaryItem(seed, 1),
-        createPatchImmerSecondaryItem(seed, 1),
-        createPatchImmerTailItem(seed),
+        produceImmerPrimaryItem(seed, 1),
+        produceImmerSecondaryItem(seed, 1),
+        produceImmerTailItem(seed),
       ]
 
-const createPatchImmerTable = (
-  seed: number,
-  phase: 0 | 1,
-): Map<string, CreatePatchImmerMapValue> =>
+const produceImmerTable = (seed: number, phase: 0 | 1): Map<string, ProduceImmerMapValue> =>
   phase === 0
-    ? new Map<string, CreatePatchImmerMapValue>([
-        ['alpha', createPatchImmerAlphaMapValue(seed, 0)],
-        ['beta', createPatchImmerBetaMapValue(seed)],
+    ? new Map<string, ProduceImmerMapValue>([
+        ['alpha', produceImmerAlphaMapValue(seed, 0)],
+        ['beta', produceImmerBetaMapValue(seed)],
       ])
-    : new Map<string, CreatePatchImmerMapValue>([
-        ['alpha', createPatchImmerAlphaMapValue(seed, 1)],
-        ['gamma', createPatchImmerGammaMapValue(seed)],
+    : new Map<string, ProduceImmerMapValue>([
+        ['alpha', produceImmerAlphaMapValue(seed, 1)],
+        ['gamma', produceImmerGammaMapValue(seed)],
       ])
 
 /* eslint-disable perfectionist/sort-sets */
-const createPatchImmerTags = (seed: number, phase: 0 | 1): Set<string> =>
+const produceImmerTags = (seed: number, phase: 0 | 1): Set<string> =>
   phase === 0
     ? new Set<string>([`shared-${seed % 3}`, `phase-0-${seed % 5}`])
     : new Set<string>([`shared-${seed % 3}`, `phase-1-${seed % 5}`, `phase-1-extra-${seed % 4}`])
 /* eslint-enable perfectionist/sort-sets */
 
-const createPatchImmerState = (seed: number, phase: 0 | 1): CreatePatchImmerState => ({
+const produceImmerState = (seed: number, phase: 0 | 1): ProduceImmerState => ({
   id: seed,
-  items: createPatchImmerItems(seed, phase),
-  object: createPatchImmerObjectState(seed, phase),
+  items: produceImmerItems(seed, phase),
+  object: produceImmerObjectState(seed, phase),
   phase,
-  table: createPatchImmerTable(seed, phase),
-  tags: createPatchImmerTags(seed, phase),
+  table: produceImmerTable(seed, phase),
+  tags: produceImmerTags(seed, phase),
 })
 
-const projectCreatePatchImmerState = (state: CreatePatchImmerState) => ({
-  id: state.id,
-  items: state.items.map((item) => ({
-    done: item.done,
-    id: item.id,
-    nested: {
-      label: item.nested.label,
-      weight: item.nested.weight,
-    },
-    scores: [...item.scores],
-  })),
-  object: {
-    counts: {
-      active: state.object.counts.active,
-      total: state.object.counts.total,
-    },
-    ...(state.object.extra === undefined
-      ? {}
-      : {
-          extra: {
-            code: state.object.extra.code,
-            weight: state.object.extra.weight,
-          },
-        }),
-    flags: {
-      hot: state.object.flags.hot,
-      warm: state.object.flags.warm,
-    },
-    ...(state.object.note === undefined ? {} : { note: state.object.note }),
-  },
-  phase: state.phase,
-  table: Array.from(state.table.entries(), ([key, value]) => [
-    key,
-    {
-      done: value.done,
-      meta: {
-        label: value.meta.label,
-        rank: value.meta.rank,
-      },
-    },
-  ]),
-  tags: Array.from(state.tags.values()),
-})
+const assertProduceImmerState = (actual: ProduceImmerState, expected: ProduceImmerState): void => {
+  // Compare complete states so missing keys remain distinct from present undefined values.
+  assert.deepStrictEqual(actual, expected)
+  // Deep equality treats maps and sets as unordered; their iteration order also matters here.
+  assert.deepStrictEqual(Array.from(actual.table.entries()), Array.from(expected.table.entries()))
+  assert.deepStrictEqual(Array.from(actual.tags.values()), Array.from(expected.tags.values()))
+}
 
-const toggleCreatePatchImmerDraft = (draft: CreatePatchImmerState): CreatePatchImmerState => {
+const toggleProduceImmerDraft = (draft: ProduceImmerState): ProduceImmerState => {
   const seed = draft.id
 
   if (draft.phase === 0) {
@@ -806,14 +829,14 @@ const toggleCreatePatchImmerDraft = (draft: CreatePatchImmerState): CreatePatchI
     draft.items[0].nested.label = `primary-hot-${seed}`
     draft.items[0].nested.weight = seed + 11
     draft.items[0].scores[1] = seed + 11
-    draft.items.splice(1, 1, createPatchImmerSecondaryItem(seed, 1), createPatchImmerTailItem(seed))
+    draft.items.splice(1, 1, produceImmerSecondaryItem(seed, 1), produceImmerTailItem(seed))
 
     const alpha = draft.table.get('alpha')!
     alpha.done = true
     alpha.meta.label = `alpha-hot-${seed}`
     alpha.meta.rank = seed + 41
     draft.table.delete('beta')
-    draft.table.set('gamma', createPatchImmerGammaMapValue(seed))
+    draft.table.set('gamma', produceImmerGammaMapValue(seed))
 
     draft.tags.delete(`phase-0-${seed % 5}`)
     draft.tags.add(`phase-1-${seed % 5}`)
@@ -835,14 +858,14 @@ const toggleCreatePatchImmerDraft = (draft: CreatePatchImmerState): CreatePatchI
   draft.items[0].nested.label = `primary-cold-${seed}`
   draft.items[0].nested.weight = seed + 1
   draft.items[0].scores[1] = seed + 1
-  draft.items.splice(1, 2, createPatchImmerSecondaryItem(seed, 0))
+  draft.items.splice(1, 2, produceImmerSecondaryItem(seed, 0))
 
   const alpha = draft.table.get('alpha')!
   alpha.done = false
   alpha.meta.label = `alpha-cold-${seed}`
   alpha.meta.rank = seed + 1
   draft.table.delete('gamma')
-  draft.table.set('beta', createPatchImmerBetaMapValue(seed))
+  draft.table.set('beta', produceImmerBetaMapValue(seed))
 
   draft.tags.delete(`phase-1-${seed % 5}`)
   draft.tags.delete(`phase-1-extra-${seed % 4}`)
@@ -851,54 +874,36 @@ const toggleCreatePatchImmerDraft = (draft: CreatePatchImmerState): CreatePatchI
   return draft
 }
 
-const validateCreatePatchImmerScenario = (): void => {
-  for (let seed = 1; seed <= 4; seed += 1) {
-    const phaseZero = createPatchImmerState(seed, 0)
-    const createPatchPhaseOne = createPatch(phaseZero, toggleCreatePatchImmerDraft)
-    const immerPhaseOne = produce(phaseZero, toggleCreatePatchImmerDraft)
-    const expectedPhaseOne = createPatchImmerState(seed, 1)
-
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(createPatchPhaseOne),
-      projectCreatePatchImmerState(expectedPhaseOne),
-    )
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(immerPhaseOne),
-      projectCreatePatchImmerState(expectedPhaseOne),
-    )
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(createPatchPhaseOne),
-      projectCreatePatchImmerState(immerPhaseOne),
-    )
-
-    const createPatchPhaseZero = createPatch(createPatchPhaseOne, toggleCreatePatchImmerDraft)
-    const immerPhaseZero = produce(immerPhaseOne, toggleCreatePatchImmerDraft)
-
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(createPatchPhaseZero),
-      projectCreatePatchImmerState(phaseZero),
-    )
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(immerPhaseZero),
-      projectCreatePatchImmerState(phaseZero),
-    )
-    assert.deepStrictEqual(
-      projectCreatePatchImmerState(createPatchPhaseZero),
-      projectCreatePatchImmerState(immerPhaseZero),
-    )
+const validateProduceImmerScenario = (): void => {
+  for (const applyRecipe of [
+    (current: ProduceImmerState) => produce(current, toggleProduceImmerDraft),
+    (current: ProduceImmerState) => immerProduce(current, toggleProduceImmerDraft),
+  ]) {
+    for (let seed = 1; seed <= 4; seed += 1) {
+      // Each implementation gets its own input, and each transition checks preservation before
+      // another recipe can restore accidentally mutated values.
+      let current = produceImmerState(seed, 0)
+      for (const phase of [1, 0] as const) {
+        const before = structuredClone(current)
+        const next = applyRecipe(current)
+        assertProduceImmerState(current, before)
+        assertProduceImmerState(next, produceImmerState(seed, phase))
+        current = next
+      }
+    }
   }
 }
 
-validateCreatePatchImmerScenario()
+validateProduceImmerScenario()
 
-const createPatchImmerSlots = (): CreatePatchImmerSlot[] =>
+const produceImmerSlots = (): ProduceImmerSlot[] =>
   Array.from({ length: INPUT_COUNT }, (_, index) => ({
-    current: createPatchImmerState(index + 1, 0),
+    current: produceImmerState(index + 1, 0),
   }))
 
-const createPatchImmerBatchRunner = (
-  applyRecipe: (current: CreatePatchImmerState) => CreatePatchImmerState,
-  slots: CreatePatchImmerSlot[],
+const produceImmerBatchRunner = (
+  applyRecipe: (current: ProduceImmerState) => ProduceImmerState,
+  slots: ProduceImmerSlot[],
 ): (() => void) => {
   let cursor = 0
 
@@ -914,18 +919,18 @@ const createPatchImmerBatchRunner = (
   }
 }
 
-export const createContextRuntimeCreatePatchImmerBenchmarks = () => {
-  const createPatchBatch = createPatchImmerBatchRunner(
-    (current) => createPatch(current, toggleCreatePatchImmerDraft),
-    createPatchImmerSlots(),
+export const createContextRuntimeProduceImmerBenchmarks = () => {
+  const produceBatch = produceImmerBatchRunner(
+    (current) => produce(current, toggleProduceImmerDraft),
+    produceImmerSlots(),
   )
-  const immerBatch = createPatchImmerBatchRunner(
-    (current) => produce(current, toggleCreatePatchImmerDraft),
-    createPatchImmerSlots(),
+  const immerBatch = produceImmerBatchRunner(
+    (current) => immerProduce(current, toggleProduceImmerDraft),
+    produceImmerSlots(),
   )
 
   return {
-    createPatchBatch,
     immerBatch,
+    produceBatch,
   }
 }

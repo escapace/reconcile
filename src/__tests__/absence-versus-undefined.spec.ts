@@ -1,6 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
-import { createPatch, patch, reconcile } from '../index'
+import { produce, reconcile } from '../index'
 
 describe('absence versus undefined semantics', () => {
   describe('plain objects', () => {
@@ -54,7 +54,7 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Reflect.ownKeys(result), ['keep', 'value', 'undefined'])
     })
 
-    it('patch publishes the same distinction for object properties', () => {
+    it('caller publication publishes the same distinction for object properties', () => {
       const current: {
         keep: true
         remove?: number
@@ -64,11 +64,14 @@ describe('absence versus undefined semantics', () => {
         remove: 1,
       }
 
-      const result = patch(current, (draft) => {
-        delete draft.remove
-        draft.value = undefined
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          delete draft.remove
+          draft.value = undefined
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal('remove' in result, false)
@@ -165,10 +168,10 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Object.keys(result), ['0', '1'])
     })
 
-    it('createPatch preserves the difference between a hole and a present undefined element', () => {
+    it('produce preserves the difference between a hole and a present undefined element', () => {
       const current = [1, 2] as Array<number | undefined>
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.length = 4
         Reflect.deleteProperty(draft, 1)
         draft[2] = undefined
@@ -185,15 +188,18 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Object.keys(result), ['0', '2', '3'])
     })
 
-    it('patch publishes a trailing undefined element as present, not as a hole', () => {
+    it('caller publication publishes a trailing undefined element as present, not as a hole', () => {
       const current = {
         list: [1, 2] as Array<number | undefined>,
       }
 
-      const result = patch(current, (draft) => {
-        draft.list[2] = undefined
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.list[2] = undefined
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.list.length, 3)
@@ -202,13 +208,16 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Object.keys(result.list), ['0', '1', '2'])
     })
 
-    it('patch publishes push(undefined) as a present trailing element', () => {
+    it('caller publication publishes push(undefined) as a present trailing element', () => {
       const current = [1, 2] as Array<number | undefined>
 
-      const result = patch(current, (draft) => {
-        draft.push(undefined)
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.push(undefined)
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.length, 3)
@@ -217,13 +226,16 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Object.keys(result), ['0', '1', '2'])
     })
 
-    it('patch publishes splice insertion of undefined as present elements', () => {
+    it('caller publication publishes splice insertion of undefined as present elements', () => {
       const current = [1, 4] as Array<number | undefined>
 
-      const result = patch(current, (draft) => {
-        draft.splice(1, 0, undefined, 3)
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.splice(1, 0, undefined, 3)
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.length, 4)
@@ -279,17 +291,20 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Array.from(result.keys()), ['undefined', undefined])
     })
 
-    it('patch preserves present undefined map values and undefined map keys', () => {
+    it('caller publication preserves present undefined map values and undefined map keys', () => {
       const current = {
         map: new Map<string | undefined, number | undefined>([['remove', 1]]),
       }
 
-      const result = patch(current, (draft) => {
-        draft.map.delete('remove')
-        draft.map.set(undefined, undefined)
-        draft.map.set('undefined', undefined)
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.map.delete('remove')
+          draft.map.set(undefined, undefined)
+          draft.map.set('undefined', undefined)
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.map.has('remove'), false)
@@ -328,16 +343,19 @@ describe('absence versus undefined semantics', () => {
       assert.deepEqual(Array.from(result.values()), [undefined, 'undefined'])
     })
 
-    it('patch preserves present undefined membership', () => {
+    it('caller publication preserves present undefined membership', () => {
       const current = {
         set: new Set<number | undefined>([1]),
       }
 
-      const result = patch(current, (draft) => {
-        draft.set.delete(1)
-        draft.set.add(undefined)
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.set.delete(1)
+          draft.set.add(undefined)
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.set.has(1), false)

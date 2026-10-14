@@ -1,6 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
-import { createPatch } from '../patch'
+import { produce } from '../produce'
 
 class MutableClass {
   value = 5
@@ -16,7 +16,7 @@ describe('draft finalization regressions', () => {
     const current: SelfReference = { count: 0 }
     current.self = current
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.count = 1
       return draft
     })
@@ -34,7 +34,7 @@ describe('draft finalization regressions', () => {
       typedArray: new Uint8Array(10),
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.someValue = 6
       return draft
     })
@@ -52,7 +52,7 @@ describe('draft finalization regressions', () => {
   it('keeps array callback items draft-wrapped when mutating through non-mutating array methods', () => {
     const current = [{ count: 0 }, { count: 1 }]
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.filter((item) => {
         if (item.count === 0) {
           item.count = 2
@@ -74,12 +74,12 @@ describe('draft finalization regressions', () => {
       map: new Map<string, { users: Set<{ name: string }> }>([['key1', { users: new Set() }]]),
     }
 
-    const state1 = createPatch(base, (draft) => {
+    const state1 = produce(base, (draft) => {
       draft.map.get('key1')!.users.add({ name: 'user1' })
       return draft
     })
 
-    const state2 = createPatch(state1, (draft) => {
+    const state2 = produce(state1, (draft) => {
       const existingUsers = draft.map.get('key1')?.users ?? new Set<{ name: string }>()
       const newEntry = { users: existingUsers }
       draft.map.set('key1', newEntry)
@@ -96,7 +96,7 @@ describe('draft finalization regressions', () => {
   })
 
   it('finalizes plain set members that contain nested draft handles', () => {
-    const result = createPatch(
+    const result = produce(
       {
         items: [{ id: 1, name: 'item1' }],
         itemSet: new Set<{ extra: string; item: { id: number; name: string } }>(),
@@ -116,7 +116,7 @@ describe('draft finalization regressions', () => {
   })
 
   it('finalizes deeply nested draft handles inside plain set members', () => {
-    const result = createPatch(
+    const result = produce(
       {
         items: [{ id: 1, name: 'item1' }],
         itemSet: new Set<{ level1: { level2: { item: { id: number; name: string } } } }>(),
@@ -137,7 +137,7 @@ describe('draft finalization regressions', () => {
   it('clears cached array children before copyWithin readdresses slots', () => {
     const current = [{ nested: { label: 'a' } }, { nested: { label: 'b' } }]
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       const previouslyAtIndexOne = draft[1]
       draft.copyWithin(1, 0, 1)
       draft[1].nested.label = 'copied'
@@ -154,7 +154,7 @@ describe('draft finalization regressions', () => {
   it('clears cached array children before fill replaces slots', () => {
     const current = [{ nested: { label: 'a' } }, { nested: { label: 'b' } }]
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       const previouslyAtIndexOne = draft[1]
       draft.fill(draft[0], 1)
       draft[1].nested.label = 'changed'
@@ -176,7 +176,7 @@ describe('draft finalization regressions', () => {
     }
     current.box.date = current.date
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       const dateClone = draft.date
       // This side effect is not recommended recipe style; it guards defensive finalization when
       // user code mutates captured current state during a recipe.
@@ -198,7 +198,7 @@ describe('draft finalization regressions', () => {
     }
     current.box.date = current.date
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       const dateClone = draft.date
       // This side effect is not recommended recipe style; it guards defensive finalization when
       // user code mutates captured current state during a recipe.
@@ -215,34 +215,34 @@ describe('draft finalization regressions', () => {
   })
 
   it('finalizes nested draft handles in values inserted with mutating array methods', () => {
-    const pushed = createPatch([{ nestedArray: [] as number[] }], (draft) => {
+    const pushed = produce([{ nestedArray: [] as number[] }], (draft) => {
       draft.push({ ...draft[0] })
       return draft
     })
     assert.deepEqual(pushed[0].nestedArray, [])
     assert.deepEqual(pushed[1].nestedArray, [])
 
-    const pushedDraft = createPatch([{ nestedArray: [] as number[] }], (draft) => {
+    const pushedDraft = produce([{ nestedArray: [] as number[] }], (draft) => {
       draft.push(draft[0])
       return draft
     })
     assert.equal(pushedDraft[0], pushedDraft[1])
     assert.deepEqual(pushedDraft[1].nestedArray, [])
 
-    const pushedNestedObject = createPatch([{ nested: { value: 42 } }], (draft) => {
+    const pushedNestedObject = produce([{ nested: { value: 42 } }], (draft) => {
       draft.push({ ...draft[0] })
       return draft
     })
     assert.deepEqual(pushedNestedObject[1].nested, { value: 42 })
 
-    const unshifted = createPatch([{ nestedArray: [1] }], (draft) => {
+    const unshifted = produce([{ nestedArray: [1] }], (draft) => {
       draft.unshift({ ...draft[0] })
       return draft
     })
     assert.deepEqual(unshifted[0].nestedArray, [1])
     assert.deepEqual(unshifted[1].nestedArray, [1])
 
-    const spliced = createPatch([{ nestedArray: ['a', 'b'] }], (draft) => {
+    const spliced = produce([{ nestedArray: ['a', 'b'] }], (draft) => {
       draft.splice(0, 0, { ...draft[0] })
       return draft
     })

@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
-import { createPatch, patch } from '../patch'
+import { produce } from '../produce'
+import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
 
 /**
@@ -25,7 +26,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
       const shared = { value: 1 }
       const current = { a: shared, b: shared, c: shared }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.value = 2
         return draft
       })
@@ -43,7 +44,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         level2: { nested: { child: shared } },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.level1.child.count = 5
         return draft
       })
@@ -56,7 +57,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
       const shared = { deep: { value: 0 } }
       const current = { x: shared, y: shared }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.x.deep.value = 10
         return draft
       })
@@ -72,7 +73,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
       const shared = { id: 1 }
       const current = [shared, shared, shared]
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft[0].id = 2
         return draft
       })
@@ -86,7 +87,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
       const shared = { value: 'a' }
       const current = [[shared], [shared, shared]]
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft[0][0].value = 'b'
         return draft
       })
@@ -103,7 +104,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         object: { ref: shared },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.array[0].count = 3
         return draft
       })
@@ -121,7 +122,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         ['b', shared],
       ])
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.get('a')!.data = 7
         return draft
       })
@@ -137,7 +138,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         ref: shared,
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.ref.value = 2
         return draft
       })
@@ -153,7 +154,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         map: new Map<object, number>([[sharedKey, 1]]),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.key.id = 'updated'
         return draft
       })
@@ -172,7 +173,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         set: new Set([shared]),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.ref.count = 4
         return draft
       })
@@ -188,7 +189,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         set: new Set([shared]),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.array[0].value = 'y'
         return draft
       })
@@ -208,7 +209,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         set: new Set([shared]),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.obj.id = 99
         return draft
       })
@@ -228,7 +229,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
         },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.level1.array[0].nested.deep = false
         return draft
       })
@@ -249,7 +250,7 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
       const shared = { value: 1 }
       const current = { a: { ref: shared }, b: { ref: shared } }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.ref.value = 2
         void draft.b
         draft.b.ref = shared // SameValue write: no-op
@@ -266,7 +267,7 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
       // draft finalization entirely and is the only path that discards monotonic draft changes.
       const current = { nested: { count: 1 } }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.nested.count = 99
         return current
       })
@@ -284,7 +285,7 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
       const shared = { id: 1 }
       const current = [shared, shared]
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft[0].id = 2
         draft[1] = shared // SameValue write: no-op
         return draft
@@ -310,7 +311,7 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
         ref: shared,
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.ref.data = 2
         draft.map.set('b', shared) // SameValue set: no-op
         return draft
@@ -329,12 +330,15 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
       const shared = { count: 0 }
       const current = { a: { ref: shared }, c: { ref: shared } }
 
-      const result = patch(current, (draft: typeof current) => {
-        draft.a.ref.count = 5
-        void draft.c
-        draft.c.ref = shared // SameValue write: no-op
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft: typeof current) => {
+          draft.a.ref.count = 5
+          void draft.c
+          draft.c.ref = shared // SameValue write: no-op
+          return draft
+        }),
+      )
 
       assert.equal(result.a.ref, result.c.ref)
       assert.equal(result.a.ref, shared)
@@ -347,12 +351,15 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
       const shared = { count: 0 }
       const current = { a: shared, b: shared }
 
-      const result = patch(current, (draft: typeof current) => {
-        draft.a.count = 5
-        void draft.b
-        draft.b = shared // SameValue write: no-op
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft: typeof current) => {
+          draft.a.count = 5
+          void draft.b
+          draft.b = shared // SameValue write: no-op
+          return draft
+        }),
+      )
 
       assert.equal(result.a, result.b)
       assert.equal(result.a, shared)
@@ -368,7 +375,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
         source: { value: 1 },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft.source!
         delete draft.source
         draft.target = moved
@@ -391,7 +398,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
         source: shared,
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft.source!
         delete draft.source
         draft.target = moved
@@ -409,7 +416,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
     it('moves a value between array positions', () => {
       const current = [{ id: 1 }, { id: 2 }, { id: 3 }]
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft[0]
         draft.splice(0, 1)
         draft.push(moved)
@@ -429,7 +436,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
         source: { value: 1 },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft.source!
         delete draft.source
         draft.array.push(moved)
@@ -452,7 +459,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
         source: { data: 1 },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft.source!
         delete draft.source
         draft.map.set('moved', moved)
@@ -473,7 +480,7 @@ describe('Finalization Coherence - movedImage Guarantee', () => {
         set: new Set(),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         const moved = draft.array[0]
         draft.array.splice(0, 1)
         draft.set.add(moved)
@@ -495,7 +502,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         list: [] as Array<{ count: number }>,
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.count = 1
         draft.list.push(draft.item)
         return draft
@@ -511,7 +518,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         list: [{ value: 'x' }],
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.value = 'b'
         draft.list.splice(0, 0, draft.item)
         return draft
@@ -527,7 +534,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         list: [null as { id: number } | null],
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.id = 2
         draft.list[0] = draft.item
         return draft
@@ -545,7 +552,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         map: new Map<string, { data: number }>(),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.data = 5
         draft.map.set('captured', draft.item)
         return draft
@@ -561,7 +568,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         map: new Map<object, number>(),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.key.id = 'updated'
         draft.map.set(draft.key, 1)
         return draft
@@ -580,7 +587,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         set: new Set<{ value: number }>(),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.value = 3
         draft.set.add(draft.item)
         return draft
@@ -600,7 +607,7 @@ describe('Finalization Coherence - capturedImage Guarantee', () => {
         set: new Set<{ id: number }>(),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.id = 42
         draft.array.push(draft.item)
         draft.map.set('key', draft.item)
@@ -626,7 +633,7 @@ describe('Finalization Coherence - Cycles and Self-References', () => {
       const current: SelfReference = { value: 0 }
       current.self = current
 
-      const result = createPatch(current, (draft: SelfReference) => {
+      const result = produce(current, (draft: SelfReference) => {
         draft.value = 5
         return draft
       })
@@ -641,7 +648,7 @@ describe('Finalization Coherence - Cycles and Self-References', () => {
       const current: SelfReferenceArray = [1, 2]
       current.push(current)
 
-      const result = createPatch(current, (draft: SelfReferenceArray) => {
+      const result = produce(current, (draft: SelfReferenceArray) => {
         draft[0] = 10
         return draft
       })
@@ -668,7 +675,7 @@ describe('Finalization Coherence - Cycles and Self-References', () => {
 
       const current = { a, b }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.value = 2
         draft.b.value = 'y'
         return draft
@@ -694,7 +701,7 @@ describe('Finalization Coherence - Cycles and Self-References', () => {
       }
       shared.next = current.head // Create cycle: head -> shared -> head
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.shared.value = 99
         return draft
       })
@@ -712,7 +719,7 @@ describe('Finalization Coherence - Special Values', () => {
       const sharedDate = new Date('2024-01-01')
       const current = { a: sharedDate, b: sharedDate }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.setFullYear(2025)
         return draft
       })
@@ -729,7 +736,7 @@ describe('Finalization Coherence - Special Values', () => {
         map: new Map([['d', sharedDate]]),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.date.setMonth(11)
         return draft
       })
@@ -745,7 +752,7 @@ describe('Finalization Coherence - Special Values', () => {
       const sharedBuffer = new Uint8Array([1, 2, 3]).buffer
       const current = { a: sharedBuffer, b: sharedBuffer }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         new Uint8Array(draft.a)[0] = 9
         return draft
       })
@@ -760,7 +767,7 @@ describe('Finalization Coherence - Special Values', () => {
       const sharedTyped = new Uint8Array([1, 2, 3])
       const current = { x: sharedTyped, y: sharedTyped }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.x[1] = 9
         return draft
       })
@@ -776,7 +783,7 @@ describe('Finalization Coherence - Special Values', () => {
         right: new Uint8Array(buffer, 2, 2),
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.left[0] = 9
         return draft
       })
@@ -792,7 +799,7 @@ describe('Finalization Coherence - Special Values', () => {
       const sharedView = new DataView(buffer)
       const current = { a: sharedView, b: sharedView }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.setUint8(0, 9)
         return draft
       })
@@ -808,7 +815,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
     it('preserves key order after mutation', () => {
       const current = { alpha: 1, bravo: 2, charlie: 3 }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.bravo = 20
         return draft
       })
@@ -819,7 +826,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
     it('preserves key order after delete and recreate', () => {
       const current: { a: number; b: number; c?: number } = { a: 1, b: 2, c: 3 }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         delete draft.c
         draft.c = 30
         return draft
@@ -834,7 +841,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
     it('distinguishes hole from present undefined', () => {
       const current = [1, 2, 3] as Array<number | undefined>
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         Reflect.deleteProperty(draft, 1) // Create hole
         draft[2] = undefined // Present undefined
         return draft
@@ -854,7 +861,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
         ['c', 3],
       ])
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.set('b', 20)
         return draft
       })
@@ -869,7 +876,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
         ['c', 3],
       ])
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.delete('b')
         draft.set('b', 20)
         return draft
@@ -883,7 +890,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
     it('preserves set order after add/delete', () => {
       const current = new Set([1, 2, 3])
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.delete(2)
         draft.add(4)
         return draft
@@ -895,7 +902,7 @@ describe('Finalization Coherence - Structural Preservation', () => {
     it('moves element to end on delete + re-add', () => {
       const current = new Set([1, 2, 3])
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.delete(1)
         draft.add(1)
         return draft
@@ -907,13 +914,13 @@ describe('Finalization Coherence - Structural Preservation', () => {
 })
 
 describe('Finalization Coherence - Detachment Guarantees', () => {
-  describe('snapshot(createPatch(...)) produces detached result', () => {
+  describe('snapshot(produce(...)) produces detached result', () => {
     it('detaches untouched shared references', () => {
       const shared = { value: 1 }
       const current = { a: shared, b: shared }
 
       const result = snapshot(
-        createPatch(current, (draft: typeof current) => {
+        produce(current, (draft: typeof current) => {
           draft.a.value = 2
           return draft
         }),
@@ -935,7 +942,7 @@ describe('Finalization Coherence - Detachment Guarantees', () => {
       const current = { x: shared, y: shared }
 
       const result = snapshot(
-        createPatch(current, (draft: typeof current) => {
+        produce(current, (draft: typeof current) => {
           draft.x.count = 2
           void draft.y
           draft.y = shared // SameValue write: no-op
@@ -958,7 +965,7 @@ describe('Finalization Coherence - Edge Cases', () => {
       const empty: never[] = []
       const current = { a: empty, b: empty }
 
-      const result = createPatch(current, (draft: typeof current) => draft)
+      const result = produce(current, (draft: typeof current) => draft)
 
       assert.equal(result.a, result.b)
       assert.equal(result.a, empty)
@@ -968,7 +975,7 @@ describe('Finalization Coherence - Edge Cases', () => {
       const empty = new Map<string, number>()
       const current = { a: empty, b: empty }
 
-      const result = createPatch(current, (draft: typeof current) => draft)
+      const result = produce(current, (draft: typeof current) => draft)
 
       assert.equal(result.a, result.b)
       assert.equal(result.a, empty)
@@ -978,7 +985,7 @@ describe('Finalization Coherence - Edge Cases', () => {
       const empty = new Set<number>()
       const current = { a: empty, b: empty }
 
-      const result = createPatch(current, (draft: typeof current) => draft)
+      const result = produce(current, (draft: typeof current) => draft)
 
       assert.equal(result.a, result.b)
       assert.equal(result.a, empty)
@@ -993,7 +1000,7 @@ describe('Finalization Coherence - Edge Cases', () => {
         path2: { a: { b: { c: { d: shared } } } },
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.path1.l1.l2.l3.leaf = false
         return draft
       })
@@ -1008,7 +1015,7 @@ describe('Finalization Coherence - Edge Cases', () => {
       const shared = { value: 5 }
       const current = { a: shared, b: shared }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.a.value = 5 // Same value
         return draft
       })
@@ -1027,7 +1034,7 @@ describe('Finalization Coherence - Edge Cases', () => {
         other: shared,
       }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.nested.ref.count = 1
         return draft.nested
       })
@@ -1038,7 +1045,7 @@ describe('Finalization Coherence - Edge Cases', () => {
     it('returns ordinary object containing draft values', () => {
       const current = { item: { value: 0 } }
 
-      const result = createPatch(current, (draft: typeof current) => {
+      const result = produce(current, (draft: typeof current) => {
         draft.item.value = 7
         return { wrapped: draft.item }
       })

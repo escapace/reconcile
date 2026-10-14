@@ -1,0 +1,280 @@
+import { freeze, independentBindings, yes } from './shared/empty'
+import { ordinaryExposure } from './shared/empty'
+import { noValue } from './shared/empty'
+import type {
+  CapturePolicy,
+  ConstructionPolicy,
+  SnapshotPolicy,
+  PublicationPolicy,
+  ImmutablePolicy,
+  DraftStrategy,
+  Recognition,
+} from '../types'
+import { isObject, ownKeys } from '../object-property'
+import { draftArrayIndexRejected, draftArrayLengthRejected } from '../error'
+import { arrayIndex, hasOwn } from '../object-property'
+import type { Edge } from '../types'
+import { defineType } from './registry'
+import type { PropertyDraftRules } from './shared/draft-properties'
+import { PropertyDraftState, createPropertyHandle, writeDataSlot } from './shared/draft-properties'
+import type { PropertySurface } from './shared/property-publication'
+import { propertyRequirements, propertySlots, publishProperty } from './shared/property-publication'
+
+import { alignedProperties, backedProperty } from './shared/properties'
+
+/** Stable global identity owned by the array module. */
+export const ARRAY_KIND = Symbol.for('@escapace/reconcile/array')
+
+const arraySurface: PropertySurface<ArrayLayout> = {
+  ordered: false,
+  compatible(node, current, properties) {
+    const prototype = Object.getPrototypeOf(current) as object | null
+    for (let index = 0; index < node.layout.length; index += 1)
+      if (!properties.has(String(index)) && prototype !== null && index in prototype) return false
+    return true
+  },
+  keys(value) {
+    const keys: PropertyKey[] = []
+    for (const key of ownKeys(value))
+      if (key === 'length' || arrayIndex(key) !== undefined) keys.push(key)
+    return keys
+  },
+  slots(node) {
+    if (node.layout.slots !== undefined) return node.layout.slots
+    const slots = propertySlots(node)
+    slots.set('length', { value: node.layout.length })
+    return slots
+  },
+}
+
+const arrayCapture = {
+  construction: noValue,
+  observe(value, begin, edge) {
+    const array = value as unknown[]
+    begin({ kind: ARRAY_KIND, length: array.length })
+    for (let index = 0; index < array.length; index += 1)
+      if (index in array) {
+        const key = String(index)
+        edge(array[index], key)
+      }
+  },
+} satisfies CapturePolicy<ArrayLayout>
+
+const arrayConstruction = {
+  bindings: independentBindings,
+  allocate: (node) => new Array<unknown>(node.layout.length),
+} satisfies ConstructionPolicy<ArrayLayout>
+
+export const arraySnapshot = /* @__PURE__ */ (() =>
+  /* @__PURE__ */ freeze({
+    ...arrayCapture,
+    snapshot(layout, resolve, writer) {
+      const target = new Array<unknown>(layout.length)
+      writer.initialize(layout, target, (edge, key) => {
+        ;(target as unknown as Record<PropertyKey, unknown>)[key!] = resolve(edge)
+      })
+    },
+  }))() satisfies SnapshotPolicy<ArrayLayout>
+
+export const arrayPublication = /* @__PURE__ */ (() =>
+  /* @__PURE__ */ freeze({
+    ...arrayCapture,
+    ...arrayConstruction,
+    aligned: alignedProperties,
+    compatible: yes,
+    matches(node, current, visit) {
+      const array = current as unknown[]
+      const length = node.layout.length
+      if (array.length !== length) return false
+      const properties = arraySurface.slots(node)
+      for (let index = 0; index < length; index += 1) {
+        const key = String(index)
+        const present = properties.has(key)
+        if (hasOwn(array, index) !== present || index in array !== present) return false
+        if (present && !visit(array[index], properties.get(key)!)) return false
+      }
+      return true
+    },
+    publish(node, target, image) {
+      const properties = arraySurface.slots(node)
+      const length = node.layout.length
+      if (!publishProperty(target, 'length', length)) return false
+      for (let index = 0; index < length; index += 1) {
+        const key = String(index)
+        if (properties.has(key)) {
+          if (!publishProperty(target, key, image(properties.get(key)!))) return false
+        } else if (hasOwn(target, index) && !Reflect.deleteProperty(target, key)) return false
+      }
+      return true
+    },
+    requirements: (node, current) => propertyRequirements(node, current, arraySurface),
+    // The building node and its layout are private to this capture; seal indexes them in place.
+    seal(node) {
+      let length = node.layout.length
+      for (const key of node.keys) length = Math.max(length, Number(key) + 1)
+      const slots = propertySlots(node)
+      slots.set('length', { value: length })
+      const layout = node.layout as { length: number; slots?: ReadonlyMap<PropertyKey, Edge> }
+      layout.length = length
+      layout.slots = slots
+      return node
+    },
+  }))() satisfies PublicationPolicy<ArrayLayout>
+
+export const arrayImmutable = /* @__PURE__ */ (() => ({
+  ...arrayConstruction,
+  immutable: /* @__PURE__ */ freeze({
+    tag: 'structural',
+    observeDraft(source, begin, edge, { base, properties, read }) {
+      const array = source as unknown[]
+      const length = (): number =>
+        properties === undefined ? array.length : (properties.read('length') as number)
+      begin({ kind: ARRAY_KIND, length: new Array(length()).length })
+      for (let index = 0; index < length(); index += 1) {
+        const key = String(index)
+        if (!(properties === undefined ? index in array : properties.contains(key))) continue
+        const value = read(source, key)
+        edge(value, key, isObject(value) && backedProperty(base, key, value))
+      }
+    },
+    reuse(node, current, visit) {
+      const array = current as unknown[]
+      if (array.length !== node.layout.length) return false
+      let position = 0
+      for (let index = 0; index < array.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, index)
+        if (descriptor === undefined) continue
+        if (
+          node.keys[position] !== String(index) ||
+          !('value' in descriptor) ||
+          !visit(array[index], node.edges[position])
+        )
+          return false
+        position += 1
+      }
+      return position === node.keys.length
+    },
+  } satisfies ImmutablePolicy<ArrayLayout>['immutable']),
+  freshWrite(node, target, index, resolve) {
+    Reflect.set(target, node.keys[index], resolve(node.edges[index]))
+  },
+  someChild(source, read, test) {
+    const array = source as unknown[]
+    for (let index = 0; index < array.length; index += 1)
+      if (index in array && test(read(source, String(index)))) return true
+    return false
+  },
+}))() satisfies ImmutablePolicy<ArrayLayout>
+
+const arrayPolicy = /* @__PURE__ */ (() => ({
+  ...arraySnapshot,
+  ...arrayPublication,
+  ...arrayImmutable,
+}))()
+
+/** Captures array length and an optional sealed index; holes are absent edge keys. */
+// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
+export interface ArrayLayout {
+  readonly kind: typeof ARRAY_KIND
+  readonly length: number
+  readonly slots?: ReadonlyMap<PropertyKey, Edge>
+}
+
+/**
+ * Applies native array-length coercion and descending index deletion to the descriptor store.
+ *
+ * @remarks
+ * Coerces object inputs twice before reading the old length. A fixed index stops truncation and
+ * leaves the length immediately above that index, including when the write fails.
+ *
+ * @returns Whether the requested length can be applied.
+ * @throws RangeError when numeric coercions do not describe a valid array length.
+ */
+function writeArrayLength(copy: Record<PropertyKey, PropertyDescriptor>, value: unknown): boolean {
+  // ArraySetLength deliberately coerces object values twice, before reading old length.
+  const length = (value as number) >>> 0
+  if (length !== +(value as number)) throw new RangeError('Invalid array length')
+  const descriptor = copy.length
+  const previous = descriptor.value as number
+  if (descriptor.writable === false) return Object.is(length, previous)
+  descriptor.value = length
+  if (length >= previous) return true
+  const keys = Object.getOwnPropertyNames(copy)
+  for (let position = keys.length - 1; position >= 0; position -= 1) {
+    const key = keys[position]
+    const index = arrayIndex(key)
+    if (index === undefined || index < length) continue
+    if (copy[key].configurable === false) {
+      descriptor.value = index + 1
+      return false
+    }
+    delete copy[key]
+  }
+  return true
+}
+
+const arrayDraftRules: PropertyDraftRules<typeof ARRAY_KIND> = {
+  kind: ARRAY_KIND,
+  capture(copy, key, descriptor) {
+    if (key === 'length') {
+      if (!writeArrayLength(copy, descriptor.value))
+        throw draftArrayLengthRejected(descriptor.value as number)
+      descriptor.value = copy.length.value as unknown
+    } else {
+      const index = arrayIndex(key)
+      if (index !== undefined && index >= (copy.length.value as number)) {
+        if (copy.length.writable === false) throw draftArrayIndexRejected(index)
+        copy.length.value = index + 1
+      }
+    }
+  },
+  configurable: (property) => property !== 'length',
+  initialize(source, copy) {
+    const argument = source.length
+    const length = typeof argument === 'number' ? argument : 1
+    if (length >>> 0 !== length) throw new RangeError('Invalid array length')
+    copy.length = { configurable: false, enumerable: false, value: length, writable: true }
+    if (typeof argument !== 'number')
+      copy[0] = { configurable: true, enumerable: true, value: argument, writable: true }
+  },
+  target: () => new Array<unknown>(),
+  write(state, copy, property, value) {
+    const previousLength = copy.length.value as number
+    if (property === 'length') {
+      const written = writeArrayLength(copy, value)
+      if (copy.length.value !== previousLength) state.modified = true
+      return written
+    }
+    const index = arrayIndex(property)
+    if (index !== undefined && index >= previousLength && copy.length.writable === false)
+      return false
+    if (!writeDataSlot(copy, property, value)) return false
+    if (index !== undefined && index >= previousLength) copy.length.value = index + 1
+    return true
+  },
+}
+
+export const arrayDraft = /* @__PURE__ */ freeze({
+  tag: 'structural',
+  handle: (state) => createPropertyHandle(state),
+  state: (base, context) => new PropertyDraftState(base, context, arrayDraftRules),
+}) satisfies DraftStrategy<PropertyDraftState<typeof ARRAY_KIND>>
+
+export const arrayExposure = ordinaryExposure
+
+export const arrayRecognition = /* @__PURE__ */ freeze({
+  tag: 'predicate',
+  test: Array.isArray,
+}) satisfies Recognition
+
+export const arrayType = /* @__PURE__ */ defineType<
+  ArrayLayout,
+  PropertyDraftState<typeof ARRAY_KIND>
+>({
+  draft: arrayDraft,
+  exposure: arrayExposure,
+  kind: ARRAY_KIND,
+  name: 'array',
+  policy: arrayPolicy,
+  recognition: arrayRecognition,
+})

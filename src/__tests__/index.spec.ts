@@ -1,7 +1,6 @@
-import { deepSignal } from 'alien-deepsignals'
 import { assert, describe, it } from 'vitest'
 import { isReactive, reactive } from 'vue'
-import { reconcile, snapshot as takeSnapshot } from '../index'
+import { reconcile, ReconcileError, snapshot as takeSnapshot } from '../index'
 
 const returnOne = () => 1
 const assertSameReference = (actual: unknown, expected: unknown): void => {
@@ -204,23 +203,28 @@ const assertEquivalentSupportedGraph = (
   seenActualToExpected.set(actualObject, expectedObject)
   seenExpectedToActual.set(expectedObject, actualObject)
 
+  assertEquivalentSupportedObject(actualObject, expectedObject, (actualChild, expectedChild) => {
+    assertEquivalentSupportedGraph(
+      actualChild,
+      expectedChild,
+      seenActualToExpected,
+      seenExpectedToActual,
+    )
+  })
+}
+
+type SupportedGraphVisit = (actual: SupportedSpecValue, expected: SupportedSpecValue) => void
+
+// Compares a newly paired object's kind and contents; `visit` compares its children.
+const assertEquivalentSupportedObject = (
+  actual: object,
+  expected: object,
+  visit: SupportedGraphVisit,
+): void => {
   assert.equal(Array.isArray(actual), Array.isArray(expected))
 
   if (Array.isArray(actual) && Array.isArray(expected)) {
-    assert.equal(actual.length, expected.length)
-    assert.deepEqual(presentIndices(actual), presentIndices(expected))
-
-    for (let index = 0; index < expected.length; index += 1) {
-      if (index in expected) {
-        assertEquivalentSupportedGraph(
-          actual[index],
-          expected[index],
-          seenActualToExpected,
-          seenExpectedToActual,
-        )
-      }
-    }
-
+    assertEquivalentSupportedArray(actual, expected, visit)
     return
   }
 
@@ -239,18 +243,39 @@ const assertEquivalentSupportedGraph = (
     return
   }
 
-  const actualKeys = Reflect.ownKeys(actualObject)
-  const expectedKeys = Reflect.ownKeys(expectedObject)
+  assertEquivalentSupportedProperties(actual, expected, visit)
+}
+
+const assertEquivalentSupportedArray = (
+  actual: readonly unknown[],
+  expected: readonly unknown[],
+  visit: SupportedGraphVisit,
+): void => {
+  assert.equal(actual.length, expected.length)
+  assert.deepEqual(presentIndices(actual), presentIndices(expected))
+
+  for (let index = 0; index < expected.length; index += 1) {
+    if (index in expected) {
+      visit(actual[index], expected[index])
+    }
+  }
+}
+
+const assertEquivalentSupportedProperties = (
+  actual: object,
+  expected: object,
+  visit: SupportedGraphVisit,
+): void => {
+  const actualKeys = Reflect.ownKeys(actual)
+  const expectedKeys = Reflect.ownKeys(expected)
 
   assert.equal(actualKeys.length, expectedKeys.length)
 
   for (let index = 0; index < expectedKeys.length; index += 1) {
     assert.equal(actualKeys[index], expectedKeys[index])
-    assertEquivalentSupportedGraph(
+    visit(
       (actual as Record<PropertyKey, SupportedSpecValue>)[expectedKeys[index]],
       (expected as Record<PropertyKey, SupportedSpecValue>)[expectedKeys[index]],
-      seenActualToExpected,
-      seenExpectedToActual,
     )
   }
 }
@@ -366,11 +391,6 @@ const createVueLive = <T extends object>(value: T): T => {
   return live as T
 }
 
-const createDeepSignalLive = <T extends object>(value: T): T => {
-  const live: unknown = deepSignal(value)
-  return live as T
-}
-
 const objectSurfaceCases: ObjectSurfaceCase[] = [
   {
     createLive: createPlainLive,
@@ -389,10 +409,6 @@ const objectSurfaceCases: ObjectSurfaceCase[] = [
       assert.equal(isReactive(value.nested), false)
       assert.equal(isReactive(value.list), false)
     },
-  },
-  {
-    createLive: createDeepSignalLive,
-    name: 'alien-deepsignals objects',
   },
 ]
 
@@ -1861,7 +1877,7 @@ describe('context runtime direct contracts', () => {
       assert.deepEqual(result.alpha, { value: 1 })
     })
 
-    it('reconcile splits an equal fast path when the current object was already consumed by a different next object', () => {
+    it('reconcile keeps a pinned occupant and publishes a competing equal next object fresh', () => {
       const shared = { value: 0 }
       const current = {
         alpha: shared,
@@ -1876,8 +1892,8 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.notEqual(result.alpha, result.beta)
-      assert.equal(result.alpha, shared)
-      assert.notEqual(result.beta, shared)
+      assert.equal(result.beta, shared)
+      assert.notEqual(result.alpha, shared)
       assert.deepEqual(result.alpha, { value: 0 })
       assert.deepEqual(result.beta, { value: 0 })
     })
@@ -2296,11 +2312,9 @@ describe('context runtime direct contracts', () => {
     })
 
     for (const testCase of reconcileObjectKindReplacementCases) {
-      it(`reconcile replaces the root on ${testCase.name} changes`, () => {
-        const { assertResult, current, next } = testCase.create()
-        const result = reconcile(current, next)
-
-        assertResult(result)
+      it(`reconcile rejects incompatible object roots on ${testCase.name} changes`, () => {
+        const { current, next } = testCase.create()
+        assert.throws(() => reconcile(current, next), ReconcileError)
       })
     }
 

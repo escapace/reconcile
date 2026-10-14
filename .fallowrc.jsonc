@@ -1,0 +1,190 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+
+  // Development tooling that no package.json field or built-in plugin reveals: scripts launched
+  // by the Python wrappers or by hand, and the profiling harness that profile.ts bundles by
+  // path. The support role keeps them out of the shipped-code checks.
+  "framework": [
+    {
+      // Loaded by syncpack; the built-in syncpack plugin does not detect the .mjs name.
+      "configPatterns": ["syncpack.config.mjs"],
+      // The scripts run through tsx.
+      "enablers": ["tsx"],
+      "entryPointRole": "support",
+      "entryPoints": [
+        "scripts/profile.ts",
+        "scripts/check-lean.ts",
+        "scripts/bundle-size.ts",
+        "perf/profile-harness.ts",
+      ],
+      "name": "repository-tooling",
+    },
+  ],
+
+  // The engine calls Proxy handler traps; no source reference names them.
+  "usedClassMembers": [
+    {
+      "implements": "ProxyHandler",
+      "members": [
+        "apply",
+        "construct",
+        "defineProperty",
+        "deleteProperty",
+        "get",
+        "getOwnPropertyDescriptor",
+        "getPrototypeOf",
+        "has",
+        "isExtensible",
+        "ownKeys",
+        "preventExtensions",
+        "set",
+        "setPrototypeOf",
+      ],
+    },
+  ],
+
+  "failOnParseError": true,
+
+  "rules": {
+    // Dead code: every finding fails the run.
+    "unused-class-members": "error",
+    "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-enum-members": "error",
+    "unused-exports": "error",
+    "unused-files": "error",
+    "unused-optional-dependencies": "error",
+    "unused-types": "error",
+
+    // Dependency placement and resolution.
+    "dev-dependencies-in-production": "error",
+    "test-only-dependencies": "error",
+    "type-only-dependencies": "error",
+    "unlisted-dependencies": "error",
+    "unresolved-imports": "error",
+
+    // Module structure.
+    "boundary-violation": "error",
+    "circular-dependencies": "error",
+    "duplicate-exports": "error",
+    // Call bans live under boundaries.calls; no rule packs are configured.
+    "policy-violation": "off",
+    "re-export-cycle": "error",
+
+    // API hygiene: an exported signature must not expose a type its module keeps private.
+    "deprecated-exports-in-use": "error",
+    "private-type-leaks": "error",
+
+    // Complexity gates; the thresholds are under "health".
+    "complexity-cognitive": "error",
+    "complexity-crap": "error",
+    "complexity-cyclomatic": "error",
+
+    // Every exception must stay current and say why it exists.
+    "require-suppression-reason": "error",
+    "stale-suppressions": "error",
+  },
+
+  "health": {
+    // CRAP needs real coverage; `pnpm test` writes this file, so run the tests before linting.
+    "coverage": "coverage/coverage-final.json",
+    // perf/ holds the frozen benchmark workloads (AGENTS.md); their findings cannot be acted on.
+    "ignore": ["perf/**"],
+    // SonarSource default for cognitive complexity.
+    "maxCognitive": 15,
+    // Original CRAP threshold (Savoia and Evans).
+    "maxCrap": 30,
+    // Practical upper bound from NIST SP 500-235 (Watson and McCabe).
+    "maxCyclomatic": 20,
+    // SIG/TÜViT very-high-risk unit size.
+    "maxUnitSize": 60,
+  },
+
+  "duplicates": {
+    // perf/ holds the frozen benchmark workloads (AGENTS.md); their findings cannot be acted on.
+    "ignore": ["perf/**"],
+    "minLines": 5,
+    "minTokens": 50,
+    "mode": "mild",
+  },
+
+  // Zones follow the intended architecture in docs/development.md, "How the library works".
+  "boundaries": {
+    "calls": {
+      "forbidden": [
+        // The kernel never observes or mutates application objects; that is the job of the
+        // capture, discovery and publication phases.
+        {
+          "callee": [
+            "Reflect.*",
+            "Object.defineProperty",
+            "Object.getOwnPropertyDescriptor",
+            "Object.getOwnPropertyDescriptors",
+            "Object.getOwnPropertyNames",
+            "Object.getOwnPropertySymbols",
+            "Object.getPrototypeOf",
+            "Object.isExtensible",
+          ],
+          "from": "kernel",
+        },
+        // Library code writes no diagnostics and depends on no host process.
+        { "callee": ["console.*", "process.*"], "from": "api" },
+        { "callee": ["console.*", "process.*"], "from": "operations" },
+        { "callee": ["console.*", "process.*"], "from": "type-modules" },
+        { "callee": ["console.*", "process.*"], "from": "adapters" },
+        { "callee": ["console.*", "process.*"], "from": "kernel" },
+        { "callee": ["console.*", "process.*"], "from": "contracts" },
+        { "callee": ["console.*", "process.*"], "from": "foundation" },
+      ],
+    },
+
+    // Every analyzed file must belong to a zone.
+    "coverage": { "requireAllFiles": true },
+
+    // Each zone may import only from the zones below it. Zones without a rule (tests, tooling,
+    // repository config) are unrestricted, but no library zone may import them.
+    "rules": [
+      { "allow": ["contracts", "foundation", "operations"], "from": "api" },
+      {
+        "allow": ["adapters", "contracts", "foundation", "kernel", "type-modules"],
+        "from": "operations",
+      },
+      { "allow": ["adapters", "contracts", "foundation", "kernel"], "from": "type-modules" },
+      { "allow": ["contracts", "foundation"], "from": "adapters" },
+      { "allow": ["contracts", "foundation"], "from": "kernel" },
+      { "allow": ["foundation"], "from": "contracts" },
+      { "allow": [], "from": "foundation" },
+    ],
+
+    // A file belongs to the first zone that matches, so specific patterns come first.
+    "zones": [
+      { "name": "api", "patterns": ["src/index.ts"] },
+      // Shared type contracts and ambient declarations.
+      { "name": "contracts", "patterns": ["src/types.ts", "src/*.d.ts"] },
+      // Dependency-free helpers and the error type.
+      {
+        "name": "foundation",
+        "patterns": [
+          "src/constants.ts",
+          "src/error.ts",
+          "src/object-property.ts",
+          "src/set-own-property.ts",
+        ],
+      },
+      // The proven finite algorithms, which work on private records only.
+      { "name": "kernel", "patterns": ["src/graph/**"] },
+      // Native recognition and reactive-wrapper storage.
+      { "name": "adapters", "patterns": ["src/adapters/**"] },
+      // Built-in kind modules and their shared facet helpers.
+      { "name": "type-modules", "patterns": ["src/types/**"] },
+      { "name": "tests", "patterns": ["src/__tests__/**"] },
+      // Operation pipelines: capture, drafting, finalization, publication and composition.
+      { "name": "operations", "patterns": ["src/**"] },
+      { "name": "tooling", "patterns": ["perf/**", "scripts/**"] },
+      {
+        "name": "repository-config",
+        "patterns": ["eslint.config.mjs", "syncpack.config.mjs", "vitest*.ts"],
+      },
+    ],
+  },
+}

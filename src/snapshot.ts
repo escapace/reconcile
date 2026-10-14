@@ -1,157 +1,94 @@
-import { isObject } from 'coastal'
-
-import { cloneBufferView } from './clone-buffer-view'
-import {
-  OBJECT_KIND_ARRAY,
-  OBJECT_KIND_ARRAY_BUFFER,
-  OBJECT_KIND_DATA_VIEW,
-  OBJECT_KIND_DATE,
-  OBJECT_KIND_MAP,
-  objectKindOf,
-  OBJECT_KIND_PLAIN,
-  OBJECT_KIND_SET,
-  OBJECT_KIND_TYPED_ARRAY,
-} from './object-kind'
-import type { ObjectKind } from './object-kind'
+import { isNode } from './graph/edge'
+import { noValue } from './types/shared/empty'
+import { traverse } from './publication/capture'
+import type { Edge, Layout, SnapshotWrite, SnapshotRegistry } from './types'
+import { snapshotTypes } from './types/builtins'
 
 /**
- * Creates a detached snapshot of `value`.
+ * Owns pending or initialized snapshot state on the canonical traversal reference.
  *
  * @remarks
- * `snapshot(...)` clones supported objects and collections so the result can be changed without
- * affecting the source value. It preserves plain-object key order, sparse-array holes, cycles,
- * shared references, object prototypes, and `ArrayBuffer` or view aliasing.
+ * Initialization completes before the target enters the public memo. There is no parallel
+ * writer table; SnapshotOwner proves the finite installation/resolution trace correspondence.
+ */
+class SnapshotReference {
+  declare layout: Layout | undefined
+  declare readonly node: number
+  declare target: object | undefined
+  declare write: SnapshotWrite | undefined
+
+  constructor(node: number) {
+    this.node = node
+    this.layout = undefined
+    this.target = undefined
+    this.write = undefined
+  }
+
+  initialize(layout: Layout, target: object, write: SnapshotWrite): void {
+    this.layout = layout
+    this.target = target
+    this.write = write
+  }
+}
+
+/**
+ * Returns a deep copy of `value` that can be changed without affecting the original.
  *
- * Supported values include plain objects, arrays, maps, sets, `Date`, `ArrayBuffer`, `DataView`,
- * and typed arrays. The same behavior also applies to common reactive or signal-backed wrappers
- * when they expose object, array, map, or set behavior. Primitive values are returned unchanged.
- * Function values are kept by reference rather than cloned.
+ * @remarks
+ * The copy keeps plain-object key order and prototypes, sparse-array holes, shared references,
+ * cycles, and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`,
+ * `Date`, `ArrayBuffer`, `DataView` and typed arrays are supported, including Vue reactive
+ * wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are,
+ * and functions are kept by reference. Other objects, such as class instances, are copied like
+ * plain objects: the copy has the same prototype and own properties but not private fields or
+ * other internal state.
  *
- * @param value - Value to snapshot.
- * @param seen - Memoization table that preserves cycles and shared references during recursive
- * traversal. Callers usually omit this parameter.
- * @returns A detached snapshot that can be mutated without affecting the source value, or the
- * original primitive value when the input is non-object-like.
+ * @example
+ * ```ts
+ * const node = { label: 'a', children: [] as unknown[] }
+ * node.children.push(node)
+ * const copy = snapshot(node) as typeof node
+ * // copy !== node; copy.children[0] === copy
+ * ```
+ *
+ * @param value - The value to copy.
+ * @param seen - Map from source objects already copied to their copies. Entries are used as
+ * given, without checking; the copy is detached only if every entry is a detached copy of its
+ * source. Most callers omit it.
+ * @returns A detached copy of `value`, or `value` itself when it is not an object.
  */
 export function snapshot(
   value: unknown,
   seen: WeakMap<object, object> = new WeakMap<object, object>(),
 ): unknown {
-  if (!isObject(value)) {
-    return value
-  }
-
-  const sharedResult = seen.get(value)
-
-  if (sharedResult !== undefined) {
-    return sharedResult
-  }
-
-  return snapshotObjectByKindAfterMiss(objectKindOf(value), value, seen)
+  return snapshotWith(snapshotTypes, value, seen)
 }
 
-/** @internal */
-function snapshotObjectByKind(
-  kind: ObjectKind,
-  value: object,
+export function snapshotWith(
+  types: SnapshotRegistry,
+  value: unknown,
   seen: WeakMap<object, object>,
-): object {
-  const sharedResult = seen.get(value)
-
-  if (sharedResult !== undefined) {
-    return sharedResult
-  }
-
-  return snapshotObjectByKindAfterMiss(kind, value, seen)
-}
-
-/** @internal */
-export function snapshotObjectByKindAfterMiss(
-  kind: ObjectKind,
-  value: object,
-  seen: WeakMap<object, object>,
-): object {
-  switch (kind) {
-    case OBJECT_KIND_ARRAY: {
-      const sourceArray = value as unknown[]
-      const replacement = new Array<unknown>(sourceArray.length)
-      seen.set(value, replacement)
-
-      for (let index = 0; index < sourceArray.length; index += 1) {
-        if (index in sourceArray) {
-          replacement[index] = snapshot(sourceArray[index], seen)
-        }
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_ARRAY_BUFFER: {
-      const replacement = (value as ArrayBuffer).slice(0)
-      seen.set(value, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_DATA_VIEW:
-    case OBJECT_KIND_TYPED_ARRAY: {
-      const sourceView = value as ArrayBufferView
-      const replacement = cloneBufferView(
-        sourceView,
-        snapshotObjectByKind(OBJECT_KIND_ARRAY_BUFFER, sourceView.buffer, seen) as ArrayBuffer,
-      )
-      seen.set(value, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_DATE: {
-      const replacement = new Date((value as Date).getTime())
-      seen.set(value, replacement)
-      return replacement
-    }
-    case OBJECT_KIND_MAP: {
-      const sourceMap = value as Map<unknown, unknown>
-      const replacement = new Map<unknown, unknown>()
-      seen.set(value, replacement)
-
-      for (const [key, entry] of sourceMap.entries()) {
-        replacement.set(snapshot(key, seen), snapshot(entry, seen))
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_PLAIN: {
-      const sourceObject = value as Record<PropertyKey, unknown>
-      // eslint-disable-next-line typescript/no-unsafe-argument
-      const replacement = Object.create(Object.getPrototypeOf(sourceObject)) as Record<
-        PropertyKey,
-        unknown
-      >
-      const ownNames = Object.getOwnPropertyNames(sourceObject)
-      seen.set(value, replacement)
-
-      for (let index = 0; index < ownNames.length; index += 1) {
-        const key = ownNames[index]
-        replacement[key] = snapshot(sourceObject[key], seen)
-      }
-
-      const ownSymbols = Object.getOwnPropertySymbols(sourceObject)
-
-      if (ownSymbols.length > 0) {
-        for (let index = 0; index < ownSymbols.length; index += 1) {
-          const key = ownSymbols[index]
-          replacement[key] = snapshot(sourceObject[key], seen)
-        }
-      }
-
-      return replacement
-    }
-    case OBJECT_KIND_SET: {
-      const sourceSet = value as Set<unknown>
-      const replacement = new Set<unknown>()
-      seen.set(value, replacement)
-
-      for (const entry of sourceSet.values()) {
-        replacement.add(snapshot(entry, seen))
-      }
-
-      return replacement
-    }
-  }
+): unknown {
+  const resolve = (edge: Edge): unknown =>
+    isNode(edge) ? (edge as SnapshotReference).target : edge.value
+  const root = traverse<SnapshotReference>(
+    types,
+    value,
+    {
+      finish: noValue,
+      begin(source, writer, layout) {
+        types.policies[layout.kind].snapshot(layout, resolve, writer)
+        seen.set(source, writer.target!)
+      },
+      edge(writer, child, key) {
+        writer.write?.(child, key)
+      },
+      existing: (source) => seen.get(source),
+      layout: (writer) => writer.layout,
+      reserve: (node) => new SnapshotReference(node),
+    },
+    undefined,
+    'snapshot',
+  )
+  return resolve(root)
 }

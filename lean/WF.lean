@@ -5,7 +5,6 @@
     - edge relation from heap payloads
     - Reachable via Relation.ReflTransGen
     - SurfaceEq: the main correctness relation
-    - SameShape: kind-compatibility predicate
 -/
 
 import Defs
@@ -32,16 +31,6 @@ def ReachableFromRoot {A : Type} {ι : Type} [DecidableEq ι]
   match root with
   | .atom _ => False
   | .ref r  => Reachable h r target
-
-/-! ## Same shape (kind compatibility) -/
-
-/-- Two nodes have the same shape iff they have the same kind tag. -/
-def SameShape {A : Type} {ι₁ ι₂ : Type} (n₁ : Node A ι₁) (n₂ : Node A ι₂) : Prop :=
-  n₁.kind = n₂.kind
-
-@[simp] theorem SameShape_iff {A : Type} {ι₁ ι₂ : Type}
-    (n₁ : Node A ι₁) (n₂ : Node A ι₂) :
-    SameShape n₁ n₂ ↔ n₁.kind = n₂.kind := Iff.rfl
 
 /-! ## Surface equivalence -/
 
@@ -120,7 +109,7 @@ where
     | _, _ => False
 
 /-- Full surface equivalence: equivalent at every finite depth.
-    For finite heaps, equivalence at depth ≥ heap size suffices. -/
+    No unproved finite-depth cutoff is used by the publication theorems. -/
 def SurfaceEq {A : Type} [AtomEq A] {ι₁ ι₂ : Type}
     [DecidableEq ι₁] [DecidableEq ι₂]
     (h₁ : Heap A ι₁) (h₂ : Heap A ι₂)
@@ -146,35 +135,5 @@ def SurfaceEq {A : Type} [AtomEq A] {ι₁ ι₂ : Type}
     {h₁ : Heap A ι₁} {h₂ : Heap A ι₂} {n : Nat} {r : ι₁} {a : A} :
     SurfaceEqBounded h₁ h₂ n (.ref r) (.atom a) ↔ False := by
   cases n <;> simp [SurfaceEqBounded]
-
-/-! ## Topology preservation definitions -/
-
-/-- Sharing preservation: equal next refs map to equal result refs. -/
-def SharingPreserved (image : NextId → Option ResId) : Prop :=
-  ∀ n, image n ≠ none → ∀ n', n = n' → image n = image n'
-
-/-- No-collapse: distinct next refs map to distinct result refs. -/
-def NoCollapse (image : NextId → Option ResId) : Prop :=
-  ∀ n₁ n₂, n₁ ≠ n₂ → image n₁ ≠ none → image n₂ ≠ none →
-    image n₁ ≠ image n₂
-
-/-- Current-node injectivity: at most one next node per current node. -/
-def CurrentInjectivity (reuse : CurId → Option NextId) : Prop :=
-  ∀ c n₁ n₂, reuse c = some n₁ → reuse c = some n₂ → n₁ = n₂
-
-/-- Image–reuse consistency: if a current node is an image, it is reused. -/
-def ImageReuseConsistent
-    (reuse : CurId → Option NextId) (image : NextId → Option ResId) : Prop :=
-  ∀ n c, image n = some (.inl c) → reuse c = some n
-
-/-- Bundled topology-preservation predicate for an image/reuse witness pair.
-    Combines sharing, no-collapse, injectivity, and consistency. -/
-structure ImagesPreserveTopology
-    (reuse : CurId → Option NextId)
-    (image : NextId → Option ResId) : Prop where
-  sharing : SharingPreserved image
-  noCollapse : NoCollapse image
-  curInj : CurrentInjectivity reuse
-  consistency : ImageReuseConsistent reuse image
 
 end Reconcile

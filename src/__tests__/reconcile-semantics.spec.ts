@@ -18,14 +18,11 @@
  */
 
 import { assert, describe, it } from 'vitest'
-import { reconcile, snapshot } from '../index'
+import { reconcile, ReconcileError, snapshot } from '../index'
 
 const returnFortyTwo = (): number => 42
 const assertSameReference = (actual: unknown, expected: unknown): void => {
   assert.equal(actual, expected)
-}
-const assertNotSameReference = (actual: unknown, expected: unknown): void => {
-  assert.notEqual(actual, expected)
 }
 
 // ============================================================================
@@ -82,39 +79,34 @@ describe('§5.2 Root rule', () => {
       assert.equal(reconcile(true, false), false)
     })
 
-    it('returns next when object kinds differ (array vs plain object)', () => {
+    it('throws when object root kinds differ (array vs plain object)', () => {
       const current = { 0: 'a', length: 1 }
       const next = ['a']
-      const result = reconcile(current, next)
-      assert.equal(result, next)
+      assert.throws(() => reconcile(current, next), ReconcileError)
     })
 
-    it('returns next when object kinds differ (Map vs plain object)', () => {
+    it('throws when object root kinds differ (Map vs plain object)', () => {
       const current = {}
       const next = new Map([['a', 1]])
-      const result = reconcile(current, next)
-      assert.equal(result, next)
+      assert.throws(() => reconcile(current, next), ReconcileError)
     })
 
-    it('returns next when object kinds differ (Set vs array)', () => {
+    it('throws when object root kinds differ (Set vs array)', () => {
       const current: unknown[] = []
       const next = new Set([1, 2])
-      const result = reconcile(current, next)
-      assert.equal(result, next)
+      assert.throws(() => reconcile(current, next), ReconcileError)
     })
 
-    it('returns next when object kinds differ (Date vs plain object)', () => {
+    it('throws when object root kinds differ (Date vs plain object)', () => {
       const current = { time: 0 }
       const next = new Date(0)
-      const result = reconcile(current, next)
-      assert.equal(result, next)
+      assert.throws(() => reconcile(current, next), ReconcileError)
     })
 
-    it('returns next when object kinds differ (ArrayBuffer vs plain object)', () => {
+    it('throws when object root kinds differ (ArrayBuffer vs plain object)', () => {
       const current = {}
       const next = new ArrayBuffer(8)
-      const result = reconcile(current, next)
-      assert.equal(result, next)
+      assert.throws(() => reconcile(current, next), ReconcileError)
     })
   })
 
@@ -220,27 +212,23 @@ describe('§5.4 Shared-object fast path', () => {
       assert.equal(result.a, result.b)
     })
 
-    it('snapshots when current is already consumed for different next', () => {
-      // reuse(current) != none AND image(next) == none => snapshot
+    it('pins the occupant and publishes the competing next object into a fresh object', () => {
       const shared = { count: 0 }
       const current = { a: shared, b: shared }
 
-      // next.a is a different object, next.b is shared
+      // next.a is a different object, next.b is the object already at that slot
       const nextA = { count: 5 }
       const next = { a: nextA, b: shared }
 
-      const result = reconcile(current, next) as { a: object; b: object }
+      const result = reconcile(current, next) as { a: { count: number }; b: object }
 
-      // 'a' reconciles: shared consumed for nextA
-      assert.equal(result.a, shared)
-      assert.equal(shared.count, 5)
+      // 'b' holds its own occupant, so it is pinned: identity retained, nothing inside touched.
+      assert.equal(result.b, shared)
+      assert.equal(shared.count, 0)
 
-      // 'b' sees current=shared, next=shared
-      // But shared was consumed for nextA (a different next node)
-      // Per Lean spec §5.1: current can only be consumed for ONE next node
-      // Since shared was consumed for nextA, and nextA !== shared, must snapshot
-      assert.notEqual(result.b, shared)
-      assert.equal((result.b as { count: number }).count, 5)
+      // 'a' cannot retain the pinned object (one storage per node), so it is published fresh.
+      assert.notEqual(result.a, shared)
+      assert.equal(result.a.count, 5)
     })
 
     it('consumes current for next when both are fresh', () => {
@@ -606,16 +594,12 @@ describe('§6.5 ArrayBuffer', () => {
     assert.deepEqual([...new Uint8Array(current)], [10, 20, 30, 40])
   })
 
-  it('replaces buffer when lengths differ', () => {
+  it('throws for a buffer root when lengths differ', () => {
     const current = new ArrayBuffer(4)
     const next = new ArrayBuffer(8)
     new Uint8Array(next).set([1, 2, 3, 4, 5, 6, 7, 8])
 
-    const result = reconcile(current, next)
-
-    assert.notEqual(result, current)
-    assert.equal(result.byteLength, 8)
-    assert.deepEqual([...new Uint8Array(result)], [1, 2, 3, 4, 5, 6, 7, 8])
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 })
 
@@ -639,31 +623,24 @@ describe('§6.6 DataView', () => {
     assert.deepEqual([...new Uint8Array(currentBuffer)], [1, 2, 3, 4, 5, 6, 7, 8])
   })
 
-  it('replaces view when offset differs', () => {
+  it('throws for a view root when offset differs', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new DataView(currentBuffer, 0, 4)
 
     const nextBuffer = new ArrayBuffer(8)
     const next = new DataView(nextBuffer, 2, 4)
 
-    const result = reconcile(current, next)
-
-    assert.notEqual(result, current)
-    assert.equal(result.byteOffset, 2)
-    assert.equal(result.byteLength, 4)
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 
-  it('replaces view when byte length differs', () => {
+  it('throws for a view root when byte length differs', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new DataView(currentBuffer, 0, 4)
 
     const nextBuffer = new ArrayBuffer(8)
     const next = new DataView(nextBuffer, 0, 6)
 
-    const result = reconcile(current, next)
-
-    assert.notEqual(result, current)
-    assert.equal(result.byteLength, 6)
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 
   it('reconciles backing buffer recursively', () => {
@@ -701,44 +678,34 @@ describe('§6.7 TypedArray', () => {
     assert.deepEqual([...current], [10, 20, 30, 40])
   })
 
-  it('replaces view when constructor tag differs', () => {
+  it('throws for a view root when constructor tag differs', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new Uint8Array(currentBuffer)
 
     const nextBuffer = new ArrayBuffer(8)
     const next = new Int8Array(nextBuffer)
 
-    const result = reconcile(current, next)
-
-    // Different constructor tags => replacement
-    assertNotSameReference(result, current)
-    assert.instanceOf(result, Int8Array)
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 
-  it('replaces view when offset differs', () => {
+  it('throws for a view root when offset differs', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new Uint8Array(currentBuffer, 0, 4)
 
     const nextBuffer = new ArrayBuffer(8)
     const next = new Uint8Array(nextBuffer, 2, 4)
 
-    const result = reconcile(current, next)
-
-    assert.notEqual(result, current)
-    assert.equal(result.byteOffset, 2)
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 
-  it('replaces view when length differs', () => {
+  it('throws for a view root when length differs', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new Uint8Array(currentBuffer, 0, 4)
 
     const nextBuffer = new ArrayBuffer(8)
     const next = new Uint8Array(nextBuffer, 0, 6)
 
-    const result = reconcile(current, next)
-
-    assert.notEqual(result, current)
-    assert.equal(result.length, 6)
+    assert.throws(() => reconcile(current, next), ReconcileError)
   })
 
   it('reconciles backing buffer recursively', () => {
@@ -885,19 +852,19 @@ describe('§6.8 Plain objects', () => {
 
   describe('Prototype handling', () => {
     it('retains current prototype (not next prototype)', () => {
-      const proto1 = { inherited: 'from-current' }
-      const proto2 = { inherited: 'from-next' }
-      const current = Object.create(proto1, {
+      const prototype1 = { inherited: 'from-current' }
+      const prototype2 = { inherited: 'from-next' }
+      const current = Object.create(prototype1, {
         x: { configurable: true, enumerable: true, value: 1, writable: true },
       }) as { x: number }
-      const next = Object.create(proto2, {
+      const next = Object.create(prototype2, {
         x: { configurable: true, enumerable: true, value: 10, writable: true },
       }) as { x: number }
 
       const result = reconcile(current, next)
 
       assert.equal(result, current)
-      assert.equal(Object.getPrototypeOf(result), proto1)
+      assert.equal(Object.getPrototypeOf(result), prototype1)
       assert.equal(
         (Object.getPrototypeOf(result) as { inherited: string }).inherited,
         'from-current',

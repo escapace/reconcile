@@ -123,8 +123,8 @@ structure SnapshotMemoSpec {A : Type} {ι : Type} [DecidableEq ι]
       SnapshotNodeSpec src resultHeap memo nd nd'
   /-- Every memo'd source ref is in the source heap domain. -/
   memoDom : ∀ r r', memo.lookup r = some r' → ∃ nd, src.lookup r = some nd
-  /-- Result ids from memo are fresh (disjoint from source domain).
-      This captures detachment (S2). -/
+  /-- Each result id differs from its corresponding source id.
+      Whole-source separation additionally requires `SnapshotMemoDisjoint`. -/
   freshness : ∀ r r', memo.lookup r = some r' → r ≠ r'
 
 /-- A complete snapshot result satisfies this specification.
@@ -138,9 +138,39 @@ def SnapshotSpec {A : Type} {ι : Type} [DecidableEq ι]
     SnapshotValueSpec src resultHeap memo root resultRoot ∧
     SnapshotMemoSpec src resultHeap memo
 
-/-! ## Snapshot theorems (statements only — proofs in Iteration 4) -/
+/-- No memo image aliases any node in the source heap, including other source nodes. -/
+def SnapshotMemoDisjoint {A : Type} {ι : Type} [DecidableEq ι]
+    (src : Heap A ι) (memo : Finmap (fun _ : ι => ι)) : Prop :=
+  ∀ r r', memo.lookup r = some r' → src.lookup r' = none
 
-/-- S2 — Detachment: result refs from snapshot are fresh. -/
+/-- The stronger native detachment contract, with whole-source identity separation.
+    Correct native storage labels and valid supplied memo entries remain obligations. -/
+def DetachedSnapshotSpec {A : Type} {ι : Type} [DecidableEq ι]
+    (src : Heap A ι) (root : Value A ι)
+    (resultHeap : Heap A ι) (resultRoot : Value A ι) : Prop :=
+  ∃ memo : Finmap (fun _ : ι => ι),
+    SnapshotValueSpec src resultHeap memo root resultRoot ∧
+    SnapshotMemoSpec src resultHeap memo ∧ SnapshotMemoDisjoint src memo
+
+theorem detachedSnapshot_to_snapshot {A : Type} {ι : Type} [DecidableEq ι]
+    {src resultHeap : Heap A ι} {root resultRoot : Value A ι}
+    (spec : DetachedSnapshotSpec src root resultHeap resultRoot) :
+    SnapshotSpec src root resultHeap resultRoot := by
+  obtain ⟨memo, hroot, hspec, _⟩ := spec
+  exact ⟨memo, hroot, hspec⟩
+
+/-- An object result cannot be any source node, rather than merely differing from its own root. -/
+theorem detachedSnapshot_root_disjoint {A : Type} {ι : Type} [DecidableEq ι]
+    {src resultHeap : Heap A ι} {r r' : ι}
+    (spec : DetachedSnapshotSpec src (.ref r) resultHeap (.ref r')) :
+    src.lookup r' = none := by
+  obtain ⟨memo, hroot, _, hdisjoint⟩ := spec
+  cases hroot with
+  | memoHit hmem => exact hdisjoint _ _ hmem
+
+/-! ## Snapshot consequences -/
+
+/-- S2 — Each mapped result reference differs from its corresponding source. -/
 theorem snapshot_detachment {A : Type} {ι : Type} [DecidableEq ι]
     {src : Heap A ι} {root : Value A ι}
     {resultHeap : Heap A ι} {resultRoot : Value A ι}

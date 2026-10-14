@@ -8,33 +8,33 @@
   },
   "bugs": "https://github.com/escapace/reconcile/issues",
   "devDependencies": {
-    "@commitlint/cli": "20.5.3",
-    "@commitlint/config-conventional": "20.5.3",
-    "@escapace/pnpm-pack": "0.9.0",
-    "@escapace/syncpack-configuration": "0.2.0",
+    "@commitlint/cli": "21.2.3",
+    "@commitlint/config-conventional": "21.2.3",
+    "@escapace/pnpm-pack": "0.9.2",
+    "@escapace/syncpack-configuration": "0.3.0",
     "@ls-lint/ls-lint": "2.3.1",
-    "@vitest/coverage-v8": "4.1.5",
-    "alien-deepsignals": "0.3.1",
-    "eslint": "10.3.0",
-    "eslint-config-escapace": "5.19.0",
-    "esroll": "1.2.3",
-    "fast-check": "4.7.0",
-    "immer": "11.1.6",
-    "knip": "6.11.0",
-    "lefthook": "2.1.6",
-    "prettier": "3.8.3",
+    "@vitest/coverage-v8": "5.0.3",
+    "alien-deepsignals": "0.4.3",
+    "eslint": "10.12.0",
+    "eslint-config-escapace": "5.20.4",
+    "esroll": "1.3.1",
+    "fallow": "3.32.0",
+    "fast-check": "4.10.2",
+    "immer": "11.1.21",
+    "lefthook": "2.2.0",
+    "prettier": "3.9.9",
     "prettier-config-escapace": "1.2.2",
-    "syncpack": "14.3.1",
-    "tsx": "4.21.0",
+    "syncpack": "15.3.3",
+    "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "vitest": "4.1.5",
-    "vue": "3.5.34"
+    "vitest": "5.0.3",
+    "vue": "3.5.43"
   },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
       "onFail": "warn",
-      "version": "^10.33.0"
+      "version": "^11.20.0"
     }
   },
   "exports": {
@@ -51,8 +51,7 @@
   "license": "MPL-2.0",
   "module": "lib/neutral/index.js",
   "peerDependencies": {
-    "coastal": "^0.4.0",
-    "es-toolkit": "^1.46.1"
+    "es-toolkit": "^1.51.0"
   },
   "private": false,
   "publishConfig": {
@@ -63,13 +62,16 @@
   "scripts": {
     "bench": "vitest bench --run",
     "build": "tsx scripts/build.ts",
-    "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --no-error-on-unmatched-pattern -uw .",
-    "lint": "ls-lint --config .ls-lint.yaml && knip --no-config-hints && eslint",
+    "check:lean": "python3 scripts/check-lean.py",
+    "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --log-level warn --no-error-on-unmatched-pattern -uw .",
+    "lint": "ls-lint --config .ls-lint.yaml && fallow --fail-on-issues && eslint --concurrency auto",
     "ls-lint": "ls-lint --config .ls-lint.yaml",
     "pack": "pnpm-pack package --pack-destination lib",
     "prepare": "lefthook install",
+    "profile": "python3 scripts/profile.py",
     "syncpack": "syncpack fix && syncpack format",
-    "test": "vitest --no-watch --coverage",
+    "test": "vitest --no-watch --coverage --coverage.reporter=json --coverage.reporter=text-summary",
+    "test:lib": "vitest --no-watch --config vitest-library.config.ts",
     "typecheck": "tsc --noEmit",
     "update": "ncu --cooldown 7 -p pnpm -u --peer --dep dev,peer,prod,optional && pnpm run syncpack"
   },

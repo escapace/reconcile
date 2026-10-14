@@ -242,13 +242,4 @@ def RootWF {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) : Value A ι 
   | .atom _ => True
   | .ref r  => r ∈ h.keys
 
-/-! ## Witness maps (for reconcile) -/
-
-/-- Reuse witness: maps consumed current nodes to the next node they are
-    aligned against. -/
-abbrev ReuseMap := Finmap (fun _ : CurId => NextId)
-
-/-- Image witness: maps next nodes to their canonical result image. -/
-abbrev ImageMap := Finmap (fun _ : NextId => ResId)
-
 end Reconcile

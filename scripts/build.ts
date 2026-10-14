@@ -14,12 +14,17 @@ const packageJSON = JSON.parse(await readFile(path.join(dirname, 'package.json')
 const constants = JSON.parse(
   await readFile(path.join(import.meta.dirname, 'constants.json'), 'utf-8'),
 ) as {
-  builds: Record<string, BuildOptions>
+  builds: Record<string, { mangle?: string[] } & BuildOptions>
   declaration?: BuildOptions
 }
 
-for (const value of Object.values(constants.builds)) {
+for (const { mangle, ...value } of Object.values(constants.builds)) {
   await build({
+    // Internal protocol and facet member names are renamed in the published bundle. The
+    // allowlist contains no name that the library reads on application or native objects
+    // (descriptor fields, collection methods, Vue markers, Proxy traps and `in` keys stay).
+    // Consumer bundles cannot shorten these names themselves; see docs/development.md.
+    ...(mangle === undefined ? {} : { mangleProps: new RegExp(`^(?:${mangle.join('|')})$`) }),
     sourcemap: true,
     sourcesContent: false,
     splitting: true,
@@ -37,7 +42,6 @@ for (const value of Object.values(constants.builds)) {
       ...(value.external ?? []),
     ],
     rollup: {
-      experimentalLogSideEffects: true,
       ...value.rollup,
     },
     supported: {

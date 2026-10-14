@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "allowArbitraryExtensions": true,
+    "allowImportingTsExtensions": true,
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,
     "declaration": true,
@@ -22,6 +23,7 @@
     "noUnusedParameters": true,
     "pretty": true,
     "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "target": "esnext",

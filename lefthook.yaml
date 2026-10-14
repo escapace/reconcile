@@ -18,10 +18,10 @@ pre-commit:
     - rebase
 
   commands:
-    knip:
+    fallow-dependencies:
       glob: '{package.json,**/package.json,pnpm-lock.yaml}'
       priority: 1
-      run: pnpm exec knip --no-config-hints
+      run: pnpm exec fallow dead-code --unused-deps --unlisted-deps --fail-on-issues
 
     ls-lint:
       priority: 1

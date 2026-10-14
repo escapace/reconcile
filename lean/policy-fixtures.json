@@ -1,0 +1,251 @@
+[
+  {
+    "domains": [],
+    "name": "empty graph"
+  },
+  {
+    "domains": [[]],
+    "name": "impossible pin"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        }
+      ],
+      [
+        {
+          "identity": 1,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 2,
+          "required": [],
+          "retained": false,
+          "storage": 2
+        }
+      ]
+    ],
+    "name": "root ownership"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 1,
+          "required": [],
+          "retained": true,
+          "storage": 1
+        },
+        {
+          "identity": 2,
+          "required": [],
+          "retained": false,
+          "storage": 2
+        }
+      ],
+      [
+        {
+          "identity": 0,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 3,
+          "required": [],
+          "retained": false,
+          "storage": 3
+        }
+      ]
+    ],
+    "name": "candidate displacement"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 1,
+          "required": [],
+          "retained": true,
+          "storage": 1
+        },
+        {
+          "identity": 2,
+          "required": [],
+          "retained": false,
+          "storage": 2
+        }
+      ],
+      [
+        {
+          "identity": 3,
+          "required": [
+            {
+              "identity": 1,
+              "node": 0
+            }
+          ],
+          "retained": true,
+          "storage": 3
+        },
+        {
+          "identity": 4,
+          "required": [],
+          "retained": false,
+          "storage": 4
+        }
+      ],
+      [
+        {
+          "identity": 5,
+          "required": [
+            {
+              "identity": 1,
+              "node": 0
+            }
+          ],
+          "retained": true,
+          "storage": 5
+        },
+        {
+          "identity": 6,
+          "required": [],
+          "retained": false,
+          "storage": 6
+        }
+      ]
+    ],
+    "name": "views prefer shared buffer"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [
+            {
+              "identity": 1,
+              "node": 1
+            }
+          ],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 2,
+          "required": [],
+          "retained": false,
+          "storage": 2
+        }
+      ],
+      [
+        {
+          "identity": 1,
+          "required": [
+            {
+              "identity": 0,
+              "node": 0
+            }
+          ],
+          "retained": true,
+          "storage": 1
+        },
+        {
+          "identity": 3,
+          "required": [],
+          "retained": false,
+          "storage": 3
+        }
+      ]
+    ],
+    "name": "immutable cycle"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 2,
+          "required": [],
+          "retained": false,
+          "storage": 2
+        }
+      ],
+      [
+        {
+          "identity": 1,
+          "required": [],
+          "retained": true,
+          "storage": 0
+        },
+        {
+          "identity": 3,
+          "required": [],
+          "retained": false,
+          "storage": 3
+        }
+      ]
+    ],
+    "name": "authored distinct storage"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [
+            {
+              "identity": 0,
+              "node": 0
+            }
+          ],
+          "retained": true,
+          "storage": 0
+        }
+      ]
+    ],
+    "name": "fixed self edge"
+  },
+  {
+    "domains": [
+      [
+        {
+          "identity": 0,
+          "required": [
+            {
+              "identity": 0,
+              "node": 1
+            }
+          ],
+          "retained": true,
+          "storage": 0
+        }
+      ]
+    ],
+    "name": "dangling requirement"
+  }
+]

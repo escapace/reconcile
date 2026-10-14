@@ -5,7 +5,7 @@ const { baselineReconcilePlainObjectBatch, runtimeReconcilePlainObjectBatch } =
   createContextRuntimeReconcilePlainObjectBenchmarks()
 
 describe('reconcilePlainObject', () => {
-  bench(`baseline`, baselineReconcilePlainObjectBatch, {
+  bench(`detached clone reference`, baselineReconcilePlainObjectBatch, {
     iterations: 500,
     warmupIterations: 5,
     warmupTime: 100,

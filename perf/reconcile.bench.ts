@@ -4,7 +4,7 @@ import { createContextRuntimeReconcileBenchmarks } from './scenarios'
 const { baselineReconcileBatch, runtimeReconcileBatch } = createContextRuntimeReconcileBenchmarks()
 
 describe('reconcile', () => {
-  bench(`baseline`, baselineReconcileBatch, {
+  bench(`detached clone reference`, baselineReconcileBatch, {
     iterations: 500,
     warmupIterations: 5,
     warmupTime: 100,

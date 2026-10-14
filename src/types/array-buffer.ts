@@ -1,0 +1,100 @@
+import { freeze, independentBindings, same } from './shared/empty'
+import type { SpecialPolicy } from '../types'
+import { ordinaryExposure, independentDraft } from './shared/empty'
+import { noValue } from './shared/empty'
+import type {
+  CapturePolicy,
+  ConstructionPolicy,
+  SnapshotPolicy,
+  PublicationPolicy,
+  ImmutablePolicy,
+  Recognition,
+} from '../types'
+import { defineType } from './registry'
+import { bufferEquivalent } from './shared/bytes'
+import { emptyEdges, noChildren, noDependencies } from './shared/empty'
+
+/** Stable global identity owned by the array-buffer module. */
+export const ARRAY_BUFFER_KIND = Symbol.for('@escapace/reconcile/array-buffer')
+
+const arrayBufferCapture = {
+  construction: (layout) => layout.bytes,
+  observe(value, begin) {
+    begin({ bytes: (value as ArrayBuffer).slice(0), kind: ARRAY_BUFFER_KIND })
+  },
+} satisfies CapturePolicy<ArrayBufferLayout>
+
+const arrayBufferConstruction = {
+  bindings: independentBindings,
+  allocate: (node) => node.layout.bytes.slice(0),
+} satisfies ConstructionPolicy<ArrayBufferLayout>
+
+export const arrayBufferSnapshot = /* @__PURE__ */ (() =>
+  /* @__PURE__ */ freeze({
+    ...arrayBufferCapture,
+    snapshot(layout, _resolve, writer) {
+      writer.initialize(layout, layout.bytes, noValue)
+    },
+  }))() satisfies SnapshotPolicy<ArrayBufferLayout>
+
+export const arrayBufferPublication = /* @__PURE__ */ (() =>
+  /* @__PURE__ */ freeze({
+    ...arrayBufferCapture,
+    ...arrayBufferConstruction,
+    aligned: noValue,
+    requirements: emptyEdges,
+    seal: same,
+    compatible: (node, current) =>
+      (current as ArrayBuffer).byteLength === node.layout.bytes.byteLength,
+    matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
+    publish(node, current) {
+      new Uint8Array(current as ArrayBuffer).set(new Uint8Array(node.layout.bytes))
+      return true
+    },
+  }))() satisfies PublicationPolicy<ArrayBufferLayout>
+
+export const arrayBufferImmutable = /* @__PURE__ */ (() => ({
+  ...arrayBufferConstruction,
+  freshWrite: noValue,
+  immutable: /* @__PURE__ */ freeze({
+    operations: /* @__PURE__ */ freeze({
+      dependencies: noDependencies,
+      copy: (value) => (value as ArrayBuffer).slice(0),
+      equivalent: (base, candidate) =>
+        bufferEquivalent(base as ArrayBuffer, candidate as ArrayBuffer),
+    } satisfies SpecialPolicy),
+    tag: 'copy',
+  } satisfies ImmutablePolicy<ArrayBufferLayout>['immutable']),
+  someChild: noChildren,
+}))() satisfies ImmutablePolicy<ArrayBufferLayout>
+
+const arrayBufferPolicy = /* @__PURE__ */ (() => ({
+  ...arrayBufferSnapshot,
+  ...arrayBufferPublication,
+  ...arrayBufferImmutable,
+}))()
+
+/** Stores copied bytes used for construction and publication of a captured buffer. */
+// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
+export interface ArrayBufferLayout {
+  readonly bytes: ArrayBuffer
+  readonly kind: typeof ARRAY_BUFFER_KIND
+}
+
+export const arrayBufferDraft = /* @__PURE__ */ independentDraft
+
+export const arrayBufferExposure = ordinaryExposure
+
+export const arrayBufferRecognition = /* @__PURE__ */ freeze({
+  tag: 'predicate',
+  test: (value: object) => value instanceof ArrayBuffer,
+}) satisfies Recognition
+
+export const arrayBufferType = /* @__PURE__ */ defineType<ArrayBufferLayout>({
+  draft: arrayBufferDraft,
+  exposure: arrayBufferExposure,
+  kind: ARRAY_BUFFER_KIND,
+  name: 'array-buffer',
+  policy: arrayBufferPolicy,
+  recognition: arrayBufferRecognition,
+})

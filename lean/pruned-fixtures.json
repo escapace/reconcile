@@ -1,0 +1,192 @@
+[
+  {
+    "before": [0, 1, 2],
+    "children": [[1, 2], [], []],
+    "name": "spread root over pinned children",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 5
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "pinned": 2
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1, 2], [2], []],
+    "name": "alias from a pinned subtree into a replaced position",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "children": [],
+        "occupant": 2,
+        "value": 9
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1, 2], [], []],
+    "name": "repeated pinned object at a second position",
+    "nodes": [
+      {
+        "children": [1, 1],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1], [2], []],
+    "name": "pinned leaf under a captured child",
+    "nodes": [
+      {
+        "children": [1],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "children": [2],
+        "occupant": 1,
+        "value": 7
+      },
+      {
+        "pinned": 2
+      }
+    ]
+  },
+  {
+    "before": [0, 1],
+    "children": [[1], []],
+    "name": "fresh subtree without occupant beside a pinned sibling",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "children": [],
+        "value": 3
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1, 2], [], []],
+    "name": "pinned sibling with a changed captured leaf",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "children": [],
+        "occupant": 2,
+        "value": 3
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1], [0, 2], []],
+    "name": "captured cycle with a pinned leaf",
+    "nodes": [
+      {
+        "children": [1],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "children": [0, 2],
+        "occupant": 1,
+        "value": 4
+      },
+      {
+        "pinned": 2
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2, 3],
+    "children": [[1, 2], [3], [], []],
+    "name": "shared leaf inside a pinned closure keeps its identity at a new position",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "occupant": 2,
+        "shared": 3
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2],
+    "children": [[1, 2], [], []],
+    "name": "shared leaves swapped without any pinned subtree are published positionally",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "occupant": 1,
+        "shared": 2
+      },
+      {
+        "occupant": 2,
+        "shared": 1
+      }
+    ]
+  },
+  {
+    "before": [0, 1, 2, 3],
+    "children": [[1, 2, 3], [], [], []],
+    "name": "shared leaf outside pinned closures beside a pinned sibling",
+    "nodes": [
+      {
+        "children": [1, 2],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "pinned": 1
+      },
+      {
+        "occupant": 2,
+        "shared": 3
+      }
+    ]
+  }
+]

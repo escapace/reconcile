@@ -1,3 +1,6 @@
+import { copyDataView } from './types/data-view'
+import { copyTypedArray } from './types/typed-array'
+
 /**
  * Recreates a `DataView` or typed-array view over a supplied buffer.
  *
@@ -14,16 +17,5 @@
  * constructor, offset, and length.
  * @internal
  */
-export const cloneBufferView = <T extends ArrayBufferView>(value: T, buffer: ArrayBuffer): T => {
-  if (value instanceof DataView) {
-    return new DataView(buffer, value.byteOffset, value.byteLength) as unknown as T
-  }
-
-  const typedArray = value as unknown as {
-    byteOffset: number
-    constructor: new (buffer_: ArrayBuffer, byteOffset_: number, length_: number) => T
-    length: number
-  }
-
-  return new typedArray.constructor(buffer, typedArray.byteOffset, typedArray.length)
-}
+export const cloneBufferView = <T extends ArrayBufferView>(value: T, buffer: ArrayBuffer): T =>
+  (value instanceof DataView ? copyDataView(value, buffer) : copyTypedArray(value, buffer)) as T

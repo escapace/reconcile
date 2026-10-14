@@ -1,0 +1,77 @@
+[
+  {
+    "after": [0, 0],
+    "before": [0, 0],
+    "children": [[1], [0]],
+    "name": "unchanged cycle",
+    "undo": false
+  },
+  {
+    "after": [0, 0, 0],
+    "before": [0, 0, 0],
+    "children": [[1], [2], [0]],
+    "name": "undo cycle",
+    "undo": true
+  },
+  {
+    "after": [0, 1, 0],
+    "before": [0, 0, 0],
+    "children": [[1], [2], [0]],
+    "name": "changed cycle",
+    "undo": false
+  },
+  {
+    "after": [0, 1, 0],
+    "before": [0, 0, 0],
+    "children": [[1, 2], [], []],
+    "name": "unrelated sibling",
+    "undo": false
+  },
+  {
+    "after": [0, 0, 0, 1],
+    "before": [0, 0, 0, 0],
+    "children": [[1, 2], [3], [3], []],
+    "name": "shared changed child",
+    "undo": false
+  },
+  {
+    "after": [0, 1, 0, 0],
+    "before": [0, 0, 0, 0],
+    "children": [[1, 2], [3], [3], []],
+    "name": "shared unchanged child",
+    "undo": false
+  },
+  {
+    "after": [0, 1, 0],
+    "before": [0, 0, 0],
+    "children": [[1, 2], [1], [2]],
+    "name": "self cycle and sibling",
+    "undo": false
+  },
+  {
+    "after": [0, 0, 0, 0],
+    "before": [0, 0, 0, 0],
+    "children": [[1, 2], [], [3], []],
+    "name": "storage conflict retains child and parent",
+    "undo": true,
+    "wrappedOf": [null, null, null, 1]
+  },
+  {
+    "after": [0, 0, 0, 0],
+    "before": [0, 0, 0, 0],
+    "children": [[1, 3], [2], [], []],
+    "name": "untouched owner competes with compatible undo candidates",
+    "undo": true,
+    "untouched": [false, false, false, true],
+    "wrappedOf": [null, null, null, 2]
+  },
+  {
+    "after": [0, 0, 0, 0, 0],
+    "before": [0, 0, 0, 0, 0],
+    "children": [[1, 2, 4], [], [3], [], [3]],
+    "name": "earlier untouched wrapper cannot discard two compatible parents",
+    "undo": true,
+    "untouched": [false, true, true, true, true],
+    "wrappedOf": [null, 3, null, null, null]
+  }
+]

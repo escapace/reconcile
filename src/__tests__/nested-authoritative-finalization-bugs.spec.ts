@@ -1,6 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
-import { createPatch } from '../patch'
+import { produce } from '../produce'
 
 describe('nested authoritative finalization coherence regressions', () => {
   it('finalizes a nested plain-object draft root when a shared descendant changed elsewhere', () => {
@@ -10,7 +10,7 @@ describe('nested authoritative finalization coherence regressions', () => {
       right: { shared },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       void draft.right
       draft.left.shared.count = 2
       return draft.right
@@ -29,7 +29,7 @@ describe('nested authoritative finalization coherence regressions', () => {
       right: [shared],
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       void draft.right
       draft.left.shared.count = 2
       return draft.right
@@ -48,7 +48,7 @@ describe('nested authoritative finalization coherence regressions', () => {
       right: { shared },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.left.shared.count = 2
       return { wrapped: draft.right }
     })
@@ -66,7 +66,7 @@ describe('nested authoritative finalization coherence regressions', () => {
       right: { date },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.left.setUTCFullYear(2025)
       return draft.right
     })
@@ -84,7 +84,7 @@ describe('nested authoritative finalization coherence regressions', () => {
       shared,
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.shared.id = 2
       draft.map.set('key', shared) // SameValue write: no restoration
       return draft.map

@@ -1,6 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
-import { createPatch } from '../patch'
+import { produce } from '../produce'
 
 const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
 const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
@@ -15,7 +15,7 @@ describe('nested authoritative finalization coverage', () => {
         right: { shared },
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return draft.right
       })
@@ -33,7 +33,7 @@ describe('nested authoritative finalization coverage', () => {
         right: [shared],
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return draft.right
       })
@@ -51,7 +51,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Map<string, { count: number }>([['key', shared]]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return draft.right
       })
@@ -69,7 +69,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Set([{ count: 0 }, shared]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return draft.right
       })
@@ -92,7 +92,7 @@ describe('nested authoritative finalization coverage', () => {
         right: { shared },
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
       })
@@ -109,7 +109,7 @@ describe('nested authoritative finalization coverage', () => {
         right: [shared],
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
       })
@@ -126,7 +126,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Map<string, { count: number }>([['key', shared]]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
       })
@@ -143,7 +143,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Set([shared]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.shared.count = 2
         return { wrapped: draft.right }
       })
@@ -163,7 +163,7 @@ describe('nested authoritative finalization coverage', () => {
         right: { date },
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.setUTCFullYear(2025)
         return draft.right
       })
@@ -181,7 +181,7 @@ describe('nested authoritative finalization coverage', () => {
         right: [buffer],
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         new Uint8Array(draft.left)[0] = 9
         return draft.right
       })
@@ -200,7 +200,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Map<string, DataView>([['key', view]]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left.setUint8(1, 9)
         return draft.right
       })
@@ -227,7 +227,7 @@ describe('nested authoritative finalization coverage', () => {
         right: new Set<Uint16Array>([typed]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.left[1] = 9
         return draft.right
       })
@@ -248,7 +248,7 @@ describe('nested authoritative finalization coverage', () => {
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.shared.count = 2
         draft.right.shared = shared // SameValue write: no restoration
         return draft.right
@@ -266,7 +266,7 @@ describe('nested authoritative finalization coverage', () => {
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.shared.count = 2
         draft.right[0] = shared // SameValue write: no restoration
         return draft.right
@@ -284,7 +284,7 @@ describe('nested authoritative finalization coverage', () => {
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.shared.count = 2
         draft.right.set('key', shared) // SameValue write: no restoration
         return draft.right
@@ -295,20 +295,20 @@ describe('nested authoritative finalization coverage', () => {
       assert.equal(result.get('key')!.count, 2)
     })
 
-    it('set root stays modified after delete plus re-add of the same value', () => {
+    it('set root restores identity after delete plus re-add of the same value', () => {
       const shared = { count: 1 }
       const current = {
         right: new Set([shared]),
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.right.delete(shared)
         draft.right.add(shared)
         return draft.right
       })
 
-      assert.notEqual(result, current.right)
+      assert.equal(result, current.right)
       const entry = firstSetEntry(result)
       assert.equal(entry, shared)
       assert.equal(entry.count, 1)
@@ -321,7 +321,7 @@ describe('nested authoritative finalization coverage', () => {
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.shared.count = 2
         draft.right.delete(shared)
         draft.right.add(shared)
@@ -345,7 +345,7 @@ describe('nested authoritative finalization coverage', () => {
         map: new Map<object, number>([[key, 1]]),
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.key.id = 'updated'
         return draft.map
       })
@@ -364,7 +364,7 @@ describe('nested authoritative finalization coverage', () => {
         shared,
       }
 
-      const result = createPatch(current, (draft) => {
+      const result = produce(current, (draft) => {
         draft.shared.count = 3
         return draft.set
       })

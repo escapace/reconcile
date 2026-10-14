@@ -1,5 +1,5 @@
 import { assert, describe, it } from 'vitest'
-import { createPatch, patch } from '../patch'
+import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
 
@@ -55,11 +55,14 @@ describe('Optimization Integrity', () => {
     assert.equal(snap['non-enumerable'], 3)
     assert.equal(snap[sym], 4)
 
-    // Verify patch/createPatch
-    const result = patch(current, (draft: Current) => {
-      draft.enumerable = 10
-      return draft
-    })
+    // Verify caller publication/produce
+    const result = reconcile(
+      current,
+      produce(current, (draft: Current) => {
+        draft.enumerable = 10
+        return draft
+      }),
+    )
     assert.deepEqual(Reflect.ownKeys(result), expectedOrder)
     assert.equal(result.enumerable, 10)
     assert.equal(result['non-enumerable'], 3)
@@ -82,7 +85,7 @@ describe('Optimization Integrity', () => {
     const current: SymbolObject = { [sym1]: { count: 1 } }
 
     // Cover Symbols in valueRequiresFinalization and finalizePlainObject
-    const result = createPatch(current, (draft: SymbolObject) => {
+    const result = produce(current, (draft: SymbolObject) => {
       draft[sym1].count = 2
       const fresh: SymbolObject = {}
       fresh[sym2] = draft[sym1]
@@ -107,7 +110,7 @@ describe('Optimization Integrity', () => {
       enumerable: true,
       get: () => ({ count: 1 }),
     })
-    const resultWithGetter = createPatch(currentWithGetter, (draft: WithGetter) => {
+    const resultWithGetter = produce(currentWithGetter, (draft: WithGetter) => {
       draft.other = 1 // Mutate to force finalizePlainObject
       return draft
     })
@@ -121,14 +124,14 @@ describe('Optimization Integrity', () => {
       map: Map<Date, number>
       other?: number
     } = { dateKey, map: new Map([[dateKey, 1]]) }
-    createPatch(currentWithMap, (draft: typeof currentWithMap) => {
+    produce(currentWithMap, (draft: typeof currentWithMap) => {
       void draft.dateKey // Access but don't mutate
       draft.other = 1 // Mutate root to force finalization
       return draft
     })
 
     // Cover Proxy ownKeys trap (line 288)
-    createPatch({ a: 1 }, (draft: { a: number }) => {
+    produce({ a: 1 }, (draft: { a: number }) => {
       assert.deepEqual(Reflect.ownKeys(draft), ['a'])
       return draft
     })
@@ -136,7 +139,7 @@ describe('Optimization Integrity', () => {
     // Cover sparse-array unmutated draft check (line 850)
     // eslint-disable-next-line no-sparse-arrays
     const sparse = [, , 1] as Array<number | undefined>
-    createPatch(sparse, (draft: typeof sparse) => {
+    produce(sparse, (draft: typeof sparse) => {
       void draft[2] // Access to create draft
       return { other: 1, sparse: draft }
     })
@@ -156,7 +159,7 @@ describe('Optimization Integrity', () => {
       writable: false,
     })
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.visible = 2
       return draft
     })
@@ -187,7 +190,7 @@ describe('Optimization Integrity', () => {
       writable: true,
     })
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.visible.count = 2
       draft.other = 1
       return draft
@@ -222,7 +225,7 @@ describe('Optimization Integrity', () => {
       writable: true,
     })
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.visible.count = 3
       draft.other = 1
       return draft
@@ -256,7 +259,7 @@ describe('Optimization Integrity', () => {
     })
     current.visible = 1
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.visible = 2
       return draft
     })
@@ -288,7 +291,7 @@ describe('Optimization Integrity', () => {
       },
     }
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       draft.visible = 2
       return draft
     })
@@ -302,7 +305,7 @@ describe('Optimization Integrity', () => {
 
   it('correctly discovers drafts hidden in fresh objects (containsDraft safety)', () => {
     const current = { a: { b: 1 } }
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.a.b = 2
       return { nested: { target: draft.a } }
     })
@@ -313,7 +316,7 @@ describe('Optimization Integrity', () => {
 
   it('correctly handles unmutated but drafted subtrees (shortcut safety)', () => {
     const current = { a: { b: { c: 1 } }, d: 2 }
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       // Access but don't mutate a.b
       void draft.a.b.c
       draft.d = 3
@@ -328,10 +331,13 @@ describe('Optimization Integrity', () => {
   it('preserves Map key coherence with drafted keys', () => {
     const key = { id: 1 }
     const current = { key, map: new Map([[key, 'val']]) }
-    const result = patch(current, (draft: typeof current) => {
-      draft.key.id = 2
-      return draft
-    })
+    const result = reconcile(
+      current,
+      produce(current, (draft: typeof current) => {
+        draft.key.id = 2
+        return draft
+      }),
+    )
 
     const [resultKey] = Array.from(result.map.keys()) as [typeof key]
     assert.equal(resultKey, result.key)
@@ -345,7 +351,7 @@ describe('Optimization Integrity', () => {
       right: { ref: shared },
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.left.ref.count = 2
       void draft.right
       return {
@@ -368,7 +374,7 @@ describe('Optimization Integrity', () => {
       right: { ref: sharedDate },
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.left.ref.setUTCFullYear(2025)
       void draft.right
       return {
@@ -403,7 +409,7 @@ describe('Optimization Integrity', () => {
       },
     }) as { phantom?: unknown } & typeof target
 
-    const result = createPatch(current, (draft) => {
+    const result = produce(current, (draft) => {
       assert.deepEqual(Reflect.ownKeys(draft), ['phantom', 'child', 'value'])
       assert.equal(Object.getOwnPropertyDescriptor(draft, 'phantom'), undefined)
       draft.value = 2
@@ -421,7 +427,7 @@ describe('Optimization Integrity', () => {
       set: new Set<object>(),
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.set.add(draft.item)
       assert.equal(draft.set.has(current.item), true)
       assert.equal(draft.set.delete(current.item), true)
@@ -441,7 +447,7 @@ describe('Optimization Integrity', () => {
       right: { ref: shared },
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       draft.left.ref.count = 3
       void draft.right
       return {
@@ -463,7 +469,7 @@ describe('Optimization Integrity', () => {
       other: 1,
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       void draft.child
       return {
         fromBase: current.child,
@@ -483,7 +489,7 @@ describe('Optimization Integrity', () => {
       right: shared,
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       assert.equal(draft.left, draft.right)
       draft.left.count = 4
       return draft
@@ -501,7 +507,7 @@ describe('Optimization Integrity', () => {
       right: shared,
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       assert.equal(draft.left, draft.right)
       draft.left.get('item')!.count = 5
       return draft
@@ -521,7 +527,7 @@ describe('Optimization Integrity', () => {
       right: shared,
     }
 
-    const result = createPatch(current, (draft: typeof current) => {
+    const result = produce(current, (draft: typeof current) => {
       assert.equal(draft.left, draft.right)
       assert.equal(draft.left.has(draft.item), true)
       draft.item.count = 6
@@ -539,11 +545,14 @@ describe('Optimization Integrity', () => {
     const b = { count: 1 }
     const current = { a: { b }, c: { b } }
 
-    const result = patch(current, (draft: typeof current) => {
-      draft.a.b.count = 2
-      void draft.c // Access c to create a draft handle, but don't access c.b
-      return draft
-    })
+    const result = reconcile(
+      current,
+      produce(current, (draft: typeof current) => {
+        draft.a.b.count = 2
+        void draft.c // Access c to create a draft handle, but don't access c.b
+        return draft
+      }),
+    )
 
     assert.equal(result.a.b.count, 2)
     assert.equal(result.c.b.count, 2)

@@ -1,5 +1,5 @@
 /-
-  Reconcile — snapshot soundness proofs (Iteration 4).
+  Reconcile — snapshot soundness proofs.
 
   Proves S1 (surface preservation) from the snapshot specification.
   S2–S4 are proved directly in SnapshotSpec.lean.

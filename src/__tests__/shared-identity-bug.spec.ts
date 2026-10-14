@@ -22,7 +22,7 @@
  */
 
 import { assert, describe, it } from 'vitest'
-import { patch, createPatch, reconcile } from '../index'
+import { produce, reconcile } from '../index'
 
 // ============================================================================
 // Set: Shared identity tests
@@ -38,13 +38,16 @@ describe('Set with shared object identities', () => {
       const original = new Set([a, b, c])
 
       // User reorders: [a, b, c] -> [c, a, b]
-      const result = patch(original, (draft) => {
-        draft.clear()
-        draft.add(c)
-        draft.add(a)
-        draft.add(b)
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.clear()
+          draft.add(c)
+          draft.add(a)
+          draft.add(b)
+          return draft
+        }),
+      )
 
       // Spec-conformant: current identities with next values
       // Position 0: a mutated to match c's original values
@@ -75,12 +78,15 @@ describe('Set with shared object identities', () => {
       const original = new Set([x, y])
 
       // Swap: [x, y] -> [y, x]
-      const result = patch(original, (draft) => {
-        draft.clear()
-        draft.add(y)
-        draft.add(x)
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.clear()
+          draft.add(y)
+          draft.add(x)
+          return draft
+        }),
+      )
 
       // Spec-conformant: values are swapped
       assert.equal(x.name, 'y', "x should have y's name")
@@ -99,14 +105,17 @@ describe('Set with shared object identities', () => {
       const original = new Set(items)
 
       // Rotate left: [1,2,3,4] -> [2,3,4,1]
-      const result = patch(original, (draft) => {
-        draft.clear()
-        draft.add(items[1])
-        draft.add(items[2])
-        draft.add(items[3])
-        draft.add(items[0])
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.clear()
+          draft.add(items[1])
+          draft.add(items[2])
+          draft.add(items[3])
+          draft.add(items[0])
+          return draft
+        }),
+      )
 
       // Spec-conformant: values are rotated into current positions
       assert.equal(items[0].n, 2, 'items[0] should have value 2')
@@ -155,12 +164,15 @@ describe('Map with shared object identities', () => {
       ])
 
       // Reorder: [(k1,v1), (k2,v2)] -> [(k2,v2), (k1,v1)]
-      const result = patch(original, (draft) => {
-        draft.clear()
-        draft.set(k2, v2)
-        draft.set(k1, v1)
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.clear()
+          draft.set(k2, v2)
+          draft.set(k1, v1)
+          return draft
+        }),
+      )
 
       // Spec-conformant: ordinal alignment swaps values
       // Position 0: k1 mutated to match k2, v1 mutated to match v2
@@ -187,11 +199,14 @@ describe('Map with shared object identities', () => {
       ])
 
       // Swap values: a->v1, b->v2 becomes a->v2, b->v1
-      const result = patch(original, (draft) => {
-        draft.set('a', v2)
-        draft.set('b', v1)
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.set('a', v2)
+          draft.set('b', v1)
+          return draft
+        }),
+      )
 
       // Spec-conformant: v1 and v2 have swapped data
       assert.equal(v1.data, 'second', "v1 should have v2's data")
@@ -211,12 +226,15 @@ describe('Map with shared object identities', () => {
       ])
 
       // Swap key order: k1->"first", k2->"second" becomes k2->"first", k1->"second"
-      const result = patch(original, (draft) => {
-        draft.clear()
-        draft.set(k2, 'first')
-        draft.set(k1, 'second')
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.clear()
+          draft.set(k2, 'first')
+          draft.set(k1, 'second')
+          return draft
+        }),
+      )
 
       // Spec-conformant: k1 and k2 have swapped ids
       assert.equal(k1.id, 2, "k1 should have k2's id")
@@ -285,12 +303,15 @@ describe('Array with shared object identities', () => {
       const original = [a, b, c]
 
       // Reorder: [a, b, c] -> [c, a, b]
-      const result = patch(original, (draft) => {
-        draft[0] = c
-        draft[1] = a
-        draft[2] = b
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft[0] = c
+          draft[1] = a
+          draft[2] = b
+          return draft
+        }),
+      )
 
       // Spec-conformant: values rotated into current positions
       assert.equal(a.id, 'c', "a should have c's id")
@@ -313,11 +334,14 @@ describe('Array with shared object identities', () => {
       const original = [x, y]
 
       // Swap: [x, y] -> [y, x]
-      const result = patch(original, (draft) => {
-        draft[0] = y
-        draft[1] = x
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft[0] = y
+          draft[1] = x
+          return draft
+        }),
+      )
 
       // Spec-conformant: values swapped
       assert.equal(x.value, 20, "x should have y's value")
@@ -334,12 +358,15 @@ describe('Array with shared object identities', () => {
       const original = [...items]
 
       // Reverse: [1, 2, 3] -> [3, 2, 1]
-      const result = patch(original, (draft) => {
-        draft[0] = items[2]
-        draft[1] = items[1]
-        draft[2] = items[0]
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft[0] = items[2]
+          draft[1] = items[1]
+          draft[2] = items[0]
+          return draft
+        }),
+      )
 
       // Spec-conformant: values reversed into current positions
       assert.equal(items[0].n, 3, 'items[0] should have value 3')
@@ -358,11 +385,14 @@ describe('Array with shared object identities', () => {
       const original = [a, b, c]
 
       // Move last to first: [a, b, c] -> [c, a, b]
-      const result = patch(original, (draft) => {
-        const last = draft.pop()
-        draft.unshift(last!)
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          const last = draft.pop()
+          draft.unshift(last!)
+          return draft
+        }),
+      )
 
       // Spec-conformant: values rotated
       assert.equal(a.letter, 'c', "a should have c's letter")
@@ -403,11 +433,14 @@ describe('Plain object with shared object identities', () => {
       const original = { first: x, second: y }
 
       // Swap: first->x, second->y becomes first->y, second->x
-      const result = patch(original, (draft) => {
-        draft.first = y
-        draft.second = x
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.first = y
+          draft.second = x
+          return draft
+        }),
+      )
 
       // Spec-conformant: x and y have swapped names
       assert.equal(x.name, 'y', "x should have y's name")
@@ -427,12 +460,15 @@ describe('Plain object with shared object identities', () => {
       const original = { p1: a, p2: b, p3: c }
 
       // Rotate: p1->a, p2->b, p3->c becomes p1->b, p2->c, p3->a
-      const result = patch(original, (draft) => {
-        draft.p1 = b
-        draft.p2 = c
-        draft.p3 = a
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          draft.p1 = b
+          draft.p2 = c
+          draft.p3 = a
+          return draft
+        }),
+      )
 
       // Spec-conformant: values rotated
       assert.equal(a.v, 'b', "a should have b's value")
@@ -451,13 +487,16 @@ describe('Plain object with shared object identities', () => {
       const original = { a: x, b: y }
 
       // Change key order AND swap values: a->x, b->y becomes b->x, a->y
-      const result = patch(original, (draft) => {
-        delete (draft as Record<string, unknown>).a
-        delete (draft as Record<string, unknown>).b
-        ;(draft as Record<string, unknown>).b = x
-        ;(draft as Record<string, unknown>).a = y
-        return draft
-      })
+      const result = reconcile(
+        original,
+        produce(original, (draft) => {
+          delete (draft as Record<string, unknown>).a
+          delete (draft as Record<string, unknown>).b
+          ;(draft as Record<string, unknown>).b = x
+          ;(draft as Record<string, unknown>).a = y
+          return draft
+        }),
+      )
 
       // Spec-conformant: values swapped based on key alignment
       // Key 'a' in next has value y, key 'b' in next has value x
@@ -527,11 +566,14 @@ describe('Complex shared identity scenarios', () => {
     const original = { a: wrapper1, b: wrapper2 }
 
     // Swap the wrappers
-    const result = patch(original, (draft) => {
-      draft.a = wrapper2
-      draft.b = wrapper1
-      return draft
-    })
+    const result = reconcile(
+      original,
+      produce(original, (draft) => {
+        draft.a = wrapper2
+        draft.b = wrapper1
+        return draft
+      }),
+    )
 
     // Spec-conformant: wrapper ids swapped
     assert.equal(wrapper1.id, 'w2', "wrapper1 should have w2's id")
@@ -550,12 +592,15 @@ describe('Complex shared identity scenarios', () => {
     const original = [a, a, b]
 
     // Reorder to [b, a, a]
-    const result = patch(original, (draft) => {
-      draft[0] = b
-      draft[1] = a
-      draft[2] = a
-      return draft
-    })
+    const result = reconcile(
+      original,
+      produce(original, (draft) => {
+        draft[0] = b
+        draft[1] = a
+        draft[2] = a
+        return draft
+      }),
+    )
 
     // Position 0: a[0] reconciled with b -> a gets b's values
     // Position 1: a[1] (same as a[0]) reconciled with a...
@@ -578,13 +623,16 @@ describe('Complex shared identity scenarios', () => {
     }
 
     // Swap in both collections
-    const result = patch(original, (draft) => {
-      draft.array[0] = b
-      draft.array[1] = a
-      draft.obj.x = b
-      draft.obj.y = a
-      return draft
-    })
+    const result = reconcile(
+      original,
+      produce(original, (draft) => {
+        draft.array[0] = b
+        draft.array[1] = a
+        draft.obj.x = b
+        draft.obj.y = a
+        return draft
+      }),
+    )
 
     // After reconciliation, values should be swapped
     // a and b are shared across both collections
@@ -609,11 +657,14 @@ describe('Complex shared identity scenarios', () => {
       },
     }
 
-    const result = patch(original, (draft) => {
-      draft.level1.level2.items[0] = b
-      draft.level1.level2.items[1] = a
-      return draft
-    })
+    const result = reconcile(
+      original,
+      produce(original, (draft) => {
+        draft.level1.level2.items[0] = b
+        draft.level1.level2.items[1] = a
+        return draft
+      }),
+    )
 
     // Spec-conformant: values swapped at the deepest level
     assert.equal(a.deep.value, 'b', "a.deep.value should have b's value")
@@ -637,11 +688,14 @@ describe('Complex shared identity scenarios', () => {
 
     const original = { first: a, second: b }
 
-    const result = patch(original, (draft) => {
-      draft.first = b
-      draft.second = a
-      return draft
-    })
+    const result = reconcile(
+      original,
+      produce(original, (draft) => {
+        draft.first = b
+        draft.second = a
+        return draft
+      }),
+    )
 
     // Spec-conformant: ids swapped, cycles preserved
     assert.equal(a.id, 'b', "a should have b's id")
@@ -654,16 +708,16 @@ describe('Complex shared identity scenarios', () => {
 })
 
 // ============================================================================
-// createPatch + reconcile analysis
+// produce + reconcile analysis
 // ============================================================================
 
-describe('createPatch produces shared identities - reconcile handles correctly', () => {
-  it('createPatch output shares identities with current', () => {
+describe('produce produces shared identities - reconcile handles correctly', () => {
+  it('produce output shares identities with current', () => {
     const a = { id: 'a' }
     const b = { id: 'b' }
     const current = new Set([a, b])
 
-    const next = createPatch(current, (draft) => {
+    const next = produce(current, (draft) => {
       draft.clear()
       draft.add(b)
       draft.add(a)

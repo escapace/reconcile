@@ -1,21 +1,20 @@
-import { deepSignal } from 'alien-deepsignals'
 import { assert, describe, it } from 'vitest'
 import { isReactive, reactive } from 'vue'
 
-import { createPatch, patch, reconcile, snapshot } from '../index'
+import { produce, reconcile, snapshot } from '../index'
 
 const bytesOfArrayBuffer = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
 const returnFortyTwo = (): number => 42
 
 describe('README publication semantics', () => {
   describe('next-value construction and publication', () => {
-    it('createPatch computes a next value without publishing it', () => {
+    it('produce computes a next value without publishing it', () => {
       const current = {
         changed: { count: 0 },
         untouched: { keep: true },
       }
 
-      const next = createPatch(current, (draft) => {
+      const next = produce(current, (draft) => {
         draft.changed.count = 1
         return draft
       })
@@ -31,7 +30,7 @@ describe('README publication semantics', () => {
       assert.notEqual(next, current)
     })
 
-    it('patch publishes onto the existing object graph when compatible', () => {
+    it('caller publication publishes onto the existing object graph when compatible', () => {
       const nested = { count: 0 }
       const current = {
         nested,
@@ -39,10 +38,13 @@ describe('README publication semantics', () => {
       }
       const siblingReference = current.sibling
 
-      const result = patch(current, (draft) => {
-        draft.nested.count = 1
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.nested.count = 1
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(result.nested, nested)
@@ -277,14 +279,14 @@ describe('README publication semantics', () => {
       )
     })
 
-    it('returns a finalized but not detached value from createPatch, and snapshot detaches it', () => {
+    it('returns a finalized but not detached value from produce, and snapshot detaches it', () => {
       const untouched = { keep: true }
       const current = {
         changed: { count: 0 },
         untouched,
       }
 
-      const next = createPatch(current, (draft) => {
+      const next = produce(current, (draft) => {
         draft.changed.count = 1
         return draft
       })
@@ -310,33 +312,19 @@ describe('README publication semantics', () => {
       const nestedReference = current.nested
       const siblingReference = current.sibling
 
-      const result = patch(current, (draft) => {
-        draft.nested.count = 4
-        return draft
-      })
+      const result = reconcile(
+        current,
+        produce(current, (draft) => {
+          draft.nested.count = 4
+          return draft
+        }),
+      )
 
       assert.equal(result, current)
       assert.equal(isReactive(result), true)
       assert.equal(result.nested, nestedReference)
       assert.equal(result.sibling, siblingReference)
       assert.equal(result.nested.count, 4)
-    })
-
-    it('applies the same identity-reuse rules to alien-deepsignals objects', () => {
-      const current = deepSignal({
-        nested: { count: 0 },
-        sibling: { keep: true },
-      })
-      const siblingReference = current.sibling
-
-      const result = patch(current, (draft) => {
-        draft.nested.count = 5
-        return draft
-      })
-
-      assert.equal(result, current)
-      assert.equal(result.sibling, siblingReference)
-      assert.equal(result.nested.count, 5)
     })
   })
 })

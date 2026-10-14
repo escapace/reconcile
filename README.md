@@ -1,126 +1,284 @@
 # @escapace/reconcile
 
-Supports three operations over JavaScript objects, arrays, maps, and sets. `snapshot(...)` creates a detached snapshot. `createPatch(...)` runs draft-style code and returns the finalized next value, while `reconcile(...)` applies a next value onto an existing one by reusing compatible structure instead of replacing everything. `patch(...)` is the convenience form that combines `createPatch(...)` with `reconcile(...)`. For supported values, the runtime preserves plain-object key order, sparse-array holes, cycles, shared references, and `ArrayBuffer` or view aliasing. It also supports Vue reactive proxies and alien-deepsignals objects.
+Copy JavaScript objects, arrays, maps and sets, build their next versions, and update them in place, while keeping control of which objects stay the same. `snapshot` makes an independent copy, `produce` builds the next version of a value from ordinary mutations, and `reconcile` updates existing objects in place to match new data. Each function is tree-shakable.
 
-## Immer
+## Install
 
-`createPatch(...)` is the closest match in this package to Immer's `produce(...)`: both run draft-style code and return a next value instead of mutating the current input directly. This package also exposes `snapshot(...)` for detached snapshots and `reconcile(...)` for applying a next value onto existing live structure. Support also extends beyond plain JavaScript objects to common reactive or signal-backed wrappers that behave like objects, arrays, maps, or sets.
+```sh
+pnpm add @escapace/reconcile
+```
 
-| Topic                    | `createPatch(...)`                                                                          | Immer `produce(...)`                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Data structures          | Plain objects, arrays, `Map`, `Set`                                                         | Plain objects, arrays; `Map` and `Set` with `enableMapSet()`     |
-| Returned value           | Next value; structural sharing; not frozen; use `snapshot(createPatch(...))` for detachment | Next state; structural sharing; auto-frozen by default           |
-| Recipe return            | Draft root, nested draft value, or replacement value                                        | Draft or replacement value; modified child draft return rejected |
-| Repeated references      | Supported                                                                                   | Out of scope                                                     |
-| Cycles                   | Supported                                                                                   | Out of scope                                                     |
-| Primitive `Map` keys     | Supported; ordinary key behavior                                                            | Supported; ordinary key behavior                                 |
-| Non-primitive `Map` keys | Update coherently                                                                           | Keys never drafted                                               |
-| `Date`                   | Clone-on-read; direct mutation publishes                                                    | Not drafted; replace with a new `Date`                           |
-| Binary values            | `ArrayBuffer`, `DataView`, typed arrays; clone-on-read; aliasing preserved                  | Not drafted                                                      |
-| Array iteration          | Native iteration works                                                                      | Native iteration works                                           |
-| `Map` / `Set` iteration  | Iterator and callback APIs out of scope                                                     | Iterator and callback APIs available with `enableMapSet()`       |
+## Choose a function
 
-## How `patch(...)` and `reconcile(...)` reuse existing values
+| You want to                                                     | Use                                            |
+| --------------------------------------------------------------- | ---------------------------------------------- |
+| Update objects your code already holds so they match new data   | `reconcile(current, next)`                     |
+| Build a new version of a value by writing ordinary mutations    | `produce(current, recipe)`                     |
+| Get a copy you can change without affecting the original        | `snapshot(value)`                              |
+| Write mutations, then apply them to the objects your code holds | `reconcile(current, produce(current, recipe))` |
 
-`createPatch(...)` computes a next value. `patch(...)` and `reconcile(...)` then apply that next value onto existing JavaScript values, reusing existing objects and collections where possible instead of replacing everything.
+The functions differ in what they do with object identity, that is, whether a value in the result is the same object as before or a new one:
 
-| Value                                       | Matched by                | What to expect                                                                                                                                    |
-| ------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Primitive values and functions              | direct value or reference | Different primitives replace the current value. Functions are kept by reference.                                                                  |
-| Plain objects                               | property key              | Key `a` is updated from `next.a`, key `b` from `next.b`, and so on. The result uses the next object's own-key order.                              |
-| Arrays                                      | index                     | Index `0` is updated from `next[0]`, index `1` from `next[1]`, and so on. The result uses the next array's length and preserves sparse holes.     |
-| `Map`                                       | entry order               | The first current entry is updated from the first next entry, the second from the second, and so on. The result iterates in the next map's order. |
-| `Set`                                       | entry order               | The first current value is updated from the first next value, the second from the second, and so on. The result iterates in the next set's order. |
-| `Date`                                      | the value itself          | The result matches the next timestamp. Shared `Date` references stay shared.                                                                      |
-| `ArrayBuffer`, typed arrays, and `DataView` | the value itself          | The result matches the next bytes, view type, and shared backing-buffer relationships.                                                            |
+| Function                   | Changes the original | Objects in the result                                           |
+| -------------------------- | -------------------- | --------------------------------------------------------------- |
+| `snapshot(value)`          | No                   | All new                                                         |
+| `produce(current, recipe)` | No                   | Unchanged parts are the original objects; changed parts are new |
+| `reconcile(current, next)` | Yes, in place        | The original objects, with new contents                         |
 
-Reordering follows the kind of JavaScript value being updated: arrays by index, objects by key, and maps and sets by entry order. Existing identities can therefore stay in place while their contents change to match the next value.
+```ts
+import { produce, reconcile, snapshot } from '@escapace/reconcile'
 
-Across the whole value:
+const state = { user: { name: 'Ada' }, tags: ['a'] }
 
-- Shared references in the next value stay shared in the result.
-- Distinct references in the next value stay distinct, even when they look equal.
-- Cycles stay intact.
-- Buffer and view sharing follows the next value.
-- `createPatch(...)` returns a finalized next value, not a detached copy. Use `snapshot(createPatch(...))` when detachment is required.
+const copy = snapshot(state) as typeof state // copy.user is a new object
+const next = produce(state, (draft) => {
+  draft.tags.push('b')
+  return draft
+}) // next.user is state.user; next.tags is a new array
+reconcile(state, next) // state.tags is still the same array, now ['a', 'b']
+```
 
-The same rules apply to wrappers that behave like objects, arrays, maps, or sets, including Vue reactive proxies and alien-deepsignals objects.
+## Update live state
+
+`reconcile(current, next)` changes `current` so that it matches `next`. It keeps the objects that your code, components and watchers already hold.
+
+```ts
+const state = { user: { name: 'Ada' }, items: [{ id: 1 }] }
+const user = state.user
+
+reconcile(state, { user: { name: 'Grace' }, items: [{ id: 1 }, { id: 2 }] })
+// state.user is still `user`, now named 'Grace'; state.items has two items
+```
+
+Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. An existing object at a matched position is kept and its contents are updated; it also keeps its own prototype. A value of a different kind, such as an array where an object was, replaces it. Values that did not change are not written, so their setters and watchers do not run.
+
+Spread updates are cheap. In `reconcile(state, { ...state, count: 1 })`, every other child of the new object is already in `state`, so `reconcile` reads those children once and writes only `count`.
+
+When both arguments are objects, `reconcile` returns `current`. Otherwise it returns `next` and changes nothing. If `current` cannot be made to match `next`, it throws without undoing earlier writes; see [When something fails](#when-something-fails).
+
+Full contract: [`reconcile`](#function-reconcile-).
+
+## Build the next value
+
+`produce(current, recipe)` gives `recipe` a draft of `current` to change with ordinary code, and returns the next value. `current` is not modified.
+
+```ts
+const state = { user: { name: 'Ada' }, items: [{ id: 1 }] }
+
+const next = produce(state, (draft) => {
+  draft.items.push({ id: 2 })
+  return draft
+})
+// state.items still has one item; next.user is state.user; next.items is a new array
+```
+
+- Return the draft, or any other value, explicitly. A recipe that returns nothing produces `undefined`.
+- Unchanged parts of the result are the original objects, so mutating them also changes `current`. Use `snapshot(produce(current, recipe))` when you need a fully independent result.
+- Reading a `Date`, `ArrayBuffer`, typed array or `DataView` from the draft gives a writable copy. If the recipe leaves the copy unchanged, the result uses the original.
+- If the recipe changes a value and then changes it back, the result keeps the original object.
+
+Full contract: [`produce`](#function-produce-).
+
+## Make an independent copy
+
+`snapshot(value)` returns a deep copy that you can change without affecting the original.
+
+```ts
+const state = { user: { name: 'Ada' }, tags: ['a'] }
+const copy = snapshot(state) as typeof state
+
+copy.user.name = 'Grace' // state.user.name is still 'Ada'
+```
+
+Compared with the built-in `structuredClone`, `snapshot`:
+
+- keeps functions by reference, where `structuredClone` throws;
+- copies Vue reactive state, where `structuredClone` throws;
+- keeps prototypes, where `structuredClone` returns plain objects;
+- keeps properties with symbol keys, which `structuredClone` drops.
+
+Full contract: [`snapshot`](#function-snapshot-).
+
+## Apply a recipe to live state
+
+Combine `produce` and `reconcile` to write changes as mutations and still update the objects your code holds:
+
+```ts
+const current = store.state // read once
+
+reconcile(
+  current,
+  produce(current, (draft) => {
+    draft.count += 1
+    return draft
+  }),
+)
+```
+
+`produce` finishes before `reconcile` starts, so an error in the recipe leaves `current` untouched. If `current` comes from a getter or a function call, read it once into a variable, as above, and use that variable in both places.
+
+## Vue reactive state
+
+All three functions accept Vue reactive objects, arrays, maps and sets.
+
+```ts
+import { reactive } from 'vue'
+
+const store = reactive({ user: { name: 'Ada', role: 'admin' }, items: [] as string[] })
+
+reconcile(store, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
+// store.user is the same reactive object; watchers of name run, watchers of role do not
+```
+
+- `reconcile` keeps the reactive objects your components hold.
+- `snapshot` returns plain, non-reactive data.
+- `produce` keeps unchanged parts as the same reactive objects, while the objects it creates for changed parts are plain. Use `reconcile(store, produce(store, recipe))` to apply the changes to the store.
+- `reconcile` never makes two positions share one underlying object through different reactive wrappers.
+
+## Supported values
+
+| Value                                           | `snapshot`                    | `produce`                  | `reconcile`                                              |
+| ----------------------------------------------- | ----------------------------- | -------------------------- | -------------------------------------------------------- |
+| Plain objects and arrays                        | Copied                        | Drafted                    | Updated in place, matched by key or index                |
+| `Map` and `Set`                                 | Copied                        | Drafted                    | Updated in place, matched by entry order                 |
+| `Date`, `ArrayBuffer`, typed arrays, `DataView` | Copied                        | Copied when read           | Updated in place, or replaced if a buffer's size changes |
+| Class instances                                 | Copied without private fields | Drafted like plain objects | Updated in place like plain objects                      |
+| Functions                                       | Kept by reference             | Kept by reference          | Kept by reference                                        |
+| Primitives                                      | Returned as is                | Read and assigned normally | Replaced by the next value                               |
+
+All three functions preserve key order, sparse-array holes, shared references, cycles, and the sharing between buffers and their views.
+
+## When something fails
+
+Every failure the library detects throws a `ReconcileError`. Its `cause.type` names what happened, and the prefix of the type names where:
+
+| Prefix         | Thrown by                           |
+| -------------- | ----------------------------------- |
+| `Draft`        | `produce`, while the recipe runs    |
+| `Finalization` | `produce`, after the recipe returns |
+| `Publication`  | `reconcile`                         |
+
+`snapshot` throws no library errors. Errors from your own code, such as getters, setters, proxy traps and iterators, reach you unchanged, as do `RangeError`s for invalid array lengths. `reconcile` does not roll back, so after a failure `current` can hold some of the new values.
+
+```ts
+import { isReconcileError, reconcile } from '@escapace/reconcile'
+
+try {
+  reconcile(current, next)
+} catch (error) {
+  if (isReconcileError(error) && error.cause.type === 'PublicationRejected') {
+    // current may hold some of the new values
+  } else throw error
+}
+```
+
+Messages may change between versions, so branch on `cause.type`. Every type and its details: [`RECONCILE_ERROR_TYPES`](#const-reconcile_error_types-) and [`ReconcileErrorMetadata`](#interface-reconcileerrormetadata-).
+
+## Limitations
+
+- Iterating a draft `Map` or `Set` with `keys`, `values`, `entries`, `forEach` or `for...of` throws.
+- Defining properties on a draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws; use assignment instead.
+- Copies and rebuilt objects lose the private fields and other internal state of class instances.
+- Storage shared between different wrappers is detected only for Vue reactive wrappers, not for other proxies.
+- Results are not frozen.
+- A failed `reconcile` is not rolled back.
+
+## Contributing
+
+See the [development workflow](docs/development.md).
 
 # API
 
-## function createPatch [↗](src/patch.ts#L1250-L1281 'createPatch')
+## function isReconcileError [↗](src/error.ts#L152-L153 'isReconcileError')
 
-Runs `recipe` against a temporary writable draft of `current` and returns the resulting next value without applying it back onto `current`.
+Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
 ```typescript
-export declare function createPatch<T, R>(current: T, recipe: (draft: T) => R): R
+isReconcileError: (value: unknown) => value is ReconcileError
 ```
 
 ### Parameters
 
-| Parameter | Type                       | Description                                                                   |
-| --------- | -------------------------- | ----------------------------------------------------------------------------- |
-| `current` | <pre>T</pre>               | Existing value.                                                               |
-| `recipe`  | <pre>(draft: T) => R</pre> | Receives a temporary writable draft of `current` and computes the next value. |
+| Parameter | Type               | Description                          |
+| --------- | ------------------ | ------------------------------------ |
+| `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-### Returns
+## function isReconcileErrorOfType [↗](src/error.ts#L161-L164 'isReconcileErrorOfType')
 
-The next value produced by the recipe.
-
-### Throws
-
-When the recipe calls out-of-scope `Map` or `Set` draft iterator or callback APIs.
-
-### Remarks
-
-`createPatch(...)` is the draft-building half of `patch(...)`. It gives `recipe` a temporary draft that can be mutated like ordinary JavaScript data, then returns the next value produced by that recipe. The recipe may return the draft root, a nested draft value, or any replacement value. Draft values created by this call are turned back into ordinary JavaScript values before return. If a replacement value contains nested draft values created by this call, those nested draft values are also turned back into ordinary JavaScript values before return. A non-draft return wins over draft mutations. Returning `current` by reference discards draft mutations and returns the original value.
-
-Supported values match `snapshot(...)` and `reconcile(current, next)`. Plain objects, arrays, `Map`, and `Set` are drafted structurally. `Set` drafts keep normal set membership behavior within one recipe. When the recipe reads a `Date`, `ArrayBuffer`, `DataView`, or typed array, it sees a writable copy rather than a partially wrapped live value. If that copy is left unchanged, the result reuses the original `Date`, buffer, or view references. If it is changed, the result contains changed copies and preserves `ArrayBuffer` or view aliasing. Primitive values and functions are treated as single values. Other object types, including many class instances or prototype-bearing values, are handled on a best-effort basis rather than rejected up front.
-
-For plain objects, arrays, `Map`, and `Set`, reads do not mark changes, and writing the same value back does not count as a change. Once a real change happens on one draft node, later writes do not restore that node to the original reference, even if the final contents match `current` again.
-
-The returned value is not frozen and it is not guaranteed to be detached from `current`. Untouched subtrees may stay shared. Supported results preserve plain-object key order, sparse-array holes, cycles, shared references, and `ArrayBuffer` or view aliasing. The same behavior also applies to common reactive or signal-backed wrappers when they expose object, array, map, or set behavior.
-
-Array drafts support normal array iteration, including `for...of`, `entries()`, `keys()`, `values()`, and callback-style array methods. `Map` and `Set` draft `keys()`, `values()`, `entries()`, `[Symbol.iterator]()`, and `forEach()` are out of scope and throw when called.
-
-`createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy. `patch(...)` applies the result through `reconcile(current, next)`.
-
-## function patch [↗](src/patch.ts#L1320-L1322 'patch')
-
-Runs `recipe` against a temporary writable draft of `current`, then applies the resulting next value back onto `current` through `reconcile(...)`.
+Returns whether `error` has the given `type`, narrowing `cause` to that type's facts.
 
 ```typescript
-export declare function patch<T, R>(current: T, recipe: (draft: T) => R): R
+isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, type: T)
+  => error is ReconcileError<T>
 ```
 
 ### Parameters
 
-| Parameter | Type                       | Description                                                                   |
-| --------- | -------------------------- | ----------------------------------------------------------------------------- |
-| `current` | <pre>T</pre>               | Existing value.                                                               |
-| `recipe`  | <pre>(draft: T) => R</pre> | Receives a temporary writable draft of `current` and computes the next value. |
+| Parameter | Type                                                                       | Description                                                              |
+| --------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
+| `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
+
+## function produce [↗](src/produce.ts#L75-L77 'produce')
+
+Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
+
+```typescript
+export declare function produce<T, R>(current: T, recipe: (draft: T) => R): R
+```
+
+### Type Parameters
+
+| Parameter | Description                           |
+| --------- | ------------------------------------- |
+| `T`       | Type of `current` and of the draft.   |
+| `R`       | Type of the value the recipe returns. |
+
+### Parameters
+
+| Parameter | Type                       | Description                                               |
+| --------- | -------------------------- | --------------------------------------------------------- |
+| `current` | <pre>T</pre>               | The value to start from. It is not modified.              |
+| `recipe`  | <pre>(draft: T) => R</pre> | Receives a draft of `current` and returns the next value. |
 
 ### Returns
 
-The value after the recipe result has been applied through `reconcile(current, next)`.
+The value the recipe returned, with drafts replaced by ordinary values. A recipe that returns nothing yields `undefined`.
 
 ### Throws
 
-When the recipe calls out-of-scope `Map` or `Set` draft iterator or callback APIs.
+1. [ReconcileError](#class-reconcileerror-) while the recipe runs: `DraftIterationUnsupported` for draft `Map` or `Set` iteration, `DraftDefinePropertyUnsupported` for reflective property definition, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an exotic array whose descriptors a real array could not have, and `DraftWrapperIdentityChanged` or `DraftWrapperIteratorMismatched` for a misbehaving reactive wrapper.
+2. [ReconcileError](#class-reconcileerror-) after the recipe returns: `FinalizationAccessorUnstable` when a getter adds a new getter to the result, and `FinalizationConstructionImpossible` when no consistent result exists. `FinalizationStorageMissing` and `FinalizationChildInvalid` indicate a bug in the library.
+3. Errors thrown by the recipe, getters, setters or proxy traps, and native `RangeError`s for invalid array lengths, propagate unchanged.
 
 ### Remarks
 
-`patch(...)` is the convenience wrapper around `createPatch(...)` and `reconcile(current, next)`. It is equivalent to `reconcile(current, createPatch(current, recipe))`. The same recipe return rules as `createPatch(...)` apply: the recipe may return the draft root, a nested draft value, or any replacement value. If a replacement value contains nested draft values created by this call, those nested draft values are turned back into ordinary JavaScript values before publication. A non-draft return wins over draft mutations. Returning `current` by reference discards draft mutations and returns the original value.
+The draft behaves like `current` but records changes instead of applying them. The recipe returns the next value explicitly: the draft, a part of it, or any other value. Drafts inside the returned value are turned back into ordinary values. If the recipe returns `current` itself, its draft changes are discarded.
 
-Supported values, draft behavior, and exclusions match `createPatch(...)`. Plain objects, arrays, `Map`, and `Set` are drafted structurally. `Date`, `ArrayBuffer`, `DataView`, and typed arrays use the same copy-on-read behavior. Other object types, including many class instances or prototype-bearing values, are handled on a best-effort basis rather than rejected up front. The same behavior also applies to common reactive or signal-backed wrappers when they expose object, array, map, or set behavior. Array drafts support normal array iteration, including `for...of`, `entries()`, `keys()`, `values()`, and callback-style array methods. `Map` and `Set` draft `keys()`, `values()`, `entries()`, `[Symbol.iterator]()`, and `forEach()` are out of scope and throw when called.
+The result reuses the parts of `current` the recipe left unchanged where it can, so it is not detached from `current`; use `snapshot(produce(...))` for a detached copy. The result is not frozen. An edit that is later undone restores the original object when its whole subtree ends up equal, including key order, holes, shared references and cycles. A new object the recipe creates stays distinct from an equal existing one.
 
-After the recipe finishes, `patch(...)` applies the next value through `reconcile(current, next)`. That means existing objects and collections may be kept when they can be updated in place. The result preserves plain-object key order, sparse-array holes, cycles, shared references, and `ArrayBuffer` or view aliasing. Because the next value is applied through `reconcile(current, next)`, `patch(...)` may return `current` even when `createPatch(...)` would return a fresh but equivalent next value.
+Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. A `Set` draft treats a draft and the object it drafts as the same member. Reading a `Date`, `ArrayBuffer`, `DataView` or typed array gives the recipe a writable copy; an unchanged copy resolves back to the original, and changed copies keep their buffer sharing. Other objects, such as class instances, are drafted like plain objects: an unchanged one is kept, and a changed one is rebuilt with the same prototype and own properties but without private fields or other internal state. Primitives and functions are single values. Vue reactive wrappers that behave like objects, arrays, maps or sets are supported.
 
-`createPatch(...)` is appropriate when a next value is needed without applying it back onto the existing value. `snapshot(createPatch(...))` produces a detached copy.
+Reading a value or writing an equal value back does not count as a change. During the recipe, getters run on every read and assignments call setters with the draft as `this`; `Reflect.set` honors an explicit receiver. Reading descriptors or enumerating keys, for example with `Object.keys`, returns draft values like ordinary reads, so it can create child drafts or copies. Defining properties with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws; use assignment instead.
 
-## function reconcile [↗](src/reconcile.ts#L1049-L1082 'reconcile')
+After the recipe returns, each getter in the result runs once, in depth-first order, with a temporary draft as `this`. Its value becomes an ordinary data property, so an object with a getter is always rebuilt. Writes the getter makes through `this` become part of the result; changes it makes to other state are not isolated.
 
-Applies `next` onto `current` by updating existing objects and collections when possible.
+Array drafts support normal iteration, including `for...of` and callback methods. Iterating a draft `Map` or `Set` with `keys`, `values`, `entries`, `forEach` or `[Symbol.iterator]` throws.
+
+### Examples
+
+```ts
+const current = { todos: [{ done: false }], filter: 'all' }
+const next = produce(current, (draft) => {
+  draft.todos[0].done = true
+  return draft
+})
+// current is unchanged; next.todos is a new array; next.filter is still 'all'
+```
+
+## function reconcile [↗](src/reconcile.ts#L53-L55 'reconcile')
+
+Updates `current` in place to match `next` and returns `current`, keeping existing objects wherever their position and kind allow.
 
 ```typescript
 export declare function reconcile<T>(current: unknown, next: T): T
@@ -128,28 +286,41 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Parameters
 
-| Parameter | Type               | Description                                  |
-| --------- | ------------------ | -------------------------------------------- |
-| `current` | <pre>unknown</pre> | Existing value to update.                    |
-| `next`    | <pre>T</pre>       | Next value to apply onto the existing value. |
+| Parameter | Type               | Description                                           |
+| --------- | ------------------ | ----------------------------------------------------- |
+| `current` | <pre>unknown</pre> | The value to update.                                  |
+| `next`    | <pre>T</pre>       | The value `current` should match. It is not modified. |
 
 ### Returns
 
-The updated value. This is usually `current`, but it may be `next` or a replacement subtree when in-place update is not possible.
+`current` when both arguments are objects, otherwise `next`.
+
+### Throws
+
+1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include roots of incompatible kinds, such as an object and an array; a non-writable or non-configurable property, or a non-extensible object, that blocks a change; two kept objects that would share storage; and a write that did not take effect. Writes made before the failure are not rolled back.
+2. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
 
 ### Remarks
 
-`reconcile(...)` tries to keep existing identities when the current value can be updated to match the next value. Arrays update by index and preserve sparse holes from `next`. Plain objects update by property key and adopt the next object's own-key order. `Map` and `Set` update by entry order, not by matching keys or values. `Date`, `ArrayBuffer`, `DataView`, and typed arrays update in place only when their published shape stays compatible.
+Values are matched by position: plain-object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when its kind fits the next value; otherwise the next value takes its place. When two positions compete for one object, a deterministic choice keeps it at one of them. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`. Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`.
 
-The result matches the observable structure of `next`, including plain-object key order, sparse-array holes, cycles, shared references, and `ArrayBuffer` or view aliasing. When one subtree cannot be updated in place, only that subtree is replaced; surrounding parent values may still be reused.
+`next` is read completely before `current` changes. When both arguments are objects, a successful call returns `current`. When either is not an object, the call returns `next` and changes nothing.
 
-Supported values include plain JavaScript objects, arrays, maps, sets, `Date`, `ArrayBuffer`, `DataView`, and typed arrays. The same behavior also applies to common reactive or signal-backed wrappers when they expose object, array, map, or set behavior. Descriptor-level details are not preserved on every path; for example, accessors may keep existing behavior, and retained non-configurable keys may not be removed even when `next` does not contain them.
+An object in `next` that is already the object at the same property of the matched current object is kept as it is. `reconcile(state, { ...state, count: 1 })` therefore reads the shared children once and writes only the root. Nothing inside a kept object is changed or read back. Other positions never take over an object from inside it, but an object that `next` itself places elsewhere stays that object there. The result equals a full update. A kept object that refers back to either root is updated normally instead.
 
-Primitive values are handled directly. If either root is not object-like, or if the root kinds differ, the function returns `next`.
+Vue reactive wrappers are supported. Two kept objects never end up sharing the raw storage behind a wrapper.
 
-## function snapshot [↗](src/snapshot.ts#L36-L51 'snapshot')
+### Examples
 
-Creates a detached snapshot of `value`.
+```ts
+const state = { user: { name: 'Ada' }, tags: ['a'] }
+const result = reconcile(state, { user: { name: 'Grace' }, tags: ['a', 'b'] })
+// result === state; state.user and state.tags are the same objects, updated in place
+```
+
+## function snapshot [↗](src/snapshot.ts#L60-L65 'snapshot')
+
+Returns a deep copy of `value` that can be changed without affecting the original.
 
 ```typescript
 export declare function snapshot(value: unknown, seen?: WeakMap<object, object>): unknown
@@ -157,17 +328,253 @@ export declare function snapshot(value: unknown, seen?: WeakMap<object, object>)
 
 ### Parameters
 
-| Parameter | Type                                | Description                                                                                                                    |
-| --------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `value`   | <pre>unknown</pre>                  | Value to snapshot.                                                                                                             |
-| `seen`    | <pre>WeakMap\<object, object></pre> | Memoization table that preserves cycles and shared references during recursive traversal. Callers usually omit this parameter. |
+| Parameter | Type                                | Description                                                                                                                                                                                           |
+| --------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`   | <pre>unknown</pre>                  | The value to copy.                                                                                                                                                                                    |
+| `seen`    | <pre>WeakMap\<object, object></pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. Most callers omit it. |
 
 ### Returns
 
-A detached snapshot that can be mutated without affecting the source value, or the original primitive value when the input is non-object-like.
+A detached copy of `value`, or `value` itself when it is not an object.
 
 ### Remarks
 
-`snapshot(...)` clones supported objects and collections so the result can be changed without affecting the source value. It preserves plain-object key order, sparse-array holes, cycles, shared references, object prototypes, and `ArrayBuffer` or view aliasing.
+The copy keeps plain-object key order and prototypes, sparse-array holes, shared references, cycles, and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView` and typed arrays are supported, including Vue reactive wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are, and functions are kept by reference. Other objects, such as class instances, are copied like plain objects: the copy has the same prototype and own properties but not private fields or other internal state.
 
-Supported values include plain objects, arrays, maps, sets, `Date`, `ArrayBuffer`, `DataView`, and typed arrays. The same behavior also applies to common reactive or signal-backed wrappers when they expose object, array, map, or set behavior. Primitive values are returned unchanged. Function values are kept by reference rather than cloned.
+### Examples
+
+```ts
+const node = { label: 'a', children: [] as unknown[] }
+node.children.push(node)
+const copy = snapshot(node) as typeof node
+// copy !== node; copy.children[0] === copy
+```
+
+## class ReconcileError [↗](src/error.ts#L128-L145 'ReconcileError')
+
+The error this library throws when an operation cannot keep its contract.
+
+```typescript
+export declare class ReconcileError<T extends ReconcileErrorType = ReconcileErrorType> extends Error
+```
+
+### Remarks
+
+Every failure the library detects is a `ReconcileError`. Its `cause` holds a stable `type` and the facts for that type. Its message is for people and may change between versions. Check for it with `instanceof ReconcileError` or [isReconcileError](#function-isreconcileerror-), then branch on `cause.type`.
+
+The library never throws for an outcome that is part of a contract, such as `reconcile` returning `next` when a root is not an object.
+
+Three kinds of errors keep their original identity and are not wrapped: `RangeError` for an invalid array length, as native arrays throw it; errors thrown by application code that the operations reach, such as getters, setters, proxy traps and iterators; and errors the host throws when `reconcile` writes into `current`. When one of them interrupts `reconcile`, earlier writes are not rolled back.
+
+### Examples
+
+```ts
+try {
+  reconcile(current, next)
+} catch (error) {
+  if (isReconcileError(error) && error.cause.type === 'PublicationRejected') {
+    // current may hold some of the writes; nothing was rolled back
+  } else throw error
+}
+```
+
+### new ReconcileError
+
+Creates an error. The library creates these itself; applications normally only inspect them.
+
+```typescript
+constructor(cause: ReconcileErrorCause<T>, message: string);
+```
+
+#### Parameters
+
+| Parameter | Type                                                                                        | Description                                                |
+| --------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `cause`   | <pre>[ReconcileErrorCause](#type-reconcileerrorcause- 'type ReconcileErrorCause')\<T></pre> | The error's `type` and the facts for that type.            |
+| `message` | <pre>string</pre>                                                                           | A description for people; not part of the stable contract. |
+
+### ReconcileError.cause
+
+The error's `type` and the facts for that type.
+
+```typescript
+readonly cause: ReconcileErrorCause<T>;
+```
+
+### ReconcileError.name
+
+Always `'ReconcileError'`.
+
+```typescript
+readonly name: 'ReconcileError';
+```
+
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L10-L22 'RECONCILE_ERROR_TYPES')
+
+Every error type this library raises, named by the phase that detects it.
+
+```typescript
+RECONCILE_ERROR_TYPES: readonly[
+  ('DraftArrayIndexRejected',
+  'DraftArrayLengthRejected',
+  'DraftDefinePropertyUnsupported',
+  'DraftIterationUnsupported',
+  'DraftWrapperIdentityChanged',
+  'DraftWrapperIteratorMismatched',
+  'FinalizationAccessorUnstable',
+  'FinalizationChildInvalid',
+  'FinalizationConstructionImpossible',
+  'FinalizationStorageMissing',
+  'PublicationRejected')
+]
+```
+
+### Remarks
+
+The prefix names the phase. `Draft` types come from `produce` while the recipe runs. `Finalization` types come from `produce` after the recipe returns. `Publication` types come from `reconcile`. `snapshot` raises no library error. After the prefix, the name states the subject and the condition, so each type names exactly one situation.
+
+## interface ReconcileErrorMetadata [↗](src/error.ts#L37-L94 'ReconcileErrorMetadata')
+
+The facts each error type carries in `cause`, next to `type`.
+
+```typescript
+export interface ReconcileErrorMetadata
+```
+
+### Remarks
+
+The facts are values the library already held when it detected the failure. Reporting an error reads nothing more from application objects.
+
+### ReconcileErrorMetadata.DraftArrayIndexRejected
+
+An exotic source array, such as a proxy, reported an index at or beyond a non-writable length, which a real array cannot have. `index` is that index.
+
+```typescript
+DraftArrayIndexRejected: {
+  index: number
+}
+```
+
+### ReconcileErrorMetadata.DraftArrayLengthRejected
+
+An exotic source array, such as a proxy, reported a length that its other properties make impossible. `length` is the reported length.
+
+```typescript
+DraftArrayLengthRejected: {
+  length: number
+}
+```
+
+### ReconcileErrorMetadata.DraftDefinePropertyUnsupported
+
+The recipe called `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` on a draft. `property` is the key. Use assignment instead.
+
+```typescript
+DraftDefinePropertyUnsupported: {
+  property: PropertyKey
+}
+```
+
+### ReconcileErrorMetadata.DraftIterationUnsupported
+
+The recipe called an iteration method on a draft `Map` or `Set`. `method` names it.
+
+```typescript
+DraftIterationUnsupported: {
+  method: DraftIterationMethod
+}
+```
+
+### ReconcileErrorMetadata.DraftWrapperIdentityChanged
+
+A reactive wrapper around a `Map` or `Set` reported an inconsistent chain of raw objects while a draft entry was being inserted.
+
+```typescript
+DraftWrapperIdentityChanged: {
+}
+```
+
+### ReconcileErrorMetadata.DraftWrapperIteratorMismatched
+
+A reactive wrapper around a `Map` or `Set` did not return the value just inserted when it was iterated.
+
+```typescript
+DraftWrapperIteratorMismatched: {
+}
+```
+
+### ReconcileErrorMetadata.FinalizationAccessorUnstable
+
+A getter that ran after the recipe returned put a new getter into the result, which the library found only after it had stopped running getters. `property` is the new getter's key.
+
+```typescript
+FinalizationAccessorUnstable: {
+  property: PropertyKey
+}
+```
+
+### ReconcileErrorMetadata.FinalizationChildInvalid
+
+Internal error: a record of the result referred to a child that does not exist. `index` is the record and `child` the invalid reference. This indicates a bug in the library.
+
+```typescript
+FinalizationChildInvalid: {
+  child: unknown
+  index: number
+}
+```
+
+### ReconcileErrorMetadata.FinalizationConstructionImpossible
+
+No consistent result exists: objects the result must keep would share storage, or the new objects have no valid creation order.
+
+```typescript
+FinalizationConstructionImpossible: {
+}
+```
+
+### ReconcileErrorMetadata.FinalizationStorageMissing
+
+Internal error: an object that could be kept had no storage. `index` identifies its record. This indicates a bug in the library.
+
+```typescript
+FinalizationStorageMissing: {
+  index: number
+}
+```
+
+### ReconcileErrorMetadata.PublicationRejected
+
+`reconcile` could not make `current` match `next`. Writes made before the failure are not rolled back.
+
+```typescript
+PublicationRejected: {
+}
+```
+
+## type DraftIterationMethod [↗](src/error.ts#L28 'DraftIterationMethod')
+
+Draft `Map` and `Set` methods that throw; `iterator` stands for `[Symbol.iterator]`.
+
+```typescript
+export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' | 'values'
+```
+
+## type ReconcileErrorCause [↗](src/error.ts#L97-L98 'ReconcileErrorCause')
+
+The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` together with that type's facts.
+
+```typescript
+export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorType> = T
+  extends ReconcileErrorType ? {
+  type: T;
+} & ReconcileErrorMetadata[T] : never;
+```
+
+## type ReconcileErrorType [↗](src/error.ts#L25 'ReconcileErrorType')
+
+The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
+
+```typescript
+export type ReconcileErrorType = (typeof RECONCILE_ERROR_TYPES)[number]
+```
