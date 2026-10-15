@@ -35,7 +35,7 @@ describe('identical-occupant pruning', () => {
   })
 
   it('captures a subtree whose back reference reaches the current root, as before', () => {
-    const current: { child: { n: number; parent?: object; }; counter: number } = {
+    const current: { child: { n: number; parent?: object }; counter: number } = {
       child: { n: 0 },
       counter: 0,
     }

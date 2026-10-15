@@ -56,9 +56,7 @@ describe('instance-scoped native type extension', () => {
     expect(engine.reconcile(current, new Cell({ n: 3 }))).toBe(current)
     expect(current.value).toBe(child)
     expect(child.n).toBe(3)
-    expect(() => engine.reconcile(Object.freeze(new Cell(1)), new Cell(2))).toThrow(
-      ReconcileError,
-    )
+    expect(() => engine.reconcile(Object.freeze(new Cell(1)), new Cell(2))).toThrow(ReconcileError)
   })
 
   it('composes production through the same configured draft and publication paths', () => {

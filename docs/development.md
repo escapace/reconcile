@@ -173,6 +173,15 @@ Pick the path by what the change touches. Every path ends with the gates in
 Some tooling depends on exact source text or names. A mismatch breaks `pnpm check:lean`,
 the counters or the package, but not `pnpm test`. Update the tooling in the same change.
 
+- **Benchmark runner.** `pnpm bench` uses Tinybench directly through
+  `scripts/bench.ts` and `scripts/bench-scenarios.ts`, using the factories in
+  `perf/scenarios.ts`. The frozen `perf/*.bench.ts` files retain their Vitest 4
+  declarations as references; Vitest 5 removed their `bench` export, so these files are
+  excluded from typechecking and linting and are no longer executed. The new runner
+  preserves at least 500 measured iterations, five warmup iterations and 100 ms of
+  warmup per task. Tasks run sequentially, and reported throughput counts 150-operation batches,
+  not individual library calls. Check benchmarks as well as tests after dependency
+  updates.
 - **DeferredOrder bridge.** `scripts/check-deferred-order-runtime.ts` copies
   `src/types/shared/property-publication.ts` and rewrites exact text: three import
   specifiers and three lines in `canPublishProperties`. Keep the eager desired-key

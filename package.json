@@ -25,6 +25,7 @@
     "prettier": "3.9.9",
     "prettier-config-escapace": "1.2.2",
     "syncpack": "15.3.3",
+    "tinybench": "6.2.1",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.0.3",
@@ -60,7 +61,7 @@
   },
   "repository": "escapace/reconcile",
   "scripts": {
-    "bench": "vitest bench --run",
+    "bench": "tsx scripts/bench.ts",
     "build": "tsx scripts/build.ts",
     "check:lean": "python3 scripts/check-lean.py",
     "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --log-level warn --no-error-on-unmatched-pattern -uw .",

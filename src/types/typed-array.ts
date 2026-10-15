@@ -68,5 +68,6 @@ export function copyTypedArray(value: ArrayBufferView, buffer: ArrayBuffer): Arr
     constructor: new (buffer: ArrayBuffer, byteOffset: number, length: number) => ArrayBufferView
     length: number
   }
+  // eslint-disable-next-line new-cap -- The source view's constructor property has a fixed lowercase name.
   return new typed.constructor(buffer, typed.byteOffset, typed.length)
 }

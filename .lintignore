@@ -1,3 +1,5 @@
 lib
 coverage
 pnpm-lock.yaml
+# Frozen Vitest 4 declarations; Tinybench now runs the scenario factories directly.
+perf/*.bench.ts
