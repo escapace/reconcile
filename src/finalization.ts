@@ -32,9 +32,9 @@ interface Discovery {
 type ObservationPhase = (
   { readonly kind: 'discover'; readonly plan: Discovery } | { readonly kind: 'probe' | 'sealed' }
 ) & {
-  readonly owners: WeakMap<object, object>
   readonly required: WeakMap<object, boolean>
   readonly values: WeakMap<object, unknown>
+  nativeOwners?: WeakMap<object, object>
 }
 
 // This object is owned by one finalization call, never by recipe-visible handles.
@@ -42,7 +42,7 @@ type ObservationPhase = (
 export class Finalization {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
   // Native kind knowledge for one observation phase; never attached to application objects.
-  declare private readonly forcedOwnedCopies: WeakSet<object>
+  declare private forcedOwnedCopies: WeakSet<object> | undefined
   declare private kinds: Map<object, symbol>
   declare private phase: ObservationPhase
   declare private readonly session: DraftSession
@@ -54,12 +54,11 @@ export class Finalization {
     this.kinds = new Map()
     this.phase = {
       kind: 'probe',
-      owners: new WeakMap(),
       required: new WeakMap(),
       values: new WeakMap(),
     }
     this.untrackedSpecialsToClone = new WeakSet()
-    this.forcedOwnedCopies = new WeakSet()
+    this.forcedOwnedCopies = undefined
   }
 
   private get materializationPlan(): Discovery | undefined {
@@ -99,7 +98,6 @@ export class Finalization {
     // of reading the unchanged subtrees again.
     const discovery: ObservationPhase = {
       kind: 'discover',
-      owners: new WeakMap(),
       plan,
       required: this.phase.required,
       values: new WeakMap(),
@@ -118,7 +116,6 @@ export class Finalization {
     }
     this.phase = {
       kind: 'sealed',
-      owners: new WeakMap(),
       required: new WeakMap(),
       values: new WeakMap(),
     }
@@ -232,7 +229,7 @@ export class Finalization {
       const clone = this.session.specialCloneBaseToClone.get(dependency)
       return (
         clone === undefined ||
-        (policy.dependencyEquivalent?.(value, dependency, clone, this.session.specialOwners) ??
+        (policy.dependencyEquivalent?.(value, dependency, clone, this.session) ??
           this.session.types.specials[dependencyKind]!.equivalent(dependency, clone))
       )
     })
@@ -253,7 +250,7 @@ export class Finalization {
         : true
     const equivalent =
       copyBase !== undefined
-        ? !this.forcedOwnedCopies.has(value) && policy.equivalent(copyBase, value)
+        ? this.forcedOwnedCopies?.has(value) !== true && policy.equivalent(copyBase, value)
         : copy === undefined || !currentBacked || forced || !dependenciesStable
           ? true
           : policy.equivalent(value, copy)
@@ -273,8 +270,8 @@ export class Finalization {
       const copy =
         this.session.specialCloneBaseToClone.get(child) ??
         (this.session.specialCloneCloneToBase.has(child) ? child : undefined)
-      if (copy !== undefined && !this.forcedOwnedCopies.has(copy)) {
-        this.forcedOwnedCopies.add(copy)
+      if (copy !== undefined && this.forcedOwnedCopies?.has(copy) !== true) {
+        ;(this.forcedOwnedCopies ??= new WeakSet()).add(copy)
         this.phase.values.delete(copy)
         const base = this.session.specialCloneCloneToBase.get(copy)
         if (base !== undefined) this.phase.values.delete(base)
@@ -282,8 +279,8 @@ export class Finalization {
         if (plan !== undefined) plan.clonesSpecialValues = true
       }
       if (copy !== undefined) {
-        const owner = this.session.specialOwners.get(copy)
-        if (owner !== undefined) this.phase.owners.set(copy, owner)
+        const owner = this.session.nativeOwners?.get(copy)
+        if (owner !== undefined) (this.phase.nativeOwners ??= new WeakMap()).set(copy, owner)
       }
       return true
     })
@@ -322,7 +319,7 @@ export class Finalization {
     if (
       copyBase === undefined &&
       copy !== undefined &&
-      (!isCurrentBackedSlot || this.forcedOwnedCopies.has(copy))
+      (!isCurrentBackedSlot || this.forcedOwnedCopies?.has(copy) === true)
     ) {
       const result = this.materializeContainerSlot(copy, false)
       memo.set(value, result)
@@ -383,7 +380,7 @@ export class Finalization {
       policy.copy(
         value,
         (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
-        this.phase.owners,
+        this.phase,
       ),
       value,
     )

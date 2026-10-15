@@ -1,4 +1,6 @@
 import Std
+import Types.LazyOwnership
+import Types.OwnedPublication
 
 /- A feasibility witness for lazy ownership discovery, not a JS specification.
    A native carrier owner is allocated together with its fixed child before its

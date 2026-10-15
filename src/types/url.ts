@@ -2,6 +2,7 @@ import { freeze, noValue, same, yes, ordinaryExposure } from './shared/empty'
 import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
 import {
+  URL_KIND,
   adoptURLCarrier,
   carrierFromResponse,
   nativeURLHref,
@@ -22,8 +23,7 @@ import type {
   DraftStrategy,
 } from '../types'
 
-/** Stable global identity owned by the URL module. */
-export const URL_KIND = Symbol.for('@escapace/reconcile/url')
+export { URL_KIND } from './shared/url-carrier'
 
 /** Captures owner serialization and its native parameter-storage carrier. */
 export interface URLLayout {
@@ -82,7 +82,7 @@ const urlConstruction = {
   }),
   allocate(node, resolve, owners) {
     const parameters = resolve(node.edges[0]) as object
-    const carrier = owners?.get(parameters) as URL | undefined
+    const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
     return carrier === undefined ? undefined : adoptURLCarrier(carrier, node.layout.href)
   },
 } satisfies ConstructionPolicy<URLLayout>
@@ -119,14 +119,14 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
         const url = value as URL
         const href = nativeURLHref(url)
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
-        const carrier = owners?.get(parameters) as URL | undefined
+        const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
         if (carrier === undefined) throw finalizationConstructionImpossible()
         return adoptURLCarrier(carrier, href)
       },
       dependencies: (value, visit) =>
         visit(nativeURLSearchParameters(value as URL), URL_SEARCH_PARAMS_KIND),
       dependencyEquivalent(owner, _source, copy, owners) {
-        const carrier = owners.get(copy) as URL | undefined
+        const carrier = owners.nativeOwners?.get(copy) as URL | undefined
         if (carrier === undefined) return false
         const href = nativeURLHref(owner as URL)
         return nativeURLHref(adoptURLCarrier(new URL(nativeURLHref(carrier)), href)) === href

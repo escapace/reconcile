@@ -62,7 +62,7 @@ class SnapshotReference {
  */
 export function snapshot(
   value: unknown,
-  seen: WeakMap<object, object> = new WeakMap<object, object>(),
+  seen: WeakMap<object, object> | undefined = undefined,
 ): unknown {
   return snapshotWith(snapshotTypes, value, seen)
 }
@@ -70,28 +70,37 @@ export function snapshot(
 export function snapshotWith(
   types: SnapshotRegistry,
   value: unknown,
-  seen: WeakMap<object, object>,
+  seen?: WeakMap<object, object>,
 ): unknown {
-  const constructed = new WeakMap<object, object>()
+  // Custom facets may retain and reinitialize a writer after returning. Their memo
+  // remains independent. Built-ins initialize once and expose no reentrant callback
+  // before the former memo write; future facets must preserve that boundary.
+  if (seen === undefined && types !== snapshotTypes) seen = new WeakMap()
+  let constructed: WeakMap<object, object> | undefined
   const resolve = (edge: Edge): unknown =>
     isNode(edge) ? (edge as SnapshotReference).target : edge.value
   const root = traverse<SnapshotReference>(
     types,
     value,
     {
+      existing: seen === undefined ? undefined : (source) => seen.get(source),
       finish: noValue,
+      memoTarget: seen === undefined ? (writer) => writer.target : undefined,
       begin(source, writer, layout) {
         const policy = types.policies[layout.kind]
         policy.snapshot(layout, resolve, writer)
-        const response = policy.construction(layout)
-        if (response !== undefined) constructed.set(writer.target!, response)
-        seen.set(source, writer.target!)
+        if (policy.construction !== noValue) {
+          const response = policy.construction(layout)
+          if (response === writer.target) constructed?.delete(writer.target!)
+          else if (response !== undefined)
+            (constructed ??= new WeakMap()).set(writer.target!, response)
+        }
+        seen?.set(source, writer.target!)
       },
-      constructed: (target) => constructed.get(target),
+      constructed: (target) => constructed?.get(target),
       edge(writer, child, key) {
         writer.write?.(child, key)
       },
-      existing: (source) => seen.get(source),
       layout: (writer) => writer.layout,
       reserve: (node) => new SnapshotReference(node),
     },

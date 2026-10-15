@@ -1,6 +1,6 @@
 import { freeze } from './shared/empty'
 import type { SnapshotRegistry, PublicationRegistry, ImmutableRegistry } from '../types'
-import { registerTypes, registerRecognition } from './registry'
+import { registerTypes } from './registry'
 import * as array from './array'
 import * as date from './date'
 import * as map from './map'
@@ -49,25 +49,72 @@ function table<T>(facets: readonly T[]): Readonly<Record<symbol, T>> {
   return Object.freeze(Object.fromEntries(KINDS.map((kind, index) => [kind, facets[index]])))
 }
 
-const recognition = /* @__PURE__ */ registerRecognition(
-  [
-    array.arrayRecognition,
-    date.dateRecognition,
-    map.mapRecognition,
-    set.setRecognition,
-    arrayBuffer.arrayBufferRecognition,
-    dataView.dataViewRecognition,
-    typedArray.typedArrayRecognition,
-    temporal.temporalRecognition,
-    url.urlRecognition,
-    urlSearchParameters.urlSearchParametersRecognition,
-    object.objectRecognition,
-  ].map((recognition, index) => ({ kind: KINDS[index], recognition })),
-)
+/** Full recognition needs no bounded-prefix checks; it retains the same native trace. */
+function builtinRecognize(value: object): symbol {
+  if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
+  if (date.dateRecognition.test(value)) return date.DATE_KIND
+  if (map.mapRecognition.test(value)) return map.MAP_KIND
+  if (set.setRecognition.test(value)) return set.SET_KIND
+  if (arrayBuffer.arrayBufferRecognition.test(value)) return arrayBuffer.ARRAY_BUFFER_KIND
+  if (dataView.dataViewRecognition.test(value)) return dataView.DATA_VIEW_KIND
+  if (typedArray.typedArrayRecognition.test(value)) return typedArray.TYPED_ARRAY_KIND
+  if (temporal.temporalRecognition.test(value)) return temporal.TEMPORAL_KIND
+  if (url.urlRecognition.test(value)) return url.URL_KIND
+  if (urlSearchParameters.urlSearchParametersRecognition.test(value))
+    return urlSearchParameters.URL_SEARCH_PARAMS_KIND
+  return object.OBJECT_KIND
+}
+
+/** Static call sites preserve the generic recognizer's exact predicate prefix and exceptions.
+ * Types.Recognition.builtinTrace_eq_scanTrace proves the finite unrolling.
+ */
+function builtinFirstMatch(value: object, last: number): symbol | undefined {
+  if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
+  if (last === 0) return undefined
+  if (date.dateRecognition.test(value)) return date.DATE_KIND
+  if (last === 1) return undefined
+  if (map.mapRecognition.test(value)) return map.MAP_KIND
+  if (last === 2) return undefined
+  if (set.setRecognition.test(value)) return set.SET_KIND
+  if (last === 3) return undefined
+  if (arrayBuffer.arrayBufferRecognition.test(value)) return arrayBuffer.ARRAY_BUFFER_KIND
+  if (last === 4) return undefined
+  return builtinRemainingMatch(value, last)
+}
+
+/** Continues the same ordered prefix without allocating a per-value continuation. */
+function builtinRemainingMatch(value: object, last: number): symbol | undefined {
+  if (dataView.dataViewRecognition.test(value)) return dataView.DATA_VIEW_KIND
+  if (last === 5) return undefined
+  if (typedArray.typedArrayRecognition.test(value)) return typedArray.TYPED_ARRAY_KIND
+  if (last === 6) return undefined
+  if (temporal.temporalRecognition.test(value)) return temporal.TEMPORAL_KIND
+  if (last === 7) return undefined
+  if (url.urlRecognition.test(value)) return url.URL_KIND
+  if (last === 8) return undefined
+  if (urlSearchParameters.urlSearchParametersRecognition.test(value))
+    return urlSearchParameters.URL_SEARCH_PARAMS_KIND
+  if (last === 9) return undefined
+  return object.OBJECT_KIND
+}
+
+const recognition = /* @__PURE__ */ (() => {
+  const positions = new Map<symbol, number>(KINDS.map((kind, index) => [kind, index]))
+  return {
+    recognize: builtinRecognize,
+    matches(kind: symbol, value: object): boolean {
+      const last = positions.get(kind)
+      return (
+        last !== undefined &&
+        (last === KINDS.length - 1 ? builtinRecognize(value) : builtinFirstMatch(value, last)) ===
+          kind
+      )
+    },
+  }
+})()
 
 export const snapshotTypes: SnapshotRegistry = /* @__PURE__ */ (() =>
   freeze({
-    ...recognition,
     policies: table([
       array.arraySnapshot,
       date.dateSnapshot,
@@ -81,6 +128,7 @@ export const snapshotTypes: SnapshotRegistry = /* @__PURE__ */ (() =>
       urlSearchParameters.urlSearchParametersSnapshot,
       object.objectSnapshot,
     ]) as unknown as SnapshotRegistry['policies'],
+    recognize: builtinRecognize,
   }))()
 
 export const publicationTypes: PublicationRegistry = /* @__PURE__ */ (() =>

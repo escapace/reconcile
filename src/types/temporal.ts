@@ -23,16 +23,6 @@ import { defineType } from './registry'
 /** Stable global identity owned by the Temporal module. */
 export const TEMPORAL_KIND = Symbol.for('@escapace/reconcile/temporal')
 
-const temporalNames = [
-  'Duration',
-  'Instant',
-  'PlainDate',
-  'PlainDateTime',
-  'PlainMonthDay',
-  'PlainTime',
-  'PlainYearMonth',
-  'ZonedDateTime',
-] as const
 const durationFields = [
   'years',
   'months',
@@ -51,16 +41,53 @@ export interface TemporalConstructor {
   from: (value: object) => object
 }
 
+type TemporalNamespace = Partial<
+  Record<
+    | 'Duration'
+    | 'Instant'
+    | 'PlainDate'
+    | 'PlainDateTime'
+    | 'PlainMonthDay'
+    | 'PlainTime'
+    | 'PlainYearMonth'
+    | 'ZonedDateTime',
+    TemporalConstructor
+  >
+>
+
+/** Static probes preserve native property and instanceof order; Temporal is read live. */
 function temporalClass(value: object) {
-  const temporal = Reflect.get(globalThis, 'Temporal') as
-    Partial<Record<(typeof temporalNames)[number], TemporalConstructor>> | null | undefined
-  if (temporal != null) {
-    for (const name of temporalNames) {
-      const constructor = temporal[name]
-      if (typeof constructor === 'function' && value instanceof constructor)
-        return { temporalConstructor: constructor, temporalDuration: name === 'Duration' }
-    }
-  }
+  const temporal = (globalThis as { Temporal?: TemporalNamespace | null }).Temporal
+  if (temporal == null) return undefined
+  let constructor = temporal.Duration
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: true }
+  constructor = temporal.Instant
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  constructor = temporal.PlainDate
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  constructor = temporal.PlainDateTime
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  return temporalRemainingClass(value, temporal)
+}
+
+/** Continues the eight-probe trace without a per-value continuation allocation. */
+function temporalRemainingClass(value: object, temporal: TemporalNamespace) {
+  let constructor = temporal.PlainMonthDay
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  constructor = temporal.PlainTime
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  constructor = temporal.PlainYearMonth
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
+  constructor = temporal.ZonedDateTime
+  if (typeof constructor === 'function' && value instanceof constructor)
+    return { temporalConstructor: constructor, temporalDuration: false }
   return undefined
 }
 

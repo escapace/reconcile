@@ -68,4 +68,33 @@ theorem interleaved_agreement {W : Type} (state : Indexed W) (events : List (Eve
 example : contents (Cell.pending : Cell Nat) = none := rfl
 example : contents (Cell.ready 0) ≠ contents (Cell.pending : Cell Nat) := by decide
 
+/-- Traversal returns an initialized memo value as an atom; a pending reference
+    remains a node edge so cyclic construction can finish. -/
+inductive MemoEdge (W : Type) where
+  | node : Nat → MemoEdge W
+  | atom : W → MemoEdge W
+  deriving DecidableEq
+
+def memoEdge {W : Type} (index : Nat) (writer : Option W) : MemoEdge W :=
+  match writer with
+  | none => .node index
+  | some target => .atom target
+
+/-- Under canonical installation, the inaccessible memo and owned reference
+    select identical atom/node edges, including pending backedges. -/
+theorem memo_edge_agreement {W : Type} (state : Indexed W) (index : Nat) :
+    memoEdge index (state.writers index) =
+      memoEdge index (contents ((project state).references index)) := by
+  simp [project, cell_contents]
+
+theorem interleaved_memo_agreement {W : Type} (state : Indexed W)
+    (events : List (Event W)) (index : Nat) :
+    memoEdge index ((events.foldl indexedStep state).writers index) =
+      memoEdge index (contents ((events.foldl ownedStep (project state)).references index)) := by
+  rw [← interleaved_agreement]
+  exact memo_edge_agreement _ _
+
+example : memoEdge 3 (none : Option Nat) = .node 3 := rfl
+example : memoEdge 3 (some 7) = .atom 7 := rfl
+
 end Reconcile.SnapshotOwner

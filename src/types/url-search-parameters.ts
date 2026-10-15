@@ -12,6 +12,7 @@ import {
 } from './shared/empty'
 import { defineType } from './registry'
 import {
+  URL_KIND,
   createURLCarrier,
   nativeURLSearchParameters,
   replaceNativeParameters,
@@ -66,7 +67,8 @@ const parametersConstruction = {
   bindings: independentBindings,
   allocate(node, _resolve, owners) {
     const carrier = createURLCarrier(node.layout.text)
-    owners?.set(nativeURLSearchParameters(carrier), carrier)
+    if (owners !== undefined)
+      (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
     return nativeURLSearchParameters(carrier)
   },
 } satisfies ConstructionPolicy<URLSearchParametersLayout>
@@ -81,8 +83,12 @@ export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
     seal: same,
     matches: (node, current) =>
       nativeParametersText(current as URLSearchParams) === node.layout.text,
-    publish(node, current) {
-      replaceNativeParameters(current as URLSearchParams, node.layout.text)
+    publish(node, current, _resolve, owner) {
+      replaceNativeParameters(
+        current as URLSearchParams,
+        node.layout.text,
+        () => owner?.(current, URL_KIND) as URL | undefined,
+      )
       return true
     },
   }))() satisfies PublicationPolicy<URLSearchParametersLayout>
@@ -95,7 +101,8 @@ export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
       dependencies: noDependencies,
       copy(value, _resolve, owners) {
         const carrier = createURLCarrier(nativeParametersText(value as URLSearchParams))
-        owners?.set(nativeURLSearchParameters(carrier), carrier)
+        if (owners !== undefined)
+          (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
         return nativeURLSearchParameters(carrier)
       },
       equivalent: (base, candidate) =>

@@ -334,15 +334,18 @@ const result = reconcile(state, { user: { name: 'Grace' }, tags: ['a', 'b'] })
 Returns a deep copy of `value` that can be changed without affecting the original.
 
 ```typescript
-export declare function snapshot(value: unknown, seen?: WeakMap<object, object>): unknown
+export declare function snapshot(
+  value: unknown,
+  seen?: WeakMap<object, object> | undefined,
+): unknown
 ```
 
 ### Parameters
 
-| Parameter | Type                                | Description                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`   | <pre>unknown</pre>                  | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                |
-| `seen`    | <pre>WeakMap\<object, object></pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. A supplied parameter copy that a fresh URL would need to adopt raises `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair or omit those entries. Most callers omit the memo. |
+| Parameter | Type                                             | Description                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`   | <pre>unknown</pre>                               | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                |
+| `seen`    | <pre>WeakMap\<object, object> \| undefined</pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. A supplied parameter copy that a fresh URL would need to adopt raises `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair or omit those entries. Most callers omit the memo. |
 
 ### Returns
 

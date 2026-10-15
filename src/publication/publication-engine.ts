@@ -10,6 +10,7 @@ import type {
   Edge,
   Execution,
   PublicationRegistry,
+  NativeOwners,
   Readback,
 } from '../types'
 import { candidates } from './candidates'
@@ -98,11 +99,10 @@ export function publishGraph(
       if (order === undefined) return undefined
       const targets = choices.map((choice) =>
         choice.retained ? (choice.identity as object) : undefined,
-      ) as object[]
+      ) as NativeOwners & object[]
       const resolve = (edge: Edge): unknown => (isNode(edge) ? targets[edge.node] : edge.value)
-      const owners = new WeakMap<object, object>()
       for (const index of order) {
-        const target = policy(index).allocate(records[index], resolve, owners)
+        const target = policy(index).allocate(records[index], resolve, targets)
         if (target === undefined) return undefined
         targets[index] = target
       }
@@ -112,6 +112,23 @@ export function publishGraph(
       const resolve = (edge: Edge): unknown =>
         isNode(edge) ? exposed(state, edge.node) : edge.value
       const writer = (index: number): object => state.bindings[index].writer as object
+      // Construction bindings already observed native ownership at prepare. URL child
+      // identity is fixed for its owner's lifetime, so this lookup performs no live read.
+      let nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
+      const owner = (child: object, kind: symbol): object | undefined => {
+        let owners = nativeOwners?.get(kind)
+        if (owners === undefined) {
+          owners = new WeakMap<object, object>()
+          ;(nativeOwners ??= new Map()).set(kind, owners)
+          for (let index = 0; index < size; index += 1) {
+            if (records[index].pinned !== undefined || records[index].layout.kind !== kind) continue
+            for (const edge of state.bindings[index].construction)
+              if (edge.identity === writer(edge.node))
+                owners.set(edge.identity, writer(index))
+          }
+        }
+        return owners.get(child)
+      }
       // After this call's own writes, retained replaceable targets rerun the preflight. A fresh
       // choice is labelled by its node index; a retained one by its object.
       for (let index = 0; index < size; index += 1)
@@ -128,7 +145,7 @@ export function publishGraph(
         // Recover only native publication exceptions on replaceable nodes. A
         // fixed receiver's host exception remains a public failure, without rollback.
         try {
-          if (!policy(index).publish(records[index], writer(index), resolve))
+          if (!policy(index).publish(records[index], writer(index), resolve, owner))
             return { rejected: index }
         } catch (error) {
           if (state.bindings[index].fixed) throw error

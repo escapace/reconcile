@@ -49,6 +49,34 @@ describe('URL owned search parameters', () => {
     })
   }
 
+  for (const parametersFirst of [true, false]) {
+    for (const href of [
+      'data:abc   ?',
+      'data:abc   ?a=1',
+      'data:abc   ?a=1#fragment',
+      'https://example.test/?a=1&a=2&=3',
+    ]) {
+      for (const query of ['', 'x=1&x=2', '=1&=2']) {
+        it(`reconciles owned entries without order dependence: ${parametersFirst}, ${href}, ${query}`, () => {
+          const url = new URL(href)
+          const parameters = url.searchParams
+          const source = parametersFirst ? { params: parameters, url } : { url, params: parameters }
+          const nextURL = new URL(href)
+          nextURL.search = query
+          const next = parametersFirst
+            ? { params: nextURL.searchParams, url: nextURL }
+            : { url: nextURL, params: nextURL.searchParams }
+          assert.strictEqual(reconcile(source, next), source)
+          assert.strictEqual(source.url, url)
+          assert.strictEqual(source.params, parameters)
+          assert.strictEqual(source.url.searchParams, parameters)
+          assert.strictEqual(source.url.href, nextURL.href)
+          assert.deepEqual([...source.params], [...nextURL.searchParams])
+        })
+      }
+    }
+  }
+
   it('reuses a read-only draft after params are observed before their owner', () => {
     const source = graph(true)
     assert.strictEqual(
@@ -170,10 +198,7 @@ describe('URL owned search parameters', () => {
         caught = error
       }
       assert.instanceOf(caught, ReconcileError)
-      assert.strictEqual(
-        (caught).cause.type,
-        'SnapshotURLSearchParamsMemoIncompatible',
-      )
+      assert.strictEqual(caught.cause.type, 'SnapshotURLSearchParamsMemoIncompatible')
     }
   })
 

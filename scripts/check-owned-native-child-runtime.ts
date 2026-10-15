@@ -2,7 +2,11 @@
 // Admission, construction metadata and forced reuse are covered by native graph tests.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { adoptURLCarrier, createURLCarrier } from '../src/types/shared/url-carrier'
+import {
+  adoptURLCarrier,
+  createURLCarrier,
+  replaceNativeParameters,
+} from '../src/types/shared/url-carrier'
 import type { Oracle } from './lean-oracle'
 
 interface Fixture {
@@ -70,4 +74,53 @@ export async function checkOwnedNativeChildRuntime(oracle: Oracle): Promise<void
     })),
   )
   console.log(`OwnedNativeChild: ${actual.length} production carrier adoption projections`)
+  checkOwnedPublicationRuntime()
+}
+
+function checkOwnedPublicationRuntime(): void {
+  // The finite bulk proof is conditional on the native clear/append projection.
+  // Compare the production bulk path against the previous native mutation sequence,
+  // including opaque-path normalization and raw empty queries, without timing it.
+  let publications = 0
+  for (const href of [
+    'https://example.test/?a=1&a=2&=three+words',
+    'https://example.test/?a=two%20words',
+    'https://example.test/?',
+    'https://example.test/?&',
+    'data:abc   ?',
+    'data:abc   ?a=1',
+    'data:abc   ?a=1#fragment',
+    'data:abc   ?#fragment',
+    'data:abc?=1&=2',
+    'data:abc',
+  ]) {
+    for (const input of [
+      '',
+      'x=1',
+      '=1&=2',
+      'a=two+words',
+      'b=1&a=2&a=3',
+      'a=1&a=2&=three+words',
+    ]) {
+      checkOwnedPublicationCase(href, input)
+      publications += 1
+    }
+  }
+  console.log(`OwnedPublication: ${publications} production bulk/sequential native projections`)
+}
+
+function checkOwnedPublicationCase(href: string, input: string): void {
+  const text = new URLSearchParams(input).toString()
+  const expected = new URL(href)
+  const actual = new URL(href)
+  const child = actual.searchParams
+  if (expected.searchParams.toString() !== text) {
+    const keys = Array.from(expected.searchParams.keys())
+    for (const key of keys) expected.searchParams.delete(key)
+    for (const [key, value] of new URLSearchParams(text)) expected.searchParams.append(key, value)
+  }
+  replaceNativeParameters(child, text, () => actual)
+  assert.equal(actual.href, expected.href, `${href} -> ${text}`)
+  assert.deepEqual([...child], [...expected.searchParams])
+  assert.equal(actual.searchParams, child)
 }

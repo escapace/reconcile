@@ -93,6 +93,20 @@ These modules state what each operation guarantees, conditional on the obligatio
   [SnapshotProjection.lean](SnapshotProjection.lean),
   [SnapshotStream.lean](SnapshotStream.lean) and [SnapshotOwner.lean](SnapshotOwner.lean)
   cover the state projection, streamed map entries and owned shells.
+  `memo_edge_agreement` and `interleaved_memo_agreement` show that a canonical
+  reference can replace a separate memo when both publish the same initialized target:
+  pending references remain node edges, and completed references yield target atoms.
+  The runtime applies this refinement only to the exact built-in snapshot registry
+  when the caller omits the memo. Custom registries and caller-supplied memos retain
+  their `WeakMap` reads and writes, including the order of observable callbacks.
+  The built-in correspondence premise is that each facet initializes its writer once
+  and exposes no application callback that can reenter the traversal between that
+  initialization and the former memo write. Current construction callbacks only read
+  private ArrayBuffer layout data or create private URL carrier metadata. Future
+  built-in facets must preserve this boundary or retain a separate memo. Lean proves
+  the finite installation model; it does not establish this JavaScript callback premise.
+  `snapshot-construction.spec.ts` covers custom response metadata, writer
+  reinitialization and reentrant caller-memo reads.
 - **`produce`.** [ProduceSpec.lean](ProduceSpec.lean) and
   [ProduceSoundness.lean](ProduceSoundness.lean) describe lazy children, explicit
   deletion, ordinary `undefined` assignment, copy-on-write and finalization.
@@ -139,6 +153,14 @@ separate from the optimized TypeScript, and a bridge compares the two.
   publication (`selected_published`, `selected_storage_distinct`), with
   [ImmutableLabels.lean](ImmutableLabels.lean) and [ReuseClosure.lean](ReuseClosure.lean).
   The compact planner does not replace the general selector.
+  [ImmutableAssembly.lean](ImmutableAssembly.lean) covers filling one private record
+  during structural collection: every child prefix preserves its reserved target, and
+  completion produces the same record as allocating a replacement. Its runtime premise
+  is that recursive comparisons read only the pending record's target; edges, payload
+  and settled state are consumed after completion. The runtime preserves the separate
+  reservation and completion target reads, the completion settled read, and child-first
+  reuse callbacks. `immutable-assembly.spec.ts` checks those boundaries with a cycle
+  and accessor-backed records. The model does not prove native callback behavior.
 - **Requirement closure** (`graph/requirements.ts`). [Requirements.lean](Requirements.lean)
   specifies the least closure; [RequirementAdmission.lean](RequirementAdmission.lean) and
   [RequirementPropagation.lean](RequirementPropagation.lean) cover admission, propagation
@@ -181,6 +203,26 @@ separate from the optimized TypeScript, and a bridge compares the two.
   establish preservation of that live relationship when separately exposed in a graph.
   The core model and `ContractTest` retain inhabited cases and counterexamples for
   immutable changes, constructor differences, duplicate collapse and parameter sorting.
+- **Recognition dispatch** (`types/builtins.ts` and `types/temporal.ts`).
+  [Types/Recognition.lean](Types/Recognition.lean) retains ordered recognition and adds
+  fixed-prefix trace refinements. The refinements preserve the visited predicate ranks,
+  selected rank and early exception position. Native correspondence requires the same
+  live namespace reads, constructor reads and predicate calls in that order; no result
+  is cached across observations.
+- **Lazy ownership metadata** (`snapshot.ts`, draft finalization and preparation).
+  [Types/LazyOwnership.lean](Types/LazyOwnership.lean) proves that an absent table denotes
+  an empty one and that lazy inserts preserve lookup over arbitrary write sequences.
+  An identity construction response can use the existing target fallback. Runtime maps
+  remain scoped to their session, phase or attempt; custom construction callbacks still
+  run, and overwriting a shared target clears obsolete metadata.
+- **Bulk owned-parameter publication** (`types/shared/url-carrier.ts`).
+  [Types/OwnedPublication.lean](Types/OwnedPublication.lean) proves the finite equivalence
+  of clear-and-append and bulk replacement, preserving owner and child identities.
+  Its explicit native premise includes the intermediate empty-list update's opaque-path
+  normalization. It does not prove the URL implementation. The runtime bridge compares
+  full URLs, ordered entries and child identity against the previous mutation sequence
+  on 60 native cases. Sealed construction edges justify the attempt-local owner lookup;
+  pinned owners are excluded. Standalone parameters retain sequential publication.
 - **Owned native children** (URL and its fixed `searchParams` object).
   [Types/OwnedNativeChild.lean](Types/OwnedNativeChild.lean) models a native carrier
   allocated with its child before the source owner is discovered.

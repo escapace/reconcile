@@ -1,3 +1,6 @@
+/** Stable global identity shared by native URL ownership facets. */
+export const URL_KIND = Symbol.for('@escapace/reconcile/url')
+
 /** Reads native URL state without consulting application overrides or expandos. */
 export function nativeURLHref(value: URL): string {
   return Object.getOwnPropertyDescriptor(URL.prototype, 'href')!.get!.call(value) as string
@@ -26,8 +29,21 @@ function setNativeURLSearch(value: URL, text: string): void {
 }
 
 /** Replaces native ordered entries, avoiding normalization when no change is needed. */
-export function replaceNativeParameters(target: URLSearchParams, text: string): void {
-  if (nativeParametersText(target) === text) return
+export function replaceNativeParameters(
+  target: URLSearchParams,
+  text: string,
+  owner?: () => URL | undefined,
+): void {
+  const previous = nativeParametersText(target)
+  if (previous === text) return
+  const url = owner?.()
+  if (url !== undefined) {
+    // Clearing a nonempty list can normalize an opaque path before later appends.
+    // An initially empty list must not clear its raw query: it may protect spaces.
+    if (previous !== '') setNativeURLSearch(url, '')
+    if (text !== '') setNativeURLSearch(url, text)
+    return
+  }
   const keys = Array.from(URLSearchParams.prototype.keys.call(target))
   for (const key of keys) URLSearchParams.prototype.delete.call(target, key)
   for (const [key, value] of new URLSearchParams(text))
