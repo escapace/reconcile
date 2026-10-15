@@ -99,8 +99,21 @@ export interface DraftObservationContext {
 
 /** Defines copy identity and dependency rules for a nonstructural value. */
 export interface SpecialPolicy {
+  /** Native owned dependencies cannot be rebound when this copy remains changed. */
+  readonly ownsDependencies?: true
+  /** Checks a copied dependency together with its native owner's serialized state. */
+  readonly dependencyEquivalent?: (
+    owner: object,
+    source: object,
+    copy: object,
+    owners: WeakMap<object, object>,
+  ) => boolean
   /** Copies one value; declared dependencies resolve through the caller with their known kind. */
-  copy: (value: object, resolve: (dependency: object, kind: symbol) => object) => object
+  copy: (
+    value: object,
+    resolve: (dependency: object, kind: symbol) => object,
+    owners?: WeakMap<object, object>,
+  ) => object
   equivalent: (base: object, candidate: object) => boolean
   /** Visits declared copy dependencies in native observation order, stopping on false. */
   dependencies: (value: object, visit: (value: object, kind: symbol) => boolean) => boolean
@@ -166,8 +179,15 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
         readonly read: (node: CapturedNode<L>, current: object) => readonly BoundEdge[]
       }
     | { readonly tag: 'independent' }
-  /** Allocates a fresh target after all declared construction dependencies are available. */
-  readonly allocate: (node: CapturedNode<L>, resolve: Resolve) => object
+  /**
+   * Allocates privately after dependencies exist; undefined rejects this preparation before writes.
+   * The per-attempt owner map links fresh native children to their attachable owner shells.
+   */
+  readonly allocate: (
+    node: CapturedNode<L>,
+    resolve: Resolve,
+    owners?: WeakMap<object, object>,
+  ) => object | undefined
   /** Writes one immutable output slot; every selected target has already been allocated. */
   readonly freshWrite: (
     node: CapturedNode<L>,
@@ -419,6 +439,8 @@ export interface CaptureSink<
   // Creates private state only; native observation begins after memo registration.
   reserve: (index: number) => R
   existing?: (source: object) => object | undefined
+  /** Resolves private construction metadata for an already selected external memo target. */
+  constructed?: (target: object) => object | undefined
   /**
    * Publication only: decides an edge's child before the traversal visits it. Returns the
    * child's edge, or undefined to visit it normally. `references` and `observe` are the

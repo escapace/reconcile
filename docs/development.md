@@ -195,8 +195,9 @@ the counters or the package, but not `pnpm test`. Update the tooling in the same
   runtime calls that field `tag`, and `scripts/lean-policy-bridge.ts` translates it.
 - **Mangle list.** `scripts/constants.json` lists internal property names that the package
   build renames. A listed name that the library also reads on an application or native
-  object breaks only the built package. `pnpm test:lib` runs the suite against that
-  package.
+  object breaks only the built package. `pnpm test:lib` resolves public API imports to that
+  package. Tests that inspect private source members use explicit `.ts` imports, so
+  their source spies and registry inspections stay meaningful.
 - **Snapshot traversal.** `traverse` serves both `snapshot` and `capture`. Aligned capture
   decides a child through the sink's optional `adopt` hook, which the snapshot sink does
   not supply. Publication logic belongs in that hook; otherwise the `snapshot` bundle
@@ -262,6 +263,31 @@ Lean, Lake, the pinned Mathlib dependency with its build cache, Python 3.11 or l
 POSIX shell and a C compiler. The system `cc` compiles the oracle without optimization to
 save time. `python3 lean/check-axioms.py` audits an already built tree without running
 the bridges.
+
+### Optional Temporal verification
+
+Temporal is optional at runtime. The native Temporal cases in
+`src/__tests__/temporal.spec.ts` run when the test worker has a global `Temporal`;
+otherwise they skip, and the absence case still runs. A default run on a runtime
+without Temporal does not validate its native behavior.
+
+On Node 24, the experimental V8 implementation can exercise those cases without
+adding a polyfill dependency. Select the project config directly so the worker flag
+is applied. Run the source check, build, then check the built package:
+
+```sh
+pnpm exec vitest run --config vitest.config.neutral.ts src/__tests__/temporal.spec.ts --execArgv=--harmony-temporal
+pnpm build
+pnpm exec vitest run --config vitest-library.config.ts src/__tests__/temporal.spec.ts --execArgv=--harmony-temporal
+```
+
+To include native Temporal in the Lean/runtime bridge, forward the same runtime flag
+through the bounded gate with `pnpm check:lean --harmony-temporal`. Extra arguments to
+`check:lean` are passed as Node/tsx options; its default command is unchanged.
+
+This checks the available implementation, not Temporal specification conformance.
+Use a conforming native implementation or a standards-compatible global polyfill in
+applications; the library neither installs one nor requires the experimental flag.
 
 ### Time budget
 

@@ -8,6 +8,9 @@ import * as set from './set'
 import * as arrayBuffer from './array-buffer'
 import * as dataView from './data-view'
 import * as typedArray from './typed-array'
+import * as temporal from './temporal'
+import * as url from './url'
+import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 
 /** Orders native recognition with the plain-object fallback last. */
@@ -19,6 +22,9 @@ export const builtinModules = [
   arrayBuffer.arrayBufferType,
   dataView.dataViewType,
   typedArray.typedArrayType,
+  temporal.temporalType,
+  url.urlType,
+  urlSearchParameters.urlSearchParametersType,
   object.objectType,
 ] as const
 export const builtinTypes = /* @__PURE__ */ registerTypes(builtinModules)
@@ -32,6 +38,9 @@ const KINDS = [
   arrayBuffer.ARRAY_BUFFER_KIND,
   dataView.DATA_VIEW_KIND,
   typedArray.TYPED_ARRAY_KIND,
+  temporal.TEMPORAL_KIND,
+  url.URL_KIND,
+  urlSearchParameters.URL_SEARCH_PARAMS_KIND,
   object.OBJECT_KIND,
 ] as const
 
@@ -49,6 +58,9 @@ const recognition = /* @__PURE__ */ registerRecognition(
     arrayBuffer.arrayBufferRecognition,
     dataView.dataViewRecognition,
     typedArray.typedArrayRecognition,
+    temporal.temporalRecognition,
+    url.urlRecognition,
+    urlSearchParameters.urlSearchParametersRecognition,
     object.objectRecognition,
   ].map((recognition, index) => ({ kind: KINDS[index], recognition })),
 )
@@ -64,6 +76,9 @@ export const snapshotTypes: SnapshotRegistry = /* @__PURE__ */ (() =>
       arrayBuffer.arrayBufferSnapshot,
       dataView.dataViewSnapshot,
       typedArray.typedArraySnapshot,
+      temporal.temporalSnapshot,
+      url.urlSnapshot,
+      urlSearchParameters.urlSearchParametersSnapshot,
       object.objectSnapshot,
     ]) as unknown as SnapshotRegistry['policies'],
   }))()
@@ -79,6 +94,9 @@ export const publicationTypes: PublicationRegistry = /* @__PURE__ */ (() =>
       arrayBuffer.arrayBufferExposure,
       dataView.dataViewExposure,
       typedArray.typedArrayExposure,
+      temporal.temporalExposure,
+      url.urlExposure,
+      urlSearchParameters.urlSearchParametersExposure,
       object.objectExposure,
     ]),
     policies: table([
@@ -89,6 +107,9 @@ export const publicationTypes: PublicationRegistry = /* @__PURE__ */ (() =>
       arrayBuffer.arrayBufferPublication,
       dataView.dataViewPublication,
       typedArray.typedArrayPublication,
+      temporal.temporalPublication,
+      url.urlPublication,
+      urlSearchParameters.urlSearchParametersPublication,
       object.objectPublication,
     ]) as unknown as PublicationRegistry['policies'],
   }))()
@@ -103,6 +124,9 @@ export const produceTypes: ImmutableRegistry = /* @__PURE__ */ (() => {
     arrayBuffer.arrayBufferImmutable,
     dataView.dataViewImmutable,
     typedArray.typedArrayImmutable,
+    temporal.temporalImmutable,
+    url.urlImmutable,
+    urlSearchParameters.urlSearchParametersImmutable,
     object.objectImmutable,
   ] as const
   const specials: Record<symbol, unknown> = {}
@@ -122,6 +146,9 @@ export const produceTypes: ImmutableRegistry = /* @__PURE__ */ (() => {
       arrayBuffer.arrayBufferDraft,
       dataView.dataViewDraft,
       typedArray.typedArrayDraft,
+      temporal.temporalDraft,
+      url.urlDraft,
+      urlSearchParameters.urlSearchParametersDraft,
       object.objectDraft,
     ]) as unknown as ImmutableRegistry['drafts'],
     policies: table(immutable) as unknown as ImmutableRegistry['policies'],

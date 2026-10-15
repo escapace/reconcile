@@ -163,14 +163,17 @@ function publishFresh(
   records: readonly ImmutableRecord[],
   retained: readonly boolean[],
   order: readonly number[],
-): object[] {
+): object[] | undefined {
+  const owners = new WeakMap<object, object>()
   const targets: object[] = []
   const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : value.value)
   for (let index = 0; index < records.length; index += 1)
     if (retained[index]) targets[index] = records[index].target
   for (const index of order) {
     const node = records[index].payload!
-    targets[index] = types.policies[node.layout.kind].allocate(node, resolve)
+    const target = types.policies[node.layout.kind].allocate(node, resolve, owners)
+    if (target === undefined) return undefined
+    targets[index] = target
   }
   for (let index = 0; index < records.length; index += 1) {
     if (retained[index]) continue
@@ -212,18 +215,12 @@ export function restoreIdentities(
   // Fixed specials contribute the same score to every plan. Only structural
   // retention varies; their private fresh choices cannot claim settled storage.
   const dependencies = records.map((record) => constructionDependencies(types, record.payload))
-  let retained: readonly boolean[] | undefined
-  let order: number[] | undefined
   for (const selection of immutableSelections(problem)) {
-    order = constructionOrder(dependencies, selection)
-    if (order !== undefined) {
-      retained = selection
-      break
-    }
+    const order = constructionOrder(dependencies, selection)
+    if (order === undefined) continue
+    const targets = publishFresh(types, records, selection, order)
+    if (targets !== undefined) return targets[root]
   }
-  if (retained === undefined) {
-    if (!strict) return undefined
-    throw finalizationConstructionImpossible()
-  }
-  return publishFresh(types, records, retained, order!)[root]
+  if (!strict) return undefined
+  throw finalizationConstructionImpossible()
 }

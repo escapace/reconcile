@@ -36,11 +36,12 @@ class SnapshotReference {
  *
  * @remarks
  * The copy keeps plain-object key order and prototypes, sparse-array holes, shared references,
- * cycles, and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`,
- * `Date`, `ArrayBuffer`, `DataView` and typed arrays are supported, including Vue reactive
- * wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are,
- * and functions are kept by reference. Other objects, such as class instances, are copied like
- * plain objects: the copy has the same prototype and own properties but not private fields or
+ * cycles, the sharing between buffers and their views, and each URL's owned search parameters. Plain objects, arrays, `Map`, `Set`,
+ * `Date`, `ArrayBuffer`, `DataView`, typed arrays and available Temporal values are supported,
+ * including Vue reactive wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are,
+ * including bigint, and functions are kept by reference. Temporal support uses the eight value
+ * classes on the current global Temporal namespace, without installing a polyfill. Other
+ * objects, such as class instances, are copied like plain objects: the copy has the same prototype and own properties but not private fields or
  * other internal state.
  *
  * @example
@@ -54,7 +55,9 @@ class SnapshotReference {
  * @param value - The value to copy.
  * @param seen - Map from source objects already copied to their copies. Entries are used as
  * given, without checking; the copy is detached only if every entry is a detached copy of its
- * source. Most callers omit it.
+ * source. A supplied parameter copy that a fresh URL would need to adopt raises
+ * `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair
+ * or omit those entries. Most callers omit the memo.
  * @returns A detached copy of `value`, or `value` itself when it is not an object.
  */
 export function snapshot(
@@ -69,6 +72,7 @@ export function snapshotWith(
   value: unknown,
   seen: WeakMap<object, object>,
 ): unknown {
+  const constructed = new WeakMap<object, object>()
   const resolve = (edge: Edge): unknown =>
     isNode(edge) ? (edge as SnapshotReference).target : edge.value
   const root = traverse<SnapshotReference>(
@@ -77,9 +81,13 @@ export function snapshotWith(
     {
       finish: noValue,
       begin(source, writer, layout) {
-        types.policies[layout.kind].snapshot(layout, resolve, writer)
+        const policy = types.policies[layout.kind]
+        policy.snapshot(layout, resolve, writer)
+        const response = policy.construction(layout)
+        if (response !== undefined) constructed.set(writer.target!, response)
         seen.set(source, writer.target!)
       },
+      constructed: (target) => constructed.get(target),
       edge(writer, child, key) {
         writer.write?.(child, key)
       },

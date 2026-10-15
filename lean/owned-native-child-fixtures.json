@@ -1,0 +1,72 @@
+[
+  {
+    "href": "https://example.test/?a=two%20words",
+    "text": "a=two+words",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?a=two%20words",
+    "text": "a=two+words",
+    "touched": true
+  },
+  {
+    "href": "https://example.test/?a=new",
+    "text": "a=old&a=second",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?a=new",
+    "text": "a=old&a=second",
+    "touched": true
+  },
+  {
+    "href": "https://example.test/?",
+    "text": "",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?",
+    "text": "",
+    "touched": true
+  },
+  {
+    "href": "data:text/plain,hello?",
+    "text": "",
+    "touched": false
+  },
+  {
+    "href": "data:text/plain,hello?",
+    "text": "",
+    "touched": true
+  },
+  {
+    "href": "https://example.test/?b=1&a=2&b=3",
+    "text": "b=1&a=2&b=3",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?b=1&a=2&b=3",
+    "text": "b=1&a=2&b=3",
+    "touched": true
+  },
+  {
+    "href": "https://example.test/?a=1#fragment",
+    "text": "a=1",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?a=1#fragment",
+    "text": "a=1",
+    "touched": true
+  },
+  {
+    "href": "https://example.test/?a=new",
+    "text": "",
+    "touched": false
+  },
+  {
+    "href": "https://example.test/?a=new",
+    "text": "",
+    "touched": true
+  }
+]

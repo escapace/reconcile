@@ -19,6 +19,7 @@ export const EXPOSURE_MODES: readonly number[] = /* @__PURE__ */ Object.freeze([
 
 /** Replacement decisions for special values that cannot retain their source identity. */
 export const SPECIAL_REPLACEMENT = /* @__PURE__ */ Object.freeze({
-  base: 'copy',
+  // eslint-disable-next-line no-useless-computed-key -- Runtime provenance strings require this key to remain unmangled.
+  ['base']: 'copy',
   untracked: 'fresh',
 } as const)

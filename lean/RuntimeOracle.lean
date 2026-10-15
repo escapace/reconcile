@@ -1,3 +1,5 @@
+import OwnedNativeChildOracle
+import NativeValueOracle
 import ContractOracle
 import PolicyOracle
 import PropertyOrderOracle
@@ -23,6 +25,8 @@ private structure Request where
 
 private def dispatch (request : Request) : IO Unit := do
   match request.family with
+  | "OwnedNativeChild" => OwnedNativeChildOracle.run request.input
+  | "NativeValue" => NativeValueOracle.run request.input
   | "Contract" =>
     if (← ContractOracle.run request.args) != 0 then throw (IO.userError "Contract oracle failed")
   | "Policy" =>

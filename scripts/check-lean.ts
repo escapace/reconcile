@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { checkNativeValueRuntime } from './check-native-value-runtime'
+import { checkOwnedNativeChildRuntime } from './check-owned-native-child-runtime'
 import { checkCapturedRuntime } from './lean-captured-bridge'
 import { checkPolicyRuntime } from './lean-policy-bridge'
 import { checkPrunedRuntime } from './lean-pruned-bridge'
@@ -17,6 +19,8 @@ try {
   await checkCapturedRuntime(oracle.run)
   await checkPolicyRuntime(oracle.run)
   await checkPrunedRuntime(oracle.run)
+  await checkNativeValueRuntime(oracle.run)
+  await checkOwnedNativeChildRuntime(oracle.run)
   // Bound a response before a whole oversized line can accumulate. Shutdown must
   // preserve the original diagnostic rather than mask it with the killed exit code.
   await assert.rejects(oracle.run('Contract', [], { maxBuffer: 1 }), /output exceeds 1 bytes/)

@@ -100,7 +100,12 @@ export function publishGraph(
         choice.retained ? (choice.identity as object) : undefined,
       ) as object[]
       const resolve = (edge: Edge): unknown => (isNode(edge) ? targets[edge.node] : edge.value)
-      for (const index of order) targets[index] = policy(index).allocate(records[index], resolve)
+      const owners = new WeakMap<object, object>()
+      for (const index of order) {
+        const target = policy(index).allocate(records[index], resolve, owners)
+        if (target === undefined) return undefined
+        targets[index] = target
+      }
       return bind(choices, targets)
     },
     publish(state) {

@@ -1,10 +1,11 @@
+// This specification inspects source-private state; keep imports on source modules in the package suite.
 import { describe, expect, it, vi } from 'vitest'
 import { Finalization } from '../finalization'
-import { produce } from '../produce'
-import { reconcile } from '../reconcile'
+import { produce } from '../produce.ts'
+import { reconcile } from '../reconcile.ts'
 
-vi.mock('../reconcile', async () => {
-  const actual = await vi.importActual<typeof import('../reconcile')>('../reconcile')
+vi.mock('../reconcile.ts', async () => {
+  const actual = await vi.importActual<typeof import('../reconcile.ts')>('../reconcile.ts')
   return { ...actual, reconcile: vi.fn(actual.reconcile) }
 })
 

@@ -62,7 +62,10 @@ export function traverse<
           if (isNode(child)) {
             const layout = sink.layout(child)
             if (layout !== undefined) return types.policies[layout.kind].construction(layout)
-          } else return child.value
+          } else {
+            const target = child.value
+            return (isObject(target) ? sink.constructed?.(target) : undefined) ?? target
+          }
         }
         return undefined
       },

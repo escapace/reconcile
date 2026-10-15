@@ -1,0 +1,323 @@
+[
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "URL",
+      "values": ["https://a.test/"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "URL",
+      "values": ["https://b.test/?a=1&a=2"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "URL",
+      "values": ["https://a.test/"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "URL",
+      "values": ["https://a.test/"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [
+        ["x", "old"],
+        ["x", "again"]
+      ],
+      "kind": "URLSearchParams",
+      "values": []
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [
+        ["b", "1"],
+        ["a", "2"],
+        ["b", "3"]
+      ],
+      "kind": "URLSearchParams",
+      "values": []
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [
+        ["a", "1"],
+        ["a", "2"]
+      ],
+      "kind": "URLSearchParams",
+      "values": []
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [
+        ["a", "1"],
+        ["a", "2"]
+      ],
+      "kind": "URLSearchParams",
+      "values": []
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [["x", "1"]],
+      "kind": "URLSearchParams",
+      "values": []
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "URLSearchParams",
+      "values": []
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Instant",
+      "values": ["2025-01-02T03:04:05Z"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Instant",
+      "values": ["2025-01-02T03:04:05Z"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Instant",
+      "values": ["2025-01-02T03:04:05Z"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Instant",
+      "values": ["2026-01-02T03:04:05Z"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDate",
+      "values": ["2025-01-02"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDate",
+      "values": ["2025-01-02"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDate",
+      "values": ["2025-01-02"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDate",
+      "values": ["2026-01-02"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDateTime",
+      "values": ["2025-01-02T03:04:05"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDateTime",
+      "values": ["2025-01-02T03:04:05"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDateTime",
+      "values": ["2025-01-02T03:04:05"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDateTime",
+      "values": ["2026-01-02T03:04:05"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainMonthDay",
+      "values": ["02-29"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainMonthDay",
+      "values": ["02-29"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainMonthDay",
+      "values": ["02-29"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainMonthDay",
+      "values": ["03-01"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainTime",
+      "values": ["03:04:05"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainTime",
+      "values": ["03:04:05"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainTime",
+      "values": ["03:04:05"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainTime",
+      "values": ["04:05:06"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainYearMonth",
+      "values": ["2025-01"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainYearMonth",
+      "values": ["2025-01"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainYearMonth",
+      "values": ["2025-01"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainYearMonth",
+      "values": ["2026-01"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "ZonedDateTime",
+      "values": ["2025-01-02T00:00:00+00:00[UTC]"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "ZonedDateTime",
+      "values": ["2025-01-02T00:00:00+00:00[UTC]"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "ZonedDateTime",
+      "values": ["2025-01-02T00:00:00+00:00[UTC]"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "ZonedDateTime",
+      "values": ["2025-01-02T01:00:00+01:00[+01:00]"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Duration",
+      "values": ["0", "0", "0", "0", "0", "0", "0", "1000", "0", "0"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Duration",
+      "values": ["0", "0", "0", "0", "0", "0", "0", "1000", "0", "0"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Duration",
+      "values": ["0", "0", "0", "0", "0", "0", "0", "1000", "0", "0"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "Duration",
+      "values": ["0", "0", "0", "0", "0", "0", "1", "0", "0", "0"]
+    }
+  },
+  {
+    "current": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDate",
+      "values": ["2025-01-02"]
+    },
+    "desired": {
+      "constructor": 0,
+      "entries": [],
+      "kind": "PlainDateTime",
+      "values": ["2025-01-02T00:00:00"]
+    }
+  }
+]

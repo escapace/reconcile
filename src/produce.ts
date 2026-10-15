@@ -23,10 +23,14 @@ import { produceTypes } from './types/builtins'
  * Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. A `Set` draft
  * treats a draft and the object it drafts as the same member. Reading a `Date`, `ArrayBuffer`,
  * `DataView` or typed array gives the recipe a writable copy; an unchanged copy resolves back to
- * the original, and changed copies keep their buffer sharing. Other objects, such as class
+ * the original, and changed copies keep their buffer sharing. URLs and URLSearchParams also
+ * copy when read, preserving the URL's live parameter identity in either read order. Native
+ * query normalization counts as a change even when parameter entries stay equal. Available Temporal values are
+ * copied when read; they are immutable, so assign the value returned by their methods. An
+ * unchanged Temporal copy resolves back to the original. Other objects, such as class
  * instances, are drafted like plain objects: an unchanged one is kept, and a changed one is
  * rebuilt with the same prototype and own properties but without private fields or other
- * internal state. Primitives and functions are single values. Vue reactive wrappers that behave
+ * internal state. Primitives, including bigint, and functions are single values. Vue reactive wrappers that behave
  * like objects, arrays, maps or sets are supported.
  *
  * Reading a value or writing an equal value back does not count as a change. During the recipe,

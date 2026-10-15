@@ -1,5 +1,7 @@
+// Registry inspection uses source-private state; the public Set case also exercises the package.
 import { expect, it } from 'vitest'
 import { produce } from '../produce'
+import { produce as produceSource } from '../produce.ts'
 import { MODULE_BRAND } from '../constants'
 import { PATCH_STATE_SYMBOL } from '../types/shared/draft-collection'
 import { builtinModules, snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
@@ -47,7 +49,7 @@ it('accepts global symbols as ordinary Set members without sentinel collisions',
 })
 
 it('keeps registry configuration exposed through a collection draft frozen', () => {
-  produce(new Map(), (draft) => {
+  produceSource(new Map(), (draft) => {
     const state = Reflect.get(draft, PATCH_STATE_SYMBOL) as {
       context: { types: typeof produceTypes }
     }

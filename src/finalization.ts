@@ -32,6 +32,7 @@ interface Discovery {
 type ObservationPhase = (
   { readonly kind: 'discover'; readonly plan: Discovery } | { readonly kind: 'probe' | 'sealed' }
 ) & {
+  readonly owners: WeakMap<object, object>
   readonly required: WeakMap<object, boolean>
   readonly values: WeakMap<object, unknown>
 }
@@ -41,6 +42,7 @@ type ObservationPhase = (
 export class Finalization {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
   // Native kind knowledge for one observation phase; never attached to application objects.
+  declare private readonly forcedOwnedCopies: WeakSet<object>
   declare private kinds: Map<object, symbol>
   declare private phase: ObservationPhase
   declare private readonly session: DraftSession
@@ -50,8 +52,14 @@ export class Finalization {
     this.session = session
     this.accessorObservations = undefined
     this.kinds = new Map()
-    this.phase = { kind: 'probe', required: new WeakMap(), values: new WeakMap() }
+    this.phase = {
+      kind: 'probe',
+      owners: new WeakMap(),
+      required: new WeakMap(),
+      values: new WeakMap(),
+    }
     this.untrackedSpecialsToClone = new WeakSet()
+    this.forcedOwnedCopies = new WeakSet()
   }
 
   private get materializationPlan(): Discovery | undefined {
@@ -91,6 +99,7 @@ export class Finalization {
     // of reading the unchanged subtrees again.
     const discovery: ObservationPhase = {
       kind: 'discover',
+      owners: new WeakMap(),
       plan,
       required: this.phase.required,
       values: new WeakMap(),
@@ -107,7 +116,12 @@ export class Finalization {
           slot.currentBacked,
         )
     }
-    this.phase = { kind: 'sealed', required: new WeakMap(), values: new WeakMap() }
+    this.phase = {
+      kind: 'sealed',
+      owners: new WeakMap(),
+      required: new WeakMap(),
+      values: new WeakMap(),
+    }
     const project = plan.clonesSpecialValues || this.accessorObservations !== undefined
     const finalized = project ? this.materializeContainerSlot(value, false) : result
     if (!isObject(finalized)) return finalized
@@ -218,7 +232,8 @@ export class Finalization {
       const clone = this.session.specialCloneBaseToClone.get(dependency)
       return (
         clone === undefined ||
-        this.session.types.specials[dependencyKind]!.equivalent(dependency, clone)
+        (policy.dependencyEquivalent?.(value, dependency, clone, this.session.specialOwners) ??
+          this.session.types.specials[dependencyKind]!.equivalent(dependency, clone))
       )
     })
   }
@@ -238,7 +253,7 @@ export class Finalization {
         : true
     const equivalent =
       copyBase !== undefined
-        ? policy.equivalent(copyBase, value)
+        ? !this.forcedOwnedCopies.has(value) && policy.equivalent(copyBase, value)
         : copy === undefined || !currentBacked || forced || !dependenciesStable
           ? true
           : policy.equivalent(value, copy)
@@ -249,6 +264,29 @@ export class Finalization {
       forced,
       origin: copyBase !== undefined ? 'copy' : copy !== undefined ? 'base' : 'untracked',
     }
+  }
+
+  /** A changed native owner keeps its registered child copies through sealed replay. */
+  private forceOwnedChildren(value: object, policy: SpecialPolicy): void {
+    if (policy.ownsDependencies !== true) return
+    policy.dependencies(value, (child) => {
+      const copy =
+        this.session.specialCloneBaseToClone.get(child) ??
+        (this.session.specialCloneCloneToBase.has(child) ? child : undefined)
+      if (copy !== undefined && !this.forcedOwnedCopies.has(copy)) {
+        this.forcedOwnedCopies.add(copy)
+        this.phase.values.delete(copy)
+        const base = this.session.specialCloneCloneToBase.get(copy)
+        if (base !== undefined) this.phase.values.delete(base)
+        const plan = this.materializationPlan
+        if (plan !== undefined) plan.clonesSpecialValues = true
+      }
+      if (copy !== undefined) {
+        const owner = this.session.specialOwners.get(copy)
+        if (owner !== undefined) this.phase.owners.set(copy, owner)
+      }
+      return true
+    })
   }
 
   /** Memoizes a resolved object identity that needs no structural reuse analysis. */
@@ -281,7 +319,11 @@ export class Finalization {
     const copy = this.session.specialCloneBaseToClone.get(value)
     // Preserve the native observation boundary: authored base references resolve
     // their registered copy before classifying or observing the base again.
-    if (copyBase === undefined && copy !== undefined && !isCurrentBackedSlot) {
+    if (
+      copyBase === undefined &&
+      copy !== undefined &&
+      (!isCurrentBackedSlot || this.forcedOwnedCopies.has(copy))
+    ) {
       const result = this.materializeContainerSlot(copy, false)
       memo.set(value, result)
       return result
@@ -306,17 +348,33 @@ export class Finalization {
         active,
       )
     }
+    return this.materializeSpecial(value, isCurrentBackedSlot, copyBase, copy, policy)
+  }
+
+  /** Applies a special value's proven provenance decision before observing copy dependencies. */
+  private materializeSpecial(
+    value: object,
+    isCurrentBackedSlot: boolean,
+    copyBase: object | undefined,
+    copy: object | undefined,
+    policy: SpecialPolicy,
+  ): unknown {
+    const memo = this.phase.values
     const decision = chooseSpecial(
       this.specialFacts(value, isCurrentBackedSlot, copyBase, copy, policy),
     )
     if (decision === 'base') return this.recordLeaf(copyBase!, value)
-    if (decision === 'source') return this.recordLeaf(value, value)
+    if (decision === 'source') {
+      if (copyBase !== undefined) this.forceOwnedChildren(value, policy)
+      return this.recordLeaf(value, value)
+    }
     if (decision === 'copy') {
       const result = this.materializeContainerSlot(copy!, false)
       memo.set(value, result)
       return result
     }
     this.planSpecialClone(value)
+    this.forceOwnedChildren(value, policy)
     policy.dependencies(value, (dependency) => {
       this.planSpecialClone(dependency)
       return true
@@ -325,6 +383,7 @@ export class Finalization {
       policy.copy(
         value,
         (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
+        this.phase.owners,
       ),
       value,
     )

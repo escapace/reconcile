@@ -23,7 +23,7 @@ describe('ReconcileError', () => {
     assert.deepEqual([...RECONCILE_ERROR_TYPES], [...new Set(RECONCILE_ERROR_TYPES)].sort())
     expectTypeOf<keyof ReconcileErrorMetadata>().toEqualTypeOf<ReconcileErrorType>()
     for (const type of RECONCILE_ERROR_TYPES)
-      assert.match(type, /^(?:Draft|Finalization|Publication)[A-Z]/)
+      assert.match(type, /^(?:Draft|Finalization|Publication|Snapshot)[A-Z]/)
   })
 
   it('is a plain Error with a stable name and a discriminated cause', () => {
