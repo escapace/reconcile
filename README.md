@@ -137,16 +137,26 @@ reconcile(store, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
 
 ## Supported values
 
-| Value                                           | `snapshot`                    | `produce`                  | `reconcile`                                              |
-| ----------------------------------------------- | ----------------------------- | -------------------------- | -------------------------------------------------------- |
-| Plain objects and arrays                        | Copied                        | Drafted                    | Updated in place, matched by key or index                |
-| `Map` and `Set`                                 | Copied                        | Drafted                    | Updated in place, matched by entry order                 |
-| `Date`, `ArrayBuffer`, typed arrays, `DataView` | Copied                        | Copied when read           | Updated in place, or replaced if a buffer's size changes |
-| Class instances                                 | Copied without private fields | Drafted like plain objects | Updated in place like plain objects                      |
-| Functions                                       | Kept by reference             | Kept by reference          | Kept by reference                                        |
-| Primitives                                      | Returned as is                | Read and assigned normally | Replaced by the next value                               |
+| Value                                           | `snapshot`                          | `produce`                                             | `reconcile`                                              |
+| ----------------------------------------------- | ----------------------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
+| Plain objects and arrays                        | Copied                              | Drafted                                               | Updated in place, matched by key or index                |
+| `Map` and `Set`                                 | Copied                              | Drafted                                               | Updated in place, matched by entry order                 |
+| `Date`, `ArrayBuffer`, typed arrays, `DataView` | Copied                              | Copied when read                                      | Updated in place, or replaced if a buffer's size changes |
+| `URL` and `URLSearchParams`                     | Copied with their live relationship | Copied when read; unchanged pairs reuse their source  | Updated while preserving owned parameter identity        |
+| Available Temporal values                       | Copied                              | Copied when read; unchanged copies reuse their source | Equal values retained; changed nested values replaced    |
+| Class instances                                 | Copied without private fields       | Drafted like plain objects                            | Updated in place like plain objects                      |
+| Functions                                       | Kept by reference                   | Kept by reference                                     | Kept by reference                                        |
+| Primitives, including `bigint`                  | Returned as is                      | Read and assigned normally                            | Replaced by the next value                               |
 
 All three functions preserve key order, sparse-array holes, shared references, cycles, and the sharing between buffers and their views.
+
+A URL and its `searchParams` remain linked when both appear in the graph, including when parameters appear first. Parameter order, duplicate names and empty names or values are preserved. URL state is read and written through native accessors and methods; instance overrides and extra properties are ignored. Native methods work on draft copies; edits do not affect the source. Query spelling follows native URL behavior: even sorting an already sorted parameter list can change `%20` to `+`. A URL and its owned parameters cannot be retained independently when doing so would break their relationship.
+
+Primitive `bigint` and `BigInt64Array`/`BigUint64Array` already use the primitive and binary paths. Boxed bigint (`Object(1n)`) is not a supported native kind; its internal slot is not copied by the class-instance fallback.
+
+Temporal support is optional and uses the current global `Temporal` namespace: `Duration`, `Instant`, `PlainDate`, `PlainDateTime`, `PlainMonthDay`, `PlainTime`, `PlainYearMonth`, and `ZonedDateTime`. No polyfill is installed or imported. A standards-compatible polyfill can be installed on the global namespace before use; module-only polyfill instances and other realms are not automatically recognized. `Temporal.Now` is not a value kind. Snapshot preserves nanoseconds, calendars, time zones and reference dates. Duration equality compares all ten components, so one second differs from 1,000 milliseconds even if their strings match.
+
+Temporal values are immutable. In a recipe, assign the result of methods such as `add` or `with`. An unchanged read reuses the source; an explicitly created equal value remains a distinct identity. Reconcile can retain an equal Temporal root but rejects a changed one under its existing object-root identity contract. Native kinds follow the existing Date policy for subclasses and extra own properties: copies use native value state, not subclass state or expandos.
 
 ## When something fails
 
@@ -157,8 +167,9 @@ Every failure the library detects throws a `ReconcileError`. Its `cause.type` na
 | `Draft`        | `produce`, while the recipe runs    |
 | `Finalization` | `produce`, after the recipe returns |
 | `Publication`  | `reconcile`                         |
+| `Snapshot`     | `snapshot`                          |
 
-`snapshot` throws no library errors. Errors from your own code, such as getters, setters, proxy traps and iterators, reach you unchanged, as do `RangeError`s for invalid array lengths. `reconcile` does not roll back, so after a failure `current` can hold some of the new values.
+`snapshot` throws `SnapshotURLSearchParamsMemoIncompatible` when a caller-supplied memo provides parameters that cannot be attached to a new URL. Supplying consistent memo entries for both the URL and its parameters remains supported. Errors from your own code, such as getters, setters, proxy traps and iterators, reach you unchanged, as do `RangeError`s for invalid array lengths. `reconcile` does not roll back, so after a failure `current` can hold some of the new values.
 
 ```ts
 import { isReconcileError, reconcile } from '@escapace/reconcile'
@@ -189,7 +200,7 @@ See the [development workflow](docs/development.md).
 
 # API
 
-## function isReconcileError [↗](src/error.ts#L152-L153 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L156-L157 'isReconcileError')
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -203,7 +214,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L161-L164 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L165-L168 'isReconcileErrorOfType')
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's facts.
 
@@ -219,7 +230,7 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 | `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
 | `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
 
-## function produce [↗](src/produce.ts#L75-L77 'produce')
+## function produce [↗](src/produce.ts#L79-L81 'produce')
 
 Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
 
@@ -257,7 +268,7 @@ The draft behaves like `current` but records changes instead of applying them. T
 
 The result reuses the parts of `current` the recipe left unchanged where it can, so it is not detached from `current`; use `snapshot(produce(...))` for a detached copy. The result is not frozen. An edit that is later undone restores the original object when its whole subtree ends up equal, including key order, holes, shared references and cycles. A new object the recipe creates stays distinct from an equal existing one.
 
-Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. A `Set` draft treats a draft and the object it drafts as the same member. Reading a `Date`, `ArrayBuffer`, `DataView` or typed array gives the recipe a writable copy; an unchanged copy resolves back to the original, and changed copies keep their buffer sharing. Other objects, such as class instances, are drafted like plain objects: an unchanged one is kept, and a changed one is rebuilt with the same prototype and own properties but without private fields or other internal state. Primitives and functions are single values. Vue reactive wrappers that behave like objects, arrays, maps or sets are supported.
+Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. A `Set` draft treats a draft and the object it drafts as the same member. Reading a `Date`, `ArrayBuffer`, `DataView` or typed array gives the recipe a writable copy; an unchanged copy resolves back to the original, and changed copies keep their buffer sharing. URLs and URLSearchParams also copy when read, preserving the URL's live parameter identity in either read order. Native query normalization counts as a change even when parameter entries stay equal. Available Temporal values are copied when read; they are immutable, so assign the value returned by their methods. An unchanged Temporal copy resolves back to the original. Other objects, such as class instances, are drafted like plain objects: an unchanged one is kept, and a changed one is rebuilt with the same prototype and own properties but without private fields or other internal state. Primitives, including bigint, and functions are single values. Vue reactive wrappers that behave like objects, arrays, maps or sets are supported.
 
 Reading a value or writing an equal value back does not count as a change. During the recipe, getters run on every read and assignments call setters with the draft as `this`; `Reflect.set` honors an explicit receiver. Reading descriptors or enumerating keys, for example with `Object.keys`, returns draft values like ordinary reads, so it can create child drafts or copies. Defining properties with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws; use assignment instead.
 
@@ -276,7 +287,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L53-L55 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L57-L59 'reconcile')
 
 Updates `current` in place to match `next` and returns `current`, keeping existing objects wherever their position and kind allow.
 
@@ -302,7 +313,7 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Remarks
 
-Values are matched by position: plain-object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when its kind fits the next value; otherwise the next value takes its place. When two positions compete for one object, a deterministic choice keeps it at one of them. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`. Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`.
+Values are matched by position: plain-object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when its kind fits the next value; otherwise the next value takes its place. When two positions compete for one object, a deterministic choice keeps it at one of them. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`. Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`. URLs and URLSearchParams take the next native state while preserving the URL's owned parameter identity, order and duplicates. Equal Temporal values can retain their identities; changed Temporal values at nested positions are replaced. A changed Temporal root is rejected because an immutable value cannot be changed while retaining the root identity.
 
 `next` is read completely before `current` changes. When both arguments are objects, a successful call returns `current`. When either is not an object, the call returns `next` and changes nothing.
 
@@ -318,20 +329,23 @@ const result = reconcile(state, { user: { name: 'Grace' }, tags: ['a', 'b'] })
 // result === state; state.user and state.tags are the same objects, updated in place
 ```
 
-## function snapshot [↗](src/snapshot.ts#L60-L65 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L63-L68 'snapshot')
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
 ```typescript
-export declare function snapshot(value: unknown, seen?: WeakMap<object, object>): unknown
+export declare function snapshot(
+  value: unknown,
+  seen?: WeakMap<object, object> | undefined,
+): unknown
 ```
 
 ### Parameters
 
-| Parameter | Type                                | Description                                                                                                                                                                                           |
-| --------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`   | <pre>unknown</pre>                  | The value to copy.                                                                                                                                                                                    |
-| `seen`    | <pre>WeakMap\<object, object></pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. Most callers omit it. |
+| Parameter | Type                                             | Description                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`   | <pre>unknown</pre>                               | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                |
+| `seen`    | <pre>WeakMap\<object, object> \| undefined</pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. A supplied parameter copy that a fresh URL would need to adopt raises `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair or omit those entries. Most callers omit the memo. |
 
 ### Returns
 
@@ -339,7 +353,7 @@ A detached copy of `value`, or `value` itself when it is not an object.
 
 ### Remarks
 
-The copy keeps plain-object key order and prototypes, sparse-array holes, shared references, cycles, and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView` and typed arrays are supported, including Vue reactive wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are, and functions are kept by reference. Other objects, such as class instances, are copied like plain objects: the copy has the same prototype and own properties but not private fields or other internal state.
+The copy keeps plain-object key order and prototypes, sparse-array holes, shared references, cycles, the sharing between buffers and their views, and each URL's owned search parameters. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView`, typed arrays and available Temporal values are supported, including Vue reactive wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are, including bigint, and functions are kept by reference. Temporal support uses the eight value classes on the current global Temporal namespace, without installing a polyfill. Other objects, such as class instances, are copied like plain objects: the copy has the same prototype and own properties but not private fields or other internal state.
 
 ### Examples
 
@@ -350,7 +364,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L128-L145 'ReconcileError')
+## class ReconcileError [↗](src/error.ts#L132-L149 'ReconcileError')
 
 The error this library throws when an operation cannot keep its contract.
 
@@ -409,7 +423,7 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L10-L22 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L10-L23 'RECONCILE_ERROR_TYPES')
 
 Every error type this library raises, named by the phase that detects it.
 
@@ -425,15 +439,16 @@ RECONCILE_ERROR_TYPES: readonly[
   'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
   'FinalizationStorageMissing',
-  'PublicationRejected')
+  'PublicationRejected',
+  'SnapshotURLSearchParamsMemoIncompatible')
 ]
 ```
 
 ### Remarks
 
-The prefix names the phase. `Draft` types come from `produce` while the recipe runs. `Finalization` types come from `produce` after the recipe returns. `Publication` types come from `reconcile`. `snapshot` raises no library error. After the prefix, the name states the subject and the condition, so each type names exactly one situation.
+The prefix names the phase. `Draft` types come from `produce` while the recipe runs. `Finalization` types come from `produce` after the recipe returns. `Publication` types come from `reconcile`. `Snapshot` types come from `snapshot`. After the prefix, the name states the subject and the condition, so each type names exactly one situation.
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L37-L94 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L38-L98 'ReconcileErrorMetadata')
 
 The facts each error type carries in `cause`, next to `type`.
 
@@ -552,7 +567,16 @@ PublicationRejected: {
 }
 ```
 
-## type DraftIterationMethod [↗](src/error.ts#L28 'DraftIterationMethod')
+### ReconcileErrorMetadata.SnapshotURLSearchParamsMemoIncompatible
+
+A borrowed parameter copy cannot be adopted by a fresh native URL.
+
+```typescript
+SnapshotURLSearchParamsMemoIncompatible: {
+}
+```
+
+## type DraftIterationMethod [↗](src/error.ts#L29 'DraftIterationMethod')
 
 Draft `Map` and `Set` methods that throw; `iterator` stands for `[Symbol.iterator]`.
 
@@ -560,7 +584,7 @@ Draft `Map` and `Set` methods that throw; `iterator` stands for `[Symbol.iterato
 export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' | 'values'
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L97-L98 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L101-L102 'ReconcileErrorCause')
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` together with that type's facts.
 
@@ -571,7 +595,7 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L25 'ReconcileErrorType')
+## type ReconcileErrorType [↗](src/error.ts#L26 'ReconcileErrorType')
 
 The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
 

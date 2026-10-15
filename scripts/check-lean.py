@@ -17,7 +17,8 @@ result = subprocess.run(
     [sys.executable, str(root / "scripts/bounded-check.py"), "--seconds", "295",
      "--receipt", str(receipt), "--", "bash", "-c",
      "LEAN_SYSROOT=$(lean --print-prefix) && export LEAN_SYSROOT && "
-     "lake build --wfail && pnpm exec tsx scripts/check-lean.ts"],
+     'lake build --wfail && pnpm exec tsx "$@" scripts/check-lean.ts',
+     "check-lean", *sys.argv[1:]],
     cwd=root, env=env,
 )
 sys.exit(result.returncode)

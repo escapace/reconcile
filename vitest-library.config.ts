@@ -1,14 +1,15 @@
 import path from 'node:path'
 import { defineConfig, mergeConfig } from 'vitest/config'
+import type { ViteUserConfig } from 'vitest/config'
 import configNeutral from './vitest.config.neutral.ts'
 
 // Runs the complete suite with the public modules resolved to the built package instead of
 // the sources, so the published bundle (including its renamed internal member names) is
-// held to the same contract. Specifications that also import internal modules exercise
-// those internals from the sources, as in `pnpm test`.
+// held to the same contract. Specifications that inspect private source state explicitly
+// import the `.ts` source entry; their spies cannot instrument bundled private members.
 const library = path.join(import.meta.dirname, 'lib/neutral/index.js')
 
-export default mergeConfig(
+const config = mergeConfig(
   configNeutral,
   defineConfig({
     resolve: {
@@ -16,4 +17,7 @@ export default mergeConfig(
     },
     test: { coverage: { enabled: false }, name: 'library' },
   }),
-)
+) as ViteUserConfig
+
+// Clear the shared workspace after merging: child projects otherwise bypass these aliases.
+export default defineConfig({ ...config, test: { ...config.test, projects: undefined } })

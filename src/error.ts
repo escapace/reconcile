@@ -4,7 +4,7 @@
  * @remarks
  * The prefix names the phase. `Draft` types come from `produce` while the recipe runs.
  * `Finalization` types come from `produce` after the recipe returns. `Publication` types come
- * from `reconcile`. `snapshot` raises no library error. After the prefix, the name states the
+ * from `reconcile`. `Snapshot` types come from `snapshot`. After the prefix, the name states the
  * subject and the condition, so each type names exactly one situation.
  */
 export const RECONCILE_ERROR_TYPES = [
@@ -19,6 +19,7 @@ export const RECONCILE_ERROR_TYPES = [
   'FinalizationConstructionImpossible',
   'FinalizationStorageMissing',
   'PublicationRejected',
+  'SnapshotURLSearchParamsMemoIncompatible',
 ] as const
 
 /** The `type` of a {@link ReconcileError}: one of {@link RECONCILE_ERROR_TYPES}. */
@@ -91,6 +92,9 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   PublicationRejected: {}
+  /** A borrowed parameter copy cannot be adopted by a fresh native URL. */
+  // eslint-disable-next-line typescript/no-empty-object-type
+  SnapshotURLSearchParamsMemoIncompatible: {}
 }
 
 /** The `cause` of a {@link ReconcileError}: its `type` together with that type's facts. */
@@ -233,4 +237,10 @@ export const publicationRejected = () =>
   new ReconcileError(
     { type: 'PublicationRejected' },
     'Publication into the current root was rejected.',
+  )
+
+export const snapshotURLSearchParametersMemoIncompatible = () =>
+  new ReconcileError(
+    { type: 'SnapshotURLSearchParamsMemoIncompatible' },
+    'A supplied URLSearchParams memo copy has no compatible URL owner.',
   )

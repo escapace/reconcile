@@ -97,10 +97,28 @@ export interface DraftObservationContext {
   readonly read: (source: object, key: PropertyKey) => unknown
 }
 
+/** Per-call native ownership metadata, allocated only when a child is registered. */
+export interface NativeOwners {
+  nativeOwners?: WeakMap<object, object>
+}
+
 /** Defines copy identity and dependency rules for a nonstructural value. */
 export interface SpecialPolicy {
+  /** Native owned dependencies cannot be rebound when this copy remains changed. */
+  readonly ownsDependencies?: true
+  /** Checks a copied dependency together with its native owner's serialized state. */
+  readonly dependencyEquivalent?: (
+    owner: object,
+    source: object,
+    copy: object,
+    owners: NativeOwners,
+  ) => boolean
   /** Copies one value; declared dependencies resolve through the caller with their known kind. */
-  copy: (value: object, resolve: (dependency: object, kind: symbol) => object) => object
+  copy: (
+    value: object,
+    resolve: (dependency: object, kind: symbol) => object,
+    owners?: NativeOwners,
+  ) => object
   equivalent: (base: object, candidate: object) => boolean
   /** Visits declared copy dependencies in native observation order, stopping on false. */
   dependencies: (value: object, visit: (value: object, kind: symbol) => boolean) => boolean
@@ -166,8 +184,15 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
         readonly read: (node: CapturedNode<L>, current: object) => readonly BoundEdge[]
       }
     | { readonly tag: 'independent' }
-  /** Allocates a fresh target after all declared construction dependencies are available. */
-  readonly allocate: (node: CapturedNode<L>, resolve: Resolve) => object
+  /**
+   * Allocates privately after dependencies exist; undefined rejects this preparation before writes.
+   * The per-attempt owner map links fresh native children to their attachable owner shells.
+   */
+  readonly allocate: (
+    node: CapturedNode<L>,
+    resolve: Resolve,
+    owners?: NativeOwners,
+  ) => object | undefined
   /** Writes one immutable output slot; every selected target has already been allocated. */
   readonly freshWrite: (
     node: CapturedNode<L>,
@@ -176,7 +201,12 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     resolve: Resolve,
   ) => void
   readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
-  readonly publish: (node: CapturedNode<L>, current: object, resolve: Resolve) => boolean
+  readonly publish: (
+    node: CapturedNode<L>,
+    current: object,
+    resolve: Resolve,
+    owner?: (child: object, ownerKind: symbol) => object | undefined,
+  ) => boolean
   /**
    * Initializes the supplied canonical reference before returning.
    *
@@ -212,7 +242,7 @@ export type NativeRegistry<P> = {
 export type PublicationRegistry = NativeRegistry<PublicationPolicy> &
   Pick<TypeRegistry, 'exposures'>
 export type RecognitionRegistry = Pick<TypeRegistry, 'matches' | 'recognize'>
-export type SnapshotRegistry = NativeRegistry<SnapshotPolicy>
+export type SnapshotRegistry = Pick<NativeRegistry<SnapshotPolicy>, 'policies' | 'recognize'>
 
 /** Consumes one canonical edge at its native snapshot observation boundary. */
 export type SnapshotWrite = (edge: Edge, key: PropertyKey | undefined) => void
@@ -419,6 +449,10 @@ export interface CaptureSink<
   // Creates private state only; native observation begins after memo registration.
   reserve: (index: number) => R
   existing?: (source: object) => object | undefined
+  /** Resolves a completed canonical reference only after external memo observations. */
+  memoTarget?: (reference: R) => object | undefined
+  /** Resolves private construction metadata for an already selected external memo target. */
+  constructed?: (target: object) => object | undefined
   /**
    * Publication only: decides an edge's child before the traversal visits it. Returns the
    * child's edge, or undefined to visit it normally. `references` and `observe` are the

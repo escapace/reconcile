@@ -1,7 +1,7 @@
 import type { RecognitionRegistry } from '../types'
 
 /** Unknown-identity ingress. Known module IDs bypass this boundary. */
-export function recognize(types: RecognitionRegistry, value: object): symbol {
+export function recognize(types: Pick<RecognitionRegistry, 'recognize'>, value: object): symbol {
   return types.recognize(value)!
 }
 

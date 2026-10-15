@@ -1,5 +1,6 @@
+// This specification inspects source-private state; keep imports on source modules in the package suite.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { produce, reconcile, snapshot } from '../index'
+import { produce, reconcile, snapshot } from '../index.ts'
 import * as kinds from '../adapters/recognition'
 
 afterEach(() => vi.restoreAllMocks())

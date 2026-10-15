@@ -16,7 +16,11 @@ import { publicationTypes } from './types/builtins'
  * positions compete for one object, a deterministic choice keeps it at one of them. Afterwards
  * `current` has the key order, array lengths and holes, entry order, shared references and
  * cycles of `next`. Dates, buffers and views at matched positions take the next value's time or
- * bytes, and buffer sharing follows `next`.
+ * bytes, and buffer sharing follows `next`. URLs and URLSearchParams take the next native
+ * state while preserving the URL's owned parameter identity, order and duplicates. Equal
+ * Temporal values can retain their identities;
+ * changed Temporal values at nested positions are replaced. A changed Temporal root is
+ * rejected because an immutable value cannot be changed while retaining the root identity.
  *
  * `next` is read completely before `current` changes. When both arguments are objects, a
  * successful call returns `current`. When either is not an object, the call returns `next` and

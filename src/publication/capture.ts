@@ -29,7 +29,7 @@ export function traverse<
   R extends { readonly node: number },
   P extends CapturePolicy = CapturePolicy,
 >(
-  types: NativeRegistry<P>,
+  types: Pick<NativeRegistry<P>, 'policies' | 'recognize'>,
   value: unknown,
   sink: CaptureSink<R, P>,
   knownKind?: symbol,
@@ -41,7 +41,10 @@ export function traverse<
     if (!isObject(source)) return { value: source }
     const external = sink.existing?.(source)
     if (external !== undefined) return { value: external }
-    return references.get(source) ?? observe(source, kind)
+    const reference = references.get(source)
+    if (reference === undefined) return observe(source, kind)
+    const target = isNode(reference) ? sink.memoTarget?.(reference) : undefined
+    return target === undefined ? reference : { value: target }
   }
   const observe = (source: object, kind?: symbol): R => {
     const index = size++
@@ -62,7 +65,10 @@ export function traverse<
           if (isNode(child)) {
             const layout = sink.layout(child)
             if (layout !== undefined) return types.policies[layout.kind].construction(layout)
-          } else return child.value
+          } else {
+            const target = child.value
+            return (isObject(target) ? sink.constructed?.(target) : undefined) ?? target
+          }
         }
         return undefined
       },

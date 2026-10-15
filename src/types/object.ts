@@ -213,7 +213,7 @@ export const objectDraft = /* @__PURE__ */ freeze({
 
 export const objectExposure = ordinaryExposure
 
-export const objectRecognition = /* @__PURE__ */ freeze({
+const objectRecognition = /* @__PURE__ */ freeze({
   tag: 'fallback',
 }) satisfies Recognition
 

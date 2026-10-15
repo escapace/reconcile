@@ -36,11 +36,12 @@ class SnapshotReference {
  *
  * @remarks
  * The copy keeps plain-object key order and prototypes, sparse-array holes, shared references,
- * cycles, and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`,
- * `Date`, `ArrayBuffer`, `DataView` and typed arrays are supported, including Vue reactive
- * wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are,
- * and functions are kept by reference. Other objects, such as class instances, are copied like
- * plain objects: the copy has the same prototype and own properties but not private fields or
+ * cycles, the sharing between buffers and their views, and each URL's owned search parameters. Plain objects, arrays, `Map`, `Set`,
+ * `Date`, `ArrayBuffer`, `DataView`, typed arrays and available Temporal values are supported,
+ * including Vue reactive wrappers that behave like objects, arrays, maps or sets. Primitives are returned as they are,
+ * including bigint, and functions are kept by reference. Temporal support uses the eight value
+ * classes on the current global Temporal namespace, without installing a polyfill. Other
+ * objects, such as class instances, are copied like plain objects: the copy has the same prototype and own properties but not private fields or
  * other internal state.
  *
  * @example
@@ -54,12 +55,14 @@ class SnapshotReference {
  * @param value - The value to copy.
  * @param seen - Map from source objects already copied to their copies. Entries are used as
  * given, without checking; the copy is detached only if every entry is a detached copy of its
- * source. Most callers omit it.
+ * source. A supplied parameter copy that a fresh URL would need to adopt raises
+ * `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair
+ * or omit those entries. Most callers omit the memo.
  * @returns A detached copy of `value`, or `value` itself when it is not an object.
  */
 export function snapshot(
   value: unknown,
-  seen: WeakMap<object, object> = new WeakMap<object, object>(),
+  seen: WeakMap<object, object> | undefined = undefined,
 ): unknown {
   return snapshotWith(snapshotTypes, value, seen)
 }
@@ -67,23 +70,37 @@ export function snapshot(
 export function snapshotWith(
   types: SnapshotRegistry,
   value: unknown,
-  seen: WeakMap<object, object>,
+  seen?: WeakMap<object, object>,
 ): unknown {
+  // Custom facets may retain and reinitialize a writer after returning. Their memo
+  // remains independent. Built-ins initialize once and expose no reentrant callback
+  // before the former memo write; future facets must preserve that boundary.
+  if (seen === undefined && types !== snapshotTypes) seen = new WeakMap()
+  let constructed: WeakMap<object, object> | undefined
   const resolve = (edge: Edge): unknown =>
     isNode(edge) ? (edge as SnapshotReference).target : edge.value
   const root = traverse<SnapshotReference>(
     types,
     value,
     {
+      existing: seen === undefined ? undefined : (source) => seen.get(source),
       finish: noValue,
+      memoTarget: seen === undefined ? (writer) => writer.target : undefined,
       begin(source, writer, layout) {
-        types.policies[layout.kind].snapshot(layout, resolve, writer)
-        seen.set(source, writer.target!)
+        const policy = types.policies[layout.kind]
+        policy.snapshot(layout, resolve, writer)
+        if (policy.construction !== noValue) {
+          const response = policy.construction(layout)
+          if (response === writer.target) constructed?.delete(writer.target!)
+          else if (response !== undefined)
+            (constructed ??= new WeakMap()).set(writer.target!, response)
+        }
+        seen?.set(source, writer.target!)
       },
+      constructed: (target) => constructed?.get(target),
       edge(writer, child, key) {
         writer.write?.(child, key)
       },
-      existing: (source) => seen.get(source),
       layout: (writer) => writer.layout,
       reserve: (node) => new SnapshotReference(node),
     },

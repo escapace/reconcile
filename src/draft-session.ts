@@ -9,6 +9,7 @@ export class DraftSession implements DraftContext {
   declare readonly specialCloneCloneToBase: WeakMap<object, object>
   declare readonly statesByIdentity: WeakMap<object, DraftState>
   declare readonly types: ImmutableRegistry
+  declare nativeOwners?: WeakMap<object, object>
   constructor(types: ImmutableRegistry) {
     this.types = types
     this.specialCloneBaseToClone = new WeakMap()
@@ -38,11 +39,11 @@ export class DraftSession implements DraftContext {
     const resolve = (dependency: object, dependencyKind: symbol): object => {
       const existing = this.specialCloneBaseToClone.get(dependency)
       if (existing !== undefined) return existing
-      const copy = specials[dependencyKind]!.copy(dependency, resolve)
+      const copy = specials[dependencyKind]!.copy(dependency, resolve, this)
       this.specialCloneBaseToClone.set(dependency, copy)
       return copy
     }
-    const replacement = specials[kind]!.copy(value, resolve)
+    const replacement = specials[kind]!.copy(value, resolve, this)
     this.specialCloneBaseToClone.set(value, replacement)
     this.specialCloneCloneToBase.set(replacement, value)
     if (links.tag === 'dependent')

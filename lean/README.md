@@ -47,8 +47,13 @@ tests rather than Lean.
   and each publication attempt gets a fresh private token.
 - **Drafts.** The recipe is isolated from the input, returning the original `current`
   cancels draft changes, and getters are sealed during finalization.
-- **Snapshot memo.** A caller-supplied memo is trusted and can return any object,
-  including the source. Detachment holds only for a valid memo with native storage
+- **Snapshot memo.** A caller-supplied memo is generally trusted and can return any
+  object, including the source. Constructing a fresh URL around a memo-supplied child
+  is an explicit exception: that replacement must carry matching same-call private
+  carrier metadata, otherwise snapshot rejects it because a URL cannot adopt an
+  arbitrary params object. Memoized owner-and-child pairs retain the general trust
+  contract because the owner is not reconstructed. Lookup
+  order remains unchanged. Detachment holds only for a valid memo with native storage
   separation; `graph-capture.spec.ts` keeps a counterexample.
 - **Property order.** `DeferredOrder` applies only while key storage is private, stable
   and non-escaping, and desired keys are buffered eagerly.
@@ -88,6 +93,20 @@ These modules state what each operation guarantees, conditional on the obligatio
   [SnapshotProjection.lean](SnapshotProjection.lean),
   [SnapshotStream.lean](SnapshotStream.lean) and [SnapshotOwner.lean](SnapshotOwner.lean)
   cover the state projection, streamed map entries and owned shells.
+  `memo_edge_agreement` and `interleaved_memo_agreement` show that a canonical
+  reference can replace a separate memo when both publish the same initialized target:
+  pending references remain node edges, and completed references yield target atoms.
+  The runtime applies this refinement only to the exact built-in snapshot registry
+  when the caller omits the memo. Custom registries and caller-supplied memos retain
+  their `WeakMap` reads and writes, including the order of observable callbacks.
+  The built-in correspondence premise is that each facet initializes its writer once
+  and exposes no application callback that can reenter the traversal between that
+  initialization and the former memo write. Current construction callbacks only read
+  private ArrayBuffer layout data or create private URL carrier metadata. Future
+  built-in facets must preserve this boundary or retain a separate memo. Lean proves
+  the finite installation model; it does not establish this JavaScript callback premise.
+  `snapshot-construction.spec.ts` covers custom response metadata, writer
+  reinitialization and reentrant caller-memo reads.
 - **`produce`.** [ProduceSpec.lean](ProduceSpec.lean) and
   [ProduceSoundness.lean](ProduceSoundness.lean) describe lazy children, explicit
   deletion, ordinary `undefined` assignment, copy-on-write and finalization.
@@ -134,6 +153,14 @@ separate from the optimized TypeScript, and a bridge compares the two.
   publication (`selected_published`, `selected_storage_distinct`), with
   [ImmutableLabels.lean](ImmutableLabels.lean) and [ReuseClosure.lean](ReuseClosure.lean).
   The compact planner does not replace the general selector.
+  [ImmutableAssembly.lean](ImmutableAssembly.lean) covers filling one private record
+  during structural collection: every child prefix preserves its reserved target, and
+  completion produces the same record as allocating a replacement. Its runtime premise
+  is that recursive comparisons read only the pending record's target; edges, payload
+  and settled state are consumed after completion. The runtime preserves the separate
+  reservation and completion target reads, the completion settled read, and child-first
+  reuse callbacks. `immutable-assembly.spec.ts` checks those boundaries with a cycle
+  and accessor-backed records. The model does not prove native callback behavior.
 - **Requirement closure** (`graph/requirements.ts`). [Requirements.lean](Requirements.lean)
   specifies the least closure; [RequirementAdmission.lean](RequirementAdmission.lean) and
   [RequirementPropagation.lean](RequirementPropagation.lean) cover admission, propagation
@@ -158,6 +185,80 @@ separate from the optimized TypeScript, and a bridge compares the two.
   (`step_equivalence`, `stream_equivalence`). [DeferredOrder.lean](DeferredOrder.lean)
   proves that private cursor work can wait until needed (`catchUp_eq`, `execute_eq`); it
   does not allow sharing observations across phases.
+- **Native value facets** (`types/temporal.ts` and the URL facets).
+  [Types/NativeValue.lean](Types/NativeValue.lean) proves the finite payload policy:
+  mutable publication returns the desired payload, immutable Temporal compatibility
+  requires equal class, constructor label and exact observation, and clearing then
+  appending parameter pairs preserves their order and duplicates.
+  [Types/NativeValueEncoding.lean](Types/NativeValueEncoding.lean) follows the existing
+  `Types.Cell` encoding: each native object remains a heap node with one atomic payload
+  slot; payload encoding is injective and has no child references. Primitive bigint is
+  an `Int` atom and needs no new node kind. These are facet/encoding claims, not a new
+  unconditional instantiation of the public graph soundness theorems.
+  The runtime must supply faithful native brands, constructors, capture, cloning,
+  publication and readback. Temporal labels must preserve all ten Duration components
+  and the other classes' calendar, timezone and reference-date distinctions. Lean does
+  not prove native parsing or `.equals`, nor identify equal payloads with equal object
+  identities. The URL scalar model has no intrinsic `searchParams` child edge; it cannot
+  establish preservation of that live relationship when separately exposed in a graph.
+  The core model and `ContractTest` retain inhabited cases and counterexamples for
+  immutable changes, constructor differences, duplicate collapse and parameter sorting.
+- **Recognition dispatch** (`types/builtins.ts` and `types/temporal.ts`).
+  [Types/Recognition.lean](Types/Recognition.lean) retains ordered recognition and adds
+  fixed-prefix trace refinements. The refinements preserve the visited predicate ranks,
+  selected rank and early exception position. Native correspondence requires the same
+  live namespace reads, constructor reads and predicate calls in that order; no result
+  is cached across observations.
+- **Lazy ownership metadata** (`snapshot.ts`, draft finalization and preparation).
+  [Types/LazyOwnership.lean](Types/LazyOwnership.lean) proves that an absent table denotes
+  an empty one and that lazy inserts preserve lookup over arbitrary write sequences.
+  An identity construction response can use the existing target fallback. Runtime maps
+  remain scoped to their session, phase or attempt; custom construction callbacks still
+  run, and overwriting a shared target clears obsolete metadata.
+- **Bulk owned-parameter publication** (`types/shared/url-carrier.ts`).
+  [Types/OwnedPublication.lean](Types/OwnedPublication.lean) proves the finite equivalence
+  of clear-and-append and bulk replacement, preserving owner and child identities.
+  Its explicit native premise includes the intermediate empty-list update's opaque-path
+  normalization. It does not prove the URL implementation. The runtime bridge compares
+  full URLs, ordered entries and child identity against the previous mutation sequence
+  on 60 native cases. Sealed construction edges justify the attempt-local owner lookup;
+  pinned owners are excluded. Standalone parameters retain sequential publication.
+- **Owned native children** (URL and its fixed `searchParams` object).
+  [Types/OwnedNativeChild.lean](Types/OwnedNativeChild.lean) models a native carrier
+  allocated with its child before the source owner is discovered.
+  [Types/OwnedNativeChildEncoding.lean](Types/OwnedNativeChildEncoding.lean) supplies
+  the separate injective payload-plus-child encoding with exactly one child reference
+  in the existing graph language; the scalar encoding is not used for this edge.
+  Adoption keeps both
+  identities. It preserves the previously observed child payload: a later captured
+  source query is retained only when its decoded entries agree and no child mutation
+  occurred; otherwise the query is normalized from the earlier payload. Decoding is
+  private work on captured text, not another source observation. `adopt_consistent`
+  covers both agreement and mismatch under the native serialization round-trip law.
+  Earlier-captured params win when a later getter changes the source URL query: this
+  follows the same-call identity/memo observation policy, not a claim of general
+  equivalence under arbitrary application mutation.
+  Candidate admission requires exact child identity. The carrier inverse law proves
+  successful allocation; a retained child that no fresh owner can adopt rejects that
+  candidate, leaving retry to the existing driver. For immutable restoration,
+  `first_prepared_ranked` preserves the first successful preparation in ranked order
+  after preceding native-infeasible choices. Preparation failure must occur before
+  fresh writes and may affect only private allocations; native exceptions still
+  propagate. A finite fresh-pair witness states
+  freshness separately. Private construction metadata refines the already selected
+  memo result without changing memo lookup order. For immutable finalization, changed
+  owners force their registered child copies, and sealed replay corrects earlier child
+  reuse decisions (`replay_owned_valid`); forcing is monotone. Counterexamples retain
+  the net-equal mutation and params-before-changed-owner cases.
+  Native obligations include fixed ownership, fresh allocation, per-call carrier maps,
+  faithful ordered-pair capture, and propagation of force to sealed replay. The private
+  ignored-empty-field query marker relies on the URL parser ignoring empty fields and
+  every params mutator invoking native query update, including no-op mutations. See
+  the URL Standard's [form parser](https://url.spec.whatwg.org/#concept-urlencoded-parser)
+  and [parameter update](https://url.spec.whatwg.org/#concept-urlsearchparams-update).
+  The runtime replays empty-query updates for native opaque-path handling; that behavior
+  is tested in JavaScript and is not established by the query-label model. Getter order, method
+  branding and native URL parsing are likewise correspondence obligations.
 - **Recognition** (`types/registry.ts`). [Types/Recognition.lean](Types/Recognition.lean)
   models first-match recognition; [Types/Cell.lean](Types/Cell.lean) is an inhabited
   type encoding.
@@ -170,19 +271,22 @@ by family to an oracle module's `run` function, and ends each response with a
 record-separator line. [check-lean.ts](../scripts/check-lean.ts) first confirms that bad
 requests are rejected, then runs the bridges.
 
-| Oracle family        | Bridge in `scripts/`                   | Runtime comparison                                                                                  |
-| -------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `Contract`           | `lean-captured-bridge.ts`              | 10 graphs from `reuse-fixtures.json`: values, aliases, cycles, wrappers, identity restoration       |
-| `Policy`             | `lean-policy-bridge.ts`                | 1,557 selection streams, 16 forward-pruned comparisons, closure, construction, execution and driver |
-| `Pruned`             | `lean-pruned-bridge.ts`                | 10 graphs from `pruned-fixtures.json`: spread roots, aliases into replaced positions, cycles        |
-| `PropertyOrder`      | `check-property-order-runtime.ts`      | 62,800 cursor traces, 18,672 with strictly less work                                                |
-| `SeededRequirements` | `check-seeded-requirements-runtime.ts` | 40,966 closure traces, 36,951 with strictly less work                                               |
-| `DeferredOrder`      | `check-deferred-order-runtime.ts`      | 566 preflights, 215 demanded checkpoints, 3 original error identities                               |
-| `FactRenaming`       | `check-fact-renaming-runtime.ts`       | 41,069 histories with queries and live cursor reads                                                 |
-| `CompactImmutable`   | `check-compact-immutable-runtime.ts`   | 40,963 cases and 46,083 ranked plans, including construction rejection                              |
-| `SelectionUnwind`    | `check-selection-unwind-runtime.ts`    | 180 admitted prefixes, 1,440 assignment and undo transitions                                        |
+| Oracle family        | Bridge in `scripts/`                   | Runtime comparison                                                                                                                                |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Contract`           | `lean-captured-bridge.ts`              | 10 graphs from `reuse-fixtures.json`: values, aliases, cycles, wrappers, identity restoration                                                     |
+| `Policy`             | `lean-policy-bridge.ts`                | 1,557 selection streams, 16 forward-pruned comparisons, closure, construction, execution and driver                                               |
+| `Pruned`             | `lean-pruned-bridge.ts`                | 10 graphs from `pruned-fixtures.json`: spread roots, aliases into replaced positions, cycles                                                      |
+| `PropertyOrder`      | `check-property-order-runtime.ts`      | 62,800 cursor traces, 18,672 with strictly less work                                                                                              |
+| `SeededRequirements` | `check-seeded-requirements-runtime.ts` | 40,966 closure traces, 36,951 with strictly less work                                                                                             |
+| `DeferredOrder`      | `check-deferred-order-runtime.ts`      | 566 preflights, 215 demanded checkpoints, 3 original error identities                                                                             |
+| `FactRenaming`       | `check-fact-renaming-runtime.ts`       | 41,069 histories with queries and live cursor reads                                                                                               |
+| `CompactImmutable`   | `check-compact-immutable-runtime.ts`   | 40,963 cases and 46,083 ranked plans, including construction rejection                                                                            |
+| `SelectionUnwind`    | `check-selection-unwind-runtime.ts`    | 180 admitted prefixes, 1,440 assignment and undo transitions                                                                                      |
+| `NativeValue`        | `check-native-value-runtime.ts`        | 22 fixture pairs: native facet compatibility, immutable reuse, publication and readback; unavailable Temporal constructors are explicitly skipped |
+| `OwnedNativeChild`   | `check-owned-native-child-runtime.ts`  | 14 production carrier adoption projections: raw/canonical query, ordered entries and native owner/child identities                                |
 
-The `check-*-runtime.ts` bridges run from `lean-policy-bridge.ts`. Read the table with
+The native-value and owned-child bridges run directly from `check-lean.ts`; the other
+`check-*-runtime.ts` bridges run from `lean-policy-bridge.ts`. Read the table with
 these limits:
 
 - Corpus sizes bound the test enumeration, not production graphs.

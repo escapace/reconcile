@@ -91,7 +91,7 @@ export function registerTypes<const M extends readonly ModuleShape[]>(modules: M
 }
 
 /** Preserves ordered predicate observations independently of the native operation facets. */
-export function registerRecognition<
+function registerRecognition<
   const M extends ReadonlyArray<Pick<ModuleShape, 'kind' | 'recognition'>>,
 >(entries: M) {
   const positions = new Map(entries.map((module, index) => [module.kind, index]))
