@@ -475,8 +475,9 @@ layout, which makes lookups and key listing slower. Check an object with
   is not `__proto__`, ordinary assignment creates the same property as `defineProperty`
   with default attributes, without building a descriptor object. `produce` writes such
   fresh objects by assignment.
-- **Property names.** Consumer minifiers never rename properties. Only the package's mangle
-  list can shorten internal names.
+- **Property names.** Ordinary minification renames identifiers, not properties. If enabling
+  opt-in property mangling, restrict it to application-private properties and preserve library,
+  native and public property names. The package uses its own audited mangle list.
 - **Per-node allocation.** Per-node `Map`s, `Set`s, closures, spread copies and iterator
   destructuring were the main overhead before 2026-10-07. Removing them, together with the
   per-call identity tables, made `reconcile` 16% and `produce` 15% faster. Hoisting the
