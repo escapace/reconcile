@@ -133,7 +133,7 @@ function url(frame: Frame, context: EncodeContext) {
     frame.phase = 1
     return false
   }
-  context.owner(-(frame.input as number) - 1, context.ids.get(frame.value)!)
+  context.owner(-(frame.input as number) - 6, context.ids.get(frame.value)!)
   frame.row = [9, frame.state.href]
   return true
 }

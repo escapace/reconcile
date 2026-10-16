@@ -8,7 +8,7 @@ describe('serialization', () => {
     expectTypeOf(stringify).toEqualTypeOf<(value: unknown) => string>()
     expectTypeOf(parse).toEqualTypeOf<(text: string) => unknown>()
     expect(JSON.parse(stringify({ count: 3, title: 'hello' }))).toEqual([
-      -1,
+      -6,
       [['count', 'title']],
       [[0, 0, 3, 'hello']],
     ])
@@ -27,6 +27,11 @@ describe('serialization', () => {
       -123n,
     ])
       expect(Object.is(copy(value), value)).toBe(true)
+  })
+
+  it('rejects legacy singleton special tokens', () => {
+    for (const tag of [-1, -2, -3, -4, -5])
+      expect(() => parse(JSON.stringify([[tag], [], []]))).toThrow()
   })
 
   it('preserves cycles, shared identities and distinct equal objects in collections', () => {
@@ -136,7 +141,7 @@ describe('serialization', () => {
         }),
       )
     }
-    for (const text of ['{}', '[-1,[],[]]', '[0,[],[[100]]]', '[0,[],[[7,"!"]]]']) {
+    for (const text of ['{}', '[-6,[],[]]', '[0,[],[[100]]]', '[0,[],[[7,"!"]]]']) {
       expect(() => parse(text)).toThrow(
         expect.objectContaining({
           cause: { reason: expect.any(String) as unknown, type: 'ParseInputInvalid' },

@@ -27,8 +27,10 @@ export function decodeGraph(text: string): unknown {
     if (token === null || typeof token === 'string' || typeof token === 'boolean') return token
     if (typeof token === 'number' && Number.isFinite(token) && !Object.is(token, -0)) {
       if (token >= 0) return token
-      const id = -token - 1
+      const id = -token - 6
       if (int(id, nodes.length - 1)) return output[id]
+      const special = -token - 1
+      if (int(special, 4)) return specials[special]
       fail('reference')
     }
     return readScalar(token)
@@ -56,11 +58,6 @@ export function decodeGraph(text: string): unknown {
 
 function readScalar(token: unknown): unknown {
   if (!Array.isArray(token)) fail('token')
-  if (token.length === 1) {
-    const tag: unknown = token[0]
-    if (typeof tag === 'number' && Number.isInteger(tag) && tag >= -5 && tag <= -1)
-      return specials[-tag - 1]
-  }
   if (
     token.length === 2 &&
     token[0] === -7 &&

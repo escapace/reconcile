@@ -1,0 +1,2568 @@
+{
+  "complete": true,
+  "targets": [
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "callsPerBlock": 64,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 1.542117390625,
+              "cpuMsPerOp": 1.54126953125,
+              "threadMsPerOp": 1.430087890625,
+              "inclusiveMsPerOp": 3.020324701171875,
+              "inclusiveCpuMsPerOp": 3.01826171875,
+              "sentinelMsPerCall": 46.7954900625,
+              "medianBlockMsPerOp": 1.5061495703125,
+              "lateEarly": 0.9293925040568263,
+              "epochMsPerOp": [
+                1.9849247499999998,
+                1.5137668906250001,
+                1.39698521875,
+                1.49853225,
+                1.642523625,
+                1.3893566718750001,
+                1.3922869375,
+                1.51856278125
+              ],
+              "minTargetBlockMs": 88.918827,
+              "maxTargetBlockMs": 127.035184,
+              "cpuWallRange": [
+                0.9973245878931289,
+                1.000424418413339
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 1.429784650390625,
+              "cpuMsPerOp": 1.427474609375,
+              "threadMsPerOp": 1.377640625,
+              "inclusiveMsPerOp": 2.84118335546875,
+              "inclusiveCpuMsPerOp": 2.838421875,
+              "sentinelMsPerCall": 44.848720625,
+              "medianBlockMsPerOp": 1.41798390625,
+              "lateEarly": 0.8502016070916745,
+              "epochMsPerOp": [
+                1.924648234375,
+                1.24303509375,
+                1.44684290625,
+                1.56765259375,
+                1.030351171875,
+                1.03281975,
+                1.8038025468749999,
+                1.3891249062500002
+              ],
+              "minTargetBlockMs": 65.942475,
+              "maxTargetBlockMs": 123.177487,
+              "cpuWallRange": [
+                0.9885157690440769,
+                1.0003212805260604
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 0.401560322265625,
+              "cpuMsPerOp": 0.399427734375,
+              "threadMsPerOp": 0.369810546875,
+              "inclusiveMsPerOp": 1.842340330078125,
+              "inclusiveCpuMsPerOp": 1.838765625,
+              "sentinelMsPerCall": 45.694196625,
+              "medianBlockMsPerOp": 0.4246817578125,
+              "lateEarly": 0.8602351684776447,
+              "epochMsPerOp": [
+                0.424687296875,
+                0.433063625,
+                0.442702515625,
+                0.426469390625,
+                0.368564625,
+                0.42467621875,
+                0.32019934375000003,
+                0.37211956249999995
+              ],
+              "minTargetBlockMs": 20.492758,
+              "maxTargetBlockMs": 28.332961,
+              "cpuWallRange": [
+                0.9535573387931792,
+                1.0011829544856774
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.26039543079329247,
+              "cpuMsPerOp": 0.2591550188181922,
+              "threadMsPerOp": 0.258592880409175,
+              "inclusiveMsPerOp": 0.6099808836325789,
+              "inclusiveCpuMsPerOp": 0.6092134467919889,
+              "sentinelMsPerCall": 0.9764658210432433,
+              "medianBlockMsPerOp": 0.2819651953453639
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.28085370909242624,
+              "cpuMsPerOp": 0.2798142480095558,
+              "threadMsPerOp": 0.26843760278555956,
+              "inclusiveMsPerOp": 0.6484411949450436,
+              "inclusiveCpuMsPerOp": 0.6478126599838159,
+              "sentinelMsPerCall": 1.0188517306228064,
+              "medianBlockMsPerOp": 0.29949688141074415
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.9271568163894137,
+              "cpuMsPerOp": 0.926168058494798,
+              "threadMsPerOp": 0.9633258445380732,
+              "inclusiveMsPerOp": 0.9406880506477934,
+              "inclusiveCpuMsPerOp": 0.9404160869705892,
+              "sentinelMsPerCall": 0.9583983534545765,
+              "medianBlockMsPerOp": 0.9414628760646877
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 2,
+              "wallMsPerOp": 8.255273736328125,
+              "cpuMsPerOp": 7.5005546875,
+              "threadMsPerOp": 7.459515625,
+              "inclusiveMsPerOp": 10.076180671875,
+              "inclusiveCpuMsPerOp": 9.266265625,
+              "sentinelMsPerCall": 54.09178675,
+              "medianBlockMsPerOp": 1.4677209609375,
+              "lateEarly": 8.33828661515769,
+              "epochMsPerOp": [
+                1.53482275,
+                1.203677125,
+                1.4006191718749998,
+                2.93307659375,
+                1.6205129999999999,
+                54.913802109375,
+                1.2644844375,
+                1.1711947031249998
+              ],
+              "minTargetBlockMs": 74.956461,
+              "maxTargetBlockMs": 3514.483335,
+              "cpuWallRange": [
+                0.8900892967244644,
+                1.0004474464182613
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 0,
+              "wallMsPerOp": 0.965091720703125,
+              "cpuMsPerOp": 0.96575,
+              "threadMsPerOp": 0.946126953125,
+              "inclusiveMsPerOp": 2.330250640625,
+              "inclusiveCpuMsPerOp": 2.31659375,
+              "sentinelMsPerCall": 42.8702519375,
+              "medianBlockMsPerOp": 0.4460050390625,
+              "lateEarly": 0.4577258410687023,
+              "epochMsPerOp": [
+                0.347173296875,
+                0.3395755625,
+                0.3926668125,
+                4.217008078125,
+                0.670035140625,
+                0.862264796875,
+                0.41183784375,
+                0.480172234375
+              ],
+              "minTargetBlockMs": 21.732836,
+              "maxTargetBlockMs": 269.888517,
+              "cpuWallRange": [
+                0.999864695984824,
+                1.0041687636304153
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 1,
+              "wallMsPerOp": 4.306581830078125,
+              "cpuMsPerOp": 4.310080078125,
+              "threadMsPerOp": 4.263443359375,
+              "inclusiveMsPerOp": 7.13333949609375,
+              "inclusiveCpuMsPerOp": 7.06823828125,
+              "sentinelMsPerCall": 86.2444945,
+              "medianBlockMsPerOp": 1.910041921875,
+              "lateEarly": 3.2891109575551676,
+              "epochMsPerOp": [
+                1.619579421875,
+                1.226933265625,
+                2.9855693593750003,
+                2.200504421875,
+                11.201912140625,
+                12.5579036875,
+                1.3904305625,
+                1.26982178125
+              ],
+              "minTargetBlockMs": 78.523729,
+              "maxTargetBlockMs": 803.705836,
+              "cpuWallRange": [
+                0.9977891622734292,
+                1.0023483039041552
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.22409691926964206,
+              "cpuMsPerOp": 0.22406776266210976,
+              "threadMsPerOp": 0.22191615400367312,
+              "inclusiveMsPerOp": 0.326670368331839,
+              "inclusiveCpuMsPerOp": 0.32774697991510215,
+              "sentinelMsPerCall": 0.4970781287088418,
+              "medianBlockMsPerOp": 0.2335053665338808
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.11690608349619544,
+              "cpuMsPerOp": 0.12875714400289145,
+              "threadMsPerOp": 0.12683490466245922,
+              "inclusiveMsPerOp": 0.2312632848207337,
+              "inclusiveCpuMsPerOp": 0.2500029508920968,
+              "sentinelMsPerCall": 0.792546419951639,
+              "medianBlockMsPerOp": 0.3038759075687087
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.9168969874603234,
+              "cpuMsPerOp": 1.7402355760320216,
+              "threadMsPerOp": 1.7496457666306442,
+              "inclusiveMsPerOp": 1.412547471964956,
+              "inclusiveCpuMsPerOp": 1.3109724455074943,
+              "sentinelMsPerCall": 0.6271911855196739,
+              "medianBlockMsPerOp": 0.7684234278463931
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 0.24156534071068256,
+          "cpuMsPerOp": 0.24097361940521475,
+          "threadMsPerOp": 0.23955362128996485,
+          "inclusiveMsPerOp": 0.4463884854380041,
+          "inclusiveCpuMsPerOp": 0.4468421055694552,
+          "sentinelMsPerCall": 0.696692043210139,
+          "medianBlockMsPerOp": 0.2565938157651437
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 0.18120018533482624,
+          "cpuMsPerOp": 0.18981065150572335,
+          "threadMsPerOp": 0.184518990234408,
+          "inclusiveMsPerOp": 0.38724751872164725,
+          "inclusiveCpuMsPerOp": 0.40243642556460085,
+          "sentinelMsPerCall": 0.8986029665912733,
+          "medianBlockMsPerOp": 0.3016784491021654
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 1.3331406933404184,
+          "cpuMsPerOp": 1.2695474015479509,
+          "threadMsPerOp": 1.2982599838945703,
+          "inclusiveMsPerOp": 1.152721357419122,
+          "inclusiveCpuMsPerOp": 1.1103420992335749,
+          "sentinelMsPerCall": 0.7753057458211433,
+          "medianBlockMsPerOp": 0.8505540138143792
+        }
+      }
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "callsPerBlock": 24,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 3.69561571875,
+              "cpuMsPerOp": 3.694703125,
+              "threadMsPerOp": 3.6180729166666663,
+              "inclusiveMsPerOp": 7.389150427083333,
+              "inclusiveCpuMsPerOp": 7.382848958333334,
+              "sentinelMsPerCall": 43.9386883125,
+              "medianBlockMsPerOp": 3.7406107708333334,
+              "lateEarly": 0.9396346119519216,
+              "epochMsPerOp": [
+                4.4062970833333335,
+                3.344631333333333,
+                3.5751193333333338,
+                3.916475541666667,
+                3.013367833333333,
+                3.4034961666666663,
+                3.99943625,
+                3.9061022083333334
+              ],
+              "minTargetBlockMs": 72.320828,
+              "maxTargetBlockMs": 105.75113,
+              "cpuWallRange": [
+                0.9979933868981881,
+                1.000359381910951
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 4.1005225520833335,
+              "cpuMsPerOp": 4.0996145833333335,
+              "threadMsPerOp": 3.976807291666667,
+              "inclusiveMsPerOp": 8.026076932291668,
+              "inclusiveCpuMsPerOp": 8.026953125,
+              "sentinelMsPerCall": 46.75862975,
+              "medianBlockMsPerOp": 3.9923237499999997,
+              "lateEarly": 0.8606711674187043,
+              "epochMsPerOp": [
+                4.854988458333334,
+                3.846286708333333,
+                3.0715477916666662,
+                5.857471416666667,
+                3.029383583333334,
+                4.4625917500000005,
+                4.138360791666667,
+                3.5435499166666666
+              ],
+              "minTargetBlockMs": 72.705206,
+              "maxTargetBlockMs": 140.579314,
+              "cpuWallRange": [
+                0.9990924369603531,
+                1.0005862689144955
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 2.8591040625,
+              "cpuMsPerOp": 2.85375,
+              "threadMsPerOp": 2.755859375,
+              "inclusiveMsPerOp": 6.8035019791666675,
+              "inclusiveCpuMsPerOp": 6.796197916666666,
+              "sentinelMsPerCall": 46.781442,
+              "medianBlockMsPerOp": 2.7927908125000003,
+              "lateEarly": 0.9647757276221762,
+              "epochMsPerOp": [
+                3.475461333333333,
+                2.585930625,
+                2.9576975,
+                2.6223575416666667,
+                2.5104899166666668,
+                2.8758957083333336,
+                3.1353139583333336,
+                2.709685916666667
+              ],
+              "minTargetBlockMs": 60.251758,
+              "maxTargetBlockMs": 83.411072,
+              "cpuWallRange": [
+                0.9880296397205445,
+                1.0004674388016088
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.7736475543152683,
+              "cpuMsPerOp": 0.7723895272370496,
+              "threadMsPerOp": 0.7616926022427917,
+              "inclusiveMsPerOp": 0.9207421132245328,
+              "inclusiveCpuMsPerOp": 0.9205386640065975,
+              "sentinelMsPerCall": 1.0646981918823297,
+              "medianBlockMsPerOp": 0.7466135836094548
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.6972535880938854,
+              "cpuMsPerOp": 0.6961020217855844,
+              "threadMsPerOp": 0.6929828812109798,
+              "inclusiveMsPerOp": 0.84767465307912,
+              "inclusiveCpuMsPerOp": 0.8466721819391049,
+              "sentinelMsPerCall": 1.0004878725087105,
+              "medianBlockMsPerOp": 0.6995401644217858
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.1095641062675987,
+              "cpuMsPerOp": 1.1095924204555225,
+              "threadMsPerOp": 1.0991506758604808,
+              "inclusiveMsPerOp": 1.0861975285918959,
+              "inclusiveCpuMsPerOp": 1.087243308145921,
+              "sentinelMsPerCall": 1.064179008199882,
+              "medianBlockMsPerOp": 1.067291946312444
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 2,
+              "wallMsPerOp": 7.1020845572916675,
+              "cpuMsPerOp": 7.1207343750000005,
+              "threadMsPerOp": 6.912328124999999,
+              "inclusiveMsPerOp": 17.401525875,
+              "inclusiveCpuMsPerOp": 14.983427083333334,
+              "sentinelMsPerCall": 89.8843555,
+              "medianBlockMsPerOp": 6.317630708333334,
+              "lateEarly": 1.4497012166267609,
+              "epochMsPerOp": [
+                4.5457837083333335,
+                5.509852416666668,
+                4.671885541666667,
+                8.465787,
+                12.846468291666666,
+                7.125408999999999,
+                9.17621575,
+                4.47527475
+              ],
+              "minTargetBlockMs": 107.406594,
+              "maxTargetBlockMs": 308.315239,
+              "cpuWallRange": [
+                0.997380273876317,
+                1.0104592981211675
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 0,
+              "wallMsPerOp": 5.8949310937499995,
+              "cpuMsPerOp": 5.896171875,
+              "threadMsPerOp": 5.8236614583333335,
+              "inclusiveMsPerOp": 11.826061989583332,
+              "inclusiveCpuMsPerOp": 11.761036458333335,
+              "sentinelMsPerCall": 68.6142869375,
+              "medianBlockMsPerOp": 3.053971020833333,
+              "lateEarly": 3.0825042915959604,
+              "epochMsPerOp": [
+                2.7403511249999997,
+                3.142940583333333,
+                2.7033049166666663,
+                2.9650014583333335,
+                6.673360166666666,
+                4.755974375,
+                21.899738624999998,
+                2.2787775000000003
+              ],
+              "minTargetBlockMs": 54.69066,
+              "maxTargetBlockMs": 525.593727,
+              "cpuWallRange": [
+                1.000004324633045,
+                1.001407559891922
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 1,
+              "wallMsPerOp": 9.233918609375,
+              "cpuMsPerOp": 8.923510416666668,
+              "threadMsPerOp": 8.78915625,
+              "inclusiveMsPerOp": 14.094799229166666,
+              "inclusiveCpuMsPerOp": 13.747135416666666,
+              "sentinelMsPerCall": 57.12084575,
+              "medianBlockMsPerOp": 3.9257534375,
+              "lateEarly": 2.992429657214328,
+              "epochMsPerOp": [
+                3.8711228749999997,
+                3.2027934166666667,
+                3.2229522916666666,
+                8.205986875,
+                38.417286458333336,
+                10.214745666666667,
+                3.980384,
+                2.7560772916666667
+              ],
+              "minTargetBlockMs": 66.145855,
+              "maxTargetBlockMs": 922.014875,
+              "cpuWallRange": [
+                0.9367083150366744,
+                1.0009243965475993
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.6383997242259644,
+              "cpuMsPerOp": 0.6607457827345133,
+              "threadMsPerOp": 0.6625961915665493,
+              "inclusiveMsPerOp": 0.8390372787369267,
+              "inclusiveCpuMsPerOp": 0.8555263407149218,
+              "sentinelMsPerCall": 1.2012127277982398,
+              "medianBlockMsPerOp": 0.7779324579228195
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.8300282890461659,
+              "cpuMsPerOp": 0.8280286223989362,
+              "threadMsPerOp": 0.8425036186101675,
+              "inclusiveMsPerOp": 0.6795991382901261,
+              "inclusiveCpuMsPerOp": 0.7849363428621484,
+              "sentinelMsPerCall": 0.7633618392858144,
+              "medianBlockMsPerOp": 0.48340448529303276
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.7691300798429254,
+              "cpuMsPerOp": 0.797974568584626,
+              "threadMsPerOp": 0.7864609444165929,
+              "inclusiveMsPerOp": 1.2346061545162457,
+              "inclusiveCpuMsPerOp": 1.0899308568072894,
+              "sentinelMsPerCall": 1.573582364193198,
+              "medianBlockMsPerOp": 1.6092785267626308
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 0.7027776215297119,
+          "cpuMsPerOp": 0.7143900354499529,
+          "threadMsPerOp": 0.7104186212301083,
+          "inclusiveMsPerOp": 0.8789408154696192,
+          "inclusiveCpuMsPerOp": 0.887437363820212,
+          "sentinelMsPerCall": 1.1308974398029323,
+          "medianBlockMsPerOp": 0.7621121572418772
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 0.7607497635601786,
+          "cpuMsPerOp": 0.7592051094060365,
+          "threadMsPerOp": 0.7640946178681999,
+          "inclusiveMsPerOp": 0.7589986586173598,
+          "inclusiveCpuMsPerOp": 0.8152200721856624,
+          "sentinelMsPerCall": 0.873918910735659,
+          "medianBlockMsPerOp": 0.5815159955874961
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 0.9237960433149962,
+          "cpuMsPerOp": 0.9409710585441864,
+          "threadMsPerOp": 0.9297521597680588,
+          "inclusiveMsPerOp": 1.1580268363988333,
+          "inclusiveCpuMsPerOp": 1.0885862530849246,
+          "sentinelMsPerCall": 1.2940530590543586,
+          "medianBlockMsPerOp": 1.310560952793616
+        }
+      }
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "callsPerBlock": 96,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 0.8075148346354166,
+              "cpuMsPerOp": 0.80769921875,
+              "threadMsPerOp": 0.75933203125,
+              "inclusiveMsPerOp": 1.7834089166666667,
+              "inclusiveCpuMsPerOp": 1.7834427083333333,
+              "sentinelMsPerCall": 46.2975863125,
+              "medianBlockMsPerOp": 0.8246574166666667,
+              "lateEarly": 0.8554344614477369,
+              "epochMsPerOp": [
+                0.6567390000000001,
+                0.8379743229166666,
+                1.0546381979166668,
+                0.93237678125,
+                0.6349752812499999,
+                0.6696555937499999,
+                0.8113405104166667,
+                0.8624189895833333
+              ],
+              "minTargetBlockMs": 60.957627,
+              "maxTargetBlockMs": 101.245267,
+              "cpuWallRange": [
+                0.9990282414433757,
+                1.000481859308598
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 0.77512736328125,
+              "cpuMsPerOp": 0.7755234375,
+              "threadMsPerOp": 0.7552421874999999,
+              "inclusiveMsPerOp": 1.6760568098958333,
+              "inclusiveCpuMsPerOp": 1.6758489583333331,
+              "sentinelMsPerCall": 42.7588078125,
+              "medianBlockMsPerOp": 0.7804649895833333,
+              "lateEarly": 0.9094060851561546,
+              "epochMsPerOp": [
+                0.84492759375,
+                0.6274942604166667,
+                0.8525996875,
+                0.9225950625,
+                0.6467751979166667,
+                0.7160023854166667,
+                0.9245862604166667,
+                0.6660384583333333
+              ],
+              "minTargetBlockMs": 60.239449,
+              "maxTargetBlockMs": 88.760281,
+              "cpuWallRange": [
+                0.9991518616305417,
+                1.0034009866907305
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 0.7411386809895834,
+              "cpuMsPerOp": 0.7402916666666667,
+              "threadMsPerOp": 0.7211445312500001,
+              "inclusiveMsPerOp": 1.69808182421875,
+              "inclusiveCpuMsPerOp": 1.6970963541666666,
+              "sentinelMsPerCall": 45.3169875625,
+              "medianBlockMsPerOp": 0.7448012395833334,
+              "lateEarly": 0.9140185033101793,
+              "epochMsPerOp": [
+                0.9223264895833332,
+                0.68477975,
+                0.7157329583333334,
+                0.7748891874999999,
+                0.7154915,
+                0.5318812604166667,
+                0.7738695208333334,
+                0.81013878125
+              ],
+              "minTargetBlockMs": 51.060601,
+              "maxTargetBlockMs": 88.543343,
+              "cpuWallRange": [
+                0.9949519048521319,
+                1.0004118599646008
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.9178019389875341,
+              "cpuMsPerOp": 0.9165437448513896,
+              "threadMsPerOp": 0.9497090884772288,
+              "inclusiveMsPerOp": 0.9521550600927802,
+              "inclusiveCpuMsPerOp": 0.9515844530563253,
+              "sentinelMsPerCall": 0.9788196571764856,
+              "medianBlockMsPerOp": 0.9031644226203428
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.9561508419109518,
+              "cpuMsPerOp": 0.9545703338806788,
+              "threadMsPerOp": 0.9548520238747921,
+              "inclusiveMsPerOp": 1.013140971232524,
+              "inclusiveCpuMsPerOp": 1.012678586412981,
+              "sentinelMsPerCall": 1.059828135555551,
+              "medianBlockMsPerOp": 0.9543044845367892
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.9598924131606954,
+              "cpuMsPerOp": 0.960163659313927,
+              "threadMsPerOp": 0.9946138927614215,
+              "inclusiveMsPerOp": 0.9398051082017225,
+              "inclusiveCpuMsPerOp": 0.9396707561744168,
+              "sentinelMsPerCall": 0.9235645142251281,
+              "medianBlockMsPerOp": 0.9464111688196987
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 2,
+              "wallMsPerOp": 1.1124534075520833,
+              "cpuMsPerOp": 1.114265625,
+              "threadMsPerOp": 1.0898190104166667,
+              "inclusiveMsPerOp": 2.2651919166666667,
+              "inclusiveCpuMsPerOp": 2.254018229166667,
+              "sentinelMsPerCall": 54.2618533125,
+              "medianBlockMsPerOp": 0.74050096875,
+              "lateEarly": 1.5041952067919055,
+              "epochMsPerOp": [
+                1.5171568125000001,
+                0.7446953125,
+                0.5732461041666667,
+                0.7187889583333334,
+                1.8194073645833333,
+                2.155408270833333,
+                0.7363066250000001,
+                0.6346178125
+              ],
+              "minTargetBlockMs": 55.031626,
+              "maxTargetBlockMs": 206.919194,
+              "cpuWallRange": [
+                0.9968676441785729,
+                1.0087126088457508
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 0,
+              "wallMsPerOp": 0.8213513658854167,
+              "cpuMsPerOp": 0.8215963541666667,
+              "threadMsPerOp": 0.7947356770833333,
+              "inclusiveMsPerOp": 1.7864013828124998,
+              "inclusiveCpuMsPerOp": 1.7793580729166667,
+              "sentinelMsPerCall": 45.92454425,
+              "medianBlockMsPerOp": 0.8223095833333333,
+              "lateEarly": 0.9823713257570476,
+              "epochMsPerOp": [
+                0.7717842291666666,
+                1.0416912083333334,
+                0.7350738020833334,
+                0.7660724166666667,
+                0.9356005833333334,
+                0.8728349375,
+                0.5345029062500001,
+                0.9132508437500001
+              ],
+              "minTargetBlockMs": 51.312279,
+              "maxTargetBlockMs": 100.002356,
+              "cpuWallRange": [
+                0.9998287445201967,
+                1.0004415364041597
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 1,
+              "wallMsPerOp": 1.1613269388020833,
+              "cpuMsPerOp": 1.1591796875,
+              "threadMsPerOp": 1.1332994791666666,
+              "inclusiveMsPerOp": 2.4482362083333333,
+              "inclusiveCpuMsPerOp": 2.4432174479166666,
+              "sentinelMsPerCall": 60.93260375,
+              "medianBlockMsPerOp": 0.7561339947916667,
+              "lateEarly": 2.1275214602403145,
+              "epochMsPerOp": [
+                0.7657825520833333,
+                0.6456876666666667,
+                0.8417832291666667,
+                0.7173466354166667,
+                0.7464854375,
+                4.172371614583334,
+                0.8403765208333333,
+                0.5607818541666667
+              ],
+              "minTargetBlockMs": 53.835058,
+              "maxTargetBlockMs": 400.547675,
+              "cpuWallRange": [
+                0.9888977009248348,
+                1.0007047823743405
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.7072524871701041,
+              "cpuMsPerOp": 0.7087739399045212,
+              "threadMsPerOp": 0.7012583096461981,
+              "inclusiveMsPerOp": 0.7296687209885742,
+              "inclusiveCpuMsPerOp": 0.7282847764671649,
+              "sentinelMsPerCall": 0.7536941050217306,
+              "medianBlockMsPerOp": 1.0875183353711
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.7383242842437536,
+              "cpuMsPerOp": 0.7373433548815316,
+              "threadMsPerOp": 0.72923638648906,
+              "inclusiveMsPerOp": 0.7886313604020232,
+              "inclusiveCpuMsPerOp": 0.7894160082168072,
+              "sentinelMsPerCall": 0.8463504551810178,
+              "medianBlockMsPerOp": 1.1104773903556533
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.9579157861433807,
+              "cpuMsPerOp": 0.9612535804549284,
+              "threadMsPerOp": 0.9616337344635755,
+              "inclusiveMsPerOp": 0.925234219213155,
+              "inclusiveCpuMsPerOp": 0.9225614490796429,
+              "sentinelMsPerCall": 0.8905224784932977,
+              "medianBlockMsPerOp": 0.9793250585883605
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 0.8056784123200011,
+          "cpuMsPerOp": 0.8059915143059284,
+          "threadMsPerOp": 0.8160829553673897,
+          "inclusiveMsPerOp": 0.8335213043952133,
+          "inclusiveCpuMsPerOp": 0.8324809131047722,
+          "sentinelMsPerCall": 0.8589124550810219,
+          "medianBlockMsPerOp": 0.9910640087574949
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 0.8402079421089554,
+          "cpuMsPerOp": 0.8389553578432903,
+          "threadMsPerOp": 0.8344536173582202,
+          "inclusiveMsPerOp": 0.8938650582846006,
+          "inclusiveCpuMsPerOp": 0.8941055235780476,
+          "sentinelMsPerCall": 0.9470934615660115,
+          "medianBlockMsPerOp": 1.0294336081521287
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 0.9589035903394534,
+          "cpuMsPerOp": 0.9607084653203688,
+          "threadMsPerOp": 0.9779848015411692,
+          "inclusiveMsPerOp": 0.9324912039797241,
+          "inclusiveCpuMsPerOp": 0.9310768037460893,
+          "sentinelMsPerCall": 0.9068930258063624,
+          "medianBlockMsPerOp": 0.9627274657726506
+        }
+      }
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "callsPerBlock": 64,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 0.84633353515625,
+              "cpuMsPerOp": 0.846212890625,
+              "threadMsPerOp": 0.82330078125,
+              "inclusiveMsPerOp": 2.284011970703125,
+              "inclusiveCpuMsPerOp": 2.283134765625,
+              "sentinelMsPerCall": 45.6868969375,
+              "medianBlockMsPerOp": 0.843368703125,
+              "lateEarly": 0.8699502372103366,
+              "epochMsPerOp": [
+                0.7902175,
+                0.92334134375,
+                0.862181734375,
+                1.045034,
+                0.6597070468749999,
+                0.7959603593750001,
+                0.8696706249999999,
+                0.824555671875
+              ],
+              "minTargetBlockMs": 42.221251,
+              "maxTargetBlockMs": 66.882176,
+              "cpuWallRange": [
+                0.9987934582876036,
+                1.0006335435205367
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 1.02220749609375,
+              "cpuMsPerOp": 1.017681640625,
+              "threadMsPerOp": 0.991619140625,
+              "inclusiveMsPerOp": 2.532440591796875,
+              "inclusiveCpuMsPerOp": 2.528576171875,
+              "sentinelMsPerCall": 48.0228950625,
+              "medianBlockMsPerOp": 0.8929489375,
+              "lateEarly": 0.6433931494736966,
+              "epochMsPerOp": [
+                1.020209125,
+                0.76568875,
+                1.217045609375,
+                1.9731390624999998,
+                0.71907528125,
+                0.676629859375,
+                1.1299864375,
+                0.67588584375
+              ],
+              "minTargetBlockMs": 43.256694,
+              "maxTargetBlockMs": 126.2809,
+              "cpuWallRange": [
+                0.9848678620440621,
+                1.000569748478086
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 0.813462904296875,
+              "cpuMsPerOp": 0.813521484375,
+              "threadMsPerOp": 0.775212890625,
+              "inclusiveMsPerOp": 2.17734625,
+              "inclusiveCpuMsPerOp": 2.17638671875,
+              "sentinelMsPerCall": 43.2580935625,
+              "medianBlockMsPerOp": 0.7849296718750001,
+              "lateEarly": 0.8384970549364988,
+              "epochMsPerOp": [
+                0.73723846875,
+                0.90220896875,
+                0.90773221875,
+                0.9925068593749999,
+                0.673995265625,
+                0.7492223437500001,
+                0.724162109375,
+                0.820637
+              ],
+              "minTargetBlockMs": 43.135697,
+              "maxTargetBlockMs": 63.520439,
+              "cpuWallRange": [
+                0.9973883336951669,
+                1.0006176319075657
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.9611611386126789,
+              "cpuMsPerOp": 0.9613673974809641,
+              "threadMsPerOp": 0.941591345811686,
+              "inclusiveMsPerOp": 0.9532989659987252,
+              "inclusiveCpuMsPerOp": 0.9532449645626687,
+              "sentinelMsPerCall": 0.9468380752949227,
+              "medianBlockMsPerOp": 0.9307076121825943
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.7957903922691149,
+              "cpuMsPerOp": 0.7993870105344371,
+              "threadMsPerOp": 0.781764751068033,
+              "inclusiveMsPerOp": 0.8597817682487389,
+              "inclusiveCpuMsPerOp": 0.8607162967671869,
+              "sentinelMsPerCall": 0.9007806277860011,
+              "medianBlockMsPerOp": 0.8790308593373516
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.2078069149239492,
+              "cpuMsPerOp": 1.2026307468246622,
+              "threadMsPerOp": 1.204443337366261,
+              "inclusiveMsPerOp": 1.1087685284842321,
+              "inclusiveCpuMsPerOp": 1.107501935472833,
+              "sentinelMsPerCall": 1.0511305928304926,
+              "medianBlockMsPerOp": 1.0587883261393107
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 2,
+              "wallMsPerOp": 0.834919017578125,
+              "cpuMsPerOp": 0.834884765625,
+              "threadMsPerOp": 0.80044140625,
+              "inclusiveMsPerOp": 2.895345720703125,
+              "inclusiveCpuMsPerOp": 2.8674453125,
+              "sentinelMsPerCall": 65.5614588125,
+              "medianBlockMsPerOp": 0.7901201171875001,
+              "lateEarly": 1.0495970280338636,
+              "epochMsPerOp": [
+                0.7960263750000001,
+                0.925743625,
+                0.8288213125,
+                0.7082698437499999,
+                0.7271520937499999,
+                0.784213859375,
+                0.7056447031249999,
+                1.203480328125
+              ],
+              "minTargetBlockMs": 45.161261,
+              "maxTargetBlockMs": 77.022741,
+              "cpuWallRange": [
+                0.9974846260015597,
+                1.000607378090218
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 0,
+              "wallMsPerOp": 1.13757923046875,
+              "cpuMsPerOp": 1.13796875,
+              "threadMsPerOp": 1.043638671875,
+              "inclusiveMsPerOp": 2.624760453125,
+              "inclusiveCpuMsPerOp": 2.621142578125,
+              "sentinelMsPerCall": 47.1356453125,
+              "medianBlockMsPerOp": 0.9317147109374999,
+              "lateEarly": 1.6858916044023067,
+              "epochMsPerOp": [
+                0.96989021875,
+                0.92382890625,
+                0.74525065625,
+                0.749340390625,
+                0.9559113281249999,
+                0.8247664375,
+                0.9396005156249999,
+                2.992045390625
+              ],
+              "minTargetBlockMs": 47.696042,
+              "maxTargetBlockMs": 191.490905,
+              "cpuWallRange": [
+                1.0000527179084562,
+                1.0006810261359598
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 1,
+              "wallMsPerOp": 0.9531460625,
+              "cpuMsPerOp": 0.953689453125,
+              "threadMsPerOp": 0.916283203125,
+              "inclusiveMsPerOp": 2.483486732421875,
+              "inclusiveCpuMsPerOp": 2.478861328125,
+              "sentinelMsPerCall": 48.4321849375,
+              "medianBlockMsPerOp": 0.881930265625,
+              "lateEarly": 1.097243535549742,
+              "epochMsPerOp": [
+                0.972289,
+                0.7101607343749999,
+                1.0960855624999999,
+                0.8572696875,
+                0.822177609375,
+                0.90659084375,
+                0.790797046875,
+                1.4697980156250001
+              ],
+              "minTargetBlockMs": 45.450287,
+              "maxTargetBlockMs": 94.067073,
+              "cpuWallRange": [
+                0.9987278232976308,
+                1.0020828435897011
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 1.1934993756203551,
+              "cpuMsPerOp": 1.1932277810886585,
+              "threadMsPerOp": 1.1389913820483142,
+              "inclusiveMsPerOp": 1.056885232708836,
+              "inclusiveCpuMsPerOp": 1.0573978255200025,
+              "sentinelMsPerCall": 0.9732297928191113,
+              "medianBlockMsPerOp": 1.0564494124455737
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 1.3625024781068715,
+              "cpuMsPerOp": 1.3630249309293712,
+              "threadMsPerOp": 1.3038289420388163,
+              "inclusiveMsPerOp": 0.9065447467487875,
+              "inclusiveCpuMsPerOp": 0.9141037726852899,
+              "sentinelMsPerCall": 0.7189535767851627,
+              "medianBlockMsPerOp": 1.1792064151638333
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.8759612512989058,
+              "cpuMsPerOp": 0.8754262332348262,
+              "threadMsPerOp": 0.8735742437710093,
+              "inclusiveMsPerOp": 1.1658390129105336,
+              "inclusiveCpuMsPerOp": 1.156759065126456,
+              "sentinelMsPerCall": 1.3536754308546006,
+              "medianBlockMsPerOp": 0.8958986305199125
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 1.0710486537990616,
+          "cpuMsPerOp": 1.0710416828990312,
+          "threadMsPerOp": 1.0355985845349462,
+          "inclusiveMsPerOp": 1.00375674320059,
+          "inclusiveCpuMsPerOp": 1.0039716892006756,
+          "sentinelMsPerCall": 0.9599432399118834,
+          "medianBlockMsPerOp": 0.9915873688429702
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 1.041281125114783,
+          "cpuMsPerOp": 1.0438316075016782,
+          "threadMsPerOp": 1.009597696267316,
+          "inclusiveMsPerOp": 0.8828536941964267,
+          "inclusiveCpuMsPerOp": 0.8870084633680769,
+          "sentinelMsPerCall": 0.8047480688050949,
+          "medianBlockMsPerOp": 1.0181153316091367
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 1.0285874083053193,
+          "cpuMsPerOp": 1.0260674951800686,
+          "threadMsPerOp": 1.0257537119624585,
+          "inclusiveMsPerOp": 1.136945736081684,
+          "inclusiveCpuMsPerOp": 1.1318625815456995,
+          "sentinelMsPerCall": 1.1928493861901714,
+          "medianBlockMsPerOp": 0.9739440494189997
+        }
+      }
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "callsPerBlock": 2,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 38.34571325,
+              "cpuMsPerOp": 38.292375,
+              "threadMsPerOp": 34.9565,
+              "inclusiveMsPerOp": 81.8093086875,
+              "inclusiveCpuMsPerOp": 81.7345625,
+              "sentinelMsPerCall": 42.89797925,
+              "medianBlockMsPerOp": 39.084223,
+              "lateEarly": 0.873760913434247,
+              "epochMsPerOp": [
+                40.6796725,
+                41.1128935,
+                37.4887735,
+                44.4352285,
+                33.747661,
+                31.356308000000002,
+                41.402553,
+                36.542616
+              ],
+              "minTargetBlockMs": 62.712616,
+              "maxTargetBlockMs": 88.870457,
+              "cpuWallRange": [
+                0.990977537061543,
+                1.000392824267777
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 40.375286,
+              "cpuMsPerOp": 40.110375,
+              "threadMsPerOp": 38.7083125,
+              "inclusiveMsPerOp": 86.4412464375,
+              "inclusiveCpuMsPerOp": 86.0480625,
+              "sentinelMsPerCall": 45.763503625,
+              "medianBlockMsPerOp": 38.00480825,
+              "lateEarly": 0.7062462978877544,
+              "epochMsPerOp": [
+                68.677013,
+                44.6191515,
+                41.022817,
+                34.986799500000004,
+                26.6013865,
+                30.4588665,
+                45.946677,
+                30.689577
+              ],
+              "minTargetBlockMs": 53.202773,
+              "maxTargetBlockMs": 137.354026,
+              "cpuWallRange": [
+                0.9558826737812764,
+                1.0004201727568707
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 44.4797663125,
+              "cpuMsPerOp": 44.3465,
+              "threadMsPerOp": 42.0136875,
+              "inclusiveMsPerOp": 89.955063375,
+              "inclusiveCpuMsPerOp": 89.8225,
+              "sentinelMsPerCall": 44.91259125,
+              "medianBlockMsPerOp": 38.0695315,
+              "lateEarly": 0.6087306288904615,
+              "epochMsPerOp": [
+                65.231142,
+                33.2790775,
+                46.847466999999995,
+                75.83417999999999,
+                28.698465499999998,
+                29.808735499999997,
+                39.9789795,
+                36.1600835
+              ],
+              "minTargetBlockMs": 57.396931,
+              "maxTargetBlockMs": 151.66836,
+              "cpuWallRange": [
+                0.9867372856970679,
+                1.0003102195471956
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 1.1599671134686742,
+              "cpuMsPerOp": 1.1581026248698336,
+              "threadMsPerOp": 1.2018848425900763,
+              "inclusiveMsPerOp": 1.0995700222650167,
+              "inclusiveCpuMsPerOp": 1.0989537015017363,
+              "sentinelMsPerCall": 1.046962864806738,
+              "medianBlockMsPerOp": 0.9740383351103077
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 1.1016582350029667,
+              "cpuMsPerOp": 1.1056117027078405,
+              "threadMsPerOp": 1.0853918651194108,
+              "inclusiveMsPerOp": 1.0406497717503485,
+              "inclusiveCpuMsPerOp": 1.0438642938648386,
+              "sentinelMsPerCall": 0.9814063105401056,
+              "medianBlockMsPerOp": 1.0017030279319985
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.052928282667946,
+              "cpuMsPerOp": 1.0474768149011389,
+              "threadMsPerOp": 1.1073280362736544,
+              "inclusiveMsPerOp": 1.0566187127640125,
+              "inclusiveCpuMsPerOp": 1.052774491819174,
+              "sentinelMsPerCall": 1.0667985864392435,
+              "medianBlockMsPerOp": 0.9723823408233037
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 2,
+              "wallMsPerOp": 48.8199739375,
+              "cpuMsPerOp": 48.858875,
+              "threadMsPerOp": 46.8509375,
+              "inclusiveMsPerOp": 94.5874495625,
+              "inclusiveCpuMsPerOp": 94.486,
+              "sentinelMsPerCall": 45.1157654375,
+              "medianBlockMsPerOp": 38.91493625,
+              "lateEarly": 1.6794263724869993,
+              "epochMsPerOp": [
+                38.201353000000005,
+                29.0014175,
+                40.3261055,
+                38.233588499999996,
+                49.294588000000005,
+                32.285016,
+                39.596284,
+                123.621439
+              ],
+              "minTargetBlockMs": 58.002835,
+              "maxTargetBlockMs": 247.242878,
+              "cpuWallRange": [
+                0.9999880717128623,
+                1.001962709430006
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 0,
+              "wallMsPerOp": 39.9275616875,
+              "cpuMsPerOp": 39.945375,
+              "threadMsPerOp": 37.6955625,
+              "inclusiveMsPerOp": 86.7697283125,
+              "inclusiveCpuMsPerOp": 86.6160625,
+              "sentinelMsPerCall": 46.2424596875,
+              "medianBlockMsPerOp": 39.32968674999999,
+              "lateEarly": 0.989023074848824,
+              "epochMsPerOp": [
+                44.225765,
+                40.0832645,
+                39.307182999999995,
+                36.975435499999996,
+                48.778161999999995,
+                35.401782,
+                39.3521905,
+                35.296711
+              ],
+              "minTargetBlockMs": 70.593422,
+              "maxTargetBlockMs": 97.556324,
+              "cpuWallRange": [
+                0.9993847689365071,
+                1.0021872996430927
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 1,
+              "wallMsPerOp": 41.116977875,
+              "cpuMsPerOp": 41.12975,
+              "threadMsPerOp": 39.461875,
+              "inclusiveMsPerOp": 94.41010875,
+              "inclusiveCpuMsPerOp": 93.87375,
+              "sentinelMsPerCall": 52.3400955,
+              "medianBlockMsPerOp": 40.914393000000004,
+              "lateEarly": 1.011262639044458,
+              "epochMsPerOp": [
+                44.690584,
+                52.090828,
+                28.053596000000002,
+                38.7119185,
+                39.4904885,
+                32.2931725,
+                51.266938,
+                42.3382975
+              ],
+              "minTargetBlockMs": 56.107192,
+              "maxTargetBlockMs": 104.181656,
+              "cpuWallRange": [
+                1.0001269039758776,
+                1.000474635931171
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.9710723830161849,
+              "cpuMsPerOp": 0.971203933892134,
+              "threadMsPerOp": 0.9552400259744374,
+              "inclusiveMsPerOp": 0.919072432617021,
+              "inclusiveCpuMsPerOp": 0.922686720196008,
+              "sentinelMsPerCall": 0.8834997193977226,
+              "medianBlockMsPerOp": 0.9612677560681394
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.817852990634854,
+              "cpuMsPerOp": 0.8175664093780302,
+              "threadMsPerOp": 0.804585020310426,
+              "inclusiveMsPerOp": 0.9173492753408652,
+              "inclusiveCpuMsPerOp": 0.9167078985246491,
+              "sentinelMsPerCall": 1.0249734042872627,
+              "medianBlockMsPerOp": 1.01065787432711
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.1873434396350317,
+              "cpuMsPerOp": 1.1879205441316807,
+              "threadMsPerOp": 1.1872456009756251,
+              "inclusiveMsPerOp": 1.001878409153935,
+              "inclusiveCpuMsPerOp": 1.0065220575506997,
+              "sentinelMsPerCall": 0.861973311407122,
+              "medianBlockMsPerOp": 0.9511307243394762
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 1.0613255999439715,
+          "cpuMsPerOp": 1.0605441174813939,
+          "threadMsPerOp": 1.0714889211998542,
+          "inclusiveMsPerOp": 1.0052783172812696,
+          "inclusiveCpuMsPerOp": 1.0069706979281472,
+          "sentinelMsPerCall": 0.9617647307302284,
+          "medianBlockMsPerOp": 0.9676319779316059
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 0.9492072914567666,
+          "cpuMsPerOp": 0.9507423362558224,
+          "threadMsPerOp": 0.934499885415655,
+          "inclusiveMsPerOp": 0.9770564538443103,
+          "inclusiveCpuMsPerOp": 0.9782221849732058,
+          "sentinelMsPerCall": 1.0029533224947682,
+          "medianBlockMsPerOp": 1.0061704889911964
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 1.1181178331606942,
+          "cpuMsPerOp": 1.1154905772451333,
+          "threadMsPerOp": 1.1465907464753384,
+          "inclusiveMsPerOp": 1.0288845780874973,
+          "inclusiveCpuMsPerOp": 1.0293885309457877,
+          "sentinelMsPerCall": 0.9589326932363249,
+          "medianBlockMsPerOp": 0.961697832046108
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 1.7493458203125,
+      "cpuMsPerOp": 1.7491328125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 1.447758734375,
+      "cpuMsPerOp": 1.448328125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 1.5159401484375,
+      "cpuMsPerOp": 1.5150078125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 1.455424859375,
+      "cpuMsPerOp": 1.452609375
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 1.5838416640625,
+      "cpuMsPerOp": 1.583828125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 1.50724775,
+      "cpuMsPerOp": 1.5076640625
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 1.0315854609375,
+      "cpuMsPerOp": 1.030484375
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 1.5964637265625,
+      "cpuMsPerOp": 1.587921875
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.4288754609375,
+      "cpuMsPerOp": 0.429265625
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.434585953125,
+      "cpuMsPerOp": 0.43496875
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.396620421875,
+      "cpuMsPerOp": 0.386953125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.346159453125,
+      "cpuMsPerOp": 0.3465234375
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 1.3692499375,
+      "cpuMsPerOp": 1.3696953125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 2.1668478828125,
+      "cpuMsPerOp": 2.1645
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 28.2671575546875,
+      "cpuMsPerOp": 25.249671875
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 1.2178395703125,
+      "cpuMsPerOp": 1.2183515625
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.3433744296875,
+      "cpuMsPerOp": 0.3436953125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 2.3048374453125,
+      "cpuMsPerOp": 2.3047109375
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.76614996875,
+      "cpuMsPerOp": 0.768125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.4460050390625,
+      "cpuMsPerOp": 0.44646875
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 1.42325634375,
+      "cpuMsPerOp": 1.4237421875
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 2.593036890625,
+      "cpuMsPerOp": 2.5923203125
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 11.8799079140625,
+      "cpuMsPerOp": 11.8935859375
+    },
+    {
+      "scenario": "undefined-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 1.330126171875,
+      "cpuMsPerOp": 1.330671875
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 3.8754642083333333,
+      "cpuMsPerOp": 3.8766874999999996
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 3.7457974375000003,
+      "cpuMsPerOp": 3.7470416666666666
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 3.208432,
+      "cpuMsPerOp": 3.204166666666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 3.9527692291666665,
+      "cpuMsPerOp": 3.9509166666666666
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 4.3506375833333335,
+      "cpuMsPerOp": 4.352166666666666
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 4.4645096041666665,
+      "cpuMsPerOp": 4.465645833333333
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 3.7459876666666667,
+      "cpuMsPerOp": 3.7428125
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 3.840955354166667,
+      "cpuMsPerOp": 3.8378333333333337
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 3.030695979166667,
+      "cpuMsPerOp": 3.0291875000000004
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 2.7900275208333336,
+      "cpuMsPerOp": 2.7912708333333334
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 2.6931928125,
+      "cpuMsPerOp": 2.6879791666666666
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 2.9224999375,
+      "cpuMsPerOp": 2.9065624999999997
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 5.0278180625,
+      "cpuMsPerOp": 5.022479166666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 6.568836270833334,
+      "cpuMsPerOp": 6.577083333333333
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 9.985938645833334,
+      "cpuMsPerOp": 10.053791666666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 6.82574525,
+      "cpuMsPerOp": 6.829583333333333
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 2.941645854166667,
+      "cpuMsPerOp": 2.9438750000000002
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 2.8341531875,
+      "cpuMsPerOp": 2.8352291666666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 5.714667270833334,
+      "cpuMsPerOp": 5.715958333333333
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 12.0892580625,
+      "cpuMsPerOp": 12.089625
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 3.5369581458333332,
+      "cpuMsPerOp": 3.5381666666666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 5.714469583333333,
+      "cpuMsPerOp": 5.69875
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 24.3160160625,
+      "cpuMsPerOp": 23.10172916666667
+    },
+    {
+      "scenario": "mixed-10k",
+      "op": "roundtrip",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 3.3682306458333335,
+      "cpuMsPerOp": 3.355395833333333
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.7473566614583333,
+      "cpuMsPerOp": 0.747671875
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.9935074895833332,
+      "cpuMsPerOp": 0.9938385416666667
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.6523154375,
+      "cpuMsPerOp": 0.6526041666666667
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.83687975,
+      "cpuMsPerOp": 0.8366822916666666
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.7362109270833334,
+      "cpuMsPerOp": 0.73653125
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.887597375,
+      "cpuMsPerOp": 0.8878802083333334
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.6813887916666667,
+      "cpuMsPerOp": 0.6827604166666666
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.795312359375,
+      "cpuMsPerOp": 0.794921875
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.8035531197916667,
+      "cpuMsPerOp": 0.8019166666666666
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.7453110729166667,
+      "cpuMsPerOp": 0.7454739583333333
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.6236863802083333,
+      "cpuMsPerOp": 0.6231197916666666
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.7920041510416667,
+      "cpuMsPerOp": 0.7906562500000001
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 1.1309260625,
+      "cpuMsPerOp": 1.131203125
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.6460175312499999,
+      "cpuMsPerOp": 0.64634375
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 1.9874078177083332,
+      "cpuMsPerOp": 1.9939479166666667
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.68546221875,
+      "cpuMsPerOp": 0.6855677083333332
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.90673771875,
+      "cpuMsPerOp": 0.9070677083333334
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.750573109375,
+      "cpuMsPerOp": 0.750671875
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.9042177604166667,
+      "cpuMsPerOp": 0.9045572916666668
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.7238768750000001,
+      "cpuMsPerOp": 0.7240885416666667
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.705735109375,
+      "cpuMsPerOp": 0.706
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.7795649322916667,
+      "cpuMsPerOp": 0.7750364583333332
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 2.4594285260416666,
+      "cpuMsPerOp": 2.454625
+    },
+    {
+      "scenario": "strings-10k",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.7005791874999999,
+      "cpuMsPerOp": 0.7010572916666667
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.856779421875,
+      "cpuMsPerOp": 0.85721875
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.9536078671875,
+      "cpuMsPerOp": 0.953296875
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.727833703125,
+      "cpuMsPerOp": 0.7275625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 0.8471131484375,
+      "cpuMsPerOp": 0.8467734375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.8929489375,
+      "cpuMsPerOp": 0.8933359375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 1.5950923359375,
+      "cpuMsPerOp": 1.5804140625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.6978525703125,
+      "cpuMsPerOp": 0.6982109375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 0.902936140625,
+      "cpuMsPerOp": 0.898765625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.81972371875,
+      "cpuMsPerOp": 0.8201484375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.9501195390625,
+      "cpuMsPerOp": 0.95046875
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.7116088046875,
+      "cpuMsPerOp": 0.7108046875
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 0.7723995546875,
+      "cpuMsPerOp": 0.7726640625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.860885,
+      "cpuMsPerOp": 0.8612109375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.768545578125,
+      "cpuMsPerOp": 0.7689375
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.7556829765625,
+      "cpuMsPerOp": 0.756140625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 0.954562515625,
+      "cpuMsPerOp": 0.95325
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.9468595625,
+      "cpuMsPerOp": 0.9473203125
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.7472955234375,
+      "cpuMsPerOp": 0.7475625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 0.8903388828125,
+      "cpuMsPerOp": 0.8908515625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 1.965822953125,
+      "cpuMsPerOp": 1.966140625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.8412248671875,
+      "cpuMsPerOp": 0.8416640625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.976677625,
+      "cpuMsPerOp": 0.977140625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 0.8643842265625,
+      "cpuMsPerOp": 0.8640625
+    },
+    {
+      "scenario": "hole-last",
+      "op": "decode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 1.13029753125,
+      "cpuMsPerOp": 1.131890625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 40.896283,
+      "cpuMsPerOp": 40.9
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 40.962001,
+      "cpuMsPerOp": 40.97625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 32.5519845,
+      "cpuMsPerOp": 32.52375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 38.9725845,
+      "cpuMsPerOp": 38.7695
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 56.64808225,
+      "cpuMsPerOp": 56.63275
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 38.00480825,
+      "cpuMsPerOp": 37.10725
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 28.5301265,
+      "cpuMsPerOp": 28.51975
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 38.318127,
+      "cpuMsPerOp": 38.18175
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 49.25510975,
+      "cpuMsPerOp": 48.82725
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 61.3408235,
+      "cpuMsPerOp": 61.3545
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 29.2536005,
+      "cpuMsPerOp": 29.2415
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 38.0695315,
+      "cpuMsPerOp": 37.96275
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 33.60138525,
+      "cpuMsPerOp": 33.6155
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 39.279847,
+      "cpuMsPerOp": 39.292
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 40.789802,
+      "cpuMsPerOp": 40.797
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 81.6088615,
+      "cpuMsPerOp": 81.731
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 42.15451475,
+      "cpuMsPerOp": 42.20775
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 38.14130925,
+      "cpuMsPerOp": 38.13625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 42.089972,
+      "cpuMsPerOp": 42.09825
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 37.32445075,
+      "cpuMsPerOp": 37.33925
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 48.390706,
+      "cpuMsPerOp": 48.40325
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 33.38275725,
+      "cpuMsPerOp": 33.39625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 35.8918305,
+      "cpuMsPerOp": 35.902
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 46.80261775,
+      "cpuMsPerOp": 46.8175
+    }
+  ],
+  "scope": "Two independent trios; unchanged full mixed history and five interspersed targets; no profiler/traces"
+}

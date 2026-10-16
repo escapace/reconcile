@@ -1,0 +1,87 @@
+{
+  "complete": true,
+  "trios": [
+    {
+      "rep": 0,
+      "commands": 36,
+      "elapsedSeconds": 12.838535663002403
+    },
+    {
+      "rep": 1,
+      "commands": 36,
+      "elapsedSeconds": 23.873156593002932
+    },
+    {
+      "rep": 2,
+      "commands": 36,
+      "elapsedSeconds": 34.729830298001616
+    }
+  ],
+  "children": [
+    {
+      "rep": 0,
+      "arm": "A",
+      "variant": "baseline",
+      "pid": 8,
+      "exitCode": 0
+    },
+    {
+      "rep": 0,
+      "arm": "B",
+      "variant": "baseline-copy",
+      "pid": 16,
+      "exitCode": 0
+    },
+    {
+      "rep": 0,
+      "arm": "C",
+      "variant": "original-a",
+      "pid": 24,
+      "exitCode": 0
+    },
+    {
+      "rep": 1,
+      "arm": "A",
+      "variant": "baseline-copy",
+      "pid": 32,
+      "exitCode": 0
+    },
+    {
+      "rep": 1,
+      "arm": "B",
+      "variant": "original-a",
+      "pid": 40,
+      "exitCode": 0
+    },
+    {
+      "rep": 1,
+      "arm": "C",
+      "variant": "baseline",
+      "pid": 48,
+      "exitCode": 0
+    },
+    {
+      "rep": 2,
+      "arm": "A",
+      "variant": "original-a",
+      "pid": 56,
+      "exitCode": 0
+    },
+    {
+      "rep": 2,
+      "arm": "B",
+      "variant": "baseline",
+      "pid": 64,
+      "exitCode": 0
+    },
+    {
+      "rep": 2,
+      "arm": "C",
+      "variant": "baseline-copy",
+      "pid": 72,
+      "exitCode": 0
+    }
+  ],
+  "allChildrenReaped": true,
+  "elapsedSeconds": 34.73087034200216
+}

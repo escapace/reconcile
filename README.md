@@ -46,7 +46,7 @@ reconcile(state, next) // state.tags is still the same array, now ['a', 'b']
 import { parse, stringify } from '@escapace/reconcile'
 
 const text = stringify({ count: 3, title: 'hello' })
-// [-1,[["count","title"]],[[0,0,3,"hello"]]]
+// [-6,[["count","title"]],[[0,0,3,"hello"]]]
 const restored = parse(text)
 ```
 

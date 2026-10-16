@@ -43,7 +43,7 @@ export function encodeGraph(value: unknown): string {
       case 'object':
         return objectToken(item)
       case 'undefined':
-        return [-1]
+        return -1
       default:
         fail('unsupported value')
     }
@@ -68,7 +68,7 @@ export function encodeGraph(value: unknown): string {
           value: item,
         } as Frame)
     }
-    return -(id + 1)
+    return -(id + 6)
   }
   let root
   try {
@@ -111,7 +111,7 @@ function documentText(
 }
 
 function numberToken(item: number): number | number[] {
-  if (!Number.isFinite(item)) return [Number.isNaN(item) ? -2 : item > 0 ? -3 : -4]
-  if (Object.is(item, -0)) return [-5]
+  if (!Number.isFinite(item)) return Number.isNaN(item) ? -2 : item > 0 ? -3 : -4
+  if (Object.is(item, -0)) return -5
   return item < 0 ? [-7, item] : item
 }

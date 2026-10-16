@@ -1,0 +1,13 @@
+{
+  "command": [
+    "lake",
+    "env",
+    "lean",
+    "lean/Serialization/Compact.lean"
+  ],
+  "budgetSeconds": 45,
+  "elapsedSeconds": 10.689398711001559,
+  "status": "passed",
+  "exitCode": 0,
+  "diagnostic": null
+}

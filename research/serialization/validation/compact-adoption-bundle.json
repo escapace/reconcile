@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "byteIdenticalTo": "research/serialization/interleaved-a/a-both.mjs",
+  "minifiedBytes": 12939,
+  "gzipBytes": 4998
+}

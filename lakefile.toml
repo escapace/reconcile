@@ -27,6 +27,7 @@ roots = [
   "Serialization.Codec",
   "Serialization.Roots",
   "Serialization.Scalar",
+  "Serialization.Compact",
   "Serialization.DFS",
   "Serialization.Refinement",
   "Serialization.Reconstruction",

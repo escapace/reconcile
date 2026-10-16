@@ -221,6 +221,78 @@ add('negative-data-and-extrema', () => [
   Number.MIN_VALUE,
 ])
 
+function unsupportedRawNumber(value: unknown): boolean {
+  return typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0))
+}
+const scalarTexts = [
+  '-1',
+  '-2',
+  '-3',
+  '-4',
+  '-5',
+  '-6',
+  '-7',
+  '-0.5',
+  '-1.5',
+  '-2.5',
+  '-3.5',
+  '-4.5',
+  '-1.50',
+  '-0.50000000000000001',
+  '-1.00000000000000001',
+  '-1.25',
+  '-5.5',
+  '-6.5',
+  '[-1]',
+  '[-2]',
+  '[-3]',
+  '[-4]',
+  '[-5]',
+  '[-7,-0.5]',
+  '[-7,-1]',
+  '[-6,"123"]',
+  '-0',
+  '-1e-400',
+  '-1e400',
+  '1e400',
+  '"-1"',
+  '0',
+  '1',
+  'true',
+  'null',
+]
+async function checkCompactScalars(run: Oracle): Promise<void> {
+  const { scalarDocuments, scalarRequests } = scalarCases()
+  const scalarResults = JSON.parse(
+    await run('Serialization', [], {
+      input: JSON.stringify(scalarRequests),
+    }),
+  ) as Response[]
+  assert.equal(scalarResults.length, scalarDocuments.length)
+  for (let index = 0; index < scalarResults.length; index++) {
+    const result = scalarResults[index]
+    const document = scalarDocuments[index]
+    if (result.ok) assert.deepEqual(normalizeModel(result.expanded), sourceModel(parse(document)))
+    else assert.throws(() => parse(document))
+  }
+}
+function scalarCases() {
+  const scalarRequests: Array<{ wire: unknown }> = []
+  const scalarDocuments: string[] = []
+  for (const text of scalarTexts) {
+    const parsed: unknown = JSON.parse(text)
+    const document = `[${text},[],[]]`
+    if (unsupportedRawNumber(parsed)) {
+      // Signed zero/nonfinite raw scalar inputs are outside the finite Number model.
+      assert.throws(() => parse(document))
+      continue
+    }
+    scalarRequests.push({ wire: [parsed, [], []] })
+    scalarDocuments.push(document)
+  }
+  return { scalarDocuments, scalarRequests }
+}
+
 export async function checkSerializationRuntime(run: Oracle): Promise<void> {
   const requests = good.map((x) => ({ wire: JSON.parse(stringify(x.input)) as unknown }))
   const responses = JSON.parse(
@@ -239,14 +311,15 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
       good[index].name,
     )
   }
+  const rootReference = -6
   const invalid = [
-    [-1, [], []],
-    [-2, [[]], [[0, 0]]],
-    [-1, [['x']], [[0, 0]]],
-    [-1, [['x', 'x']], [[0, 0, 1, 2]]],
-    [-1, [], [[3, 1, 1, 2]]],
-    [-1, [], [[3, 2, 0, 1, 0, 2]]],
-    [-1, [], [[2, 3, 1, 2]]],
+    [rootReference, [], []],
+    [rootReference - 1, [[]], [[0, 0]]],
+    [rootReference, [['x']], [[0, 0]]],
+    [rootReference, [['x', 'x']], [[0, 0, 1, 2]]],
+    [rootReference, [], [[3, 1, 1, 2]]],
+    [rootReference, [], [[3, 2, 0, 1, 0, 2]]],
+    [rootReference, [], [[2, 3, 1, 2]]],
     [[-7, 0], [], []],
   ]
   const rejected = JSON.parse(
@@ -263,6 +336,7 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
   ) as Response[]
   assert.equal(accepted[0].ok, true)
   assert.equal(parse(JSON.stringify(unused)), null)
+  await checkCompactScalars(run)
   console.log(
     `Serialization Lean bridge: ${good.length} graphs, ${invalid.length} malformed documents, unused shape accepted`,
   )

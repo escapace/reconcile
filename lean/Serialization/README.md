@@ -1,3 +1,7 @@
+# Adopted compact scalar tokens
+
+The active codec uses integer layout A: scalar −1 through −5 for special values and −(id+6) for references. See [COMPACT.md](COMPACT.md) for the checked claims and actual-wire bridge boundary. Layout B and the historical scalar proofs below are retained as inactive research; the active oracle uses `Compact.decode` with `.integers`.
+
 # Three-component document and inline reconstruction checks
 
 `Reconstruction.lean` was checked before the corresponding runtime parser changes. It imports existing finite graph definitions without altering retained proofs. The document model is exactly `(root, shapes, nodes)` with no format identifier. The proof adds no arbitrary quotas, timers, counters or separate validation pass.

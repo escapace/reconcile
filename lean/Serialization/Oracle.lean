@@ -1,3 +1,4 @@
+import Serialization.Compact
 import Serialization.Reconstruction
 import Lean
 
@@ -16,19 +17,28 @@ def integer (j : Json) : E Int := fromJson? j
 def strings (j : Json) : E (List String) := do
   (← j.getArr?).toList.mapM Json.getStr?
 
-def token (j : Json) : E (Token Nat) := do
+def compactLayout : CompactScalar.Layout := .integers
+def canonicalNumber (q : JsonNumber) : SerializationScalar.Number :=
+  let value := mkRat q.mantissa (10 ^ q.exponent)
+  ⟨value.num, value.den, value.den_pos⟩
+def compactNumberJSON (number : SerializationScalar.Number) : E Json := do
+  if number.denominator == 1 then return toJson number.numerator
+  if number.denominator == 2 then return .num ⟨number.numerator * 5, 1⟩
+  throw "non-wire scalar denominator"
+
+def token (n : Nat) (j : Json) : E (Token Nat) := do
   match j with
   | .null | .bool _ | .str _ => return .atom j.compress
   | .num q =>
-    if q.mantissa < 0 then
-      let i ← integer j
-      return .ref (-i - 1).toNat
-    return .atom j.compress
+    let decoded ← need "invalid numeric token"
+      (CompactScalar.decode compactLayout n (.scalar (canonicalNumber q)))
+    match decoded with
+    | .ref id => return .ref id.val
+    | .special id => return .atom (toJson [(-((id.val : Int) + 1))]).compress
+    | .number _ => return .atom j.compress
+    | _ => throw "unexpected numeric value"
   | .arr a =>
-    if a.size == 1 then
-      let i ← integer a[0]!
-      if i < 0 && i ≥ -5 then return .atom j.compress
-      throw "invalid atom tag"
+    if a.size == 1 then throw "legacy singleton rejected"
     if a.size == 2 then
       let tag ← integer a[0]!
       if tag == -7 then
@@ -54,8 +64,19 @@ def wireToken (t : Token Nat) : E Json := match t with
     let j ← Json.parse a
     match j with
     | .num q => if q.mantissa < 0 then return toJson [toJson (-7 : Int), j] else return j
+    | .arr items =>
+      if items.size == 1 then
+        let tag ← integer items[0]!
+        let index := (-tag - 1).toNat
+        if h : index < 5 then
+          let wire := CompactScalar.encode (n := 0) compactLayout (.special ⟨index, h⟩)
+          match wire with
+          | .scalar number => return ← compactNumberJSON number
+          | _ => throw "special encode shape"
+        throw "special atom"
+      return j
     | _ => return j
-  | .ref i => pure (toJson (-((i : Int) + 1)))
+  | .ref i => compactNumberJSON (CompactScalar.reference compactLayout i)
 
 def kindText : Kind → String
   | .object => "object"
@@ -67,21 +88,21 @@ def modelNode (v : Node Nat) : Json := Json.mkObj [
   ("kind", toJson (kindText v.kind)), ("payload", toJson v.payload),
   ("edges", toJson (v.edges.map fun (key, t) => toJson [toJson key, modelToken t]))]
 
-def parseRow (shapes : List (List String)) (j : Json) : E (Node Nat) := do
+def parseRow (n : Nat) (shapes : List (List String)) (j : Json) : E (Node Nat) := do
   let a ← j.getArr?
   if a.size < 2 then throw "row arity"
   let tag ← nat a[0]!
   let header ← nat a[1]!
   let rest := (a.toList.drop 2)
   if tag == 0 || tag == 1 then
-    let values ← rest.mapM token
+    let values ← rest.mapM (token n)
     -- Executes the frozen finite shape dictionary expansion, including arity rejection.
     let es ← need "shape missing or wrong arity" (dictionaryExpand shapes header values)
     return ⟨if tag == 0 then .object else .nullObject, [], es⟩
   if tag == 2 then
     if header > 4294967295 then throw "native array length"
     if rest.length != header then throw "dense array arity"
-    let values ← rest.mapM token
+    let values ← rest.mapM (token n)
     return ⟨.array, [toString header], values.zipIdx |>.map (fun (t, i) => (toString i, t))⟩
   if tag == 3 then
     if header > 4294967295 then throw "native array length"
@@ -92,7 +113,7 @@ def parseRow (shapes : List (List String)) (j : Json) : E (Node Nat) := do
       let k ← nat rest[p * 2]!
       if k ≥ header then throw "sparse index out of bounds"
       if previous.any (fun old => k ≤ old) then throw "sparse indices not increasing"
-      let t ← token rest[p * 2 + 1]!
+      let t ← token n rest[p * 2 + 1]!
       es := es ++ [(toString k, t)]
       previous := some k
     let pairs ← es.mapM fun (key, t) => do
@@ -147,9 +168,9 @@ def evaluate (request : Json) : E Json := do
         -- Execute proved first-use shape check; never interpret unused dictionary entries.
         if !(shapeCheck shapes checked sid) then throw "duplicate shape key"
         checked := sid :: checked
-    let row ← parseRow shapes raw
+    let row ← parseRow rawRows.size shapes raw
     rows := rows ++ [row]
-  let root ← token doc[0]!
+  let root ← token rawRows.size doc[0]!
   let n := rows.length
   -- Executes the original decoder at every token/row, then original encoder.
   let typedRoot ← need "root reference out of range" (decodeToken n root)

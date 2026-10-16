@@ -30,14 +30,14 @@ export const view: Decoder = {
     const reference = row[2]
     if (
       typeof reference !== 'number' ||
-      !int(-reference - 1, context.nodes.length - 1) ||
-      context.nodes[-reference - 1][0] !== 7
+      !int(-reference - 6, context.nodes.length - 1) ||
+      context.nodes[-reference - 6][0] !== 7
     )
       fail('view buffer')
     const kind = row[1] as number
     const length = row[4] as number
     const offset = row[3] as number
-    const storage = context.output[-reference - 1] as ArrayBuffer
+    const storage = context.output[-reference - 6] as ArrayBuffer
     const unit = kind === -1 ? 1 : viewConstructors[kind]!.BYTES_PER_ELEMENT
     if (
       offset % unit !== 0 ||
