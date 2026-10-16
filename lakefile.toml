@@ -25,6 +25,8 @@ name = "Reconcile"
 srcDir = "lean"
 roots = [
   "Serialization.Codec",
+  "Serialization.Collection",
+  "Serialization.CollectionOracle",
   "Serialization.Roots",
   "Serialization.Scalar",
   "Serialization.Compact",

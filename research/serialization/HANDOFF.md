@@ -16,6 +16,11 @@ Undefined decoding and mixed roundtrip retain substantial targeted gains. The re
 
 ## Correctness and continuation
 
+Release review added the [native collection reconstruction repair](COLLECTION-FOLD.md):
+repeated Map/Set iterator visits now use the same native insertion rules as snapshot,
+while every entry is still decoded. This is separate from the historical optimization
+experiments and retains layout A.
+
 `lean/Serialization/Compact.lean` and the structural/scalar bridge describe the active finite claims. Native JSON/IEEE754, constructors, allocation and application observations remain explicit correspondence boundaries. The inactive half-integer proof layout is retained without adding a runtime mode.
 
 Use the Node/pnpm versions in the project and Lean version in `lean-toolchain`. Follow AGENTS.md: complete rounds stay within 300 seconds including descendant shutdown; benchmarks never overlap validation. Existing checks are typecheck, build, lint, tests, built-codec tests and the Lean/runtime bridge. The local executor runs TypeScript scripts with `node --import tsx` because the tsx CLI IPC listener is unavailable.

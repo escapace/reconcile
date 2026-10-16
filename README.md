@@ -56,6 +56,10 @@ Supported values are JSON primitives, `undefined`, `bigint`, special numbers (in
 
 Records capture all own string property names, read each value depth first and reject symbol keys. Descriptors and accessors become mutable data properties. Arrays preserve length and holes but omit extra properties; native values omit extra properties and read native state. Collection iteration remains observable. Source getters, proxy traps and iterators can run and throw; their errors propagate unchanged.
 
+Every observed collection entry is traversed in order. Repeated Map keys keep their first insertion position and last value; repeated Set members keep their first position. Equality follows native SameValueZero rules. Parsing checks every entry, including values overwritten by a later Map entry.
+
+Serialization assumes unmodified standard built-ins and prototypes throughout each call, including source callbacks. Ambient prototype setters and inherited `toJSON` hooks are outside this contract.
+
 Malformed transport structure produces `ReconcileError` with `cause.type === 'ParseInputInvalid'`; unsupported source values produce `StringifyValueUnsupported`. Invalid JSON and native constructor or allocation failures propagate unchanged. The parser checks structure as it is used and does not impose resource quotas. This transport is intended for trusted application state. Sparse arrays preserve their native length and holes and use native Array allocation. A short sparse-array row can request a large allocation; JavaScript does not guarantee compact storage or a memory bound. Existing snapshot, reconcile and produce allocation behavior remains unchanged. Their index-by-index observations remain, so processing sparse arrays can still take time proportional to their logical length.
 
 ## Update live state
@@ -250,7 +254,7 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 | `error` | <pre>[ReconcileError](#class-reconcileerror- "class ReconcileError")</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
 | `type` | <pre>T</pre> | The error type to test for. |
 
-## function parse [↗](src/parse.ts#L16-L18 "parse")
+## function parse [↗](src/parse.ts#L19-L21 "parse")
 
 Restores an object graph from matching serialized JSON text.
 
@@ -275,7 +279,7 @@ The reconstructed value.
 
 ### Remarks
 
-References preserve shared identities and cycles. Structural checks run before their values are used; native parsing, constructors and allocation remain engine boundaries. This transport is intended for trusted application state. Sparse array lengths use native allocation, so short input can request substantial memory. The wire has no format identifier or allocation quotas. The returned graph is mutable.
+References preserve shared identities and cycles. Collections use native insertion semantics: repeated Map keys keep their first position and last value; repeated Set members keep their first position. Every entry is decoded before insertion. Structural checks run before their values are used; native parsing, constructors and allocation remain engine boundaries. Standard built-ins and prototypes must remain unmodified throughout the call. This transport is intended for trusted application state. Sparse array lengths use native allocation, so short input can request substantial memory. The wire has no format identifier or allocation quotas. The returned graph is mutable.
 
 ## function produce [↗](src/produce.ts#L79-L81 "produce")
 
@@ -408,7 +412,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## function stringify [↗](src/stringify.ts#L18-L20 "stringify")
+## function stringify [↗](src/stringify.ts#L20-L22 "stringify")
 
 Encodes a supported object graph as JSON text, preserving shared references and cycles.
 
@@ -433,7 +437,7 @@ JSON text representing the graph.
 
 ### Remarks
 
-Plain and null-prototype records, arrays, Map, Set, Date, fixed ArrayBuffer and views, URL, URLSearchParams and available global Temporal value classes are supported. Record getters run depth first with the source as receiver; symbol keys and unsupported prototypes reject. Native values use native state and omit extra properties. The wire contains no format identifier; communicating parties must use matching versions. No size or allocation quotas are imposed. [parse](#function-parse-) restores the graph; JSON.parse alone returns the transport arrays.
+Plain and null-prototype records, arrays, Map, Set, Date, fixed ArrayBuffer and views, URL, URLSearchParams and available global Temporal value classes are supported. Record getters run depth first with the source as receiver; symbol keys and unsupported prototypes reject. Native values use native state and omit extra properties. Standard built-ins and prototypes must remain unmodified throughout the call, including source callbacks. The wire contains no format identifier; communicating parties must use matching versions. No size or allocation quotas are imposed. [parse](#function-parse-) restores the graph; JSON.parse alone returns the transport arrays.
 
 ## class ReconcileError [↗](src/error.ts#L137-L154 "ReconcileError")
 

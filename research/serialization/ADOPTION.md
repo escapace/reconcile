@@ -1,5 +1,8 @@
 # Original compact-token A adoption
 
+This is the original adoption record. The later [collection reconstruction repair](COLLECTION-FOLD.md)
+has separate proof, regression and validation evidence.
+
 The user approved applying original A and updating the existing WIP branch. This change applies only `integer-sentinel.patch` to baseline `739ad363`, with adoption-status documentation. It does not include the sparse-order, array-row, link-phase, lazy-ownership, synchronous-child, base64, shape-trie or row-batching experiments. Core algorithms and all seven `perf/` workloads are unchanged.
 
 ## Representation and counted work
