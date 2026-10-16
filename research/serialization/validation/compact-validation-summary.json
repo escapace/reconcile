@@ -1,0 +1,18 @@
+{
+  "runtime": {
+    "exit": 0,
+    "elapsed": 127.00645513599738,
+    "complete": true
+  },
+  "initialStatic": {
+    "exit": 1,
+    "elapsed": 5.472775854999782,
+    "complete": false
+  },
+  "finalStatic": {
+    "exit": 0,
+    "elapsed": 43.13995367100142,
+    "complete": true
+  },
+  "wallSecondsIncludingCoordination": 257.74741435050964
+}

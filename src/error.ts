@@ -18,8 +18,10 @@ export const RECONCILE_ERROR_TYPES = [
   'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
   'FinalizationStorageMissing',
+  'ParseInputInvalid',
   'PublicationRejected',
   'SnapshotURLSearchParamsMemoIncompatible',
+  'StringifyValueUnsupported',
 ] as const
 
 /** The `type` of a {@link ReconcileError}: one of {@link RECONCILE_ERROR_TYPES}. */
@@ -36,6 +38,10 @@ export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' |
  * error reads nothing more from application objects.
  */
 export interface ReconcileErrorMetadata {
+  /** A decoded wire value failed a structural check already performed by the parser. */
+  ParseInputInvalid: { reason: string }
+  /** A source value cannot be represented by the supported serialization profile. */
+  StringifyValueUnsupported: { reason: string }
   /**
    * An exotic source array, such as a proxy, reported an index at or beyond a non-writable
    * length, which a real array cannot have. `index` is that index.
@@ -112,11 +118,10 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
  * The library never throws for an outcome that is part of a contract, such as `reconcile`
  * returning `next` when a root is not an object.
  *
- * Three kinds of errors keep their original identity and are not wrapped: `RangeError` for an
- * invalid array length, as native arrays throw it; errors thrown by application code that the
- * operations reach, such as getters, setters, proxy traps and iterators; and errors the host
- * throws when `reconcile` writes into `current`. When one of them interrupts `reconcile`, earlier
- * writes are not rolled back.
+ * Native JSON syntax, constructor and allocation errors keep their original identity, as do
+ * errors from application getters, setters, proxy traps and iterators. Host errors from writes
+ * into `current` also propagate unchanged. When an error interrupts `reconcile`, earlier writes
+ * are not rolled back.
  *
  * @example
  * ```ts
@@ -243,4 +248,13 @@ export const snapshotURLSearchParametersMemoIncompatible = () =>
   new ReconcileError(
     { type: 'SnapshotURLSearchParamsMemoIncompatible' },
     'A supplied URLSearchParams memo copy has no compatible URL owner.',
+  )
+
+export const parseInputInvalid = (reason: string) =>
+  new ReconcileError({ reason, type: 'ParseInputInvalid' }, `Invalid serialized input: ${reason}.`)
+
+export const stringifyValueUnsupported = (reason: string) =>
+  new ReconcileError(
+    { reason, type: 'StringifyValueUnsupported' },
+    `Unsupported serialized value: ${reason}.`,
   )

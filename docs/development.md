@@ -59,11 +59,19 @@ Three consequences come up in almost every change:
 
 ### Operations and phases
 
-The package exports three functions. Each one builds a private _captured graph_ of the
+The three graph operations below each build a private _captured graph_ of the
 relevant objects, works on that graph, and touches application objects only in the phases
 marked "observes" below. A captured graph has one node per object. Each node has a
 kind-specific layout and an ordered list of slots, and each slot holds a value or a
 reference to another node.
+
+The independent serialization pipeline lives under `src/serialization/`, behind the
+`src/stringify.ts` and `src/parse.ts` public wrappers. It uses its own wire facets and
+explicit traversal frames; the three graph operations do not call it. Native URL
+extraction shares the existing intrinsic helpers. Parsing allocates nodes, links
+dependent native wrappers, then fills graph edges. Shapes are validated on first use.
+The wire has no format identifier, allocation policy or custom-codec registry. See
+[serialization](../README.md#serialize-a-graph) for its narrower value contract.
 
 **`reconcile(current, next)`** writes the contents of `next` into `current`, keeps
 existing objects where it can, and returns `current` when both roots are objects.
@@ -414,7 +422,8 @@ rules below keep each operation's bundle limited to its own code.
 
 ### Rules
 
-- The entry point exports only `snapshot`, `reconcile` and `produce`, and the package
+- The entry point exports `snapshot`, `reconcile`, `produce`, `stringify` and `parse`, plus
+  the error surface. The package
   declares `sideEffects: false`. An unused import adds zero bytes; `bundle-size.ts`
   checks this.
 - Each operation reaches only its own facets. Keep publication code out of `traverse`.

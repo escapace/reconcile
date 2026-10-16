@@ -13,7 +13,12 @@ const config = mergeConfig(
   configNeutral,
   defineConfig({
     resolve: {
-      alias: [{ find: /^\.\.\/(?:index|produce|reconcile|snapshot)$/, replacement: library }],
+      alias: [
+        {
+          find: /^\.\.\/(?:index|parse|produce|reconcile|snapshot|stringify)$/,
+          replacement: library,
+        },
+      ],
     },
     test: { coverage: { enabled: false }, name: 'library' },
   }),

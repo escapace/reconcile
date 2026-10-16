@@ -24,6 +24,14 @@ rev = "v4.28.0"
 name = "Reconcile"
 srcDir = "lean"
 roots = [
+  "Serialization.Codec",
+  "Serialization.Roots",
+  "Serialization.Scalar",
+  "Serialization.DFS",
+  "Serialization.Refinement",
+  "Serialization.Reconstruction",
+  "Serialization.SparseShell",
+  "Serialization.Oracle",
   "Defs",
   "WF",
   "SnapshotSpec",

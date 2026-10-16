@@ -1,0 +1,621 @@
+--- a/src/__tests__/serialization.spec.ts
++++ b/src/__tests__/serialization.spec.ts
+@@ -8,7 +8,7 @@
+     expectTypeOf(stringify).toEqualTypeOf<(value: unknown) => string>()
+     expectTypeOf(parse).toEqualTypeOf<(text: string) => unknown>()
+     expect(JSON.parse(stringify({ count: 3, title: 'hello' }))).toEqual([
+-      -1,
++      -6,
+       [['count', 'title']],
+       [[0, 0, 3, 'hello']],
+     ])
+@@ -27,6 +27,11 @@
+       -123n,
+     ])
+       expect(Object.is(copy(value), value)).toBe(true)
++  })
++
++  it('rejects legacy singleton special tokens', () => {
++    for (const tag of [-1, -2, -3, -4, -5])
++      expect(() => parse(JSON.stringify([[tag], [], []]))).toThrow()
+   })
+ 
+   it('preserves cycles, shared identities and distinct equal objects in collections', () => {
+@@ -136,7 +141,7 @@
+         }),
+       )
+     }
+-    for (const text of ['{}', '[-1,[],[]]', '[0,[],[[100]]]', '[0,[],[[7,"!"]]]']) {
++    for (const text of ['{}', '[-6,[],[]]', '[0,[],[[100]]]', '[0,[],[[7,"!"]]]']) {
+       expect(() => parse(text)).toThrow(
+         expect.objectContaining({
+           cause: { reason: expect.any(String) as unknown, type: 'ParseInputInvalid' },
+--- a/src/__tests__/sparse-codec.spec.ts
++++ b/src/__tests__/sparse-codec.spec.ts
+@@ -2,7 +2,7 @@
+ import { parse } from '../index'
+ 
+ it.each([0, 1, 4_294_967_295])('decodes an all-hole sparse shell of length %s', (length) => {
+-  const result = parse(JSON.stringify([-1, [], [[3, length]]])) as unknown[]
++  const result = parse(JSON.stringify([-6, [], [[3, length]]])) as unknown[]
+   assert.isTrue(Array.isArray(result))
+   assert.equal(Object.getPrototypeOf(result), Array.prototype)
+   assert.isTrue(Object.isExtensible(result))
+@@ -18,11 +18,11 @@
+ it('fills sparse maximum-index cycles and preserves aliases and default descriptors', () => {
+   const result = parse(
+     JSON.stringify([
+-      -1,
++      -6,
+       [],
+       [
+-        [2, 2, -2, -2],
+-        [3, 4_294_967_295, 0, -2, 4_294_967_294, -1],
++        [2, 2, -7, -7],
++        [3, 4_294_967_295, 0, -7, 4_294_967_294, -6],
+       ],
+     ]),
+   ) as unknown[][]
+@@ -45,11 +45,11 @@
+   const before = Object.getOwnPropertyDescriptors(Object.prototype)
+   const result = parse(
+     JSON.stringify([
+-      -1,
++      -6,
+       [['__proto__']],
+       [
+-        [0, 0, -2],
+-        [3, 3, 1, -1],
++        [0, 0, -7],
++        [3, 3, 1, -6],
+       ],
+     ]),
+   ) as Record<string, unknown>
+--- a/src/serialization/encode.ts
++++ b/src/serialization/encode.ts
+@@ -43,7 +43,7 @@
+       case 'object':
+         return objectToken(item)
+       case 'undefined':
+-        return [-1]
++        return -1
+       default:
+         fail('unsupported value')
+     }
+@@ -68,7 +68,7 @@
+           value: item,
+         } as Frame)
+     }
+-    return -(id + 1)
++    return -(id + 6)
+   }
+   let root
+   try {
+@@ -111,7 +111,7 @@
+ }
+ 
+ function numberToken(item: number): number | number[] {
+-  if (!Number.isFinite(item)) return [Number.isNaN(item) ? -2 : item > 0 ? -3 : -4]
+-  if (Object.is(item, -0)) return [-5]
++  if (!Number.isFinite(item)) return Number.isNaN(item) ? -2 : item > 0 ? -3 : -4
++  if (Object.is(item, -0)) return -5
+   return item < 0 ? [-7, item] : item
+ }
+--- a/src/serialization/facets/native.ts
++++ b/src/serialization/facets/native.ts
+@@ -30,14 +30,14 @@
+     const reference = row[2]
+     if (
+       typeof reference !== 'number' ||
+-      !int(-reference - 1, context.nodes.length - 1) ||
+-      context.nodes[-reference - 1][0] !== 7
++      !int(-reference - 6, context.nodes.length - 1) ||
++      context.nodes[-reference - 6][0] !== 7
+     )
+       fail('view buffer')
+     const kind = row[1] as number
+     const length = row[4] as number
+     const offset = row[3] as number
+-    const storage = context.output[-reference - 1] as ArrayBuffer
++    const storage = context.output[-reference - 6] as ArrayBuffer
+     const unit = kind === -1 ? 1 : viewConstructors[kind]!.BYTES_PER_ELEMENT
+     if (
+       offset % unit !== 0 ||
+--- a/src/serialization/frames.ts
++++ b/src/serialization/frames.ts
+@@ -133,7 +133,7 @@
+     frame.phase = 1
+     return false
+   }
+-  context.owner(-(frame.input as number) - 1, context.ids.get(frame.value)!)
++  context.owner(-(frame.input as number) - 6, context.ids.get(frame.value)!)
+   frame.row = [9, frame.state.href]
+   return true
+ }
+--- a/src/serialization/parse.ts
++++ b/src/serialization/parse.ts
+@@ -27,8 +27,10 @@
+     if (token === null || typeof token === 'string' || typeof token === 'boolean') return token
+     if (typeof token === 'number' && Number.isFinite(token) && !Object.is(token, -0)) {
+       if (token >= 0) return token
+-      const id = -token - 1
++      const id = -token - 6
+       if (int(id, nodes.length - 1)) return output[id]
++      const special = -token - 1
++      if (int(special, 4)) return specials[special]
+       fail('reference')
+     }
+     return readScalar(token)
+@@ -56,11 +58,6 @@
+ 
+ function readScalar(token: unknown): unknown {
+   if (!Array.isArray(token)) fail('token')
+-  if (token.length === 1) {
+-    const tag: unknown = token[0]
+-    if (typeof tag === 'number' && Number.isInteger(tag) && tag >= -5 && tag <= -1)
+-      return specials[-tag - 1]
+-  }
+   if (
+     token.length === 2 &&
+     token[0] === -7 &&
+--- /dev/null
++++ b/lean/Serialization/COMPACT.md
+@@ -0,0 +1,11 @@
++# Compact scalar token proof and bridge
++
++Two incompatible experimental token grammars are checked against the restored codec. Layout A uses scalar −1 through −5 for undefined, NaN, positive infinity, negative infinity and negative zero; references use −(id+6). Layout B uses the exact half-integers −0.5, −1.5, −2.5, −3.5 and −4.5 in the same order; references retain −(id+1). Negative finite data remains `[-7,value]`, bigint remains `[-6,decimal]`, and nonnegative finite data and literal strings remain unchanged. Old singleton special arrays are rejected. There is no version field or legacy auto-detection.
++
++`Compact.lean` retains the previous Scalar value and exact numerator/positive-denominator representation, but supplies separate encoders and decoders for both layouts. It proves value round trips, injectivity, disjoint reference/special regions, bounds rejection, singleton rejection, exact arithmetic indices, and the native node-table range below the IEEE754 exact-integer bound. An explicit JSON-tree embedding and inverse prove token-shape round trips and injectivity; this catches scalar-versus-array collisions rather than assuming constructors correspond to distinct JSON.
++
++For layout B the canonical special numbers are negative odd integers over denominator two. The existing Number structure does not quotient arbitrary rational representations: classification of raw 15/10 versus 3/2 therefore requires normalization. The actual structural oracle reduces JSON decimal numbers with `mkRat` before passing them to `Compact.decode`. It emits half markers exactly as a decimal JsonNumber with one fractional digit. All generated graph documents are native JSON.stringify output. Additional scalar lexical cases are parsed with native JSON.parse before transmission to Lean, ensuring decimal rounding is established by the actual runtime first. Raw signed-zero and nonfinite scalar inputs are explicitly tested as runtime rejections outside this finite Number model; they are not silently normalized into ordinary zero or null.
++
++The shared oracle executes the actual compact decode and special encode definitions, then the existing ordered graph/shape decoder and encoder. Its 99 graph corpus covers special values, negative data, aliases, cycles, records and sparse arrays; malformed documents and 35 scalar lexical/type cases compare model acceptance and results with the typed parser. View buffer tokens must use the selected reference offset; URL parameter ownership indices remain raw nonnegative metadata. Native slot/ownership tests are separate from this structural bridge.
++
++JSON parsing/stringification, native IEEE754 classification, allocation identity, getters/iterators and built-in internal slots remain correspondence obligations. The proof does not mechanize a JavaScript engine or claim decoder language equality for arbitrary noncanonical numeric lexemes. Native document numeric canonicalization is part of the executable bridge boundary, not an unstated rational-model restriction. Source observation ordering is unchanged by token representation; transport arrays deliberately change with this new wire experiment. No performance conclusion follows from these proofs.
+--- /dev/null
++++ b/lean/Serialization/Compact.lean
+@@ -0,0 +1,189 @@
++import Serialization.Scalar
++namespace CompactScalar
++open SerializationScalar
++inductive Layout where | integers | halves deriving DecidableEq
++
++def offset : Layout → Nat | .integers => 6 | .halves => 1
++
++def reference (layout : Layout) (id : Nat) : Number :=
++  ⟨-((id : Int) + offset layout), 1, by decide⟩
++
++def special (layout : Layout) (id : Fin 5) : Number :=
++  match layout with
++  | .integers => ⟨-((id.val : Int) + 1), 1, by decide⟩
++  | .halves => ⟨-(2 * (id.val : Int) + 1), 2, by decide⟩
++
++def classify (layout : Layout) (x : Number) : Option (Fin 5) :=
++  if x = special layout ⟨0, by decide⟩ then some ⟨0, by decide⟩ else
++  if x = special layout ⟨1, by decide⟩ then some ⟨1, by decide⟩ else
++  if x = special layout ⟨2, by decide⟩ then some ⟨2, by decide⟩ else
++  if x = special layout ⟨3, by decide⟩ then some ⟨3, by decide⟩ else
++  if x = special layout ⟨4, by decide⟩ then some ⟨4, by decide⟩ else none
++
++inductive Wire where
++  | scalar : Number → Wire
++  | escapedNegative : Number → Wire
++  | bigint : String → Wire
++  | literal : String → Wire
++  | legacySingleton : Fin 5 → Wire
++  deriving DecidableEq
++
++def encode {n : Nat} (layout : Layout) : Value n → Wire
++  | .number x => if x.numerator < 0 then .escapedNegative x else .scalar x
++  | .ref id => .scalar (reference layout id.val)
++  | .special id => .scalar (special layout id)
++  | .bigint text => .bigint text
++  | .literal text => .literal text
++
++def decode (layout : Layout) (n : Nat) : Wire → Option (Value n)
++  | .scalar x =>
++    if x.numerator < 0 then
++      match classify layout x with
++      | some id => some (.special id)
++      | none =>
++        if x.denominator = 1 ∧ x.numerator ≤ -(offset layout : Int) then
++          (SerializationLab.decodeRef n (-x.numerator - offset layout).toNat).map Value.ref
++        else none
++    else some (.number x)
++  | .escapedNegative x => if x.numerator < 0 then some (.number x) else none
++  | .bigint text => some (.bigint text)
++  | .literal text => some (.literal text)
++  | .legacySingleton _ => none
++
++theorem classify_special (layout : Layout) (id : Fin 5) :
++    classify layout (special layout id) = some id := by
++  rcases id with ⟨i, hi⟩
++  have cases : i = 0 ∨ i = 1 ∨ i = 2 ∨ i = 3 ∨ i = 4 := by omega
++  rcases cases with h | h | h | h | h <;> subst i <;> cases layout <;> decide +revert
++
++theorem special_negative (layout : Layout) (id : Fin 5) : (special layout id).numerator < 0 := by
++  cases layout <;> simp only [special] <;> omega
++
++theorem reference_negative (layout : Layout) (id : Nat) : (reference layout id).numerator < 0 := by
++  cases layout <;> simp only [reference, offset] <;> omega
++
++theorem reference_not_special (layout : Layout) (id : Nat) (s : Fin 5) :
++    reference layout id ≠ special layout s := by
++  intro equal
++  cases layout with
++  | integers =>
++    have h := congrArg Number.numerator equal
++    simp only [reference, offset, special] at h
++    have := s.isLt
++    omega
++  | halves =>
++    have h := congrArg Number.denominator equal
++    simp [reference, special] at h
++
++theorem classify_reference (layout : Layout) (id : Nat) :
++    classify layout (reference layout id) = none := by
++  simp [classify, reference_not_special]
++
++theorem reference_index (layout : Layout) (id : Nat) :
++    (-(reference layout id).numerator - offset layout).toNat = id := by
++  simp [reference]
++
++theorem reference_bound (layout : Layout) (id : Nat) :
++    (reference layout id).denominator = 1 ∧
++      (reference layout id).numerator ≤ -(offset layout : Int) := by
++  constructor
++  · rfl
++  · simp only [reference]
++    omega
++
++theorem decode_encode {n : Nat} (layout : Layout) (value : Value n) :
++    decode layout n (encode layout value) = some value := by
++  cases value with
++  | number x => by_cases h : x.numerator < 0 <;> simp [encode, decode, h]
++  | ref id =>
++    simp only [encode, decode, if_pos (reference_negative layout id.val), classify_reference,
++      if_pos (reference_bound layout id.val), reference_index]
++    simp [SerializationLab.decodeRef]
++  | special id => simp [encode, decode, special_negative, classify_special]
++  | bigint text => rfl
++  | literal text => rfl
++
++theorem encode_injective {n : Nat} (layout : Layout) : Function.Injective (encode (n := n) layout) := by
++  intro a b equal
++  have h := congrArg (decode layout n) equal
++  simpa only [decode_encode, Option.some.injEq] using h
++
++theorem reference_out_of_bounds (layout : Layout) (n id : Nat) (invalid : n ≤ id) :
++    decode layout n (.scalar (reference layout id)) = none := by
++  simp only [decode, if_pos (reference_negative layout id), classify_reference,
++    if_pos (reference_bound layout id), reference_index]
++  simp [SerializationLab.decodeRef, show ¬ id < n by omega]
++
++theorem legacy_rejected (layout : Layout) (n : Nat) (id : Fin 5) :
++    decode layout n (.legacySingleton id) = none := rfl
++
++-- The actual node table is a native array; neither layout adds a policy quota.
++theorem native_reference_exact_range (layout : Layout) (id : Nat) (bound : id < 4294967295) :
++    id + offset layout < 9007199254740992 := by
++  cases layout <;> simp only [offset] <;> omega
++
++-- Explicit JSON tree shapes: negative data and bigint tags stay in arrays;
++-- special values and references now occupy scalar number positions.
++inductive JSON where
++  | number : Number → JSON
++  | string : String → JSON
++  | array : List JSON → JSON
++
++def tagNumber (value : Int) : Number := ⟨value, 1, by decide⟩
++def toJSON : Wire → JSON
++  | .scalar x => .number x
++  | .literal text => .string text
++  | .escapedNegative x => .array [.number (tagNumber (-7)), .number x]
++  | .bigint text => .array [.number (tagNumber (-6)), .string text]
++  | .legacySingleton id => .array [.number (special .integers id)]
++def fromJSON : JSON → Option Wire
++  | .number x => some (.scalar x)
++  | .string text => some (.literal text)
++  | .array [.number tag, .number x] =>
++    if tag = tagNumber (-7) then some (.escapedNegative x) else none
++  | .array [.number tag, .string text] =>
++    if tag = tagNumber (-6) then some (.bigint text) else none
++  | .array [.number tag] => (classify .integers tag).map Wire.legacySingleton
++  | _ => none
++
++theorem json_tree_roundtrip (wire : Wire) : fromJSON (toJSON wire) = some wire := by
++  cases wire with
++  | scalar x => rfl
++  | literal text => rfl
++  | escapedNegative x => simp [toJSON, fromJSON]
++  | bigint text => simp [toJSON, fromJSON]
++  | legacySingleton id => simp [toJSON, fromJSON, classify_special]
++
++theorem json_value_roundtrip {n : Nat} (layout : Layout) (value : Value n) :
++    (fromJSON (toJSON (encode layout value))).bind (decode layout n) = some value := by
++  rw [json_tree_roundtrip]
++  exact decode_encode layout value
++
++theorem json_image_injective {n : Nat} (layout : Layout) :
++    Function.Injective (fun value : Value n => toJSON (encode layout value)) := by
++  intro a b equal
++  have h := congrArg (fun json => (fromJSON json).bind (decode layout n)) equal
++  simpa only [json_value_roundtrip, Option.some.injEq] using h
++
++theorem special_index (layout : Layout) (id : Fin 5) :
++    (if layout = .integers then (-(special layout id).numerator - 1).toNat
++     else ((-(special layout id).numerator - 1) / 2).toNat) = id.val := by
++  cases layout <;> simp [special]
++
++#print axioms json_tree_roundtrip
++#print axioms json_value_roundtrip
++#print axioms json_image_injective
++#print axioms special_index
++#print axioms classify_special
++#print axioms special_negative
++#print axioms reference_negative
++#print axioms reference_not_special
++#print axioms classify_reference
++#print axioms reference_index
++#print axioms reference_bound
++#print axioms decode_encode
++#print axioms encode_injective
++#print axioms reference_out_of_bounds
++#print axioms legacy_rejected
++#print axioms native_reference_exact_range
++end CompactScalar
+--- a/lean/Serialization/Oracle.lean
++++ b/lean/Serialization/Oracle.lean
+@@ -1,3 +1,4 @@
++import Serialization.Compact
+ import Serialization.Reconstruction
+ import Lean
+ 
+@@ -16,19 +17,28 @@
+ def strings (j : Json) : E (List String) := do
+   (← j.getArr?).toList.mapM Json.getStr?
+ 
+-def token (j : Json) : E (Token Nat) := do
++def compactLayout : CompactScalar.Layout := .integers
++def canonicalNumber (q : JsonNumber) : SerializationScalar.Number :=
++  let value := mkRat q.mantissa (10 ^ q.exponent)
++  ⟨value.num, value.den, value.den_pos⟩
++def compactNumberJSON (number : SerializationScalar.Number) : E Json := do
++  if number.denominator == 1 then return toJson number.numerator
++  if number.denominator == 2 then return .num ⟨number.numerator * 5, 1⟩
++  throw "non-wire scalar denominator"
++
++def token (n : Nat) (j : Json) : E (Token Nat) := do
+   match j with
+   | .null | .bool _ | .str _ => return .atom j.compress
+   | .num q =>
+-    if q.mantissa < 0 then
+-      let i ← integer j
+-      return .ref (-i - 1).toNat
+-    return .atom j.compress
++    let decoded ← need "invalid numeric token"
++      (CompactScalar.decode compactLayout n (.scalar (canonicalNumber q)))
++    match decoded with
++    | .ref id => return .ref id.val
++    | .special id => return .atom (toJson [(-((id.val : Int) + 1))]).compress
++    | .number _ => return .atom j.compress
++    | _ => throw "unexpected numeric value"
+   | .arr a =>
+-    if a.size == 1 then
+-      let i ← integer a[0]!
+-      if i < 0 && i ≥ -5 then return .atom j.compress
+-      throw "invalid atom tag"
++    if a.size == 1 then throw "legacy singleton rejected"
+     if a.size == 2 then
+       let tag ← integer a[0]!
+       if tag == -7 then
+@@ -54,8 +64,19 @@
+     let j ← Json.parse a
+     match j with
+     | .num q => if q.mantissa < 0 then return toJson [toJson (-7 : Int), j] else return j
++    | .arr items =>
++      if items.size == 1 then
++        let tag ← integer items[0]!
++        let index := (-tag - 1).toNat
++        if h : index < 5 then
++          let wire := CompactScalar.encode (n := 0) compactLayout (.special ⟨index, h⟩)
++          match wire with
++          | .scalar number => return ← compactNumberJSON number
++          | _ => throw "special encode shape"
++        throw "special atom"
++      return j
+     | _ => return j
+-  | .ref i => pure (toJson (-((i : Int) + 1)))
++  | .ref i => compactNumberJSON (CompactScalar.reference compactLayout i)
+ 
+ def kindText : Kind → String
+   | .object => "object"
+@@ -67,21 +88,21 @@
+   ("kind", toJson (kindText v.kind)), ("payload", toJson v.payload),
+   ("edges", toJson (v.edges.map fun (key, t) => toJson [toJson key, modelToken t]))]
+ 
+-def parseRow (shapes : List (List String)) (j : Json) : E (Node Nat) := do
++def parseRow (n : Nat) (shapes : List (List String)) (j : Json) : E (Node Nat) := do
+   let a ← j.getArr?
+   if a.size < 2 then throw "row arity"
+   let tag ← nat a[0]!
+   let header ← nat a[1]!
+   let rest := (a.toList.drop 2)
+   if tag == 0 || tag == 1 then
+-    let values ← rest.mapM token
++    let values ← rest.mapM (token n)
+     -- Executes the frozen finite shape dictionary expansion, including arity rejection.
+     let es ← need "shape missing or wrong arity" (dictionaryExpand shapes header values)
+     return ⟨if tag == 0 then .object else .nullObject, [], es⟩
+   if tag == 2 then
+     if header > 4294967295 then throw "native array length"
+     if rest.length != header then throw "dense array arity"
+-    let values ← rest.mapM token
++    let values ← rest.mapM (token n)
+     return ⟨.array, [toString header], values.zipIdx |>.map (fun (t, i) => (toString i, t))⟩
+   if tag == 3 then
+     if header > 4294967295 then throw "native array length"
+@@ -92,7 +113,7 @@
+       let k ← nat rest[p * 2]!
+       if k ≥ header then throw "sparse index out of bounds"
+       if previous.any (fun old => k ≤ old) then throw "sparse indices not increasing"
+-      let t ← token rest[p * 2 + 1]!
++      let t ← token n rest[p * 2 + 1]!
+       es := es ++ [(toString k, t)]
+       previous := some k
+     let pairs ← es.mapM fun (key, t) => do
+@@ -147,9 +168,9 @@
+         -- Execute proved first-use shape check; never interpret unused dictionary entries.
+         if !(shapeCheck shapes checked sid) then throw "duplicate shape key"
+         checked := sid :: checked
+-    let row ← parseRow shapes raw
++    let row ← parseRow rawRows.size shapes raw
+     rows := rows ++ [row]
+-  let root ← token doc[0]!
++  let root ← token rawRows.size doc[0]!
+   let n := rows.length
+   -- Executes the original decoder at every token/row, then original encoder.
+   let typedRoot ← need "root reference out of range" (decodeToken n root)
+--- a/lean/Serialization/README.md
++++ b/lean/Serialization/README.md
+@@ -1,3 +1,7 @@
++# Compact scalar variant
++
++The active token grammar differs from the restored baseline. See [COMPACT.md](COMPACT.md) for both layouts, their checked claims, and the actual-wire bridge boundary. Historical scalar proofs below remain retained; the active oracle uses `Compact.decode`.
++
+ # Three-component document and inline reconstruction checks
+ 
+ `Reconstruction.lean` was checked before the corresponding runtime parser changes. It imports existing finite graph definitions without altering retained proofs. The document model is exactly `(root, shapes, nodes)` with no format identifier. The proof adds no arbitrary quotas, timers, counters or separate validation pass.
+--- a/scripts/check-serialization-lean.ts
++++ b/scripts/check-serialization-lean.ts
+@@ -221,6 +221,78 @@
+   Number.MIN_VALUE,
+ ])
+ 
++function unsupportedRawNumber(value: unknown): boolean {
++  return typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0))
++}
++const scalarTexts = [
++  '-1',
++  '-2',
++  '-3',
++  '-4',
++  '-5',
++  '-6',
++  '-7',
++  '-0.5',
++  '-1.5',
++  '-2.5',
++  '-3.5',
++  '-4.5',
++  '-1.50',
++  '-0.50000000000000001',
++  '-1.00000000000000001',
++  '-1.25',
++  '-5.5',
++  '-6.5',
++  '[-1]',
++  '[-2]',
++  '[-3]',
++  '[-4]',
++  '[-5]',
++  '[-7,-0.5]',
++  '[-7,-1]',
++  '[-6,"123"]',
++  '-0',
++  '-1e-400',
++  '-1e400',
++  '1e400',
++  '"-1"',
++  '0',
++  '1',
++  'true',
++  'null',
++]
++async function checkCompactScalars(run: Oracle): Promise<void> {
++  const { scalarDocuments, scalarRequests } = scalarCases()
++  const scalarResults = JSON.parse(
++    await run('Serialization', [], {
++      input: JSON.stringify(scalarRequests),
++    }),
++  ) as Response[]
++  assert.equal(scalarResults.length, scalarDocuments.length)
++  for (let index = 0; index < scalarResults.length; index++) {
++    const result = scalarResults[index]
++    const document = scalarDocuments[index]
++    if (result.ok) assert.deepEqual(normalizeModel(result.expanded), sourceModel(parse(document)))
++    else assert.throws(() => parse(document))
++  }
++}
++function scalarCases() {
++  const scalarRequests: Array<{ wire: unknown }> = []
++  const scalarDocuments: string[] = []
++  for (const text of scalarTexts) {
++    const parsed: unknown = JSON.parse(text)
++    const document = `[${text},[],[]]`
++    if (unsupportedRawNumber(parsed)) {
++      // Signed zero/nonfinite raw scalar inputs are outside the finite Number model.
++      assert.throws(() => parse(document))
++      continue
++    }
++    scalarRequests.push({ wire: [parsed, [], []] })
++    scalarDocuments.push(document)
++  }
++  return { scalarDocuments, scalarRequests }
++}
++
+ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
+   const requests = good.map((x) => ({ wire: JSON.parse(stringify(x.input)) as unknown }))
+   const responses = JSON.parse(
+@@ -239,14 +311,15 @@
+       good[index].name,
+     )
+   }
++  const rootReference = -6
+   const invalid = [
+-    [-1, [], []],
+-    [-2, [[]], [[0, 0]]],
+-    [-1, [['x']], [[0, 0]]],
+-    [-1, [['x', 'x']], [[0, 0, 1, 2]]],
+-    [-1, [], [[3, 1, 1, 2]]],
+-    [-1, [], [[3, 2, 0, 1, 0, 2]]],
+-    [-1, [], [[2, 3, 1, 2]]],
++    [rootReference, [], []],
++    [rootReference - 1, [[]], [[0, 0]]],
++    [rootReference, [['x']], [[0, 0]]],
++    [rootReference, [['x', 'x']], [[0, 0, 1, 2]]],
++    [rootReference, [], [[3, 1, 1, 2]]],
++    [rootReference, [], [[3, 2, 0, 1, 0, 2]]],
++    [rootReference, [], [[2, 3, 1, 2]]],
+     [[-7, 0], [], []],
+   ]
+   const rejected = JSON.parse(
+@@ -263,6 +336,7 @@
+   ) as Response[]
+   assert.equal(accepted[0].ok, true)
+   assert.equal(parse(JSON.stringify(unused)), null)
++  await checkCompactScalars(run)
+   console.log(
+     `Serialization Lean bridge: ${good.length} graphs, ${invalid.length} malformed documents, unused shape accepted`,
+   )
+--- a/lakefile.toml
++++ b/lakefile.toml
+@@ -27,6 +27,7 @@
+   "Serialization.Codec",
+   "Serialization.Roots",
+   "Serialization.Scalar",
++  "Serialization.Compact",
+   "Serialization.DFS",
+   "Serialization.Refinement",
+   "Serialization.Reconstruction",
+--- a/README.md
++++ b/README.md
+@@ -46,7 +46,7 @@
+ import { parse, stringify } from '@escapace/reconcile'
+ 
+ const text = stringify({ count: 3, title: 'hello' })
+-// [-1,[["count","title"]],[[0,0,3,"hello"]]]
++// [-6,[["count","title"]],[[0,0,3,"hello"]]]
+ const restored = parse(text)
+ ```
+ 
