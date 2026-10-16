@@ -122,8 +122,9 @@ describe('serialization', () => {
       const owner = new URL('https://example.com/?a=b%20c')
       const source =
         first === 'parameters'
-          ? { owner, parameters: owner.searchParams }
+          ? { ...{ parameters: owner.searchParams }, owner }
           : { owner, parameters: owner.searchParams }
+      expect(Object.keys(source)[0]).toBe(first)
       const result = copy(source)
       expect(result.owner.href).toBe(owner.href)
       expect(result.parameters).toBe(result.owner.searchParams)
