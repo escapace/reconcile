@@ -1,0 +1,27 @@
+# Requested isolated large-record encoding rerun
+
+The user requested a reviewed, isolated rerun of large-record encoding while setting aside the earlier 33% record-encoding slowdown as adoption-decision evidence. That historical raw evidence remains untouched and will not be reapplied to the present decision. Leaning toward adoption is not formal approval to adopt. This round directly measures the requested records-only condition with a simultaneous exact-code control.
+
+## Reviewed fixture and fixed work
+
+Use the exact `records-10k` factory from `v2/corpus.mjs`: an array of10,000 records `{id:i, name:item-i, active:i%2===0, values:[i,i+1,i+2]}`. It has no special scalar, cycle, alias, getter, proxy or native-object payload. The same retained input is encoded repeatedly; this models repeated encoding of an ordinary large record graph, not capture/getter semantics or all codec use. The production bundles are frozen baseline and original integer A from `interleaved-a`; the copy loads byte-identical baseline bytes.
+
+Each fresh child performs one initial encode whose output hash must match saved exact output for its variant. Only this fixture is constructed. Perform two initial explicit collections, then exactly64 warmup encodes in16 four-call chunks. Timing consists of12 four-call encode blocks,48 encodes per child. No adaptive calibration, time-based stopping, profile, compiler/GC tracing, forced optimization or collection after warmup. Retain all warmup and target observations, including expensive blocks.
+
+The direct encode loop calls its immutable imported stringify binding, retains the latest string, adds every returned string length to a numeric accumulator and increments an encode counter. Both counters are asserted after timing. The fixture emits only ASCII, so string length equals UTF-8 byte length; that equality is checked after timing. There is no full-string hash inside a timed loop. After all timed blocks, require the final returned string to equal the initial full string, dynamically import the ordinary graph oracle, and decode/check both initial and last timed outputs. No codec parse, roundtrip, mixed-value fixture or graph-oracle import occurs before timing. Graph checks preserve prototypes, own-key order and graph identity as applicable to this input. Baseline/copy must emit identical strings; A's intended wire representation differs and must reconstruct the same graph.
+
+## Three time-local isolated trios
+
+Three independent trios each contain baseline, exact copy and A, with one worker code and one import URL. Roles A/B/C map to baseline/copy/candidate, then copy/candidate/baseline, then candidate/baseline/copy. Initialize A/B/C each time. Every identity occupies each fixed role and initialization position exactly once across trios.
+
+Within each trio, six symmetric groups are ABC/CBA, BCA/ACB, CAB/BAC, repeated twice. Each identity has two blocks per group and occupies outer/middle/inner timing depth twice. Only one child and all its V8 threads run at once; confirm SIGSTOP with waitpid before starting or resuming any other child. Two paused heaps remain separate from the active one. Twelve blocks are nested within each of three independent trios, not36 independent replications.
+
+There are no PBKDF2 or JSON diagnostic controls between batches. The exact-code arm supplies the actual-work control. Ordinary event logging and resource snapshots remain outside the raw codec timer. Record raw and full active-batch wall/process-CPU/thread-CPU, with the latter including chunk measurement/logging overhead but excluding command-boundary resource snapshots and paused wait. It does not include every possible deferred VM cost. Do not normalize or subtract costs. Raw wall and CPU scopes differ slightly in bookkeeping. These are time-local bursts of four encodes from separate paused heaps, not uninterrupted single-process sustained throughput; pauses and logging can affect deferred VM work.
+
+## Budget, verification and interpretation
+
+Nine children perform1,017 total codec encodes, plus18 final fidelity parses. Removing native controls from the previous records-only design gives an estimated65–100 seconds for nine children. Even a persistent0.24-second encode cost uses roughly244 seconds of codec work before setup and cleanup, so hard timeout protection remains necessary. Internal deadline285 seconds, outer timeout292 plus3-second kill grace, including kill-all-first/reap-all cleanup. TERM/INT handlers clean stopped as well as running groups. A timeout is incomplete; no continuation chunks. No overlapping benchmark, profiler, test or build.
+
+Freeze protocol, worker, counts and exact source hashes before launch. Independent reviewer checks the protocol and scripts before execution. Require all final graph checks, same-variant wire hashes, equal call sequences, ledger isolation and descendant receipt before reporting a completed result.
+
+Report each trio's candidate/baseline, candidate/copy and copy/baseline all-time/all-call rate, CPU, median-block sensitivity, full active-batch cost and warmup/target trajectories. Retain tails. Assess whether a candidate difference is distinct from simultaneous same-code variation; do not invent a pass threshold, multiply prior ratios or revive the excluded historical33% warning. This is direct evidence for the isolated requested benchmark, not a full-suite acceptance claim or an adoption action.

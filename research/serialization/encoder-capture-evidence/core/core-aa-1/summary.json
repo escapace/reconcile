@@ -1,0 +1,42 @@
+{
+  "produce": {
+    "baselineMedianUsPerOperation": 92.74817566666667,
+    "candidateMedianUsPerOperation": 90.76761133333335,
+    "medianPairedPercentChange": -2.318025218546077,
+    "pairedPercentChanges": [
+      -2.4160771068257425, -11.502968735270525, -4.140080658358924, 2.6078009654514123,
+      0.035927143487368696, -13.389467140362932, 13.886344483977853, -2.2199733302664115
+    ],
+    "slowerPairsAboveGuard": 1
+  },
+  "reconcile": {
+    "baselineMedianUsPerOperation": 105.35089183333334,
+    "candidateMedianUsPerOperation": 101.43549466666664,
+    "medianPairedPercentChange": -2.488955417361022,
+    "pairedPercentChanges": [
+      4.140361197226361, -0.8698334126909568, -7.64899334646616, -4.108077422031087,
+      -6.765454343045341, 5.969960190337553, 15.56608638734225, -9.086635233398733
+    ],
+    "slowerPairsAboveGuard": 3
+  },
+  "reconcile-plain-object": {
+    "baselineMedianUsPerOperation": 33.557720333333336,
+    "candidateMedianUsPerOperation": 35.91880883333334,
+    "medianPairedPercentChange": 5.0085943661947745,
+    "pairedPercentChanges": [
+      3.049110466062799, -6.911612022556701, 21.435974976070106, 3.544050975839008,
+      6.47313775655054, 9.13637508564702, -5.6955798047304445, 22.20068383654228
+    ],
+    "slowerPairsAboveGuard": 6
+  },
+  "snapshot": {
+    "baselineMedianUsPerOperation": 13.916993666666665,
+    "candidateMedianUsPerOperation": 13.909145833333335,
+    "medianPairedPercentChange": -0.056364637843336896,
+    "pairedPercentChanges": [
+      -0.5566338248909397, 0.4439045492042659, 15.330505803188444, -4.865942930685907,
+      -11.79441656941378, 3.5597097601933747, -2.5822673069685442, 15.186144754166797
+    ],
+    "slowerPairsAboveGuard": 3
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "budgetSeconds": 295,
+  "command": [
+    "python3",
+    "harness/runner.py",
+    "--arms",
+    "devalue=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/devalue-portable/codec.mjs,previous=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/final2/codec.mjs,positional=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/pw8/codec.mjs",
+    "--manifest",
+    "harness/manifest-v2.json",
+    "--fixtures",
+    "scalar-boundaries,strings-10k,numeric-10k,undefined-10k,mixed-10k,records-small,records-1k,records-10k,dag-2k,dense-dag,cycle-300,deep-200,collections,dates-2k,rich,views-shared,binary-1m,hole-first,hole-last,unicode-10k,long-strings,small-collections,set-shared,map-object-keys,records-wide,records-varied,nested-arrays,sparse-big,dict-10k,dict-records",
+    "--reps",
+    "3",
+    "--seed",
+    "921",
+    "--out",
+    "rounds/DV4"
+  ],
+  "diagnostic": null,
+  "elapsedSeconds": 165.50980671900015,
+  "exitCode": 0,
+  "status": "passed"
+}

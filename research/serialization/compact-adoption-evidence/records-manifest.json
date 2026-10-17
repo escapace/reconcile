@@ -1,0 +1,147 @@
+{
+  "kind": "requested isolated records-only baseline/copy/A controlled rerun",
+  "trios": 3,
+  "initializationOrders": [
+    [
+      "A",
+      "B",
+      "C"
+    ],
+    [
+      "A",
+      "B",
+      "C"
+    ],
+    [
+      "A",
+      "B",
+      "C"
+    ]
+  ],
+  "roleAssignments": [
+    {
+      "A": "baseline",
+      "B": "baseline-copy",
+      "C": "original-a"
+    },
+    {
+      "A": "baseline-copy",
+      "B": "original-a",
+      "C": "baseline"
+    },
+    {
+      "A": "original-a",
+      "B": "baseline",
+      "C": "baseline-copy"
+    }
+  ],
+  "targetOrders": [
+    [
+      0
+    ],
+    [
+      0
+    ],
+    [
+      0
+    ],
+    [
+      0
+    ],
+    [
+      0
+    ],
+    [
+      0
+    ]
+  ],
+  "sources": {
+    "baseline": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/baseline-both.mjs",
+      "sha256": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b"
+    },
+    "original-a": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/a-both.mjs",
+      "sha256": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5"
+    },
+    "baseline-copy": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/baseline-both.mjs",
+      "sha256": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b"
+    }
+  },
+  "historyCallsPerChild": 64,
+  "initialEncodeCallsPerChild": 1,
+  "semanticParseChecksAfterTiming": 2,
+  "targetChunksPerChild": 12,
+  "sameWorkerAndModuleURL": true,
+  "inactiveChildren": "SIGSTOP confirmed via waitpid WUNTRACED before another child runs",
+  "traceFlags": [],
+  "symmetricGroupOrders": [
+    [
+      "A",
+      "B",
+      "C",
+      "C",
+      "B",
+      "A"
+    ],
+    [
+      "B",
+      "C",
+      "A",
+      "A",
+      "C",
+      "B"
+    ],
+    [
+      "C",
+      "A",
+      "B",
+      "B",
+      "A",
+      "C"
+    ],
+    [
+      "A",
+      "B",
+      "C",
+      "C",
+      "B",
+      "A"
+    ],
+    [
+      "B",
+      "C",
+      "A",
+      "A",
+      "C",
+      "B"
+    ],
+    [
+      "C",
+      "A",
+      "B",
+      "B",
+      "A",
+      "C"
+    ]
+  ],
+  "nativeArithmeticIterations": 0,
+  "nativeJsonCalls": 0,
+  "resultLengthAndCountSink": true,
+  "inclusiveActiveBlock": true,
+  "pinnedCPU": 4,
+  "childDeadlineSeconds": 285,
+  "outerTimeoutSeconds": 292,
+  "outerKillGraceSeconds": 3,
+  "hashes": {
+    "worker.mjs": "5cbcc57cddc273eba0986eb3da5066e61cc92f5a84952b79fb70f663e222c1f5",
+    "round.py": "008b5cbd41ed483227bfd7230c8324ba16c280b406a712fde8d8d73396a28e55",
+    "PROTOCOL.md": "37c836e00cad0afa54cce931760c7749001e4932a75fd0f7e478d5cd9a8b0d19",
+    "replay.json": "838a03387b748b0e4c645a1e4accd99ee62db90d0de76d493a1719627826574d",
+    "../interleaved-a/baseline-both.mjs": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b",
+    "../interleaved-a/a-both.mjs": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5",
+    "../v2/corpus.mjs": "73520cb7b9605208257a3254f4c3ab9663578fc50e8ab7ce88b5e1d0f734b7ca",
+    "../corpus.mjs": "afa66f59de8f2ef13ae406b23b919f215c4d0b9bb272a2f0b98ea85176254e33"
+  }
+}

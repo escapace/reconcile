@@ -1,0 +1,12 @@
+{
+  "command": [
+    "bash",
+    "-c",
+    "cd /workspace/reconcile-scalar-wire && python3 scripts/check-lean.py > /tmp/compact-A-lean.log 2>&1 && cd /workspace/reconcile-scalar-half && python3 scripts/check-lean.py > /tmp/compact-B-lean.log 2>&1"
+  ],
+  "budgetSeconds": 295,
+  "elapsedSeconds": 87.03578557899891,
+  "status": "passed",
+  "exitCode": 0,
+  "diagnostic": null
+}

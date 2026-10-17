@@ -1,0 +1,23 @@
+{
+  "budgetSeconds": 295,
+  "command": [
+    "python3",
+    "runner.py",
+    "--arms",
+    "baseline=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs,m6=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m6-get/codec.mjs,m12=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m12/codec.mjs,m125=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m125/codec.mjs,m1256=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m1256/codec.mjs,d7=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/d7-sparse/codec.mjs",
+    "--manifest",
+    "manifest-v1.json",
+    "--fixtures",
+    "records-1k,records-wide,deep-200,dag-2k,collections,set-shared,numeric-10k,strings-10k,small-collections,cycle-300,hole-first,sparse-big,records-small",
+    "--reps",
+    "2",
+    "--seed",
+    "41",
+    "--out",
+    "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/screen-combo-a"
+  ],
+  "diagnostic": null,
+  "elapsedSeconds": 84.85331169700021,
+  "exitCode": 0,
+  "status": "passed"
+}

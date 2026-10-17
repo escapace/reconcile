@@ -1,0 +1,11 @@
+{
+  "command": [
+    "python3",
+    "/workspace/serialization-lab/interleaved-a/round.py"
+  ],
+  "budgetSeconds": 295,
+  "elapsedSeconds": 240.36414814199816,
+  "status": "passed",
+  "exitCode": 0,
+  "diagnostic": null
+}

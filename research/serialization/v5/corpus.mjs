@@ -1,0 +1,3 @@
+export {cases,equivalent}from'../v4/final-corpus.mjs';import{workloads as old}from'../v4/final-corpus.mjs';
+export const workloads={...old,'negative-array':()=>Array.from({length:10000},(_,i)=>-(i+1)*.25),'prefix-strings':()=>Array.from({length:5000},(_,i)=>'~'+i),'mixed-signs':()=>Array.from({length:10000},(_,i)=>i%2?-(i+1)*.25:i*.25)};
+export const edgeCases=[['token-collisions',()=>{const x={};x.self=x;return {x,alias:x,literal:['~0','~1','~','~~','~01','~-1','~1e1','~ 1',-1,-2,-.5,-Number.MIN_VALUE,-Number.MAX_VALUE,-Number.MAX_SAFE_INTEGER-2,-0,0,Number.MIN_VALUE,Number.MAX_VALUE,NaN,Infinity,-Infinity,undefined,1n,-1n]};}]];

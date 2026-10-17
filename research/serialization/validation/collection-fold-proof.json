@@ -1,0 +1,12 @@
+{
+  "command": [
+    "bash",
+    "-c",
+    "lake env lean -DwarningAsError=true lean/Serialization/Collection.lean && lake build Serialization.CollectionOracle --wfail"
+  ],
+  "budgetSeconds": 90,
+  "elapsedSeconds": 13.668536683006096,
+  "status": "passed",
+  "exitCode": 0,
+  "diagnostic": null
+}

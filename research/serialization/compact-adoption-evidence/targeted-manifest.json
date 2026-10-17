@@ -1,0 +1,143 @@
+{
+  "kind": "final original-A controlled recheck: two baseline/copy/A trios, retained five-target history",
+  "trios": 2,
+  "initializationOrders": [
+    [
+      "A",
+      "B",
+      "C"
+    ],
+    [
+      "B",
+      "C",
+      "A"
+    ]
+  ],
+  "roleAssignments": [
+    {
+      "A": "baseline",
+      "B": "baseline-copy",
+      "C": "original-a"
+    },
+    {
+      "A": "baseline-copy",
+      "B": "original-a",
+      "C": "baseline"
+    }
+  ],
+  "targetOrders": [
+    [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    [
+      4,
+      3,
+      2,
+      1,
+      0
+    ],
+    [
+      2,
+      3,
+      4,
+      0,
+      1
+    ],
+    [
+      1,
+      0,
+      4,
+      3,
+      2
+    ]
+  ],
+  "sources": {
+    "baseline": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/baseline-both.mjs",
+      "sha256": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b"
+    },
+    "original-a": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/a-both.mjs",
+      "sha256": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5"
+    },
+    "baseline-copy": {
+      "path": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec/research/serialization/interleaved-a/baseline-both.mjs",
+      "sha256": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b"
+    }
+  },
+  "historyCallsPerChild": 181490,
+  "targetChunksPerChild": 40,
+  "sameWorkerAndModuleURL": true,
+  "inactiveChildren": "SIGSTOP confirmed via waitpid WUNTRACED before another child runs",
+  "traceFlags": [],
+  "symmetricGroupOrders": [
+    [
+      "A",
+      "B",
+      "C",
+      "C",
+      "B",
+      "A"
+    ],
+    [
+      "B",
+      "C",
+      "A",
+      "A",
+      "C",
+      "B"
+    ],
+    [
+      "C",
+      "A",
+      "B",
+      "B",
+      "A",
+      "C"
+    ],
+    [
+      "A",
+      "B",
+      "C",
+      "C",
+      "B",
+      "A"
+    ]
+  ],
+  "nativeArithmeticIterations": 150000,
+  "nativeJsonCalls": 0,
+  "inclusiveActiveBlock": true,
+  "pinnedCPU": 4,
+  "childDeadlineSeconds": 285,
+  "outerTimeoutSeconds": 292,
+  "outerKillGraceSeconds": 3,
+  "hashes": {
+    "worker.mjs": "59fcaeaa25b277f9b6a961ea4993b94d3775c6d29752fd2e1380c3d0e3dc8f04",
+    "round.py": "90b3d880283cc466c6f5c97c17b1bde4a617c99bf3e3bee410c7346c0572aa10",
+    "PROTOCOL.md": "7d0ee11e767ea029058f68c102a67927b5b5ab6b520f762cea6d9725fea07537",
+    "replay.json": "93660cb5e3cd7305d1dabbaf5bbf991c6454ca9e52f5bde91a9fb5c6ad648596",
+    "../interleaved-a/baseline-both.mjs": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b",
+    "../interleaved-a/a-both.mjs": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5",
+    "../local-matched-history-null/worker.mjs": "f21495be5bb2b8c0a8faff38ce67a3a1ab2d9e54e9017caa50b5cf64c50310c5",
+    "../local-matched-history-null/round.py": "ca4a0c49acf98c14fa3bb082dad40fb1b3d599b98123f0b9e8fa1ca23658c72e",
+    "../local-matched-history-null/PROTOCOL.md": "1b951bc761db9992628f33d86126b0b3de1d68211778f9c54c20629d9894b07f",
+    "../local-matched-history-null/replay.json": "39dd6ef5bd411b46ca4fc4bb0b39c038ea362b27ddc900093f0797012b86854c",
+    "../local-row-batch-corpus/samples.jsonl": "948002529b6104ef577eec54b527aedb9bab999d37d2ee7bb6680549a925ad85",
+    "../local-row-batch-corpus/manifest.json": "07362b81364f5887051dd174e45ee931cfcf8d490c9581ebee4157c5573dae4c",
+    "../local-row-batch-corpus/corpus.mjs": "296eeee2126441d3a5a2ea8779f34a0922adf3c5363145140ad54be41b1ea24a",
+    "../local-sparse-order-comparison/corpus.mjs": "5533cb11ce8a2fb57bf1548ff4301306f0faea0ba57bdee7eed24c04d1b2041c",
+    "../interleaved-a/corpus.mjs": "b7756ad61f2ac77ffeb171b1025587f5f0c970d347d6b3814bc394fb5f24ea4e",
+    "../corpus.mjs": "afa66f59de8f2ef13ae406b23b919f215c4d0b9bb272a2f0b98ea85176254e33",
+    "../v2/corpus.mjs": "73520cb7b9605208257a3254f4c3ab9663578fc50e8ab7ce88b5e1d0f734b7ca",
+    "../v3/corpus.mjs": "70a2620e1d59d53db8c2d69f54752c4b1555428686bae6bffd4e4b5c09520004",
+    "../v3/final-corpus.mjs": "b0d49c051820f4568913d8f34cd1fe409fc71c475f00670835b3a52fc4a6497f",
+    "../v4/final-corpus.mjs": "938d77782e63936c8bde35e028f763d1e973a54df5d37a8a6f09a3a2d5411791",
+    "../v5/corpus.mjs": "ab2dc43e126f93078fe2f2cdf48fe76a8c377a71fea84157471b69e2adc547e2",
+    "../v5/confirm/corpus.mjs": "127cfe3a308eb079cd8518367b3eeeea99bc7c3ac18a934cac046767f50a5d37",
+    "../v7/workloads.mjs": "0fbecbe7a636c18e24f52e1118a06563691129657911bbb692e55b9b9a5fe9bd"
+  }
+}

@@ -1,3 +1,5 @@
+import Serialization.Oracle
+import Serialization.CollectionOracle
 import OwnedNativeChildOracle
 import NativeValueOracle
 import ContractOracle
@@ -25,6 +27,8 @@ private structure Request where
 
 private def dispatch (request : Request) : IO Unit := do
   match request.family with
+  | "Serialization" => SerializationOracle.run request.input
+  | "SerializationCollection" => SerializationCollectionOracle.run request.input
   | "OwnedNativeChild" => OwnedNativeChildOracle.run request.input
   | "NativeValue" => NativeValueOracle.run request.input
   | "Contract" =>

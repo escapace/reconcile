@@ -1,9 +1,10 @@
 /**
- * Deep copies, draft-based updates and in-place updates for JavaScript object graphs.
+ * Copy, update and serialize JavaScript object graphs.
  *
  * @remarks
  * {@link snapshot} copies a value deeply. {@link produce} runs a recipe on a draft and returns
  * the next value. {@link reconcile} updates an existing value in place to match another.
+ * {@link stringify} encodes a graph as JSON text; {@link parse} restores matching text.
  * `reconcile(current, produce(current, recipe))` applies a recipe to live state. Every failure
  * the library detects is a {@link ReconcileError}.
  *
@@ -24,3 +25,6 @@ export type {
 export { produce } from './produce'
 export { reconcile } from './reconcile'
 export { snapshot } from './snapshot'
+
+export { parse } from './parse'
+export { stringify } from './stringify'

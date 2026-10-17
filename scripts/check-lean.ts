@@ -1,3 +1,5 @@
+import { checkSerializationCollectionRuntime } from './check-serialization-collection-runtime'
+import { checkSerializationRuntime } from './check-serialization-lean'
 import assert from 'node:assert/strict'
 import { checkNativeValueRuntime } from './check-native-value-runtime'
 import { checkOwnedNativeChildRuntime } from './check-owned-native-child-runtime'
@@ -21,6 +23,8 @@ try {
   await checkPrunedRuntime(oracle.run)
   await checkNativeValueRuntime(oracle.run)
   await checkOwnedNativeChildRuntime(oracle.run)
+  await checkSerializationRuntime(oracle.run)
+  await checkSerializationCollectionRuntime(oracle.run)
   // Bound a response before a whole oversized line can accumulate. Shutdown must
   // preserve the original diagnostic rather than mask it with the killed exit code.
   await assert.rejects(oracle.run('Contract', [], { maxBuffer: 1 }), /output exceeds 1 bytes/)

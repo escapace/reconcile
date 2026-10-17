@@ -1,0 +1,51 @@
+{
+  "arms": {
+    "baseline": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "d7": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/d7-sparse/codec.mjs",
+      "sha256": "e867d57a4f26e6d266324465dc8fbd22133562b4576c77db27877cb88e56f988"
+    },
+    "m12": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m12/codec.mjs",
+      "sha256": "e27dfb9b20a2fad49b19fd645b8e13cfaba9fb5c46212aed22d6f20ac5add648"
+    },
+    "m125": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m125/codec.mjs",
+      "sha256": "24042437deed4594a1d8d6e9e3fd77bb75e3d1a6ff36d1719993027cf68e3053"
+    },
+    "m1256": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m1256/codec.mjs",
+      "sha256": "abbf7e97f02101fc9d80a7ba458b5e7682a390f3578d329d5b3ac4ca42d0425b"
+    },
+    "m6": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m6-get/codec.mjs",
+      "sha256": "39b4d2816d532fff76c4928d60ddbf3d5be9d34b902151e1af5465e87747690b"
+    }
+  },
+  "corpus_sha256": "7d26bb79cef9d015030d414abf2c7092a41c2572040ec586e00958c38fcfe8b9",
+  "fixtures": [
+    "records-1k",
+    "records-wide",
+    "deep-200",
+    "dag-2k",
+    "collections",
+    "set-shared",
+    "numeric-10k",
+    "strings-10k",
+    "small-collections",
+    "cycle-300",
+    "hole-first",
+    "sparse-big",
+    "records-small"
+  ],
+  "loadavg_start": [0.86376953125, 0.86181640625, 0.69921875],
+  "manifest_sha256": "fdb25a5e30a5871ea4a12699e478878e03c7d57cf0417f2c9e6d6da1b0d17b6c",
+  "mode": "isolated",
+  "node": "v24.22.0",
+  "reps": 2,
+  "seed": 41,
+  "worker_sha256": "3e200267a00f2a16a551992324e84da3bb9d1aa4fc565031ae23ef7fa703dc50"
+}

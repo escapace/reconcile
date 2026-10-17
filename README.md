@@ -10,20 +10,20 @@ pnpm add @escapace/reconcile
 
 ## Choose a function
 
-| You want to                                                     | Use                                            |
-| --------------------------------------------------------------- | ---------------------------------------------- |
-| Update objects your code already holds so they match new data   | `reconcile(current, next)`                     |
-| Build a new version of a value by writing ordinary mutations    | `produce(current, recipe)`                     |
-| Get a copy you can change without affecting the original        | `snapshot(value)`                              |
+| You want to | Use |
+| - | - |
+| Update objects your code already holds so they match new data | `reconcile(current, next)` |
+| Build a new version of a value by writing ordinary mutations | `produce(current, recipe)` |
+| Get a copy you can change without affecting the original | `snapshot(value)` |
 | Write mutations, then apply them to the objects your code holds | `reconcile(current, produce(current, recipe))` |
 
 The functions differ in what they do with object identity, that is, whether a value in the result is the same object as before or a new one:
 
-| Function                   | Changes the original | Objects in the result                                           |
-| -------------------------- | -------------------- | --------------------------------------------------------------- |
-| `snapshot(value)`          | No                   | All new                                                         |
-| `produce(current, recipe)` | No                   | Unchanged parts are the original objects; changed parts are new |
-| `reconcile(current, next)` | Yes, in place        | The original objects, with new contents                         |
+| Function | Changes the original | Objects in the result |
+| - | - | - |
+| `snapshot(value)` | No | All new |
+| `produce(current, recipe)` | No | Unchanged parts are the original objects; changed parts are new |
+| `reconcile(current, next)` | Yes, in place | The original objects, with new contents |
 
 ```ts
 import { produce, reconcile, snapshot } from '@escapace/reconcile'
@@ -37,6 +37,30 @@ const next = produce(state, (draft) => {
 }) // next.user is state.user; next.tags is a new array
 reconcile(state, next) // state.tags is still the same array, now ['a', 'b']
 ```
+
+## Serialize a graph
+
+`stringify(value: unknown): string` and `parse(text: string): unknown` preserve cycles, shared identities and distinct objects with equal contents. Ordinary `JSON.parse` accepts the text and returns the transport arrays; use this library's `parse` to reconstruct the graph.
+
+```ts
+import { parse, stringify } from '@escapace/reconcile'
+
+const text = stringify({ count: 3, title: 'hello' })
+// [[0,1,2,"count","title",2,0,0],[[3,"hello"]]]
+const restored = parse(text)
+```
+
+The transport is a single JSON literal in an array, or a control table and one payload per node, with the root as node 0. The control table lists each node's layout id, then the property-name shapes and the node layouts, each preceded by its length. A layout fixes the kind of every slot, literal or node reference, so no number or string is reserved. Parsing uses the tables as given: their order, repeated or unused entries and repeated shared scalars do not change the result, and a name repeated within one shape keeps its first position and last value. It has no format identifier or version negotiation: producers and consumers must use matching versions. This is a graph transport, not a transparent replacement for ordinary JSON data.
+
+Supported values are JSON primitives, `undefined`, `bigint`, special numbers (including negative zero), plain and null-prototype records, arrays, `Map`, `Set`, `Date`, fixed `ArrayBuffer` and standard views, `URL`, `URLSearchParams`, and the eight global Temporal value classes when available. Backing buffers and URL-owned search parameters preserve their graph identities. RegExp, boxed primitives, functions, symbols, promises, weak collections, Buffer, shared or resizable buffers, custom native subclasses and arbitrary class instances are outside this contract. There are no custom codecs or asynchronous operations.
+
+Records capture all own string property names, read each value depth first and reject symbol keys. Descriptors and accessors become mutable data properties. Arrays preserve length and holes but omit extra properties; native values omit extra properties and read native state. Collection iteration remains observable. Source getters, proxy traps and iterators can run and throw; their errors propagate unchanged.
+
+Every observed collection entry is traversed in order. Repeated Map keys keep their first insertion position and last value; repeated Set members keep their first position. Equality follows native SameValueZero rules. Parsing checks every entry, including values overwritten by a later Map entry.
+
+Serialization assumes unmodified standard built-ins and prototypes throughout each call, including source callbacks. Ambient prototype setters and inherited `toJSON` hooks are outside this contract.
+
+Malformed transport structure produces `ReconcileError` with `cause.type === 'ParseInputInvalid'`; unsupported source values produce `StringifyValueUnsupported`. Invalid JSON and native constructor or allocation failures propagate unchanged. The parser checks structure as it is used and does not impose resource quotas. This transport is intended for trusted application state. Sparse arrays preserve their native length and holes and use native Array allocation. A short sparse-array row can request a large allocation; JavaScript does not guarantee compact storage or a memory bound. Existing snapshot, reconcile and produce allocation behavior remains unchanged. Their index-by-index observations remain, so processing sparse arrays can still take time proportional to their logical length.
 
 ## Update live state
 
@@ -72,10 +96,10 @@ const next = produce(state, (draft) => {
 // state.items still has one item; next.user is state.user; next.items is a new array
 ```
 
-- Return the draft, or any other value, explicitly. A recipe that returns nothing produces `undefined`.
-- Unchanged parts of the result are the original objects, so mutating them also changes `current`. Use `snapshot(produce(current, recipe))` when you need a fully independent result.
-- Reading a `Date`, `ArrayBuffer`, typed array or `DataView` from the draft gives a writable copy. If the recipe leaves the copy unchanged, the result uses the original.
-- If the recipe changes a value and then changes it back, the result keeps the original object.
+* Return the draft, or any other value, explicitly. A recipe that returns nothing produces `undefined`.
+* Unchanged parts of the result are the original objects, so mutating them also changes `current`. Use `snapshot(produce(current, recipe))` when you need a fully independent result.
+* Reading a `Date`, `ArrayBuffer`, typed array or `DataView` from the draft gives a writable copy. If the recipe leaves the copy unchanged, the result uses the original.
+* If the recipe changes a value and then changes it back, the result keeps the original object.
 
 Full contract: [`produce`](#function-produce-).
 
@@ -92,10 +116,10 @@ copy.user.name = 'Grace' // state.user.name is still 'Ada'
 
 Compared with the built-in `structuredClone`, `snapshot`:
 
-- keeps functions by reference, where `structuredClone` throws;
-- copies Vue reactive state, where `structuredClone` throws;
-- keeps prototypes, where `structuredClone` returns plain objects;
-- keeps properties with symbol keys, which `structuredClone` drops.
+* keeps functions by reference, where `structuredClone` throws;
+* copies Vue reactive state, where `structuredClone` throws;
+* keeps prototypes, where `structuredClone` returns plain objects;
+* keeps properties with symbol keys, which `structuredClone` drops.
 
 Full contract: [`snapshot`](#function-snapshot-).
 
@@ -130,23 +154,23 @@ reconcile(store, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
 // store.user is the same reactive object; watchers of name run, watchers of role do not
 ```
 
-- `reconcile` keeps the reactive objects your components hold.
-- `snapshot` returns plain, non-reactive data.
-- `produce` keeps unchanged parts as the same reactive objects, while the objects it creates for changed parts are plain. Use `reconcile(store, produce(store, recipe))` to apply the changes to the store.
-- `reconcile` never makes two positions share one underlying object through different reactive wrappers.
+* `reconcile` keeps the reactive objects your components hold.
+* `snapshot` returns plain, non-reactive data.
+* `produce` keeps unchanged parts as the same reactive objects, while the objects it creates for changed parts are plain. Use `reconcile(store, produce(store, recipe))` to apply the changes to the store.
+* `reconcile` never makes two positions share one underlying object through different reactive wrappers.
 
 ## Supported values
 
-| Value                                           | `snapshot`                          | `produce`                                             | `reconcile`                                              |
-| ----------------------------------------------- | ----------------------------------- | ----------------------------------------------------- | -------------------------------------------------------- |
-| Plain objects and arrays                        | Copied                              | Drafted                                               | Updated in place, matched by key or index                |
-| `Map` and `Set`                                 | Copied                              | Drafted                                               | Updated in place, matched by entry order                 |
-| `Date`, `ArrayBuffer`, typed arrays, `DataView` | Copied                              | Copied when read                                      | Updated in place, or replaced if a buffer's size changes |
-| `URL` and `URLSearchParams`                     | Copied with their live relationship | Copied when read; unchanged pairs reuse their source  | Updated while preserving owned parameter identity        |
-| Available Temporal values                       | Copied                              | Copied when read; unchanged copies reuse their source | Equal values retained; changed nested values replaced    |
-| Class instances                                 | Copied without private fields       | Drafted like plain objects                            | Updated in place like plain objects                      |
-| Functions                                       | Kept by reference                   | Kept by reference                                     | Kept by reference                                        |
-| Primitives, including `bigint`                  | Returned as is                      | Read and assigned normally                            | Replaced by the next value                               |
+| Value | `snapshot` | `produce` | `reconcile` |
+| - | - | - | - |
+| Plain objects and arrays | Copied | Drafted | Updated in place, matched by key or index |
+| `Map` and `Set` | Copied | Drafted | Updated in place, matched by entry order |
+| `Date`, `ArrayBuffer`, typed arrays, `DataView` | Copied | Copied when read | Updated in place, or replaced if a buffer's size changes |
+| `URL` and `URLSearchParams` | Copied with their live relationship | Copied when read; unchanged pairs reuse their source | Updated while preserving owned parameter identity |
+| Available Temporal values | Copied | Copied when read; unchanged copies reuse their source | Equal values retained; changed nested values replaced |
+| Class instances | Copied without private fields | Drafted like plain objects | Updated in place like plain objects |
+| Functions | Kept by reference | Kept by reference | Kept by reference |
+| Primitives, including `bigint` | Returned as is | Read and assigned normally | Replaced by the next value |
 
 All three functions preserve key order, sparse-array holes, shared references, cycles, and the sharing between buffers and their views.
 
@@ -162,12 +186,12 @@ Temporal values are immutable. In a recipe, assign the result of methods such as
 
 Every failure the library detects throws a `ReconcileError`. Its `cause.type` names what happened, and the prefix of the type names where:
 
-| Prefix         | Thrown by                           |
-| -------------- | ----------------------------------- |
-| `Draft`        | `produce`, while the recipe runs    |
+| Prefix | Thrown by |
+| - | - |
+| `Draft` | `produce`, while the recipe runs |
 | `Finalization` | `produce`, after the recipe returns |
-| `Publication`  | `reconcile`                         |
-| `Snapshot`     | `snapshot`                          |
+| `Publication` | `reconcile` |
+| `Snapshot` | `snapshot` |
 
 `snapshot` throws `SnapshotURLSearchParamsMemoIncompatible` when a caller-supplied memo provides parameters that cannot be attached to a new URL. Supplying consistent memo entries for both the URL and its parameters remains supported. Errors from your own code, such as getters, setters, proxy traps and iterators, reach you unchanged, as do `RangeError`s for invalid array lengths. `reconcile` does not roll back, so after a failure `current` can hold some of the new values.
 
@@ -187,12 +211,12 @@ Messages may change between versions, so branch on `cause.type`. Every type and 
 
 ## Limitations
 
-- Iterating a draft `Map` or `Set` with `keys`, `values`, `entries`, `forEach` or `for...of` throws.
-- Defining properties on a draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws; use assignment instead.
-- Copies and rebuilt objects lose the private fields and other internal state of class instances.
-- Storage shared between different wrappers is detected only for Vue reactive wrappers, not for other proxies.
-- Results are not frozen.
-- A failed `reconcile` is not rolled back.
+* Iterating a draft `Map` or `Set` with `keys`, `values`, `entries`, `forEach` or `for...of` throws.
+* Defining properties on a draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws; use assignment instead.
+* Copies and rebuilt objects lose the private fields and other internal state of class instances.
+* Storage shared between different wrappers is detected only for Vue reactive wrappers, not for other proxies.
+* Results are not frozen.
+* A failed `reconcile` is not rolled back.
 
 ## Contributing
 
@@ -200,7 +224,7 @@ See the [development workflow](docs/development.md).
 
 # API
 
-## function isReconcileError [↗](src/error.ts#L156-L157 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L161-L162 "isReconcileError")
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -210,11 +234,11 @@ isReconcileError: (value: unknown) => value is ReconcileError
 
 ### Parameters
 
-| Parameter | Type               | Description                          |
-| --------- | ------------------ | ------------------------------------ |
-| `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
+| Parameter | Type | Description |
+| - | - | - |
+| `value` | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L165-L168 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L170-L173 "isReconcileErrorOfType")
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's facts.
 
@@ -225,32 +249,59 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 
 ### Parameters
 
-| Parameter | Type                                                                       | Description                                                              |
-| --------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
-| `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
+| Parameter | Type | Description |
+| - | - | - |
+| `error` | <pre>[ReconcileError](#class-reconcileerror- "class ReconcileError")</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
+| `type` | <pre>T</pre> | The error type to test for. |
 
-## function produce [↗](src/produce.ts#L79-L81 'produce')
+## function parse [↗](src/parse.ts#L19-L21 "parse")
+
+Restores an object graph from matching serialized JSON text.
+
+```typescript
+export declare function parse(text: string): unknown;
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+| - | - | - |
+| `text` | <pre>string</pre> | Text produced by a matching version of [stringify](#function-stringify-). |
+
+### Returns
+
+The reconstructed value.
+
+### Throws
+
+1. [ReconcileError](#class-reconcileerror-) with type `ParseInputInvalid` for malformed wire structure.
+2. SyntaxError for invalid JSON, and native constructor or allocation errors unchanged.
+
+### Remarks
+
+References preserve shared identities and cycles. Collections use native insertion semantics: repeated Map keys keep their first position and last value; repeated Set members keep their first position. Every entry is decoded before insertion. Structural checks run before their values are used; native parsing, constructors and allocation remain engine boundaries. Standard built-ins and prototypes must remain unmodified throughout the call. This transport is intended for trusted application state. Sparse array lengths use native allocation, so short input can request substantial memory. The wire has no format identifier or allocation quotas. The returned graph is mutable.
+
+## function produce [↗](src/produce.ts#L79-L81 "produce")
 
 Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
 
 ```typescript
-export declare function produce<T, R>(current: T, recipe: (draft: T) => R): R
+export declare function produce<T, R>(current: T, recipe: (draft: T) => R): R;
 ```
 
 ### Type Parameters
 
-| Parameter | Description                           |
-| --------- | ------------------------------------- |
-| `T`       | Type of `current` and of the draft.   |
-| `R`       | Type of the value the recipe returns. |
+| Parameter | Description |
+| - | - |
+| `T` | Type of `current` and of the draft. |
+| `R` | Type of the value the recipe returns. |
 
 ### Parameters
 
-| Parameter | Type                       | Description                                               |
-| --------- | -------------------------- | --------------------------------------------------------- |
-| `current` | <pre>T</pre>               | The value to start from. It is not modified.              |
-| `recipe`  | <pre>(draft: T) => R</pre> | Receives a draft of `current` and returns the next value. |
+| Parameter | Type | Description |
+| - | - | - |
+| `current` | <pre>T</pre> | The value to start from. It is not modified. |
+| `recipe` | <pre>(draft: T) => R</pre> | Receives a draft of `current` and returns the next value. |
 
 ### Returns
 
@@ -287,20 +338,20 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L57-L59 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L57-L59 "reconcile")
 
 Updates `current` in place to match `next` and returns `current`, keeping existing objects wherever their position and kind allow.
 
 ```typescript
-export declare function reconcile<T>(current: unknown, next: T): T
+export declare function reconcile<T>(current: unknown, next: T): T;
 ```
 
 ### Parameters
 
-| Parameter | Type               | Description                                           |
-| --------- | ------------------ | ----------------------------------------------------- |
-| `current` | <pre>unknown</pre> | The value to update.                                  |
-| `next`    | <pre>T</pre>       | The value `current` should match. It is not modified. |
+| Parameter | Type | Description |
+| - | - | - |
+| `current` | <pre>unknown</pre> | The value to update. |
+| `next` | <pre>T</pre> | The value `current` should match. It is not modified. |
 
 ### Returns
 
@@ -329,23 +380,20 @@ const result = reconcile(state, { user: { name: 'Grace' }, tags: ['a', 'b'] })
 // result === state; state.user and state.tags are the same objects, updated in place
 ```
 
-## function snapshot [↗](src/snapshot.ts#L63-L68 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L63-L68 "snapshot")
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
 ```typescript
-export declare function snapshot(
-  value: unknown,
-  seen?: WeakMap<object, object> | undefined,
-): unknown
+export declare function snapshot(value: unknown, seen?: WeakMap<object, object> | undefined): unknown;
 ```
 
 ### Parameters
 
-| Parameter | Type                                             | Description                                                                                                                                                                                                                                                                                                                                                                                       |
-| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`   | <pre>unknown</pre>                               | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                |
-| `seen`    | <pre>WeakMap\<object, object> \| undefined</pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. A supplied parameter copy that a fresh URL would need to adopt raises `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair or omit those entries. Most callers omit the memo. |
+| Parameter | Type | Description |
+| - | - | - |
+| `value` | <pre>unknown</pre> | The value to copy. |
+| `seen` | <pre>WeakMap\<object, object> \| undefined</pre> | Map from source objects already copied to their copies. Entries are used as given, without checking; the copy is detached only if every entry is a detached copy of its source. A supplied parameter copy that a fresh URL would need to adopt raises `SnapshotURLSearchParamsMemoIncompatible`; supply a consistent owner-and-parameters pair or omit those entries. Most callers omit the memo. |
 
 ### Returns
 
@@ -364,7 +412,34 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L132-L149 'ReconcileError')
+## function stringify [↗](src/stringify.ts#L20-L22 "stringify")
+
+Encodes a supported object graph as JSON text, preserving shared references and cycles.
+
+```typescript
+export declare function stringify(value: unknown): string;
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+| - | - | - |
+| `value` | <pre>unknown</pre> | The graph to encode. |
+
+### Returns
+
+JSON text representing the graph.
+
+### Throws
+
+1. [ReconcileError](#class-reconcileerror-) with type `StringifyValueUnsupported` for unsupported values.
+2. Errors from source observations or native operations, unchanged.
+
+### Remarks
+
+Plain and null-prototype records, arrays, Map, Set, Date, fixed ArrayBuffer and views, URL, URLSearchParams and available global Temporal value classes are supported. Record getters run depth first with the source as receiver; symbol keys and unsupported prototypes reject. Native values use native state and omit extra properties. Standard built-ins and prototypes must remain unmodified throughout the call, including source callbacks. The wire contains no format identifier; communicating parties must use matching versions. No size or allocation quotas are imposed. [parse](#function-parse-) restores the graph; JSON.parse alone returns the transport arrays.
+
+## class ReconcileError [↗](src/error.ts#L137-L154 "ReconcileError")
 
 The error this library throws when an operation cannot keep its contract.
 
@@ -378,7 +453,7 @@ Every failure the library detects is a `ReconcileError`. Its `cause` holds a sta
 
 The library never throws for an outcome that is part of a contract, such as `reconcile` returning `next` when a root is not an object.
 
-Three kinds of errors keep their original identity and are not wrapped: `RangeError` for an invalid array length, as native arrays throw it; errors thrown by application code that the operations reach, such as getters, setters, proxy traps and iterators; and errors the host throws when `reconcile` writes into `current`. When one of them interrupts `reconcile`, earlier writes are not rolled back.
+Native JSON syntax, constructor and allocation errors keep their original identity, as do errors from application getters, setters, proxy traps and iterators. Host errors from writes into `current` also propagate unchanged. When an error interrupts `reconcile`, earlier writes are not rolled back.
 
 ### Examples
 
@@ -402,10 +477,10 @@ constructor(cause: ReconcileErrorCause<T>, message: string);
 
 #### Parameters
 
-| Parameter | Type                                                                                        | Description                                                |
-| --------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `cause`   | <pre>[ReconcileErrorCause](#type-reconcileerrorcause- 'type ReconcileErrorCause')\<T></pre> | The error's `type` and the facts for that type.            |
-| `message` | <pre>string</pre>                                                                           | A description for people; not part of the stable contract. |
+| Parameter | Type | Description |
+| - | - | - |
+| `cause` | <pre>[ReconcileErrorCause](#type-reconcileerrorcause- "type ReconcileErrorCause")\<T></pre> | The error's `type` and the facts for that type. |
+| `message` | <pre>string</pre> | A description for people; not part of the stable contract. |
 
 ### ReconcileError.cause
 
@@ -423,32 +498,23 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L10-L23 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L10-L25 "RECONCILE_ERROR_TYPES")
 
 Every error type this library raises, named by the phase that detects it.
 
 ```typescript
-RECONCILE_ERROR_TYPES: readonly[
-  ('DraftArrayIndexRejected',
-  'DraftArrayLengthRejected',
-  'DraftDefinePropertyUnsupported',
-  'DraftIterationUnsupported',
-  'DraftWrapperIdentityChanged',
-  'DraftWrapperIteratorMismatched',
-  'FinalizationAccessorUnstable',
-  'FinalizationChildInvalid',
-  'FinalizationConstructionImpossible',
-  'FinalizationStorageMissing',
-  'PublicationRejected',
-  'SnapshotURLSearchParamsMemoIncompatible')
-]
+RECONCILE_ERROR_TYPES: readonly ["DraftArrayIndexRejected", "DraftArrayLengthRejected",
+  "DraftDefinePropertyUnsupported", "DraftIterationUnsupported", "DraftWrapperIdentityChanged",
+  "DraftWrapperIteratorMismatched", "FinalizationAccessorUnstable", "FinalizationChildInvalid",
+  "FinalizationConstructionImpossible", "FinalizationStorageMissing", "ParseInputInvalid",
+  "PublicationRejected", "SnapshotURLSearchParamsMemoIncompatible", "StringifyValueUnsupported"]
 ```
 
 ### Remarks
 
 The prefix names the phase. `Draft` types come from `produce` while the recipe runs. `Finalization` types come from `produce` after the recipe returns. `Publication` types come from `reconcile`. `Snapshot` types come from `snapshot`. After the prefix, the name states the subject and the condition, so each type names exactly one situation.
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L38-L98 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L40-L104 "ReconcileErrorMetadata")
 
 The facts each error type carries in `cause`, next to `type`.
 
@@ -466,8 +532,8 @@ An exotic source array, such as a proxy, reported an index at or beyond a non-wr
 
 ```typescript
 DraftArrayIndexRejected: {
-  index: number
-}
+  index: number;
+};
 ```
 
 ### ReconcileErrorMetadata.DraftArrayLengthRejected
@@ -476,8 +542,8 @@ An exotic source array, such as a proxy, reported a length that its other proper
 
 ```typescript
 DraftArrayLengthRejected: {
-  length: number
-}
+  length: number;
+};
 ```
 
 ### ReconcileErrorMetadata.DraftDefinePropertyUnsupported
@@ -486,8 +552,8 @@ The recipe called `Object.defineProperty`, `Object.defineProperties` or `Reflect
 
 ```typescript
 DraftDefinePropertyUnsupported: {
-  property: PropertyKey
-}
+  property: PropertyKey;
+};
 ```
 
 ### ReconcileErrorMetadata.DraftIterationUnsupported
@@ -496,8 +562,8 @@ The recipe called an iteration method on a draft `Map` or `Set`. `method` names 
 
 ```typescript
 DraftIterationUnsupported: {
-  method: DraftIterationMethod
-}
+  method: DraftIterationMethod;
+};
 ```
 
 ### ReconcileErrorMetadata.DraftWrapperIdentityChanged
@@ -505,8 +571,7 @@ DraftIterationUnsupported: {
 A reactive wrapper around a `Map` or `Set` reported an inconsistent chain of raw objects while a draft entry was being inserted.
 
 ```typescript
-DraftWrapperIdentityChanged: {
-}
+DraftWrapperIdentityChanged: {};
 ```
 
 ### ReconcileErrorMetadata.DraftWrapperIteratorMismatched
@@ -514,8 +579,7 @@ DraftWrapperIdentityChanged: {
 A reactive wrapper around a `Map` or `Set` did not return the value just inserted when it was iterated.
 
 ```typescript
-DraftWrapperIteratorMismatched: {
-}
+DraftWrapperIteratorMismatched: {};
 ```
 
 ### ReconcileErrorMetadata.FinalizationAccessorUnstable
@@ -524,8 +588,8 @@ A getter that ran after the recipe returned put a new getter into the result, wh
 
 ```typescript
 FinalizationAccessorUnstable: {
-  property: PropertyKey
-}
+  property: PropertyKey;
+};
 ```
 
 ### ReconcileErrorMetadata.FinalizationChildInvalid
@@ -534,9 +598,9 @@ Internal error: a record of the result referred to a child that does not exist. 
 
 ```typescript
 FinalizationChildInvalid: {
-  child: unknown
-  index: number
-}
+  child: unknown;
+  index: number;
+};
 ```
 
 ### ReconcileErrorMetadata.FinalizationConstructionImpossible
@@ -544,8 +608,7 @@ FinalizationChildInvalid: {
 No consistent result exists: objects the result must keep would share storage, or the new objects have no valid creation order.
 
 ```typescript
-FinalizationConstructionImpossible: {
-}
+FinalizationConstructionImpossible: {};
 ```
 
 ### ReconcileErrorMetadata.FinalizationStorageMissing
@@ -554,8 +617,18 @@ Internal error: an object that could be kept had no storage. `index` identifies 
 
 ```typescript
 FinalizationStorageMissing: {
-  index: number
-}
+  index: number;
+};
+```
+
+### ReconcileErrorMetadata.ParseInputInvalid
+
+A decoded wire value failed a structural check already performed by the parser.
+
+```typescript
+ParseInputInvalid: {
+  reason: string;
+};
 ```
 
 ### ReconcileErrorMetadata.PublicationRejected
@@ -563,8 +636,7 @@ FinalizationStorageMissing: {
 `reconcile` could not make `current` match `next`. Writes made before the failure are not rolled back.
 
 ```typescript
-PublicationRejected: {
-}
+PublicationRejected: {};
 ```
 
 ### ReconcileErrorMetadata.SnapshotURLSearchParamsMemoIncompatible
@@ -572,19 +644,28 @@ PublicationRejected: {
 A borrowed parameter copy cannot be adopted by a fresh native URL.
 
 ```typescript
-SnapshotURLSearchParamsMemoIncompatible: {
-}
+SnapshotURLSearchParamsMemoIncompatible: {};
 ```
 
-## type DraftIterationMethod [↗](src/error.ts#L29 'DraftIterationMethod')
+### ReconcileErrorMetadata.StringifyValueUnsupported
+
+A source value cannot be represented by the supported serialization profile.
+
+```typescript
+StringifyValueUnsupported: {
+  reason: string;
+};
+```
+
+## type DraftIterationMethod [↗](src/error.ts#L31 "DraftIterationMethod")
 
 Draft `Map` and `Set` methods that throw; `iterator` stands for `[Symbol.iterator]`.
 
 ```typescript
-export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' | 'values'
+export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' | 'values';
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L101-L102 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L107-L108 "ReconcileErrorCause")
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` together with that type's facts.
 
@@ -595,10 +676,10 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L26 'ReconcileErrorType')
+## type ReconcileErrorType [↗](src/error.ts#L28 "ReconcileErrorType")
 
 The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
 
 ```typescript
-export type ReconcileErrorType = (typeof RECONCILE_ERROR_TYPES)[number]
+export type ReconcileErrorType = (typeof RECONCILE_ERROR_TYPES)[number];
 ```

@@ -1,0 +1,17 @@
+{
+  "both": {
+    "gzip": 5229,
+    "minified": 13511,
+    "sha256": "988f39bc1d845ae2de05761f8f7391ae56f687fad4be77f7111d85d36c7e7689"
+  },
+  "decode": {
+    "gzip": 2819,
+    "minified": 6791,
+    "sha256": "7025509f8ff3266d4717d2fa946e7fe8a8d586110490886b3f356e3cbfae6376"
+  },
+  "encode": {
+    "gzip": 3311,
+    "minified": 8321,
+    "sha256": "d16fc953e47cd5612387280bee2a9752041c6941687704d6a0efbccb69018621"
+  }
+}

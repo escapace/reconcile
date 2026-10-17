@@ -1,0 +1,30 @@
+{
+  "complete": true,
+  "fidelityChecks": 18,
+  "outputConsumptionChecks": 9,
+  "allFidelityChecksAfterTiming": true,
+  "baselineAndCopyPayloadsIdenticalAndVariantHashesStable": true,
+  "frozenInputsUnchanged": true,
+  "identicalCallSequences": true,
+  "historyCallsPerCompleteChild": [
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64,
+    64
+  ],
+  "chunksPerCompleteChild": 28,
+  "noOverlappingChildrenInLedger": true,
+  "allChildrenExitedInLedger": true,
+  "allChildrenReaped": true,
+  "controllerEvents": {
+    "launch": 9,
+    "stopped": 117,
+    "resume": 117,
+    "exited": 9
+  }
+}

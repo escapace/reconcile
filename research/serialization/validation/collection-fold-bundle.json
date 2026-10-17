@@ -1,0 +1,9 @@
+{
+  "artifact": "/workspace/scratch/72ef0c0fe2f5/reconcile-codec-artifacts/collection-fold-both.mjs",
+  "mode": "package",
+  "esbuild": "0.28.2",
+  "baselineSha256": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5",
+  "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940",
+  "minifiedBytes": 12870,
+  "gzipLevel9Bytes": 4972
+}

@@ -1,0 +1,47 @@
+{
+  "entry": "lib/neutral/index.js",
+  "esbuild": "0.28.2",
+  "rows": [
+    {
+      "gzip": 20,
+      "minified": 0,
+      "name": "unused"
+    },
+    {
+      "gzip": 2492,
+      "minified": 6681,
+      "name": "snapshot"
+    },
+    {
+      "gzip": 9979,
+      "minified": 26042,
+      "name": "reconcile"
+    },
+    {
+      "gzip": 10457,
+      "minified": 27379,
+      "name": "snapshot+reconcile"
+    },
+    {
+      "gzip": 9438,
+      "minified": 26860,
+      "name": "produce"
+    },
+    {
+      "gzip": 10613,
+      "minified": 30094,
+      "name": "snapshot+produce"
+    },
+    {
+      "gzip": 16796,
+      "minified": 46449,
+      "name": "reconcile+produce"
+    },
+    {
+      "gzip": 17264,
+      "minified": 47778,
+      "name": "snapshot+reconcile+produce"
+    }
+  ],
+  "smoke": true
+}

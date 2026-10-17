@@ -1,0 +1,514 @@
+[
+  {
+    "elapsedMs": 119.40122500000001,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2557831290005197
+  },
+  {
+    "elapsedMs": 108.406203,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "snapshot",
+    "wallSeconds": 0.25735391399939544
+  },
+  {
+    "elapsedMs": 839.761521,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4127391830006673
+  },
+  {
+    "elapsedMs": 907.1584939999999,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "reconcile",
+    "wallSeconds": 1.5262790459992175
+  },
+  {
+    "elapsedMs": 255.76516800000002,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5358834369999386
+  },
+  {
+    "elapsedMs": 298.825742,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.566227563999746
+  },
+  {
+    "elapsedMs": 760.152803,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "produce",
+    "wallSeconds": 1.1985359010004686
+  },
+  {
+    "elapsedMs": 753.135323,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 0,
+    "scenario": "produce",
+    "wallSeconds": 1.1880428920003396
+  },
+  {
+    "elapsedMs": 119.025768,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "snapshot",
+    "wallSeconds": 0.25888536699949327
+  },
+  {
+    "elapsedMs": 116.686882,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "snapshot",
+    "wallSeconds": 0.26517943599992577
+  },
+  {
+    "elapsedMs": 886.368175,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "reconcile",
+    "wallSeconds": 1.491798349000419
+  },
+  {
+    "elapsedMs": 887.1865260000001,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4897211809993678
+  },
+  {
+    "elapsedMs": 316.816944,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5980767189994367
+  },
+  {
+    "elapsedMs": 307.526221,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5943452270003036
+  },
+  {
+    "elapsedMs": 714.9036250000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "produce",
+    "wallSeconds": 1.1351850950004518
+  },
+  {
+    "elapsedMs": 775.939476,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 1,
+    "scenario": "produce",
+    "wallSeconds": 1.223312507000628
+  },
+  {
+    "elapsedMs": 123.148034,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "snapshot",
+    "wallSeconds": 0.27696415400077967
+  },
+  {
+    "elapsedMs": 114.46496200000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2606131700003971
+  },
+  {
+    "elapsedMs": 904.661891,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "reconcile",
+    "wallSeconds": 1.6073325919996932
+  },
+  {
+    "elapsedMs": 849.523271,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4877601540001706
+  },
+  {
+    "elapsedMs": 261.16563799999994,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5754171339995082
+  },
+  {
+    "elapsedMs": 267.755666,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5304870690006283
+  },
+  {
+    "elapsedMs": 764.9423149999999,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "produce",
+    "wallSeconds": 1.1863014519994977
+  },
+  {
+    "elapsedMs": 759.2873599999999,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 2,
+    "scenario": "produce",
+    "wallSeconds": 1.2491657869995834
+  },
+  {
+    "elapsedMs": 122.57097200000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2754854000004343
+  },
+  {
+    "elapsedMs": 116.20896299999998,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "snapshot",
+    "wallSeconds": 0.263967029000014
+  },
+  {
+    "elapsedMs": 885.643207,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4613625949996276
+  },
+  {
+    "elapsedMs": 866.5729859999999,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "reconcile",
+    "wallSeconds": 1.393596484000227
+  },
+  {
+    "elapsedMs": 280.006112,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5314094129998921
+  },
+  {
+    "elapsedMs": 258.649158,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5041661289997137
+  },
+  {
+    "elapsedMs": 733.5051060000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "produce",
+    "wallSeconds": 1.1427812090005318
+  },
+  {
+    "elapsedMs": 807.033342,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 3,
+    "scenario": "produce",
+    "wallSeconds": 1.2013975090003441
+  },
+  {
+    "elapsedMs": 107.523634,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "snapshot",
+    "wallSeconds": 0.23421646499991766
+  },
+  {
+    "elapsedMs": 116.53837,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "snapshot",
+    "wallSeconds": 0.24839720199997828
+  },
+  {
+    "elapsedMs": 954.7382500000001,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "reconcile",
+    "wallSeconds": 1.5699913680000464
+  },
+  {
+    "elapsedMs": 878.2250290000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4222681979999834
+  },
+  {
+    "elapsedMs": 296.82337599999994,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5842240820002189
+  },
+  {
+    "elapsedMs": 293.89513999999997,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5664724589996695
+  },
+  {
+    "elapsedMs": 774.4877069999999,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "produce",
+    "wallSeconds": 1.2069787620002899
+  },
+  {
+    "elapsedMs": 822.451417,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 4,
+    "scenario": "produce",
+    "wallSeconds": 1.287504588000047
+  },
+  {
+    "elapsedMs": 108.367231,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2379407810003613
+  },
+  {
+    "elapsedMs": 107.990191,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2325194939994617
+  },
+  {
+    "elapsedMs": 845.3945749999999,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4502009340003497
+  },
+  {
+    "elapsedMs": 876.903432,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4534385580000162
+  },
+  {
+    "elapsedMs": 289.15366200000005,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.573475079999298
+  },
+  {
+    "elapsedMs": 283.294691,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5850617760006571
+  },
+  {
+    "elapsedMs": 783.759977,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "produce",
+    "wallSeconds": 1.261560312000256
+  },
+  {
+    "elapsedMs": 804.4573039999999,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 5,
+    "scenario": "produce",
+    "wallSeconds": 1.2197423380002874
+  },
+  {
+    "elapsedMs": 129.041229,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2623246620005375
+  },
+  {
+    "elapsedMs": 133.62195799999998,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "snapshot",
+    "wallSeconds": 0.27761314200051856
+  },
+  {
+    "elapsedMs": 940.1513469999999,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "reconcile",
+    "wallSeconds": 1.4877755309998975
+  },
+  {
+    "elapsedMs": 891.64767,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "reconcile",
+    "wallSeconds": 1.469199801999821
+  },
+  {
+    "elapsedMs": 326.49645399999997,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5651838699996006
+  },
+  {
+    "elapsedMs": 290.713672,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5716329160004534
+  },
+  {
+    "elapsedMs": 792.4594040000001,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "produce",
+    "wallSeconds": 1.219918597999822
+  },
+  {
+    "elapsedMs": 743.910933,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 6,
+    "scenario": "produce",
+    "wallSeconds": 1.1895347119998405
+  },
+  {
+    "elapsedMs": 107.99162499999998,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2345794119992206
+  },
+  {
+    "elapsedMs": 129.15653200000003,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "snapshot",
+    "wallSeconds": 0.2771609979999994
+  },
+  {
+    "elapsedMs": 923.9369360000001,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "reconcile",
+    "wallSeconds": 1.5144886689995474
+  },
+  {
+    "elapsedMs": 941.7622980000001,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "reconcile",
+    "wallSeconds": 1.5015697629996794
+  },
+  {
+    "elapsedMs": 265.359313,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5341624189995855
+  },
+  {
+    "elapsedMs": 293.80298999999997,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "reconcile-plain-object",
+    "wallSeconds": 0.5573824980001518
+  },
+  {
+    "elapsedMs": 760.678663,
+    "label": "baseline",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "produce",
+    "wallSeconds": 1.209821538000142
+  },
+  {
+    "elapsedMs": 749.946649,
+    "label": "candidate",
+    "operations": 9000,
+    "pair": 7,
+    "scenario": "produce",
+    "wallSeconds": 1.195501081000657
+  }
+]

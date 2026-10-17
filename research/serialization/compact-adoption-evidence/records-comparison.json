@@ -1,0 +1,1124 @@
+{
+  "complete": true,
+  "targets": [
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "callsPerBlock": 4,
+      "trios": [
+        {
+          "rep": 0,
+          "variants": {
+            "baseline": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 32.992227979166664,
+              "cpuMsPerOp": 33.020833333333336,
+              "threadMsPerOp": 31.976895833333334,
+              "inclusiveMsPerOp": 33.21506316666667,
+              "inclusiveCpuMsPerOp": 33.23189583333333,
+              "medianBlockMsPerOp": 28.705988,
+              "lateEarly": 0.6391492760020702,
+              "warmupLateEarly": 0.9186421343398814,
+              "warmupEpochMsPerOp": [
+                76.281995,
+                27.2294135,
+                26.48032525,
+                27.35522075,
+                33.184070500000004,
+                22.13837475,
+                32.58345175,
+                27.99709575,
+                22.57257225,
+                40.465766,
+                29.81181475,
+                29.3784295,
+                50.170106,
+                31.962943,
+                23.264748500000003,
+                23.39253475
+              ],
+              "epochMsPerOp": [
+                28.673172750000003,
+                25.9528155,
+                43.98967925,
+                81.46664025,
+                28.73880325,
+                32.710726,
+                21.90946,
+                21.916900000000002,
+                24.35025675,
+                25.24133525,
+                29.58366075,
+                31.373286
+              ],
+              "minTargetBlockMs": 87.63784,
+              "maxTargetBlockMs": 325.866561,
+              "cpuWallRange": [
+                0.9977805062546223,
+                1.004065725513407
+              ]
+            },
+            "baseline-copy": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 30.491467437500003,
+              "cpuMsPerOp": 30.499041666666667,
+              "threadMsPerOp": 29.581416666666666,
+              "inclusiveMsPerOp": 30.55884958333333,
+              "inclusiveCpuMsPerOp": 30.556375,
+              "medianBlockMsPerOp": 27.03188025,
+              "lateEarly": 0.7607831738027407,
+              "warmupLateEarly": 0.6284966600855474,
+              "warmupEpochMsPerOp": [
+                57.58524875,
+                19.3605225,
+                21.8853365,
+                33.67867325,
+                64.38067525,
+                54.18953,
+                26.62136175,
+                21.96310125,
+                20.60466775,
+                24.5820665,
+                25.093511,
+                22.45961975,
+                25.008784,
+                25.113893,
+                22.53573925,
+                22.93982425
+              ],
+              "epochMsPerOp": [
+                29.41493575,
+                27.57178125,
+                19.785218250000003,
+                23.67173525,
+                65.0066815,
+                42.353547250000005,
+                19.989138999999998,
+                26.49197925,
+                21.07009,
+                25.722794999999998,
+                33.4670695,
+                31.35263725
+              ],
+              "minTargetBlockMs": 79.140873,
+              "maxTargetBlockMs": 260.026726,
+              "cpuWallRange": [
+                0.9970157441315113,
+                1.0011278609876433
+              ]
+            },
+            "original-a": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 29.666377770833336,
+              "cpuMsPerOp": 29.675729166666667,
+              "threadMsPerOp": 28.740624999999998,
+              "inclusiveMsPerOp": 29.711434083333334,
+              "inclusiveCpuMsPerOp": 29.714270833333334,
+              "medianBlockMsPerOp": 25.719437625,
+              "lateEarly": 1.203116112824055,
+              "warmupLateEarly": 0.6606718792733923,
+              "warmupEpochMsPerOp": [
+                60.32517,
+                61.12918575,
+                32.69196175,
+                31.737650000000002,
+                40.727545250000006,
+                30.8227465,
+                28.799565750000003,
+                25.71371275,
+                24.385150499999998,
+                26.18004625,
+                25.959068,
+                22.778513999999998,
+                29.03246575,
+                28.549419750000002,
+                25.1840625,
+                24.02623925
+              ],
+              "epochMsPerOp": [
+                23.126994,
+                30.19838175,
+                25.4539955,
+                36.920328999999995,
+                24.946193,
+                20.941837500000002,
+                64.430387,
+                27.838075250000003,
+                24.872263999999998,
+                23.630741750000002,
+                25.98487975,
+                27.65245475
+              ],
+              "minTargetBlockMs": 83.76735,
+              "maxTargetBlockMs": 257.721548,
+              "cpuWallRange": [
+                1.000102637905931,
+                1.0006796955340826
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.8991929186948673,
+              "cpuMsPerOp": 0.8986971608832807,
+              "threadMsPerOp": 0.8987934648128107,
+              "inclusiveMsPerOp": 0.894516862251539,
+              "inclusiveCpuMsPerOp": 0.8941491325790798,
+              "medianBlockMsPerOp": 0.8959607181957995
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.9729403096666994,
+              "cpuMsPerOp": 0.9730052993468374,
+              "threadMsPerOp": 0.9715770317513529,
+              "inclusiveMsPerOp": 0.9722693913038476,
+              "inclusiveCpuMsPerOp": 0.9724409663559023,
+              "medianBlockMsPerOp": 0.9514483412599463
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.9242015257882615,
+              "cpuMsPerOp": 0.9236302839116719,
+              "threadMsPerOp": 0.9250871886016662,
+              "inclusiveMsPerOp": 0.920029850010973,
+              "inclusiveCpuMsPerOp": 0.9194893710924056,
+              "medianBlockMsPerOp": 0.9416808872768985
+            }
+          }
+        },
+        {
+          "rep": 1,
+          "variants": {
+            "baseline-copy": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 25.208230583333332,
+              "cpuMsPerOp": 25.219708333333333,
+              "threadMsPerOp": 24.24954166666667,
+              "inclusiveMsPerOp": 25.282277958333335,
+              "inclusiveCpuMsPerOp": 25.285833333333333,
+              "medianBlockMsPerOp": 23.9195305,
+              "lateEarly": 0.9809249897855887,
+              "warmupLateEarly": 0.7935227241490131,
+              "warmupEpochMsPerOp": [
+                57.2047315,
+                28.89977325,
+                35.49370375,
+                31.32717125,
+                40.701978000000004,
+                30.616998,
+                31.8596565,
+                23.356441750000002,
+                26.491906999999998,
+                24.1098215,
+                22.792881,
+                27.809757,
+                28.681184000000002,
+                40.9733255,
+                24.5850495,
+                26.31429525
+              ],
+              "epochMsPerOp": [
+                34.99483025,
+                19.13858775,
+                32.17824175,
+                23.633257750000002,
+                22.496561,
+                20.2643375,
+                19.233546999999998,
+                24.205803250000002,
+                28.08884125,
+                27.95300775,
+                31.216865249999998,
+                19.0948865
+              ],
+              "minTargetBlockMs": 76.379546,
+              "maxTargetBlockMs": 139.979321,
+              "cpuWallRange": [
+                1.000163410109255,
+                1.0014564057532989
+              ]
+            },
+            "original-a": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 22.571454125,
+              "cpuMsPerOp": 22.5745,
+              "threadMsPerOp": 21.7564375,
+              "inclusiveMsPerOp": 22.615785687499997,
+              "inclusiveCpuMsPerOp": 22.611625,
+              "medianBlockMsPerOp": 22.8966365,
+              "lateEarly": 1.0606385304960304,
+              "warmupLateEarly": 0.8333902863927238,
+              "warmupEpochMsPerOp": [
+                59.21144625,
+                30.218477,
+                30.40841275,
+                26.216993,
+                34.967366999999996,
+                26.293274750000002,
+                22.085818,
+                27.492517250000002,
+                31.400304499999997,
+                27.368064999999998,
+                27.949049,
+                22.75535575,
+                23.20582175,
+                26.3682785,
+                28.481215499999998,
+                26.565129250000002
+              ],
+              "epochMsPerOp": [
+                23.729729749999997,
+                21.465443999999998,
+                16.8555145,
+                22.075060750000002,
+                23.7170025,
+                23.60070425,
+                17.977348999999997,
+                20.373630249999998,
+                22.19256875,
+                25.11742075,
+                26.62330525,
+                27.12971975
+              ],
+              "minTargetBlockMs": 67.422058,
+              "maxTargetBlockMs": 108.518879,
+              "cpuWallRange": [
+                0.9968521846099481,
+                1.0012373583382361
+              ]
+            },
+            "baseline": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 21.006034041666666,
+              "cpuMsPerOp": 21.018166666666666,
+              "threadMsPerOp": 20.230666666666668,
+              "inclusiveMsPerOp": 21.051955520833335,
+              "inclusiveCpuMsPerOp": 21.055083333333332,
+              "medianBlockMsPerOp": 21.380885625,
+              "lateEarly": 0.9269288272357057,
+              "warmupLateEarly": 1.0588203962162113,
+              "warmupEpochMsPerOp": [
+                45.63670175,
+                22.5908895,
+                23.582278,
+                23.03666475,
+                24.26901675,
+                23.008748999999998,
+                21.49566475,
+                19.898058499999998,
+                27.96333225,
+                26.343079000000003,
+                28.54358825,
+                25.35667825,
+                23.863498749999998,
+                26.210535500000002,
+                25.739607,
+                31.46871475
+              ],
+              "epochMsPerOp": [
+                23.593070500000003,
+                23.21414675,
+                19.222457,
+                20.653285500000003,
+                21.850557000000002,
+                22.28211325,
+                21.92262125,
+                18.58171375,
+                20.91121425,
+                22.666738000000002,
+                20.883344249999997,
+                16.291147000000002
+              ],
+              "minTargetBlockMs": 65.164588,
+              "maxTargetBlockMs": 94.372282,
+              "cpuWallRange": [
+                1.0002909665740816,
+                1.0016702576746992
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 1.0745224005744365,
+              "cpuMsPerOp": 1.0740470545321905,
+              "threadMsPerOp": 1.0754187125156527,
+              "inclusiveMsPerOp": 1.0742843183911857,
+              "inclusiveCpuMsPerOp": 1.073927119737514,
+              "medianBlockMsPerOp": 1.0708928012424181
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 0.8954001769534485,
+              "cpuMsPerOp": 0.89511344467703,
+              "threadMsPerOp": 0.8971896376048344,
+              "inclusiveMsPerOp": 0.8945311702043671,
+              "inclusiveCpuMsPerOp": 0.894240846323699,
+              "medianBlockMsPerOp": 0.9572360335417118
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 1.200047116620461,
+              "cpuMsPerOp": 1.199900482915573,
+              "threadMsPerOp": 1.198652623080472,
+              "inclusiveMsPerOp": 1.2009467687366908,
+              "inclusiveCpuMsPerOp": 1.2009372241857668,
+              "medianBlockMsPerOp": 1.1187343180972653
+            }
+          }
+        },
+        {
+          "rep": 2,
+          "variants": {
+            "original-a": {
+              "role": "A",
+              "initializationPosition": 0,
+              "wallMsPerOp": 22.94545910416667,
+              "cpuMsPerOp": 22.95220833333333,
+              "threadMsPerOp": 22.161854166666668,
+              "inclusiveMsPerOp": 23.002130104166667,
+              "inclusiveCpuMsPerOp": 23.004270833333333,
+              "medianBlockMsPerOp": 22.23800525,
+              "lateEarly": 1.2562495202907693,
+              "warmupLateEarly": 0.6728806952449268,
+              "warmupEpochMsPerOp": [
+                53.10031025,
+                50.267733500000006,
+                30.981537250000002,
+                28.6807035,
+                40.6021335,
+                42.20564375,
+                40.10275625,
+                29.52869725,
+                26.735374500000002,
+                25.38373775,
+                26.78498575,
+                22.366615499999998,
+                26.145882750000002,
+                27.563183249999998,
+                28.80767675,
+                28.4858905
+              ],
+              "epochMsPerOp": [
+                21.46109225,
+                19.348950499999997,
+                19.19858325,
+                18.59298775,
+                21.62125575,
+                21.813947250000002,
+                26.03945625,
+                22.66206325,
+                27.357845249999997,
+                23.93865825,
+                23.915048249999998,
+                29.39562125
+              ],
+              "minTargetBlockMs": 74.371951,
+              "maxTargetBlockMs": 117.582485,
+              "cpuWallRange": [
+                0.9986011096805787,
+                1.000896341674247
+              ]
+            },
+            "baseline": {
+              "role": "B",
+              "initializationPosition": 1,
+              "wallMsPerOp": 27.208495666666668,
+              "cpuMsPerOp": 27.187979166666665,
+              "threadMsPerOp": 26.2920625,
+              "inclusiveMsPerOp": 27.277790624999998,
+              "inclusiveCpuMsPerOp": 27.24325,
+              "medianBlockMsPerOp": 22.277068625,
+              "lateEarly": 1.3684562822302402,
+              "warmupLateEarly": 0.7322133023647405,
+              "warmupEpochMsPerOp": [
+                48.482969,
+                23.93161,
+                22.4675215,
+                23.146825,
+                29.094609499999997,
+                24.629569,
+                28.128759249999998,
+                18.000386,
+                17.966448,
+                16.69361525,
+                16.7467915,
+                17.6049695,
+                20.1819615,
+                20.3182,
+                25.02072025,
+                25.00357525
+              ],
+              "epochMsPerOp": [
+                33.33241,
+                21.5547475,
+                18.50769225,
+                17.57616425,
+                24.92498075,
+                21.95833275,
+                21.755186249999998,
+                20.042933249999997,
+                22.5958045,
+                23.48262725,
+                22.683734,
+                78.08733525000001
+              ],
+              "minTargetBlockMs": 70.304657,
+              "maxTargetBlockMs": 312.349341,
+              "cpuWallRange": [
+                0.9962338931267346,
+                1.0005164204089247
+              ]
+            },
+            "baseline-copy": {
+              "role": "C",
+              "initializationPosition": 2,
+              "wallMsPerOp": 21.56529775,
+              "cpuMsPerOp": 21.580520833333335,
+              "threadMsPerOp": 20.57825,
+              "inclusiveMsPerOp": 21.65802652083333,
+              "inclusiveCpuMsPerOp": 21.657979166666667,
+              "medianBlockMsPerOp": 21.253124999999997,
+              "lateEarly": 1.0434415194850717,
+              "warmupLateEarly": 0.7981000743970614,
+              "warmupEpochMsPerOp": [
+                39.69226525,
+                19.7538475,
+                27.194920999999997,
+                24.40182325,
+                26.77666275,
+                24.4257445,
+                29.610985499999998,
+                20.76370725,
+                23.462078249999998,
+                24.04437575,
+                24.41984,
+                20.13754275,
+                19.2726905,
+                18.2231265,
+                18.369332,
+                21.76301775
+              ],
+              "epochMsPerOp": [
+                25.010330000000003,
+                22.730917,
+                19.01804375,
+                18.11765675,
+                18.49293775,
+                23.271161499999998,
+                20.250004,
+                21.05424275,
+                23.801105,
+                24.5309245,
+                21.156895,
+                21.349355
+              ],
+              "minTargetBlockMs": 72.470627,
+              "maxTargetBlockMs": 100.04132,
+              "cpuWallRange": [
+                0.9984074580383385,
+                1.0031216399746035
+              ]
+            }
+          },
+          "ratios": {
+            "AoverBaseline": {
+              "wallMsPerOp": 0.8433196522613091,
+              "cpuMsPerOp": 0.8442042783920283,
+              "threadMsPerOp": 0.8429104474655295,
+              "inclusiveMsPerOp": 0.8432548816136632,
+              "inclusiveCpuMsPerOp": 0.8444025890205219,
+              "medianBlockMsPerOp": 0.9982464759768186
+            },
+            "AoverCopy": {
+              "wallMsPerOp": 1.0639991791519163,
+              "cpuMsPerOp": 1.0635613714142285,
+              "threadMsPerOp": 1.0769552399580464,
+              "inclusiveMsPerOp": 1.0620602981550702,
+              "inclusiveCpuMsPerOp": 1.0621614628173026,
+              "medianBlockMsPerOp": 1.0463404911042495
+            },
+            "CopyOverBaseline": {
+              "wallMsPerOp": 0.7925942696060116,
+              "cpuMsPerOp": 0.7937522940208718,
+              "threadMsPerOp": 0.7826791831184792,
+              "inclusiveMsPerOp": 0.7939802317048298,
+              "inclusiveCpuMsPerOp": 0.7949851492265668,
+              "medianBlockMsPerOp": 0.9540359801266267
+            }
+          }
+        }
+      ],
+      "geomeans": {
+        "AoverBaseline": {
+          "wallMsPerOp": 0.9340142974443173,
+          "cpuMsPerOp": 0.934031254864568,
+          "threadMsPerOp": 0.9339844462025354,
+          "inclusiveMsPerOp": 0.9322996989878918,
+          "inclusiveCpuMsPerOp": 0.9324912711564133,
+          "medianBlockMsPerOp": 0.9857291159262077
+        },
+        "AoverCopy": {
+          "wallMsPerOp": 0.9750230630774807,
+          "cpuMsPerOp": 0.9748069429996613,
+          "threadMsPerOp": 0.9791586104826047,
+          "inclusiveMsPerOp": 0.9738911562729218,
+          "inclusiveCpuMsPerOp": 0.9738739817997424,
+          "medianBlockMsPerOp": 0.9840694765374768
+        },
+        "CopyOverBaseline": {
+          "wallMsPerOp": 0.9579407224443216,
+          "cpuMsPerOp": 0.9581704988583493,
+          "threadMsPerOp": 0.9538643037027434,
+          "inclusiveMsPerOp": 0.9572935260607556,
+          "inclusiveCpuMsPerOp": 0.9575071195896897,
+          "medianBlockMsPerOp": 1.0016865063171865
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 27.312994125,
+      "cpuMsPerOp": 27.377625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 62.72815975,
+      "cpuMsPerOp": 62.793625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 30.724764625,
+      "cpuMsPerOp": 30.771375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 21.91318,
+      "cpuMsPerOp": 21.92475
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 4,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 24.795796,
+      "cpuMsPerOp": 24.80675
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 5,
+      "variant": "baseline",
+      "role": "A",
+      "wallMsPerOp": 30.478473375,
+      "cpuMsPerOp": 30.450875
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 28.4933585,
+      "cpuMsPerOp": 28.457375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 21.72847675,
+      "cpuMsPerOp": 21.7375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 53.680114375,
+      "cpuMsPerOp": 53.722375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 23.240559125,
+      "cpuMsPerOp": 23.2505
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 4,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 23.3964425,
+      "cpuMsPerOp": 23.406125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 5,
+      "variant": "baseline-copy",
+      "role": "B",
+      "wallMsPerOp": 32.409853375,
+      "cpuMsPerOp": 32.420375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 26.662687875,
+      "cpuMsPerOp": 26.67325
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 31.18716225,
+      "cpuMsPerOp": 31.19625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 22.94401525,
+      "cpuMsPerOp": 22.954125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 46.134231125,
+      "cpuMsPerOp": 46.13925
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 4,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 24.251502875,
+      "cpuMsPerOp": 24.261375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 0,
+      "cycle": 5,
+      "variant": "original-a",
+      "role": "C",
+      "wallMsPerOp": 26.81866725,
+      "cpuMsPerOp": 26.830125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 27.066709,
+      "cpuMsPerOp": 27.077125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 27.90574975,
+      "cpuMsPerOp": 27.913375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 21.38044925,
+      "cpuMsPerOp": 21.389
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 21.719675125,
+      "cpuMsPerOp": 21.7295
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 4,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 28.0209245,
+      "cpuMsPerOp": 28.046375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 5,
+      "variant": "baseline-copy",
+      "role": "A",
+      "wallMsPerOp": 25.155875875,
+      "cpuMsPerOp": 25.162875
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 22.597586875,
+      "cpuMsPerOp": 22.60825
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 19.465287625,
+      "cpuMsPerOp": 19.475
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 23.658853375,
+      "cpuMsPerOp": 23.668375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 19.175489625,
+      "cpuMsPerOp": 19.180125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 4,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 23.65499475,
+      "cpuMsPerOp": 23.675625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 5,
+      "variant": "original-a",
+      "role": "B",
+      "wallMsPerOp": 26.8765125,
+      "cpuMsPerOp": 26.839625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 23.403608625,
+      "cpuMsPerOp": 23.414
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 19.93787125,
+      "cpuMsPerOp": 19.946375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 22.066335125,
+      "cpuMsPerOp": 22.07625
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 20.2521675,
+      "cpuMsPerOp": 20.270875
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 4,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 21.788976125,
+      "cpuMsPerOp": 21.806125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 1,
+      "cycle": 5,
+      "variant": "baseline",
+      "role": "C",
+      "wallMsPerOp": 18.587245625,
+      "cpuMsPerOp": 18.595375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 0,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 20.405021375,
+      "cpuMsPerOp": 20.414
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 1,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 18.8957855,
+      "cpuMsPerOp": 18.907875
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 2,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 21.7176015,
+      "cpuMsPerOp": 21.73225
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 3,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 24.35075975,
+      "cpuMsPerOp": 24.364125
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 4,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 25.64825175,
+      "cpuMsPerOp": 25.65525
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 5,
+      "variant": "original-a",
+      "role": "A",
+      "wallMsPerOp": 26.65533475,
+      "cpuMsPerOp": 26.63975
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 0,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 27.44357875,
+      "cpuMsPerOp": 27.438375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 1,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 18.04192825,
+      "cpuMsPerOp": 18.050375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 2,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 23.44165675,
+      "cpuMsPerOp": 23.43925
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 3,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 20.89905975,
+      "cpuMsPerOp": 20.907375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 4,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 23.039215875,
+      "cpuMsPerOp": 23.049
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 5,
+      "variant": "baseline",
+      "role": "B",
+      "wallMsPerOp": 50.385534625,
+      "cpuMsPerOp": 50.2435
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 0,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 23.8706235,
+      "cpuMsPerOp": 23.859
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 1,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 18.56785025,
+      "cpuMsPerOp": 18.5775
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 2,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 20.882049625,
+      "cpuMsPerOp": 20.892375
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 3,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 20.652123375,
+      "cpuMsPerOp": 20.662
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 4,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 24.16601475,
+      "cpuMsPerOp": 24.201
+    },
+    {
+      "scenario": "records-10k",
+      "op": "encode",
+      "rep": 2,
+      "cycle": 5,
+      "variant": "baseline-copy",
+      "role": "C",
+      "wallMsPerOp": 21.253125,
+      "cpuMsPerOp": 21.29125
+    }
+  ],
+  "scope": "Three independent records-only baseline/copy/A trios; no decoder before timing or native controls"
+}

@@ -1,0 +1,232 @@
+{
+  "seed": 20261023,
+  "clusterOrder": [
+    [
+      "hole-last",
+      1
+    ],
+    [
+      "hole-first",
+      1
+    ],
+    [
+      "records-10k",
+      0
+    ],
+    [
+      "strings-10k",
+      0
+    ],
+    [
+      "binary-1m",
+      1
+    ],
+    [
+      "undefined-10k",
+      0
+    ],
+    [
+      "records-small",
+      1
+    ],
+    [
+      "mixed-10k",
+      1
+    ],
+    [
+      "cycle-300",
+      1
+    ],
+    [
+      "records-small",
+      0
+    ],
+    [
+      "hole-last",
+      0
+    ],
+    [
+      "undefined-10k",
+      1
+    ],
+    [
+      "scalar-boundaries",
+      0
+    ],
+    [
+      "deep-2000",
+      0
+    ],
+    [
+      "dates-2k",
+      0
+    ],
+    [
+      "views-shared",
+      0
+    ],
+    [
+      "deep-200",
+      1
+    ],
+    [
+      "deep-2000",
+      1
+    ],
+    [
+      "dense-dag",
+      0
+    ],
+    [
+      "url-linked",
+      1
+    ],
+    [
+      "numeric-10k",
+      0
+    ],
+    [
+      "strings-10k",
+      1
+    ],
+    [
+      "url-linked",
+      0
+    ],
+    [
+      "temporal-exact",
+      1
+    ],
+    [
+      "views-shared",
+      1
+    ],
+    [
+      "rich",
+      1
+    ],
+    [
+      "records-1k",
+      0
+    ],
+    [
+      "deep-200",
+      0
+    ],
+    [
+      "binary-1m",
+      0
+    ],
+    [
+      "records-10k",
+      1
+    ],
+    [
+      "records-1k",
+      1
+    ],
+    [
+      "dag-2k",
+      1
+    ],
+    [
+      "dates-2k",
+      1
+    ],
+    [
+      "mixed-10k",
+      0
+    ],
+    [
+      "rich",
+      0
+    ],
+    [
+      "numeric-10k",
+      1
+    ],
+    [
+      "collections",
+      1
+    ],
+    [
+      "hole-first",
+      0
+    ],
+    [
+      "dense-dag",
+      1
+    ],
+    [
+      "collections",
+      0
+    ],
+    [
+      "temporal-exact",
+      0
+    ],
+    [
+      "dag-2k",
+      0
+    ],
+    [
+      "scalar-boundaries",
+      1
+    ],
+    [
+      "cycle-300",
+      0
+    ]
+  ],
+  "allowedCPUs": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "workerPinnedCPU": 4,
+  "cpuMax": "400000 100000",
+  "warmupSegments": 3,
+  "warmupSegmentMs": 50,
+  "timedBlocks": 6,
+  "blockMs": 40,
+  "WilliamsRows": [
+    [
+      0,
+      1,
+      3,
+      2
+    ],
+    [
+      1,
+      2,
+      0,
+      3
+    ],
+    [
+      2,
+      3,
+      1,
+      0
+    ],
+    [
+      3,
+      0,
+      2,
+      1
+    ]
+  ],
+  "independentClustersPerFixture": 2,
+  "isolatedArmsPerCluster": 4,
+  "copiesEqual": true,
+  "acceptance": "Target gain in both independent clusters beyond exact-control variation. Rest slowdowns unresolved against controls are NOT unconditional passes. Unstable controls mean unsuitable evidence; no retry loop.",
+  "hashes": {
+    "worker.mjs": "c51431bf6388cfa105a47c949c40a2179d4491007b60885290d97f189c004092",
+    "corpus.mjs": "b7756ad61f2ac77ffeb171b1025587f5f0c970d347d6b3814bc394fb5f24ea4e",
+    "baseline-copy-both.mjs": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b",
+    "baseline-both.mjs": "3a75b3bdce0d5961ef0a989d191322381396683891ea89d28d9f74ee018e1b6b",
+    "a-both.mjs": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5",
+    "a-copy-both.mjs": "218de9f318878b400f63d6c2ea39eaa494ad7606537cd0b195eb8c1316244ad5"
+  }
+}

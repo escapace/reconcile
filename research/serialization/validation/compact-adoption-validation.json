@@ -1,0 +1,12 @@
+{
+  "command": [
+    "bash",
+    "-c",
+    "\nset -e\npnpm typecheck\nnode --import tsx scripts/build.ts\npnpm test\npnpm exec fallow --changed-since HEAD --fail-on-issues\npnpm exec eslint src/serialization/encode.ts src/serialization/parse.ts src/serialization/frames.ts src/serialization/facets/native.ts src/__tests__/serialization.spec.ts src/__tests__/sparse-codec.spec.ts scripts/check-serialization-lean.ts\npnpm exec ls-lint --config .ls-lint.yaml\npnpm exec vitest --no-watch --config vitest-library.config.ts src/__tests__/serialization.spec.ts src/__tests__/sparse-codec.spec.ts\nlake build --wfail\nnode --harmony-temporal --import tsx scripts/check-lean.ts\nnode --harmony-temporal research/serialization/scalar-wire-review/check.mjs \"$PWD/lib/neutral/index.js\" A\n"
+  ],
+  "budgetSeconds": 295,
+  "elapsedSeconds": 270.923794301998,
+  "status": "passed",
+  "exitCode": 0,
+  "diagnostic": null
+}

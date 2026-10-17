@@ -1,0 +1,53 @@
+{
+  "arms": {
+    "baseline": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "copy": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/copy/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    }
+  },
+  "corpus_sha256": "7d26bb79cef9d015030d414abf2c7092a41c2572040ec586e00958c38fcfe8b9",
+  "fixtures": [
+    "scalar-boundaries",
+    "strings-10k",
+    "numeric-10k",
+    "undefined-10k",
+    "mixed-10k",
+    "records-small",
+    "records-1k",
+    "records-10k",
+    "dag-2k",
+    "dense-dag",
+    "cycle-300",
+    "deep-200",
+    "deep-2000",
+    "collections",
+    "dates-2k",
+    "rich",
+    "views-shared",
+    "binary-1m",
+    "url-linked",
+    "temporal-exact",
+    "hole-first",
+    "hole-last",
+    "unicode-10k",
+    "long-strings",
+    "small-collections",
+    "set-shared",
+    "map-object-keys",
+    "records-wide",
+    "records-varied",
+    "nested-arrays",
+    "sparse-big"
+  ],
+  "loadavg_start": [0.2978515625, 0.54736328125, 0.40869140625],
+  "manifest_sha256": "fdb25a5e30a5871ea4a12699e478878e03c7d57cf0417f2c9e6d6da1b0d17b6c",
+  "mode": "isolated",
+  "node": "v24.22.0",
+  "reps": 3,
+  "seed": 11,
+  "worker_sha256": "61c11ed27ba6208819118e14e60bc6ce0d851d8caa4cd4a976718d004e1e65c7"
+}

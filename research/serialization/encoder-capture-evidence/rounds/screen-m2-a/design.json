@@ -1,0 +1,30 @@
+{
+  "arms": {
+    "baseline": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "m2": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m2-trie/codec.mjs",
+      "sha256": "6fd7fc34e39e701cc825f8f7a7f89bcb5fb030bb8f6f575a24c7dc49d59cfa06"
+    }
+  },
+  "corpus_sha256": "7d26bb79cef9d015030d414abf2c7092a41c2572040ec586e00958c38fcfe8b9",
+  "fixtures": [
+    "records-1k",
+    "records-wide",
+    "records-varied",
+    "deep-200",
+    "dag-2k",
+    "set-shared",
+    "map-object-keys",
+    "small-collections"
+  ],
+  "loadavg_start": [0.400390625, 0.6123046875, 0.48779296875],
+  "manifest_sha256": "fdb25a5e30a5871ea4a12699e478878e03c7d57cf0417f2c9e6d6da1b0d17b6c",
+  "mode": "isolated",
+  "node": "v24.22.0",
+  "reps": 2,
+  "seed": 5,
+  "worker_sha256": "3e200267a00f2a16a551992324e84da3bb9d1aa4fc565031ae23ef7fa703dc50"
+}

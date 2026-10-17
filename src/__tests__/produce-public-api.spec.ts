@@ -4,25 +4,29 @@ import { createEngine } from '../engine'
 
 const { produce } = API
 
-describe('three-operation public API', () => {
-  it('exports the three operations and the error surface', () => {
+describe('public API', () => {
+  it('exports graph and serialization operations and the error surface', () => {
     expect(Object.keys(API).sort()).toEqual([
       'RECONCILE_ERROR_TYPES',
       'ReconcileError',
       'isReconcileError',
       'isReconcileErrorOfType',
+      'parse',
       'produce',
       'reconcile',
       'snapshot',
+      'stringify',
     ])
     expectTypeOf<keyof typeof API>().toEqualTypeOf<
       | 'isReconcileError'
       | 'isReconcileErrorOfType'
+      | 'parse'
       | 'produce'
       | 'RECONCILE_ERROR_TYPES'
       | 'reconcile'
       | 'ReconcileError'
       | 'snapshot'
+      | 'stringify'
     >()
   })
 

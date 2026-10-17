@@ -1,0 +1,59 @@
+{
+  "arms": {
+    "baseline": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "copy": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/copy/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "final": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/final2/codec.mjs",
+      "sha256": "988f39bc1d845ae2de05761f8f7391ae56f687fad4be77f7111d85d36c7e7689"
+    }
+  },
+  "corpus_sha256": "b138b4c386e8ac9800309889a7e68196124da2b399b0a5cd0542a245d996f926",
+  "fixtures": [
+    "scalar-boundaries",
+    "strings-10k",
+    "numeric-10k",
+    "undefined-10k",
+    "mixed-10k",
+    "records-small",
+    "records-1k",
+    "records-10k",
+    "dag-2k",
+    "dense-dag",
+    "cycle-300",
+    "deep-200",
+    "deep-2000",
+    "collections",
+    "dates-2k",
+    "rich",
+    "views-shared",
+    "binary-1m",
+    "url-linked",
+    "temporal-exact",
+    "hole-first",
+    "hole-last",
+    "unicode-10k",
+    "long-strings",
+    "small-collections",
+    "set-shared",
+    "map-object-keys",
+    "records-wide",
+    "records-varied",
+    "nested-arrays",
+    "sparse-big",
+    "dict-10k",
+    "dict-records"
+  ],
+  "loadavg_start": [0.83154296875, 0.828125, 0.75537109375],
+  "manifest_sha256": "93d530078ce0ceffc48c55953b7456c9e41eaed1be82343438eeb37471c3d5cf",
+  "mode": "isolated",
+  "node": "v24.22.0",
+  "reps": 3,
+  "seed": 404,
+  "worker_sha256": "3e200267a00f2a16a551992324e84da3bb9d1aa4fc565031ae23ef7fa703dc50"
+}
