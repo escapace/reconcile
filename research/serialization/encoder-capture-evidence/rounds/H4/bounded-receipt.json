@@ -1,0 +1,23 @@
+{
+  "budgetSeconds": 295,
+  "command": [
+    "python3",
+    "runner.py",
+    "--arms",
+    "baseline=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs,copy=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/copy/codec.mjs,final=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/final2/codec.mjs",
+    "--manifest",
+    "manifest-v2.json",
+    "--mode",
+    "history",
+    "--reps",
+    "4",
+    "--seed",
+    "505",
+    "--out",
+    "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/H4"
+  ],
+  "diagnostic": null,
+  "elapsedSeconds": 212.4201030889999,
+  "exitCode": 0,
+  "status": "passed"
+}

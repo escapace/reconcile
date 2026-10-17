@@ -6,7 +6,7 @@ them. Read it to learn what a proof guarantees, which model covers your code, an
 add a model. Project-wide commands and budgets are in the
 [development workflow](../docs/development.md).
 
-The serialization codec also has [compact scalar proofs and a runtime bridge](Serialization/COMPACT.md). Its active wire uses integer layout A; the retained half-integer layout is inactive research.
+The serialization codec also has [compact scalar proofs and a runtime bridge](Serialization/COMPACT.md). Its encoder traversal, direct array rows and shape trie are covered by [encoder proofs](Serialization/ENCODER.md). Its active wire uses integer layout A; the retained half-integer layout is inactive research.
 
 ## What the proofs cover
 

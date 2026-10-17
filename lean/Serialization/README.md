@@ -5,6 +5,10 @@ The active codec uses integer layout A: scalar −1 through −5 for special val
 The [collection reconstruction proof and native bridge](COLLECTION.md) cover repeated
 Map keys and Set members, native insertion order and every attempted token read.
 
+The [encoder traversal, direct-row and shape-trie proofs](ENCODER.md) cover in-place child
+tokenization, the array row layout and per-call shape interning, with their runtime
+correspondence obligations.
+
 # Three-component document and inline reconstruction checks
 
 `Reconstruction.lean` was checked before the corresponding runtime parser changes. It imports existing finite graph definitions without altering retained proofs. The document model is exactly `(root, shapes, nodes)` with no format identifier. The proof adds no arbitrary quotas, timers, counters or separate validation pass.
@@ -57,7 +61,7 @@ Run `pnpm check:lean` from the repository root. The existing 295-second complete
 
 `Serialization` is a shared oracle family: its input is a JSON array of `{ "wire": [root, shapes, nodes] }` requests, and its output is a JSON array of results. `scripts/check-serialization-lean.ts` sends 99 actual typed `stringify` documents, compares normalized ordered graph models with independent source traversal, and parses the Lean-emitted documents with the actual typed `parse`. The corpus includes deterministic cyclic/shared graphs, null records, sparse arrays, dangerous property names and special scalar values. It also checks malformed documents and an unused malformed shape.
 
-The retained `Codec` and `Roots` modules prove finite table/token round trips, ordered dictionary expansion, and primitive-only roots. `Scalar` proves collision-free scalar reference encoding in an exact rational model. `DFS` proves recursive static observation traces refine the explicit stack, with unique memo entries; `Refinement` proves indexed continuation lowering, synchronous leaf contraction and dense-first accumulation. These statements are unchanged from the checked prototypes. One flexible `simp` invocation was spelled `simp only` to satisfy the repository warning gate.
+The retained `Codec` and `Roots` modules prove finite table/token round trips, ordered dictionary expansion, and primitive-only roots. `Scalar` proves collision-free scalar reference encoding in an exact rational model. `DFS` proves recursive static observation traces refine the explicit stack, with unique memo entries; `Refinement` proves indexed continuation lowering, synchronous leaf contraction and dense-first accumulation. These statements are unchanged from the checked prototypes. `Inline` and `ShapeRadix` add the in-place traversal, direct rows and active path-compressed shape trie; the per-key `ShapeTrie` is retained inactive. See [ENCODER.md](ENCODER.md). One flexible `simp` invocation was spelled `simp only` to satisfy the repository warning gate.
 
 The structural oracle executes the actual retained token/node decode and encode definitions, shape checks and sparse reconstruction definitions. It does not execute the whole `Graph.encode` table constructor or the DFS refinement model; those proofs are separately checked. The finite graph differential test connects imported/exported models to actual runtime values, but the handwritten JSON importer and emitter are not mechanically proved correct. Getter/iterator side effects, abrupt completion cleanup, native identity allocation and internal slots remain runtime test obligations. No whole-library verification claim follows.
 

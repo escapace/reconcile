@@ -14,15 +14,15 @@ export interface Decoder {
 export interface EncodeContext {
   hasBuffers: boolean
   ids: Map<object, number>
+  stack: Frame[]
   owner: (parameters: number, owner: number) => void
   shape: (keys: string[]) => number
+  token: (item: unknown) => unknown
 }
 export interface Frame {
   active: boolean
   child: unknown
-  count: number
   dense: boolean
-  entries: unknown[]
   id: number
   index: number
   input: unknown

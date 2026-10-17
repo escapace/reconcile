@@ -1,0 +1,37 @@
+{
+  "arms": {
+    "baseline": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs",
+      "sha256": "09ffefd239e243f3e8662b7858b6ed331187088830a21659cfe69de5e2735940"
+    },
+    "m3": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m3-kind/codec.mjs",
+      "sha256": "8a7dfe84324c6abb4619ad6c40348528ae07fa6fa8e26b9caf500c0e76c1589c"
+    },
+    "m5": {
+      "path": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/m5-mono/codec.mjs",
+      "sha256": "104782100a85858486142d9e9e34f9e2c8eab5c62f3b16b0417ab0d303022aca"
+    }
+  },
+  "corpus_sha256": "7d26bb79cef9d015030d414abf2c7092a41c2572040ec586e00958c38fcfe8b9",
+  "fixtures": [
+    "records-1k",
+    "deep-200",
+    "dag-2k",
+    "collections",
+    "set-shared",
+    "map-object-keys",
+    "small-collections",
+    "cycle-300",
+    "rich",
+    "dates-2k",
+    "url-linked"
+  ],
+  "loadavg_start": [0.748046875, 0.62841796875, 0.5126953125],
+  "manifest_sha256": "fdb25a5e30a5871ea4a12699e478878e03c7d57cf0417f2c9e6d6da1b0d17b6c",
+  "mode": "isolated",
+  "node": "v24.22.0",
+  "reps": 2,
+  "seed": 7,
+  "worker_sha256": "3e200267a00f2a16a551992324e84da3bb9d1aa4fc565031ae23ef7fa703dc50"
+}

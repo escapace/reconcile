@@ -80,6 +80,126 @@ describe('serialization', () => {
     expect(2 in result).toBe(true)
   })
 
+  it('observes proxies, holes, Map entries and growing arrays in source order', () => {
+    const log: string[] = []
+    const spy = <T extends object>(target: T, label: string): T =>
+      new Proxy(target, {
+        get(object, key, receiver) {
+          log.push(`get ${label}.${String(key)}`)
+          return Reflect.get(object, key, receiver) as unknown
+        },
+        getPrototypeOf(object) {
+          log.push(`proto ${label}`)
+          return Reflect.getPrototypeOf(object)
+        },
+        has(object, key) {
+          log.push(`has ${label}.${String(key)}`)
+          return Reflect.has(object, key)
+        },
+        ownKeys(object) {
+          log.push(`ownKeys ${label}`)
+          return Reflect.ownKeys(object)
+        },
+      })
+    // eslint-disable-next-line no-sparse-arrays -- The hole is the observed case.
+    const nested = spy({ a: spy([1, , spy({ b: 2 }, 'inner')], 'list'), c: 3 }, 'root')
+    expect(stringify(nested)).toBe('[-6,[["a","c"],["b"]],[[0,0,-7,3],[3,3,0,1,2,-8],[0,1,2]]]')
+    expect(log).toEqual([
+      'proto root',
+      'ownKeys root',
+      'get root.a',
+      'proto list',
+      'get list.length',
+      'get list.length',
+      'has list.0',
+      'get list.0',
+      'get list.length',
+      'has list.1',
+      'get list.length',
+      'has list.2',
+      'get list.2',
+      'proto inner',
+      'ownKeys inner',
+      'get inner.b',
+      'ownKeys inner',
+      'get list.length',
+      'get root.c',
+      'ownKeys root',
+    ])
+
+    log.length = 0
+    const failure = new Error('key')
+    const map = new Map()
+    let step = 0
+    const entries = [
+      [
+        {
+          get k() {
+            log.push('key getter')
+            return 1
+          },
+        },
+        {
+          get v() {
+            log.push('value getter')
+            return 2
+          },
+        },
+      ],
+      [
+        {
+          get k() {
+            log.push('throwing key')
+            throw failure
+          },
+        },
+        3,
+      ],
+    ]
+    map.entries = () =>
+      ({
+        next() {
+          log.push('next')
+          return step < entries.length ? { done: false, value: entries[step++] } : { done: true }
+        },
+        return() {
+          log.push('return')
+          return {}
+        },
+        [Symbol.iterator]() {
+          return this
+        },
+      }) as unknown as MapIterator<[unknown, unknown]>
+    expect(() => stringify(map)).toThrow(failure)
+    expect(log).toEqual(['next', 'key getter', 'value getter', 'next', 'throwing key', 'return'])
+
+    log.length = 0
+    const list: unknown[] = [1]
+    list.push({
+      get grow() {
+        log.push('grow')
+        list.push('tail')
+        return 2
+      },
+    })
+    expect(stringify(spy(list, 'list'))).toBe('[-6,[["grow"]],[[2,3,1,-7,"tail"],[0,0,2]]]')
+    expect(log).toEqual([
+      'proto list',
+      'get list.length',
+      'get list.length',
+      'has list.0',
+      'get list.0',
+      'get list.length',
+      'has list.1',
+      'get list.1',
+      'grow',
+      'get list.length',
+      'has list.2',
+      'get list.2',
+      'get list.length',
+    ])
+  })
+
   it('defines dangerous record keys as data without polluting prototypes', () => {
     const source = Object.create(null) as Record<string, unknown>
     Object.defineProperty(source, '__proto__', { enumerable: true, value: { polluted: true } })

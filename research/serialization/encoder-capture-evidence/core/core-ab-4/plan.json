@@ -1,0 +1,39 @@
+{
+  "batches": 60,
+  "bundles": {
+    "baseline": {
+      "produce": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/baseline/produce/reconcile-profile-0xXiwZ/harness.mjs",
+      "reconcile": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/baseline/reconcile/reconcile-profile-EWIlFM/harness.mjs",
+      "reconcile-plain-object": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/baseline/reconcile-plain-object/reconcile-profile-XaXEne/harness.mjs",
+      "snapshot": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/baseline/snapshot/reconcile-profile-ds1hMP/harness.mjs"
+    },
+    "candidate": {
+      "produce": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/candidate/produce/reconcile-profile-GBSbk1/harness.mjs",
+      "reconcile": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/candidate/reconcile/reconcile-profile-rYehl6/harness.mjs",
+      "reconcile-plain-object": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/candidate/reconcile-plain-object/reconcile-profile-E81Ot5/harness.mjs",
+      "snapshot": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/core-ab-4/bundles/candidate/snapshot/reconcile-profile-aujoOo/harness.mjs"
+    }
+  },
+  "guardPercent": 3.0,
+  "pairs": 8,
+  "roots": {
+    "baseline": "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/arms/control",
+    "candidate": "/home/user/reconcile"
+  },
+  "scenarios": ["snapshot", "reconcile", "reconcile-plain-object", "produce"],
+  "sha256": {
+    "baseline": {
+      "produce": "c82771a8957fdab2e1461406de61b38971565a05efdd6b166d931f2590418c83",
+      "reconcile": "c82771a8957fdab2e1461406de61b38971565a05efdd6b166d931f2590418c83",
+      "reconcile-plain-object": "c82771a8957fdab2e1461406de61b38971565a05efdd6b166d931f2590418c83",
+      "snapshot": "c82771a8957fdab2e1461406de61b38971565a05efdd6b166d931f2590418c83"
+    },
+    "candidate": {
+      "produce": "5fa75c187b2f6fbf799588be6ea08213b45d520c77be5ab93f9314644edba5c9",
+      "reconcile": "5fa75c187b2f6fbf799588be6ea08213b45d520c77be5ab93f9314644edba5c9",
+      "reconcile-plain-object": "5fa75c187b2f6fbf799588be6ea08213b45d520c77be5ab93f9314644edba5c9",
+      "snapshot": "5fa75c187b2f6fbf799588be6ea08213b45d520c77be5ab93f9314644edba5c9"
+    }
+  },
+  "warmup": 20
+}

@@ -1,12 +1,17 @@
 import type { Frame, EncodeContext } from './contracts'
-// Refinement.lean: indexed_step_exact / indexed_run_exact; dynamic observations
-// and native IteratorClose remain differential-test obligations.
+// Inline.lean inline_step_refines / inline_matches_recursive: containers tokenize children in
+// place and yield after a child pushed its frame. Inline.lean direct_rows_exact covers the
+// array row layout. Dynamic observations and IteratorClose rest on the local simulation in
+// lean/Serialization/ENCODER.md and remain differential-test obligations.
 import { encodeFail as fail, int, maxArrayLength } from './common'
 import { readView, readURL } from './native'
 import { leafCaptures } from './leaf'
 
 const object = (value: unknown): value is Record<PropertyKey, unknown> =>
   value !== null && (typeof value === 'object' || typeof value === 'function')
+// True when tokenizing the last child pushed a frame that must complete first.
+const pushed = (frame: Frame, context: EncodeContext) =>
+  context.stack[context.stack.length - 1] !== frame
 export function closeFrame(frame: Frame) {
   if (frame.active) {
     frame.active = false
@@ -15,31 +20,31 @@ export function closeFrame(frame: Frame) {
     // Cleanup only handles an existing throw; return result cannot replace it.
   }
 }
-function acceptArrayChild(frame: Frame) {
-  if (frame.dense && frame.index === frame.entries.length) frame.entries.push(frame.input)
+// Appends one present element: densely while indices stay consecutive, otherwise as a pair.
+function append(frame: Frame, index: number, item: unknown) {
+  if (frame.dense && frame.row.length === index + 2) frame.row.push(item)
   else {
-    sparseEntries(frame)
-    frame.entries.push(frame.index, frame.input)
+    sparseRow(frame)
+    frame.row.push(index, item)
   }
-  frame.length = Math.max(frame.length, frame.index + 1)
-  frame.index++
+  if (frame.length <= index) frame.length = index + 1
 }
-function array(frame: Frame, _context: EncodeContext) {
+function array(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) startArray(frame)
-  else acceptArrayChild(frame)
-  for (; frame.index < (frame.value as unknown[]).length; frame.index++) {
-    if (frame.index >= maxArrayLength) fail('array length or index invalid')
-    if (frame.index in frame.value) {
-      frame.child = (frame.value as unknown[])[frame.index]
-      return false
+  const value = frame.value as unknown[]
+  // The cursor stays local in the hole-scanning loop; it is stored only when yielding.
+  for (let index = frame.index; index < value.length; index++) {
+    if (index >= maxArrayLength) fail('array length or index invalid')
+    if (index in value) {
+      append(frame, index, context.token(value[index]))
+      if (pushed(frame, context)) {
+        frame.index = index + 1
+        return false
+      }
     }
   }
-  if (frame.dense && frame.entries.length === frame.length)
-    frame.row = [2, frame.length, ...frame.entries]
-  else {
-    sparseEntries(frame)
-    frame.row = [3, frame.length, ...frame.entries]
-  }
+  if (frame.dense && frame.row.length !== frame.length + 2) sparseRow(frame)
+  frame.row[1] = frame.length
   return true
 }
 function iterator(frame: Frame, iterable: Iterable<unknown>) {
@@ -53,27 +58,29 @@ function leaf(frame: Frame, context: EncodeContext) {
   frame.row = leafCaptures[frame.tag]!(frame.value, context, frame.detail)
   return true
 }
-function map(frame: Frame) {
+function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = [4]
     iterator(frame, (frame.value as Map<unknown, unknown>).entries())
     frame.phase = 1
   } else if (frame.phase === 2) {
-    frame.row.push(frame.input)
-    frame.child = frame.mapValue
-    frame.phase = 3
-    return false
-  } else if (frame.phase === 3) {
-    frame.row.push(frame.input)
     frame.phase = 1
+    frame.row.push(context.token(frame.mapValue))
+    if (pushed(frame, context)) return false
   }
-  if (!next(frame)) return true
-  // Native destructuring closes the entry iterator before either child is traversed.
-  const [key, value] = frame.child as Iterable<unknown>
-  frame.mapValue = value
-  frame.child = key
-  frame.phase = 2
-  return false
+  while (next(frame)) {
+    // Native destructuring closes the entry iterator before either child is traversed.
+    const [key, value] = frame.child as Iterable<unknown>
+    frame.row.push(context.token(key))
+    if (pushed(frame, context)) {
+      frame.mapValue = value
+      frame.phase = 2
+      return false
+    }
+    frame.row.push(context.token(value))
+    if (pushed(frame, context)) return false
+  }
+  return true
 }
 function next(frame: Frame) {
   frame.active = false // step/done/value failures do not close this iterator.
@@ -91,28 +98,34 @@ function record(frame: Frame, context: EncodeContext) {
     frame.row = [frame.tag, context.shape(frame.keys)]
     frame.index = 0
     frame.phase = 1
-  } else frame.row.push(frame.input)
-  if (frame.index < frame.keys.length) {
-    frame.child = Reflect.get(frame.value, frame.keys[frame.index++])
-    return false
+  }
+  const keys = frame.keys
+  while (frame.index < keys.length) {
+    frame.row.push(context.token(Reflect.get(frame.value, keys[frame.index++])))
+    if (pushed(frame, context)) return false
   }
   if (Object.getOwnPropertySymbols(frame.value).length !== 0) fail('symbol key')
   return true
 }
-function set(frame: Frame) {
+function set(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = [5]
     iterator(frame, (frame.value as Set<unknown>).values())
     frame.phase = 1
-  } else frame.row.push(frame.input)
-  return !next(frame)
+  }
+  while (next(frame)) {
+    frame.row.push(context.token(frame.child))
+    if (pushed(frame, context)) return false
+  }
+  return true
 }
-function sparseEntries(frame: Frame) {
+// Rewrites a dense row prefix [2, _, v0, v1, ...] as sparse [3, _, 0, v0, 1, v1, ...].
+function sparseRow(frame: Frame) {
   if (!frame.dense) return
-  const sparse = []
-  for (let index = 0; index < frame.entries.length; index++)
-    sparse.push(index, frame.entries[index])
-  frame.entries = sparse
+  const dense = frame.row
+  const sparse: unknown[] = [3, 0]
+  for (let index = 2; index < dense.length; index++) sparse.push(index - 2, dense[index])
+  frame.row = sparse
   frame.dense = false
 }
 function startArray(frame: Frame) {
@@ -121,28 +134,27 @@ function startArray(frame: Frame) {
   if (!int(initial, maxArrayLength)) fail('array length or index invalid')
   frame.length = initial
   frame.index = 0
-  frame.count = 0
   frame.dense = true
-  frame.entries = []
+  frame.row = [2, 0]
   frame.phase = 1
 }
 function url(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.state = readURL(frame.value) as Frame['state']
-    frame.child = frame.state.parameters
     frame.phase = 1
-    return false
+    frame.input = context.token(frame.state.parameters)
+    if (pushed(frame, context)) return false
   }
   context.owner(-(frame.input as number) - 6, context.ids.get(frame.value)!)
   frame.row = [9, frame.state.href]
   return true
 }
-function view(frame: Frame) {
+function view(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.state = readView(frame.value, frame.detail) as Frame['state']
-    frame.child = frame.state.buffer
     frame.phase = 1
-    return false
+    frame.input = context.token(frame.state.buffer)
+    if (pushed(frame, context)) return false
   }
   frame.row = [8, frame.detail, frame.input, frame.state.byteOffset, frame.state.length]
   return true

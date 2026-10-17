@@ -1,0 +1,66 @@
+stat=median; ratio=arm/baseline per rep -> median [min,max]; abs = baseline median us/call
+fixture            op       ref_us                   copy                  final
+sparse-big         dec       430.0  1.023 [0.917,1.142]  1.007 [0.963,1.094]
+rich               dec         7.7  1.031 [1.010,1.055]  1.015 [0.952,1.095]
+small-collections  dec       889.7  1.079 [1.004,1.343]  1.002 [0.996,1.036]
+cycle-300          dec       104.3  0.984 [0.923,1.294]  1.029 [0.942,1.132]
+dates-2k           dec       394.0  0.998 [0.917,1.036]  1.017 [0.895,1.029]
+scalar-boundaries  dec       900.1  1.001 [0.954,1.082]  0.980 [0.955,1.019]
+url-linked         dec       138.4  1.032 [0.901,1.099]  0.994 [0.822,1.121]
+set-shared         dec       356.2  1.021 [0.974,1.111]  1.016 [0.965,1.029]
+numeric-10k        dec       370.9  0.990 [0.802,1.027]  0.950 [0.920,1.209]
+dag-2k             dec       501.9  0.953 [0.890,0.974]  0.945 [0.922,1.021]
+undefined-10k      dec       220.6  0.991 [0.867,1.009]  0.993 [0.883,1.119]
+records-10k        dec      8033.5  0.991 [0.973,1.443]  0.943 [0.867,0.986]
+records-1k         dec       636.9  0.986 [0.910,1.049]  1.047 [0.955,1.090]
+hole-first         dec       413.8  0.985 [0.941,1.007]  0.985 [0.956,1.161]
+records-wide       dec      2227.7  1.007 [0.970,1.020]  1.017 [0.976,1.124]
+long-strings       dec       118.8  1.037 [0.865,1.122]  0.988 [0.955,1.016]
+views-shared       dec         7.8  0.960 [0.902,0.998]  0.999 [0.945,1.020]
+strings-10k        dec       496.6  1.022 [0.978,1.048]  0.975 [0.946,0.997]
+collections        dec       256.4  1.015 [0.996,1.093]  1.037 [1.010,1.145]
+dense-dag          dec       395.0  0.983 [0.948,1.002]  0.984 [0.964,1.014]
+deep-2000          dec       582.3  1.027 [0.961,1.114]  0.984 [0.966,1.020]
+map-object-keys    dec      1181.0  0.994 [0.973,1.027]  1.024 [0.987,1.041]
+records-varied     dec       617.8  0.979 [0.846,1.026]  0.953 [0.842,1.158]
+nested-arrays      dec       859.6  0.979 [0.934,1.007]  0.980 [0.922,1.132]
+unicode-10k        dec       624.9  0.970 [0.963,1.062]  0.982 [0.960,0.996]
+binary-1m          dec      4656.0  1.014 [0.948,1.029]  0.996 [0.948,1.117]
+records-small      dec         2.2  1.084 [0.974,1.131]  0.987 [0.930,1.038]
+deep-200           dec        59.9  0.961 [0.951,0.980]  0.973 [0.913,0.991]
+temporal-exact     dec       726.6  1.003 [0.904,1.034]  1.011 [0.941,1.062]
+hole-last          dec       398.8  1.023 [1.001,1.206]  1.000 [0.994,1.085]
+mixed-10k          dec       678.8  0.969 [0.930,1.005]  1.041 [0.931,1.167]
+
+wire chars / alloc bytes per call (enc, dec) by arm
+sparse-big         | baseline: 11796 enc 0K dec 800K | copy: 11796 enc 0K dec 800K | final: 11796 enc 0K dec 800K
+rich               | baseline: 371 enc 0K dec 5K | copy: 371 enc 0K dec 5K | final: 371 enc 0K dec 5K
+small-collections  | baseline: 71520 enc 0K dec 717K | copy: 71520 enc 0K dec 717K | final: 71520 enc 0K dec 717K
+cycle-300          | baseline: 5727 enc 0K dec 51K | copy: 5727 enc 0K dec 51K | final: 5727 enc 0K dec 51K
+dates-2k           | baseline: 27819 enc 0K dec 378K | copy: 27819 enc 0K dec 377K | final: 27819 enc 0K dec 377K
+scalar-boundaries  | baseline: 83498 enc 0K dec 565K | copy: 83498 enc 0K dec 562K | final: 83498 enc 0K dec 560K
+url-linked         | baseline: 8467 enc 0K dec 108K | copy: 8467 enc 0K dec 107K | final: 8467 enc 0K dec 108K
+set-shared         | baseline: 26673 enc 0K dec 218K | copy: 26673 enc 0K dec 217K | final: 26673 enc 0K dec 219K
+numeric-10k        | baseline: 65579 enc 0K dec 294K | copy: 65579 enc 0K dec 373K | final: 65579 enc 0K dec 373K
+dag-2k             | baseline: 40188 enc 0K dec 334K | copy: 40188 enc 0K dec 334K | final: 40188 enc 0K dec 334K
+undefined-10k      | baseline: 30019 enc 0K dec 171K | copy: 30019 enc 0K dec 172K | final: 30019 enc 0K dec 172K
+records-10k        | baseline: 618430 enc 0K dec 3573K | copy: 618430 enc 0K dec 3566K | final: 618430 enc 0K dec 3600K
+records-1k         | baseline: 54919 enc 0K dec 354K | copy: 54919 enc 0K dec 355K | final: 54919 enc 0K dec 354K
+hole-first         | baseline: 97795 enc 0K dec 242K | copy: 97795 enc 0K dec 245K | final: 97795 enc 0K dec 242K
+records-wide       | baseline: 147772 enc 0K dec 1556K | copy: 147772 enc 0K dec 1559K | final: 147772 enc 0K dec 1559K
+long-strings       | baseline: 244217 enc 0K dec 246K | copy: 244217 enc 0K dec 246K | final: 244217 enc 0K dec 246K
+views-shared       | baseline: 1457 enc 0K dec 4K | copy: 1457 enc 0K dec 4K | final: 1457 enc 0K dec 4K
+strings-10k        | baseline: 228909 enc 0K dec 565K | copy: 228909 enc 0K dec 551K | final: 228909 enc 0K dec 553K
+collections        | baseline: 19671 enc 0K dec 208K | copy: 19671 enc 0K dec 209K | final: 19671 enc 0K dec 208K
+dense-dag          | baseline: 47659 enc 0K dec 289K | copy: 47659 enc 0K dec 288K | final: 47659 enc 0K dec 289K
+deep-2000          | baseline: 22947 enc 0K dec 284K | copy: 22947 enc 0K dec 284K | final: 22947 enc 0K dec 284K
+map-object-keys    | baseline: 79613 enc 0K dec 753K | copy: 79613 enc 0K dec 753K | final: 79613 enc 0K dec 753K
+records-varied     | baseline: 47258 enc 0K dec 410K | copy: 47258 enc 0K dec 411K | final: 47258 enc 0K dec 411K
+nested-arrays      | baseline: 102299 enc 0K dec 535K | copy: 102299 enc 0K dec 535K | final: 102299 enc 0K dec 535K
+unicode-10k        | baseline: 228895 enc 0K dec 598K | copy: 228895 enc 0K dec 598K | final: 228895 enc 0K dec 598K
+binary-1m          | baseline: 1398193 enc 0K dec 2410K | copy: 1398193 enc 0K dec 2409K | final: 1398193 enc 0K dec 2410K
+records-small      | baseline: 108 enc 0K dec 2K | copy: 108 enc 0K dec 2K | final: 108 enc 0K dec 2K
+deep-200           | baseline: 2140 enc 0K dec 30K | copy: 2140 enc 0K dec 30K | final: 2140 enc 0K dec 30K
+temporal-exact     | baseline: 7596 enc 0K dec 169K | copy: 7596 enc 0K dec 169K | final: 7596 enc 0K dec 169K
+hole-last          | baseline: 97789 enc 0K dec 243K | copy: 97789 enc 0K dec 243K | final: 97789 enc 0K dec 243K
+mixed-10k          | baseline: 49648 enc 0K dec 426K | copy: 49648 enc 0K dec 429K | final: 49648 enc 0K dec 428K

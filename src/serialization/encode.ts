@@ -3,29 +3,26 @@ import { advances, closeFrame } from './frames'
 import { leafCaptures } from './leaf'
 import { recognize } from './facets/index'
 import { encodeFail as fail } from './common'
-// DFS.lean recursive_refines_stack and entries_unique checked before implementation.
+import { internShape, shapeTrie } from './shapes'
+// DFS.lean recursive_refines_stack / entries_unique, Inline.lean inline_matches_recursive and
+// ShapeRadix.lean radix_matches_signature checked before implementation.
 export function encodeGraph(value: unknown): string {
   const ids = new Map<object, number>()
   const nodes: Array<Row | undefined> = []
   const stack: Frame[] = []
   const shapes: string[][] = []
-  const shapeIds = new Map<string, number>()
+  const shapeRoot = shapeTrie()
   const owners = new Map<number, number>()
   const context: EncodeContext = {
     hasBuffers: false,
     ids,
+    stack,
+    token,
     owner(parameters, owner) {
       owners.set(parameters, owner)
     },
     shape(keys) {
-      const signature = JSON.stringify(keys)
-      let id = shapeIds.get(signature)
-      if (id === undefined) {
-        id = shapes.length
-        shapeIds.set(signature, id)
-        shapes.push(keys)
-      }
-      return id
+      return internShape(shapeRoot, shapes, keys)
     },
   }
   function token(item: unknown): unknown {
@@ -58,27 +55,40 @@ export function encodeGraph(value: unknown): string {
       const captureLeaf = leafCaptures[kind.tag]
       if (captureLeaf !== undefined) nodes[id] = captureLeaf(item, context, kind.detail)
       else
-        // eslint-disable-next-line typescript/consistent-type-assertions -- Continuation fields are initialized by their phase before use.
+        // Every frame starts with one field layout so the traversal stays monomorphic.
         stack.push({
+          active: false,
+          child: undefined,
+          dense: false,
           detail: kind.detail,
           id,
+          index: 0,
           input: undefined,
+          iterator: undefined,
+          keys: undefined,
+          length: 0,
+          mapValue: undefined,
+          next: undefined,
           phase: 0,
+          row: undefined,
+          state: undefined,
           tag: kind.tag,
           value: item,
-        } as Frame)
+        } as unknown as Frame)
     }
     return -(id + 6)
   }
   let root
   try {
     root = token(value)
+    // Each advance tokenizes children in place and yields only after a child pushed its own
+    // frame, so that subtree completes before the parent's next observation.
     while (stack.length !== 0) {
       const frame = stack[stack.length - 1]
       if (advances[frame.tag](frame, context)) {
         nodes[frame.id] = frame.row
         stack.pop()
-      } else frame.input = token(frame.child)
+      }
     }
   } catch (error) {
     // Native IteratorClose on an abrupt throw preserves the original completion.

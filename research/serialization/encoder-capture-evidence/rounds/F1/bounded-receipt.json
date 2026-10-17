@@ -1,0 +1,21 @@
+{
+  "budgetSeconds": 295,
+  "command": [
+    "python3",
+    "runner.py",
+    "--arms",
+    "baseline=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/baseline/codec.mjs,copy=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/copy/codec.mjs,final=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/final/codec.mjs,nom5=/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/bundles/final-nom5/codec.mjs",
+    "--manifest",
+    "manifest-v1.json",
+    "--reps",
+    "3",
+    "--seed",
+    "101",
+    "--out",
+    "/tmp/claude-0/-home-user-reconcile/01c69311-58f1-5bf3-b92b-9a23b8bb1329/scratchpad/rounds/F1"
+  ],
+  "diagnostic": null,
+  "elapsedSeconds": 209.69477124500008,
+  "exitCode": 0,
+  "status": "passed"
+}

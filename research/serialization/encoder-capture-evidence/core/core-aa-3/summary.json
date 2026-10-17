@@ -1,0 +1,42 @@
+{
+  "produce": {
+    "baselineMedianUsPerOperation": 84.02348238888888,
+    "candidateMedianUsPerOperation": 86.13484349999999,
+    "medianPairedPercentChange": 1.7862712306273787,
+    "pairedPercentChanges": [
+      0.9317688051128536, 8.537633446746028, 0.7447713866855388, 10.024229606385294,
+      -5.831798572972746, 2.6407736561419037, 6.526113388899479, -1.4108472502271319
+    ],
+    "slowerPairsAboveGuard": 3
+  },
+  "reconcile": {
+    "baselineMedianUsPerOperation": 98.44507677777777,
+    "candidateMedianUsPerOperation": 99.54713427777779,
+    "medianPairedPercentChange": 2.8282009179878664,
+    "pairedPercentChanges": [
+      -7.42945950964109, 0.09232630672915132, 6.490536737751107, -2.1532622673862023,
+      8.712256935687957, 3.7271184286934878, 5.439780603026745, 1.9292834072822451
+    ],
+    "slowerPairsAboveGuard": 4
+  },
+  "reconcile-plain-object": {
+    "baselineMedianUsPerOperation": 32.21485188888889,
+    "candidateMedianUsPerOperation": 32.060982277777775,
+    "medianPairedPercentChange": -2.243728893062047,
+    "pairedPercentChanges": [
+      -14.409927910427466, -2.932520869212085, -2.4612095416871815, -7.627317077992912,
+      0.9963540057178033, -2.0262482444369123, 12.308599645083085, 10.718929242931829
+    ],
+    "slowerPairsAboveGuard": 2
+  },
+  "snapshot": {
+    "baselineMedianUsPerOperation": 12.833518444444444,
+    "candidateMedianUsPerOperation": 13.116005944444446,
+    "medianPairedPercentChange": -1.1564764869093191,
+    "pairedPercentChanges": [
+      10.142428842379081, -1.9650249179656631, 7.5857903137206195, -5.190469567296918,
+      -7.735423105711881, -0.34792805585297515, -3.428125937205617, 19.598655914289687
+    ],
+    "slowerPairsAboveGuard": 3
+  }
+}

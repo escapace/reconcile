@@ -8,6 +8,15 @@ Special values use scalar −1 through −5; references use −(id+6). Negative 
 
 Only original A is applied. None of the later sparse-order, array-row, link-phase, lazy-ownership, synchronous-child, base64, trie or row-batching experiments is included. Core snapshot/reconcile/produce algorithms and all seven perf workloads are unchanged.
 
+## Encoder capture optimization (2026-10-17)
+
+The encoder now tokenizes children in place, builds array rows directly, interns shapes in a
+per-call path-compressed trie and uses one frame layout. The wire is byte-identical and the
+decoder unchanged. See [ENCODER-CAPTURE.md](ENCODER-CAPTURE.md) for results against the
+baseline and devalue, rejected hypotheses, missing earlier artifacts and next mechanisms, and
+[ENCODER.md](../../lean/Serialization/ENCODER.md) for the proofs and correspondence
+obligations. The sections below describe the earlier layout-A adoption.
+
 ## Evidence and limits
 
 Undefined decoding and mixed roundtrip retain substantial targeted gains. The requested isolated records-only baseline/copy/A rerun is neutral for adoption: no candidate-specific slowdown was separated from identical-code variation. The superseded historical 33% warning is excluded from decision evidence as requested, while raw history remains intact. Finite local measurements do not establish universal performance parity.
