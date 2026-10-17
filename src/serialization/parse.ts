@@ -96,13 +96,14 @@ function fill(context: DecodeContext): void {
 function checkShapes(shapes: unknown[]): string[][] {
   const root = radixTrie<string>()
   const interned: string[][] = []
+  // The shape that last listed each key: a repeat within one shape finds its own index.
+  const last = new Map<string, number>()
   for (let index = 0; index < shapes.length; index++) {
     const keys = shapes[index]
     if (!Array.isArray(keys)) fail('shape')
-    const seen = new Set<string>()
     for (const key of keys as unknown[]) {
-      if (typeof key !== 'string' || seen.has(key)) fail('shape key')
-      seen.add(key)
+      if (typeof key !== 'string' || last.get(key) === index) fail('shape key')
+      last.set(key, index)
     }
     if (intern(root, interned, keys as string[]) !== index) fail('duplicate shape')
   }
