@@ -1,92 +1,39 @@
-import type { Row, Frame, EncodeContext } from './contracts'
+import type { Row, EncodeContext } from './contracts'
 import { advances, closeFrame } from './frames'
-import { leafCaptures } from './leaf'
-import { recognize } from './facets/index'
-import { encodeFail as fail } from './common'
-import { internShape, shapeTrie } from './shapes'
-// DFS.lean recursive_refines_stack / entries_unique, Inline.lean inline_matches_recursive and
-// ShapeRadix.lean radix_matches_signature checked before implementation.
+import { frame, layout, node, slot } from './emit'
+import { radixTrie } from './radix'
+// DFS.lean recursive_refines_stack / entries_unique, Inline.lean inline_matches_recursive,
+// ShapeRadix.lean radix_matches_signature and Positional.lean decode_encode_document /
+// renumber_first_use checked before implementation.
 export function encodeGraph(value: unknown): string {
-  const ids = new Map<object, number>()
-  const nodes: Array<Row | undefined> = []
-  const stack: Frame[] = []
-  const shapes: string[][] = []
-  const shapeRoot = shapeTrie()
-  const owners = new Map<number, number>()
   const context: EncodeContext = {
+    bigints: undefined,
+    boundaries: [],
+    descriptors: [],
     hasBuffers: false,
-    ids,
-    stack,
-    token,
-    owner(parameters, owner) {
-      owners.set(parameters, owner)
-    },
-    shape(keys) {
-      return internShape(shapeRoot, shapes, keys)
-    },
+    ids: new Map(),
+    layoutRoot: radixTrie(),
+    layouts: [],
+    owners: undefined,
+    payloads: [],
+    scalars: undefined,
+    scratch: [],
+    shapeRoot: radixTrie(),
+    shapes: [],
+    stack: [],
+    top: 0,
   }
-  function token(item: unknown): unknown {
-    if (item === null) return null
-    switch (typeof item) {
-      case 'bigint': {
-        const text = String(item)
-        return [-6, text]
-      }
-      case 'boolean':
-      case 'string':
-        return item
-      case 'number':
-        return numberToken(item)
-      case 'object':
-        return objectToken(item)
-      case 'undefined':
-        return -1
-      default:
-        fail('unsupported value')
-    }
-  }
-  function objectToken(item: object): number {
-    let id = ids.get(item)
-    if (id === undefined) {
-      id = nodes.length
-      ids.set(item, id)
-      nodes.push(undefined)
-      const kind = recognize(item)
-      const captureLeaf = leafCaptures[kind.tag]
-      if (captureLeaf !== undefined) nodes[id] = captureLeaf(item, context, kind.detail)
-      else
-        // Every frame starts with one field layout so the traversal stays monomorphic.
-        stack.push({
-          active: false,
-          child: undefined,
-          dense: false,
-          detail: kind.detail,
-          id,
-          index: 0,
-          input: undefined,
-          iterator: undefined,
-          keys: undefined,
-          length: 0,
-          mapValue: undefined,
-          next: undefined,
-          phase: 0,
-          row: undefined,
-          state: undefined,
-          tag: kind.tag,
-          value: item,
-        } as unknown as Frame)
-    }
-    return -(id + 6)
-  }
-  let root
+  const { descriptors, payloads, stack } = context
+  const literal = enter(value, context)
+  if (literal !== undefined) return literal
   try {
-    root = token(value)
-    // Each advance tokenizes children in place and yields only after a child pushed its own
+    // Each advance writes children in place and yields only after a child pushed its own
     // frame, so that subtree completes before the parent's next observation.
     while (stack.length !== 0) {
-      const frame = stack[stack.length - 1]
-      if (advances[frame.tag](frame, context)) {
-        nodes[frame.id] = frame.row
+      const current = stack[stack.length - 1]
+      if (advances[current.tag](current, context)) {
+        payloads[current.id] = current.row
+        descriptors[current.id] = layout(current.tag, current.detail, current.runs, context)
         stack.pop()
       }
     }
@@ -99,29 +46,54 @@ export function encodeGraph(value: unknown): string {
     }
     throw error
   }
-  for (const [parameters, owner] of owners) nodes[parameters] = [10, owner]
-  return documentText(root, shapes, nodes, context.hasBuffers)
-}
-function documentText(
-  root: unknown,
-  shapes: string[][],
-  nodes: Array<Row | undefined>,
-  hasBuffers: boolean,
-): string {
-  let text
-  if (hasBuffers) {
-    const parts = new Array(nodes.length)
-    for (let index = 0; index < nodes.length; index++) {
-      const row = nodes[index]!
-      parts[index] = row[0] === 7 ? '[7,"' + (row[1] as string) + '"]' : JSON.stringify(row)
+  if (context.owners !== undefined)
+    for (const [parameters, owner] of context.owners) {
+      payloads[parameters] = [owner]
+      descriptors[parameters] = layout(11, undefined, -1, context)
     }
-    text = '[' + JSON.stringify(root) + ',' + JSON.stringify(shapes) + ',[' + parts.join(',') + ']]'
-  } else text = JSON.stringify([root, shapes, nodes])
-  return text
+  return documentText(context)
 }
-
-function numberToken(item: number): number | number[] {
-  if (!Number.isFinite(item)) return Number.isNaN(item) ? -2 : item > 0 ? -3 : -4
-  if (Object.is(item, -0)) return -5
-  return item < 0 ? [-7, item] : item
+// The root is one slot: a literal document, returned as text, or node 0.
+function enter(value: unknown, context: EncodeContext): string | undefined {
+  if (value !== null && typeof value === 'object') {
+    node(value, context)
+    return undefined
+  }
+  const root = frame(-1, -1, undefined, value)
+  root.row = []
+  slot(root, value, context)
+  if (!root.reference) return JSON.stringify(root.row)
+  context.top = 0
+  return undefined
+}
+// Positional.lean renumber_first_use: interning the provisional ids in node order yields the
+// first-use layout table.
+function documentText(context: EncodeContext): string {
+  const { descriptors, layouts: provisional, shapes } = context
+  const payloads = context.payloads as Row[]
+  const order = new Array<number>(provisional.length).fill(-1)
+  const layouts: number[][] = []
+  for (let index = 0; index < descriptors.length; index++) {
+    const id = descriptors[index]
+    let next = order[id]
+    if (next < 0) {
+      next = order[id] = layouts.length
+      layouts.push(provisional[id])
+    }
+    descriptors[index] = next
+  }
+  if (!context.hasBuffers) return JSON.stringify([shapes, layouts, descriptors, payloads])
+  // Base64 needs no escaping, so buffer payloads skip the serializer's string scan; the payloads
+  // between them are serialized together.
+  const parts: string[] = []
+  let start = 0
+  for (let index = 0; index < payloads.length; index++)
+    if (layouts[descriptors[index]][0] === 7) {
+      if (index > start) parts.push(JSON.stringify(payloads.slice(start, index)).slice(1, -1))
+      parts.push('["' + (payloads[index][0] as string) + '"]')
+      start = index + 1
+    }
+  if (start < payloads.length) parts.push(JSON.stringify(payloads.slice(start)).slice(1, -1))
+  const tables = JSON.stringify([shapes, layouts, descriptors])
+  return tables.slice(0, -1) + ',[' + parts.join(',') + ']]'
 }

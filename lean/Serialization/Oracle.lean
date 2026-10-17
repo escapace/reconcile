@@ -1,8 +1,20 @@
-import Serialization.Compact
-import Serialization.Reconstruction
+import Serialization.Positional
+import Serialization.Preorder
 import Lean
 
-open Lean SerializationLab SerializationV9
+open Lean SerializationPositional
+
+/-!
+# Positional wire oracle
+
+Parses a runtime document over the bridge domain (records, null-prototype records, dense and
+sparse arrays, JSON literals and shared scalar nodes), decodes it with the proved
+`decodeDocument`, `kindsOf` and `presentFrom`, and re-emits it with `encodeDocument` and
+`presenceRuns`. The TypeScript bridge requires the re-emitted document to equal the input, so
+every accepted runtime document is checked to be the encoding of the graph the oracle reads.
+Fixed-schema headers (a sparse array's length and presence runs, a bigint's digits) are split
+from the slots by tag, as the runtime schema does.
+-/
 
 namespace Reconcile.SerializationOracle
 
@@ -12,177 +24,198 @@ def need {α : Type} (message : String) : Option α → E α
   | some a => .ok a
   | none => .error message
 
-def nat (j : Json) : E Nat := fromJson? j
-def integer (j : Json) : E Int := fromJson? j
-def strings (j : Json) : E (List String) := do
-  (← j.getArr?).toList.mapM Json.getStr?
+def scalar : Json → Bool
+  | .arr _ => false
+  | .obj _ => false
+  | _ => true
 
-def compactLayout : CompactScalar.Layout := .integers
-def canonicalNumber (q : JsonNumber) : SerializationScalar.Number :=
-  let value := mkRat q.mantissa (10 ^ q.exponent)
-  ⟨value.num, value.den, value.den_pos⟩
-def compactNumberJSON (number : SerializationScalar.Number) : E Json := do
-  if number.denominator == 1 then return toJson number.numerator
-  if number.denominator == 2 then return .num ⟨number.numerator * 5, 1⟩
-  throw "non-wire scalar denominator"
+abbrev Lit := {j : Json // scalar j = true}
 
-def token (n : Nat) (j : Json) : E (Token Nat) := do
-  match j with
-  | .null | .bool _ | .str _ => return .atom j.compress
-  | .num q =>
-    let decoded ← need "invalid numeric token"
-      (CompactScalar.decode compactLayout n (.scalar (canonicalNumber q)))
-    match decoded with
-    | .ref id => return .ref id.val
-    | .special id => return .atom (toJson [(-((id.val : Int) + 1))]).compress
-    | .number _ => return .atom j.compress
-    | _ => throw "unexpected numeric value"
-  | .arr a =>
-    if a.size == 1 then throw "legacy singleton rejected"
-    if a.size == 2 then
-      let tag ← integer a[0]!
-      if tag == -7 then
-        match a[1]! with
-        | .num q =>
-          if q.mantissa < 0 then return .atom a[1]!.compress
-          throw "escaped number must be negative"
-        | _ => throw "escaped number required"
-      if tag != -6 then throw "invalid bigint tag"
-      let text ← a[1]!.getStr?
-      let value ← need "invalid bigint" text.toInt?
-      if toString value != text then throw "noncanonical bigint"
-      return .atom j.compress
-    throw "invalid token arity"
-  | _ => throw "object token unsupported"
+instance : Inhabited Lit := ⟨⟨.null, rfl⟩⟩
+instance : Inhabited (Node (List Nat) Lit) := ⟨⟨[], []⟩⟩
 
-def modelToken (t : Token Nat) : Json := match t with
-  | .atom a => toJson ([toJson (0 : Nat), toJson a] : List Json)
-  | .ref i => toJson ([toJson (1 : Nat), toJson i] : List Json)
+def natJson (i : Nat) : Json := .num (JsonNumber.fromNat i)
 
-def wireToken (t : Token Nat) : E Json := match t with
-  | .atom a => do
-    let j ← Json.parse a
-    match j with
-    | .num q => if q.mantissa < 0 then return toJson [toJson (-7 : Int), j] else return j
-    | .arr items =>
-      if items.size == 1 then
-        let tag ← integer items[0]!
-        let index := (-tag - 1).toNat
-        if h : index < 5 then
-          let wire := CompactScalar.encode (n := 0) compactLayout (.special ⟨index, h⟩)
-          match wire with
-          | .scalar number => return ← compactNumberJSON number
-          | _ => throw "special encode shape"
-        throw "special atom"
-      return j
-    | _ => return j
-  | .ref i => compactNumberJSON (CompactScalar.reference compactLayout i)
+def ofNatJson : Json → Option Nat
+  | .num ⟨m, 0⟩ => if 0 ≤ m then some m.toNat else none
+  | _ => none
 
-def kindText : Kind → String
-  | .object => "object"
-  | .nullObject => "nullObject"
-  | .array => "array"
-  | _ => "unsupported"
+/-- The JSON value channel: a literal is any JSON scalar; a reference is a natural number. -/
+def V : Values Lit Json where
+  lit := Subtype.val
+  nat := natJson
+  ofLit := fun j => if h : scalar j = true then some ⟨j, h⟩ else none
+  ofNat := ofNatJson
+  ofLit_lit := fun s => by simp [s.property]
+  ofNat_nat := fun i => by simp [natJson, ofNatJson, JsonNumber.fromNat]
+  lit_ofLit := fun w s h => by
+    by_cases hw : scalar w = true
+    · simp only [hw, ↓reduceDIte, Option.some.injEq] at h; rw [← h]
+    · simp [hw] at h
+  nat_ofNat := fun w i h => by
+    unfold ofNatJson at h
+    split at h
+    · rename_i m
+      split at h
+      · rename_i hm
+        cases h
+        simp [natJson, JsonNumber.fromNat, Int.toNat_of_nonneg hm]
+      · cases h
+    · cases h
 
-def modelNode (v : Node Nat) : Json := Json.mkObj [
-  ("kind", toJson (kindText v.kind)), ("payload", toJson v.payload),
-  ("edges", toJson (v.edges.map fun (key, t) => toJson [toJson key, modelToken t]))]
+def nat (j : Json) : E Nat := need "natural number required" (ofNatJson j)
+def nats (j : Json) : E (List Nat) := do (← j.getArr?).toList.mapM nat
+def strings (j : Json) : E (List String) := do (← j.getArr?).toList.mapM Json.getStr?
 
-def parseRow (n : Nat) (shapes : List (List String)) (j : Json) : E (Node Nat) := do
-  let a ← j.getArr?
-  if a.size < 2 then throw "row arity"
-  let tag ← nat a[0]!
-  let header ← nat a[1]!
-  let rest := (a.toList.drop 2)
-  if tag == 0 || tag == 1 then
-    let values ← rest.mapM (token n)
-    -- Executes the frozen finite shape dictionary expansion, including arity rejection.
-    let es ← need "shape missing or wrong arity" (dictionaryExpand shapes header values)
-    return ⟨if tag == 0 then .object else .nullObject, [], es⟩
-  if tag == 2 then
-    if header > 4294967295 then throw "native array length"
-    if rest.length != header then throw "dense array arity"
-    let values ← rest.mapM (token n)
-    return ⟨.array, [toString header], values.zipIdx |>.map (fun (t, i) => (toString i, t))⟩
+def maxArrayLength : Nat := 4294967295
+
+/-- Layout key width by tag: records carry a shape id; arrays and shared scalars only a tag. -/
+def keyWidth (tag : Nat) : E Nat :=
+  if tag ≤ 1 then pure 2
+  else if tag ≤ 3 ∨ (13 ≤ tag ∧ tag ≤ 18) then pure 1
+  else throw "tag outside the bridge domain"
+
+/-- Payload header and slots by tag. -/
+def split (tag : Nat) (payload : Json) : E (List Json × List Json) := do
+  let a := (← payload.getArr?).toList
   if tag == 3 then
-    if header > 4294967295 then throw "native array length"
-    if rest.length % 2 != 0 then throw "sparse array arity"
-    let mut es := []
-    let mut previous : Option Nat := none
-    for p in [:rest.length / 2] do
-      let k ← nat rest[p * 2]!
-      if k ≥ header then throw "sparse index out of bounds"
-      if previous.any (fun old => k ≤ old) then throw "sparse indices not increasing"
-      let t ← token n rest[p * 2 + 1]!
-      es := es ++ [(toString k, t)]
-      previous := some k
-    let pairs ← es.mapM fun (key, t) => do
-      let i ← need "sparse key" key.toNat?
-      pure (i, t)
-    let installed ← need "sparse write rejected"
-      (SerializationV9.fill (allocatedSparse header) pairs)
-    if installed.length != header then throw "sparse length mismatch"
-    for (i, t) in pairs do
-      if installed.slot i != some t then throw "sparse presence mismatch"
-    return ⟨.array, [toString header], es⟩
-  throw "unsupported native row kind"
+    match a with
+    | [length, presence, values] => return ([length, presence], (← values.getArr?).toList)
+    | _ => throw "sparse array"
+  if tag == 18 then return (a, [])
+  return ([], a)
 
-def reemit (root : Token Nat) (rows : List (Node Nat)) : E Json := do
-  let mut shapes : List (List String) := []
-  let mut output : List Json := []
-  for row in rows do
-    if row.kind == .object || row.kind == .nullObject then
-      let sid := shapes.length
-      shapes := shapes ++ [row.edges.map Prod.fst]
-      let values ← row.edges.mapM fun (_, t) => wireToken t
-      output := output ++ [toJson ([toJson (if row.kind == .object then 0 else 1 : Nat), toJson sid] ++ values)]
-    else if row.kind == .array then
-      let length ← need "missing array length" row.payload.head?
-      let length ← need "invalid array length" length.toNat?
-      let mut values := [toJson (3 : Nat), toJson length]
-      for (key, t) in row.edges do
-        let i ← need "invalid array index" key.toNat?
-        values := values ++ [toJson i, ← wireToken t]
-      output := output ++ [toJson values]
-    else throw "unsupported model kind"
-  return toJson [← wireToken root, toJson shapes, toJson output]
+def scalarName (tag : Nat) : String :=
+  match tag with
+  | 13 => "undefined" | 14 => "NaN" | 15 => "Infinity" | 16 => "-Infinity" | _ => "-0"
+
+def atom (j : Json) : Json := toJson ([toJson (0 : Nat), toJson j.compress] : List Json)
+
+structure Parsed where
+  shapes : List (List String)
+  layouts : List (List Nat × List Nat)
+  descriptors : List Nat
+  headers : List (List Json)
+  nodes : List (Node (List Nat) Lit)
+
+def parseDocument (wire : Json) : E Parsed := do
+  let doc ← wire.getArr?
+  if doc.size != 4 then throw "envelope"
+  let shapes ← (← doc[0]!.getArr?).toList.mapM strings
+  if !shapes.all (·.Nodup) then throw "duplicate shape key"
+  if !shapes.Nodup then throw "duplicate shape"
+  let layouts ← (← doc[1]!.getArr?).toList.mapM fun j => do
+    let flat ← nats j
+    let tag ← need "layout" flat.head?
+    let width ← keyWidth tag
+    if flat.length < width then throw "layout key"
+    pure (flat.take width, flat.drop width)
+  let recordShapes := layouts.filterMap fun (key, _) =>
+    if key.head? = some 0 ∨ key.head? = some 1 then key[1]? else none
+  if firstUse 0 recordShapes != some shapes.length then throw "shape order"
+  let descriptors ← nats doc[2]!
+  let payloads ← (← doc[3]!.getArr?).toList.mapM pure
+  if payloads.isEmpty ∨ payloads.length != descriptors.length then throw "envelope"
+  let split ← (descriptors.zip payloads).mapM fun (d, p) => do
+    let (key, _) ← need "layout id" layouts[d]?
+    split key.head! p
+  let document : Document (List Nat) Json := ⟨layouts, descriptors, split.map Prod.snd⟩
+  -- Executes the proved decoder: distinct first-use tables, canonical runs, bounded references.
+  let nodes ← need "positional decode" (decodeDocument V document)
+  return ⟨shapes, layouts, descriptors, split.map Prod.fst, nodes⟩
+
+def bigintText (text : String) : Bool :=
+  match text.toList with
+  | ['0'] => true
+  | '-' :: d :: _ => d != '0' && (text.drop 1).all Char.isDigit
+  | d :: _ => d != '0' && text.all Char.isDigit
+  | [] => false
+
+/-- Checks each node's fixed-schema header and returns the node's tag, shape id, and the
+sparse length and present positions when it has them. -/
+def checkHeader (shapes : List (List String)) (v : Node (List Nat) Lit) (header : List Json) :
+    E (Option (Nat × List Nat)) := do
+  let tag := v.key.head!
+  if tag ≤ 1 then
+    let keys ← need "shape" shapes[v.key[1]!]?
+    if keys.length != v.slots.length then throw "record arity"
+    return none
+  if tag == 2 then return none
+  if tag == 3 then
+    let length ← nat header[0]!
+    if length > maxArrayLength then throw "array length"
+    let presence ← nats header[1]!
+    if presence.isEmpty then throw "sparse array without a hole"
+    -- Executes the proved presence decoding (sparse_canonical).
+    let kinds ← need "presence" (kindsOf presence length)
+    let positions := presentFrom kinds 0
+    if positions.length != v.slots.length then throw "sparse values"
+    return some (length, positions)
+  if tag == 18 then
+    match header with
+    | [.str text] => if bigintText text then return none else throw "bigint"
+    | _ => throw "bigint"
+  if !header.isEmpty ∨ !v.slots.isEmpty then throw "scalar"
+  return none
+
+def kindText (tag : Nat) : String := if tag == 0 then "object" else if tag == 1 then "nullObject"
+  else "array"
 
 def evaluate (request : Json) : E Json := do
-  let doc ← (← request.getObjVal? "wire").getArr?
-  if doc.size != 3 then throw "envelope arity"
-  let shapeJson ← doc[1]!.getArr?
-  let rawRows ← doc[2]!.getArr?
-  let mut shapes : List (List String) := List.replicate shapeJson.size []
-  let mut checked : List Nat := []
-  let mut rows := []
-  for raw in rawRows do
-    let fields ← raw.getArr?
-    if fields.size < 2 then throw "row arity"
-    let kind ← nat fields[0]!
-    if kind == 0 || kind == 1 then
-      let sid ← nat fields[1]!
-      if sid ∉ checked then
-        let selected ← need "shape missing" shapeJson[sid]?
-        let keys ← strings selected
-        shapes := shapes.set sid keys
-        -- Execute proved first-use shape check; never interpret unused dictionary entries.
-        if !(shapeCheck shapes checked sid) then throw "duplicate shape key"
-        checked := sid :: checked
-    let row ← parseRow rawRows.size shapes raw
-    rows := rows ++ [row]
-  let root ← token rawRows.size doc[0]!
-  let n := rows.length
-  -- Executes the original decoder at every token/row, then original encoder.
-  let typedRoot ← need "root reference out of range" (decodeToken n root)
-  let typedRows ← rows.mapM fun row => need "row reference out of range" (decodeNode n row)
-  let roundRoot := encodeToken typedRoot
-  let roundRows := typedRows.map encodeNode
-  let expanded := Json.mkObj [("root", modelToken root), ("rows", toJson (rows.map modelNode))]
-  let roundtrip := Json.mkObj [("root", modelToken roundRoot), ("rows", toJson (roundRows.map modelNode))]
-  let emitted ← reemit roundRoot roundRows
-  return Json.mkObj [("ok", toJson true), ("expanded", expanded), ("roundtrip", roundtrip),
-    ("wireFromModel", emitted), ("root", modelToken root), ("rows", toJson (rows.map modelNode)),
-    ("reemitted", emitted)]
+  let wire ← request.getObjVal? "wire"
+  let doc ← wire.getArr?
+  if doc.size == 1 then
+    if !scalar doc[0]! then throw "literal"
+    return Json.mkObj [("ok", toJson true), ("expanded", Json.mkObj [("root", atom doc[0]!),
+      ("rows", toJson ([] : List Json))]), ("reemitted", wire)]
+  let parsed ← parseDocument wire
+  let infos ← (parsed.nodes.zip parsed.headers).mapM fun (v, h) => checkHeader parsed.shapes v h
+  -- Shared scalar nodes are distinct: each constant tag and each bigint text occurs once.
+  let scalarKeys := (parsed.nodes.zip parsed.headers).filterMap fun (v, h) =>
+    if v.key.head! ≥ 13 then some (v.key.head!, h.map Json.compress) else none
+  if !scalarKeys.Nodup then throw "repeated scalar node"
+  -- Executes the proved numbering check (Preorder.lean check_iff) on the reference graph.
+  let children : SerializationDFS.Graph := fun v =>
+    (parsed.nodes.getD v ⟨[], []⟩).slots.filterMap fun s => match s with
+      | .ref i => some i
+      | .lit _ => none
+  if !SerializationPreorder.check children parsed.nodes.length then throw "node order"
+  let tags := parsed.nodes.map fun v => v.key.head!
+  -- Container nodes become model rows, renumbered among themselves; scalar nodes become atoms.
+  let containers := (List.range tags.length).filter fun i => tags[i]! ≤ 3
+  let token := fun (s : Slot Lit) => match s with
+    | .lit j => atom j.val
+    | .ref i =>
+      let tag := tags[i]!
+      if tag ≤ 3 then toJson ([toJson (1 : Nat), toJson (containers.idxOf i)] : List Json)
+      else if tag == 18 then
+        atom (Json.mkObj [("bigint", (parsed.headers[i]!)[0]!)])
+      else atom (Json.mkObj [("scalar", toJson (scalarName tag))])
+  let mut rows : List Json := []
+  for i in containers do
+    let v := parsed.nodes[i]!
+    let tag := tags[i]!
+    let (payload, keys) ← match infos[i]! with
+      | some (length, positions) => pure ([toString length], positions.map toString)
+      | none =>
+        if tag ≤ 1 then pure ([], parsed.shapes[v.key[1]!]!)
+        else pure ([toString v.slots.length], (List.range v.slots.length).map toString)
+    rows := rows ++ [Json.mkObj [("kind", toJson (kindText tag)), ("payload", toJson payload),
+      ("edges", toJson ((keys.zip v.slots).map fun (k, s) => toJson [toJson k, token s]))]]
+  let root := token (.ref 0)
+  -- Re-emit with the proved encoder and reattach the fixed-schema headers.
+  let encoded := encodeDocument V parsed.nodes
+  let layouts := encoded.layouts.map fun (key, runs) => toJson (key ++ runs)
+  let payloads := (List.range encoded.payloads.length).map fun i =>
+    let slots := encoded.payloads[i]!
+    match infos[i]! with
+    | some (length, positions) =>
+      Json.arr #[toJson length, toJson (presenceRuns positions length), Json.arr slots.toArray]
+    | none => Json.arr (parsed.headers[i]! ++ slots).toArray
+  let reemitted := toJson [toJson parsed.shapes, toJson layouts, toJson encoded.descriptors,
+    Json.arr payloads.toArray]
+  return Json.mkObj [("ok", toJson true), ("expanded", Json.mkObj [("root", root),
+    ("rows", toJson rows)]), ("reemitted", reemitted)]
 
 def run (input : String) : IO Unit := do
   let requests ← IO.ofExcept (Json.parse input >>= Json.getArr?)
@@ -190,7 +223,7 @@ def run (input : String) : IO Unit := do
     match evaluate request with
     | .ok result => result
     | .error error => Json.mkObj [("ok", toJson false), ("error", toJson error)]
-  let output := ((Json.arr responses).compress.replace "\u2028" "\\u2028").replace "\u2029" "\\u2029"
+  let output := ((Json.arr responses).compress.replace " " "\\u2028").replace " " "\\u2029"
   (← IO.getStdout).putStrLn output
 
 end Reconcile.SerializationOracle

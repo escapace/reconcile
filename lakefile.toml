@@ -35,6 +35,8 @@ roots = [
   "Serialization.Inline",
   "Serialization.ShapeTrie",
   "Serialization.ShapeRadix",
+  "Serialization.Positional",
+  "Serialization.Preorder",
   "Serialization.Reconstruction",
   "Serialization.SparseShell",
   "Serialization.Oracle",

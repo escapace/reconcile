@@ -1,15 +1,18 @@
 import type { Frame, EncodeContext } from './contracts'
-// Inline.lean inline_step_refines / inline_matches_recursive: containers tokenize children in
-// place and yield after a child pushed its frame. Inline.lean direct_rows_exact covers the
-// array row layout. Dynamic observations and IteratorClose rest on the local simulation in
-// lean/Serialization/ENCODER.md and remain differential-test obligations.
+// Inline.lean inline_step_refines / inline_matches_recursive: containers write children in
+// place and yield after a child pushed its frame. Positional.lean sparse_roundtrip covers the
+// incremental presence runs. Dynamic observations and IteratorClose rest on the local
+// simulation in lean/Serialization/ENCODER.md and remain differential-test obligations.
 import { encodeFail as fail, int, maxArrayLength } from './common'
 import { readView, readURL } from './native'
 import { leafCaptures } from './leaf'
+import { lengths } from './layout'
+import { node, slot } from './emit'
+import { intern } from './radix'
 
 const object = (value: unknown): value is Record<PropertyKey, unknown> =>
   value !== null && (typeof value === 'object' || typeof value === 'function')
-// True when tokenizing the last child pushed a frame that must complete first.
+// True when the last slot pushed a frame that must complete first.
 const pushed = (frame: Frame, context: EncodeContext) =>
   context.stack[context.stack.length - 1] !== frame
 export function closeFrame(frame: Frame) {
@@ -20,14 +23,13 @@ export function closeFrame(frame: Frame) {
     // Cleanup only handles an existing throw; return result cannot replace it.
   }
 }
-// Appends one present element: densely while indices stay consecutive, otherwise as a pair.
-function append(frame: Frame, index: number, item: unknown) {
-  if (frame.dense && frame.row.length === index + 2) frame.row.push(item)
-  else {
-    sparseRow(frame)
-    frame.row.push(index, item)
-  }
+// Appends one present element. Positional.lean presenceGo: a gap records the boundaries of the
+// whole hole run at once.
+function append(frame: Frame, context: EncodeContext, index: number, item: unknown) {
+  if (index !== frame.end) (frame.holes ??= []).push(frame.end, index)
+  frame.end = index + 1
   if (frame.length <= index) frame.length = index + 1
+  slot(frame, item, context)
 }
 function array(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) startArray(frame)
@@ -36,15 +38,20 @@ function array(frame: Frame, context: EncodeContext) {
   for (let index = frame.index; index < value.length; index++) {
     if (index >= maxArrayLength) fail('array length or index invalid')
     if (index in value) {
-      append(frame, index, context.token(value[index]))
+      append(frame, context, index, value[index])
       if (pushed(frame, context)) {
         frame.index = index + 1
         return false
       }
     }
   }
-  if (frame.dense && frame.row.length !== frame.length + 2) sparseRow(frame)
-  frame.row[1] = frame.length
+  // A dense array is its values; a sparse one is [length, presence runs, values].
+  if (frame.holes !== undefined || frame.end !== frame.length) {
+    const holes = frame.holes ?? []
+    if (frame.end < frame.length) holes.push(frame.end)
+    frame.tag = 3
+    frame.row = [frame.length, lengths(holes), frame.row]
+  }
   return true
 }
 function iterator(frame: Frame, iterable: Iterable<unknown>) {
@@ -60,24 +67,24 @@ function leaf(frame: Frame, context: EncodeContext) {
 }
 function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
-    frame.row = [4]
+    frame.row = []
     iterator(frame, (frame.value as Map<unknown, unknown>).entries())
     frame.phase = 1
   } else if (frame.phase === 2) {
     frame.phase = 1
-    frame.row.push(context.token(frame.mapValue))
+    slot(frame, frame.mapValue, context)
     if (pushed(frame, context)) return false
   }
   while (next(frame)) {
     // Native destructuring closes the entry iterator before either child is traversed.
     const [key, value] = frame.child as Iterable<unknown>
-    frame.row.push(context.token(key))
+    slot(frame, key, context)
     if (pushed(frame, context)) {
       frame.mapValue = value
       frame.phase = 2
       return false
     }
-    frame.row.push(context.token(value))
+    slot(frame, value, context)
     if (pushed(frame, context)) return false
   }
   return true
@@ -95,13 +102,15 @@ function next(frame: Frame) {
 function record(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.keys = Object.getOwnPropertyNames(frame.value)
-    frame.row = [frame.tag, context.shape(frame.keys)]
+    // The shape id is the record layout's key field.
+    frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
+    frame.row = []
     frame.index = 0
     frame.phase = 1
   }
   const keys = frame.keys
   while (frame.index < keys.length) {
-    frame.row.push(context.token(Reflect.get(frame.value, keys[frame.index++])))
+    slot(frame, Reflect.get(frame.value, keys[frame.index++]), context)
     if (pushed(frame, context)) return false
   }
   if (Object.getOwnPropertySymbols(frame.value).length !== 0) fail('symbol key')
@@ -109,24 +118,15 @@ function record(frame: Frame, context: EncodeContext) {
 }
 function set(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
-    frame.row = [5]
+    frame.row = []
     iterator(frame, (frame.value as Set<unknown>).values())
     frame.phase = 1
   }
   while (next(frame)) {
-    frame.row.push(context.token(frame.child))
+    slot(frame, frame.child, context)
     if (pushed(frame, context)) return false
   }
   return true
-}
-// Rewrites a dense row prefix [2, _, v0, v1, ...] as sparse [3, _, 0, v0, 1, v1, ...].
-function sparseRow(frame: Frame) {
-  if (!frame.dense) return
-  const dense = frame.row
-  const sparse: unknown[] = [3, 0]
-  for (let index = 2; index < dense.length; index++) sparse.push(index - 2, dense[index])
-  frame.row = sparse
-  frame.dense = false
 }
 function startArray(frame: Frame) {
   if (!Array.isArray(frame.value)) fail('array brand')
@@ -134,29 +134,43 @@ function startArray(frame: Frame) {
   if (!int(initial, maxArrayLength)) fail('array length or index invalid')
   frame.length = initial
   frame.index = 0
-  frame.dense = true
-  frame.row = [2, 0]
+  frame.row = []
   frame.phase = 1
 }
 function url(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.state = readURL(frame.value) as Frame['state']
     frame.phase = 1
-    frame.input = context.token(frame.state.parameters)
+    frame.input = node(frame.state.parameters, context)
     if (pushed(frame, context)) return false
   }
-  context.owner(-(frame.input as number) - 6, context.ids.get(frame.value)!)
-  frame.row = [9, frame.state.href]
+  ;(context.owners ??= new Map()).set(frame.input, frame.id)
+  frame.row = [frame.state.href]
   return true
 }
 function view(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.state = readView(frame.value, frame.detail) as Frame['state']
     frame.phase = 1
-    frame.input = context.token(frame.state.buffer)
+    frame.input = node(frame.state.buffer, context)
     if (pushed(frame, context)) return false
   }
-  frame.row = [8, frame.detail, frame.input, frame.state.byteOffset, frame.state.length]
+  frame.row = [frame.input, frame.state.byteOffset, frame.state.length]
   return true
 }
-export const advances = [record, record, array, array, map, set, leaf, leaf, view, url, leaf, leaf]
+// Indexed by node tag; leaf tags are captured on discovery and never pushed.
+export const advances = [
+  record,
+  record,
+  array,
+  array,
+  map,
+  set,
+  leaf,
+  leaf,
+  view,
+  url,
+  leaf,
+  leaf,
+  leaf,
+]

@@ -68,26 +68,29 @@ function project(values: unknown[], value: unknown): number {
   return index
 }
 
-function contextFor(
-  request: Request,
-  values: unknown[],
-  reads: number[],
-  failure: Error,
-): DecodeContext {
-  return {
-    checkedShapes: new Set(),
-    nodes: [],
-    output: [],
-    owners: new Set(),
-    shapes: [],
-    read(token) {
-      assert.equal(typeof token, 'number')
-      const index = token as number
-      assert(Number.isInteger(index) && index >= 0 && index < request.values.length)
-      reads.push(index)
-      if (index === request.failAt) throw failure
-      return values[request.values[index]]
+// Payload slots are node references into `values`; the output proxy records each resolved
+// read. A failing occurrence is an out-of-range reference, rejected before it is read.
+function contextFor(values: unknown[], reads: number[]): DecodeContext {
+  const output = new Proxy(values, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) reads.push(Number(key))
+      return Reflect.get(target, key, receiver) as unknown
     },
+  })
+  // Every slot node is already entered, so the bridge isolates resolution and the fold.
+  return {
+    bigints: undefined,
+    cursor: values.length,
+    ends: [],
+    layouts: [],
+    nodeLayouts: [],
+    output,
+    owned: 0,
+    parameters: undefined,
+    payloads: [],
+    scalars: 0,
+    shapes: [],
+    urls: 0,
   }
 }
 
@@ -104,32 +107,50 @@ function projectedEntries(
     : [...(target as Set<unknown>)].map((value) => project(values, value))
 }
 
+// All slots are references; an empty payload lists no run.
+function layoutFor(request: Request): number[] {
+  const tag = request.map ? 4 : 5
+  return request.values.length === 0 ? [tag] : [tag, 0]
+}
+
+// Fills through the production facet; a failing occurrence is recorded as attempted.
+function fillTrace(
+  facet: typeof map,
+  request: Request,
+  target: unknown,
+  values: unknown[],
+): number[] {
+  const layout = layoutFor(request)
+  // Slot i references the node at its own position; that node holds the value's code.
+  const nodes = request.values.map((code) => values[code])
+  const payload: unknown[] = request.values.map((_, index) => index)
+  const reads: number[] = []
+  const context = contextFor(nodes, reads)
+  if (request.failAt === null) facet.fill!(payload, target, layout, context, values.length)
+  else {
+    payload[request.failAt] = nodes.length
+    assert.throws(
+      () => facet.fill!(payload, target, layout, context, values.length),
+      (error: Error) => (error.cause as { reason?: string }).reason === 'reference',
+    )
+    reads.push(request.failAt)
+  }
+  return reads
+}
+
 function check(request: Request, expected: Response): void {
   const facet = request.map ? map : set
-  const row = [request.map ? 4 : 5, ...request.values.map((_, index) => index)]
-  const reads: number[] = []
-  const failure = new Error('read sentinel')
-  const empty = contextFor(request, [], reads, failure)
-  const target = facet.allocate(row, empty) as Map<unknown, unknown> | Set<unknown>
+  const target = facet.allocate([], layoutFor(request), contextFor([], [])) as
+    Map<unknown, unknown> | Set<unknown>
   const values = domain(target)
-  const context = contextFor(request, values, reads, failure)
-  if (expected.error === null) facet.fill!(row, target, context)
-  else
-    assert.throws(
-      () => facet.fill!(row, target, context),
-      (error) => error === failure,
-    )
+  const reads = fillTrace(facet, request, target, values)
   const entries = projectedEntries(request.map, target, values)
   assert.deepEqual(reads, expected.reads, 'every occurrence through the first failed read')
-  assert.deepEqual(
-    entries,
-    expected.entries,
-    'ordered native contents including partial failure state',
-  )
+  assert.deepEqual(entries, expected.entries, 'ordered native contents; untouched on failure')
   assert.equal(expected.error, request.failAt)
 }
 
-/** Calls actual production facets; Lean independently computes ordered fold/read prefixes. */
+/** Calls actual production facets; Lean independently computes ordered resolution and fold. */
 export async function checkSerializationCollectionRuntime(oracle: Oracle): Promise<void> {
   const cases = requests()
   const responses = JSON.parse(

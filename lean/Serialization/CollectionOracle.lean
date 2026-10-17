@@ -20,11 +20,11 @@ def evaluate (request : Request) : Json := Id.run do
   let tokens := List.range request.values.length
   if request.map then
     let pairs := (List.range (request.values.length / 2)).map fun i => (i * 2, i * 2 + 1)
-    let result := decodeMap canonical read [] pairs
+    let result := resolvedMap canonical read [] pairs
     return Json.mkObj [("entries", toJson result.rows), ("reads", toJson result.trace.reads),
       ("error", toJson result.trace.error)]
   else
-    let result := decodeSet canonical read [] tokens
+    let result := resolvedSet canonical read [] tokens
     return Json.mkObj [("entries", toJson result.keys), ("reads", toJson result.trace.reads),
       ("error", toJson result.trace.error)]
 

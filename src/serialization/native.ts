@@ -33,6 +33,8 @@ export const viewConstructors: ReadonlyArray<ViewConstructor | undefined> = /* @
     BigInt64Array,
     BigUint64Array,
   ]))()
+// View kinds index viewConstructors; DataView follows them.
+export const dataViewKind = 12
 export const temporalNames = /* @__PURE__ */ (() =>
   Object.freeze([
     'Instant',
@@ -77,7 +79,7 @@ export function constructView(
   offset: number,
   length: number,
 ): ArrayBufferView {
-  if (kind === -1) return new DataView(buffer, offset, length)
+  if (kind === dataViewKind) return new DataView(buffer, offset, length)
   const Constructor = viewConstructors[kind]
   if (Constructor === undefined) decodeFail('view kind')
   return new Constructor(buffer, offset, length)
@@ -95,7 +97,7 @@ export function nativeKind(
 ): { tag: number; detail?: number } | undefined {
   if (prototype === Date.prototype) return { tag: 6 }
   if (prototype === ArrayBuffer.prototype) return { tag: 7 }
-  if (prototype === DataView.prototype) return { detail: -1, tag: 8 }
+  if (prototype === DataView.prototype) return { detail: dataViewKind, tag: 8 }
   for (let kind = 0; kind < viewConstructors.length; kind++) {
     const Constructor = viewConstructors[kind]
     if (Constructor?.prototype === prototype) return { detail: kind, tag: 8 }
@@ -140,7 +142,7 @@ export function readView(
   value: object,
   kind?: number,
 ): { buffer: ArrayBuffer; byteOffset: number; length: number } {
-  if (kind === -1)
+  if (kind === dataViewKind)
     return {
       buffer: dataBuffer.call(value) as ArrayBuffer,
       byteOffset: dataOffset.call(value) as number,
@@ -175,7 +177,7 @@ function temporalKind(prototype: object | null): { detail: number; tag: number }
     for (let kind = 0; kind < temporalNames.length; kind++) {
       const constructor = temporal[temporalNames[kind]]
       if (typeof constructor === 'function' && prototype === constructor.prototype)
-        return { detail: kind, tag: 11 }
+        return { detail: kind, tag: 12 }
     }
   return undefined
 }

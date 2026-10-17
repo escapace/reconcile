@@ -1,37 +1,62 @@
+import type { RadixNode } from './radix'
 export interface DecodeContext {
-  checkedShapes: Set<number>
-  nodes: Row[]
+  bigints: Set<string> | undefined
+  cursor: number
+  ends: number[]
+  layouts: number[][]
+  nodeLayouts: number[][]
   output: unknown[]
-  owners: Set<number>
-  shapes: unknown[]
-  read: (token: unknown) => unknown
+  owned: number
+  parameters: number[] | undefined
+  payloads: unknown[][]
+  scalars: number
+  shapes: string[][]
+  urls: number
 }
 export interface Decoder {
-  allocate: (row: Row, context: DecodeContext) => unknown
-  fill?: (row: Row, value: unknown, context: DecodeContext) => void
-  link?: (row: Row, context: DecodeContext) => unknown
+  allocate: (payload: Row, layout: number[], context: DecodeContext) => unknown
+  fill?: (
+    payload: Row,
+    value: unknown,
+    layout: number[],
+    context: DecodeContext,
+    index: number,
+  ) => void
+  link?: (payload: Row, layout: number[], context: DecodeContext, index: number) => unknown
 }
 export interface EncodeContext {
+  bigints: Map<bigint, number> | undefined
+  boundaries: number[]
+  descriptors: number[]
   hasBuffers: boolean
   ids: Map<object, number>
+  layoutRoot: RadixNode<number>
+  layouts: number[][]
+  owners: Map<number, number> | undefined
+  payloads: Array<Row | undefined>
+  scalars: number[] | undefined
+  scratch: number[]
+  shapeRoot: RadixNode<string>
+  shapes: string[][]
   stack: Frame[]
-  owner: (parameters: number, owner: number) => void
-  shape: (keys: string[]) => number
-  token: (item: unknown) => unknown
+  top: number
 }
 export interface Frame {
   active: boolean
   child: unknown
-  dense: boolean
+  end: number
+  holes: number[] | undefined
   id: number
   index: number
-  input: unknown
+  input: number
   iterator: { next: unknown; return?: unknown }
   keys: string[]
   length: number
   mapValue: unknown
   phase: number
+  reference: boolean
   row: Row
+  runs: number
   state: {
     buffer: ArrayBuffer
     byteOffset: number

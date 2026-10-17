@@ -155,20 +155,25 @@ describe('serialization collection iteration', () => {
 
   it('validates every repeated Map value and Set member before insertion', () => {
     for (const text of [
-      '[-6,[],[[4,"key",-7,"key",1]]]',
-      '[-6,[],[[4,"key",1,"key",-7]]]',
-      '[-6,[],[[5,"member","member",-7]]]',
+      '[[],[[4,1,1]],[0],[["key",1,"key",1]]]',
+      '[[],[[4,3]],[0],[["key",1,"key",1]]]',
+      '[[],[[5,2]],[0],[["member","member",1]]]',
     ])
       expect(() => parse(text)).toThrow(
         expect.objectContaining({ cause: { reason: 'reference', type: 'ParseInputInvalid' } }),
       )
   })
 
-  it('compares decoded bigint keys and rejects malformed overwritten bigint values', () => {
-    const result = parse('[-6,[],[[4,[-6,"0"],1,[-6,"-0"],2]]]') as Map<unknown, unknown>
+  it('shares bigint keys and rejects noncanonical or repeated bigint nodes', () => {
+    const result = parse('[[],[[4,0,1,1,1],[18]],[0,1],[[1,1,1,2],["0"]]]') as Map<unknown, unknown>
     expect([...result]).toEqual([[0n, 2]])
-    expect(() => parse('[-6,[],[[4,"key",[-6,"01"],"key",1]]]')).toThrow(
-      expect.objectContaining({ cause: { reason: 'token', type: 'ParseInputInvalid' } }),
-    )
+    for (const text of [
+      '[[],[[4,1,1],[18]],[0,1],[["key",1,"key",1],["01"]]]',
+      '[[],[[4,1,1],[18]],[0,1],[["key",1,"key",1],["-0"]]]',
+      '[[],[[4,0,1,1,1],[18]],[0,1,1],[[1,1,2,2],["0"],["0"]]]',
+    ])
+      expect(() => parse(text)).toThrow(
+        expect.objectContaining({ cause: { reason: 'bigint', type: 'ParseInputInvalid' } }),
+      )
   })
 })

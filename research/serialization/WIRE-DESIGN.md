@@ -1,7 +1,8 @@
 # Positional wire: design proposal (2026-10-17)
 
-Status: proposal for approval. No runtime or proof change has been made. Measurements below
-are exploratory single-process prototypes on Node 24.22.0, not decision evidence.
+Status: approved and implemented on this branch (runtime, Lean models `Positional.lean` and
+`Preorder.lean`, bridges and tests). Performance work and decision rounds are in progress; the
+measurements below are the original exploratory prototypes, not decision evidence.
 
 ## Problem
 

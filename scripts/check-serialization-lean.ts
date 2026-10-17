@@ -9,8 +9,7 @@ interface Model {
 interface Response {
   expanded: Model
   ok: boolean
-  roundtrip: Model
-  wireFromModel: unknown
+  reemitted: unknown
 }
 interface Row {
   edges: Array<[string, Token]>
@@ -19,18 +18,19 @@ interface Row {
 }
 type Token = [0, string] | [1, number]
 const nullRecord = (): Record<string, unknown> => Object.create(null) as Record<string, unknown>
+// Atoms name values independently of the wire: JSON scalars by their JSON text, shared scalar
+// nodes by an object a literal can never be.
+const scalarNames: Array<[unknown, string]> = [
+  [undefined, 'undefined'],
+  [NaN, 'NaN'],
+  [Infinity, 'Infinity'],
+  [-Infinity, '-Infinity'],
+  [-0, '-0'],
+]
 function atom(value: unknown): Token {
-  if (value === undefined) return [0, '[-1]']
-  if (typeof value === 'bigint') return [0, JSON.stringify([-6, String(value)])]
-  return [0, JSON.stringify(typeof value === 'number' ? numberAtom(value) : value)]
-}
-const specialNumbers = new Map<number, number[]>([
-  [-Infinity, [-4]],
-  [Infinity, [-3]],
-  [NaN, [-2]],
-])
-function numberAtom(value: number): unknown {
-  return Object.is(value, -0) ? [-5] : (specialNumbers.get(value) ?? value)
+  if (typeof value === 'bigint') return [0, JSON.stringify({ bigint: String(value) })]
+  const name = scalarNames.find(([scalar]) => Object.is(scalar, value))?.[1]
+  return [0, JSON.stringify(name === undefined ? value : { scalar: name })]
 }
 function sourceRow(value: object, token: (value: unknown) => Token): Row {
   const keys = Object.keys(value)
@@ -227,30 +227,17 @@ function unsupportedRawNumber(value: unknown): boolean {
 const scalarTexts = [
   '-1',
   '-2',
-  '-3',
-  '-4',
-  '-5',
   '-6',
   '-7',
   '-0.5',
-  '-1.5',
-  '-2.5',
-  '-3.5',
-  '-4.5',
   '-1.50',
   '-0.50000000000000001',
   '-1.00000000000000001',
   '-1.25',
-  '-5.5',
-  '-6.5',
   '[-1]',
-  '[-2]',
-  '[-3]',
-  '[-4]',
-  '[-5]',
   '[-7,-0.5]',
-  '[-7,-1]',
   '[-6,"123"]',
+  '{}',
   '-0',
   '-1e-400',
   '-1e400',
@@ -258,45 +245,44 @@ const scalarTexts = [
   '"-1"',
   '0',
   '1',
+  '1e21',
   'true',
   'null',
 ]
-async function checkCompactScalars(run: Oracle): Promise<void> {
-  const { scalarDocuments, scalarRequests } = scalarCases()
-  const scalarResults = JSON.parse(
-    await run('Serialization', [], {
-      input: JSON.stringify(scalarRequests),
-    }),
-  ) as Response[]
-  assert.equal(scalarResults.length, scalarDocuments.length)
-  for (let index = 0; index < scalarResults.length; index++) {
-    const result = scalarResults[index]
-    const document = scalarDocuments[index]
-    if (result.ok) assert.deepEqual(normalizeModel(result.expanded), sourceModel(parse(document)))
-    else assert.throws(() => parse(document))
+// A root without nodes is a single literal; composites and non-JSON numbers are not literals.
+// Signed zero and nonfinite raw numbers are outside the finite JSON number model.
+function checkLiteralRoot(document: string, result: Response): void {
+  if (!result.ok) {
+    assert.throws(() => parse(document))
+    return
   }
+  assert.deepEqual(normalizeModel(result.expanded), sourceModel(parse(document)))
+  assert.deepEqual(result.reemitted, JSON.parse(document))
 }
-function scalarCases() {
-  const scalarRequests: Array<{ wire: unknown }> = []
-  const scalarDocuments: string[] = []
-  for (const text of scalarTexts) {
-    const parsed: unknown = JSON.parse(text)
-    const document = `[${text},[],[]]`
-    if (unsupportedRawNumber(parsed)) {
-      // Signed zero/nonfinite raw scalar inputs are outside the finite Number model.
+async function checkLiteralRoots(run: Oracle): Promise<void> {
+  const documents = literalDocuments()
+  const requests = documents.map((document) => ({ wire: JSON.parse(document) as unknown }))
+  const results = JSON.parse(
+    await run('Serialization', [], { input: JSON.stringify(requests) }),
+  ) as Response[]
+  assert.equal(results.length, documents.length)
+  for (let index = 0; index < results.length; index++)
+    checkLiteralRoot(documents[index], results[index])
+}
+function literalDocuments(): string[] {
+  const documents = scalarTexts.map((text) => `[${text}]`)
+  for (const document of documents)
+    if (unsupportedRawNumber((JSON.parse(document) as unknown[])[0]))
       assert.throws(() => parse(document))
-      continue
-    }
-    scalarRequests.push({ wire: [parsed, [], []] })
-    scalarDocuments.push(document)
-  }
-  return { scalarDocuments, scalarRequests }
+  return documents.filter(
+    (document) => !unsupportedRawNumber((JSON.parse(document) as unknown[])[0]),
+  )
 }
 
 export async function checkSerializationRuntime(run: Oracle): Promise<void> {
-  const requests = good.map((x) => ({ wire: JSON.parse(stringify(x.input)) as unknown }))
+  const wires = good.map((x) => JSON.parse(stringify(x.input)) as unknown)
   const responses = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify(requests) }),
+    await run('Serialization', [], { input: JSON.stringify(wires.map((wire) => ({ wire }))) }),
   ) as Response[]
   assert.equal(responses.length, good.length)
   for (let index = 0; index < good.length; index++) {
@@ -304,40 +290,57 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
     const r = responses[index]
     assert.equal(r.ok, true, JSON.stringify({ name: good[index].name, r }))
     assert.deepEqual(normalizeModel(r.expanded), expected, good[index].name)
-    assert.deepEqual(normalizeModel(r.roundtrip), expected, good[index].name)
-    assert.deepEqual(
-      sourceModel(parse(JSON.stringify(r.wireFromModel))),
-      expected,
-      good[index].name,
-    )
+    // The proved encoder re-emits exactly the runtime document: it is canonical.
+    assert.deepEqual(r.reemitted, wires[index], good[index].name)
   }
-  const rootReference = -6
   const invalid = [
-    [rootReference, [], []],
-    [rootReference - 1, [[]], [[0, 0]]],
-    [rootReference, [['x']], [[0, 0]]],
-    [rootReference, [['x', 'x']], [[0, 0, 1, 2]]],
-    [rootReference, [], [[3, 1, 1, 2]]],
-    [rootReference, [], [[3, 2, 0, 1, 0, 2]]],
-    [rootReference, [], [[2, 3, 1, 2]]],
-    [[-7, 0], [], []],
+    [-6, [], [[0, 0]]],
+    [[], [], [], []],
+    [[], [[2, 0]], [0], [[1]]],
+    [[], [[2, 0]], [0], [[0.5]]],
+    [[], [[2, 1]], [0], [[1]]],
+    [[], [[2, 1, 0]], [0], [[1, 0, 1]]],
+    [[['x']], [[2]], [0], [[]]],
+    [[['x', 'x']], [[0, 0]], [0], [[1, 2]]],
+    [
+      [['x'], ['x']],
+      [
+        [0, 0],
+        [0, 1],
+      ],
+      [0, 1],
+      [[1], [2]],
+    ],
+    [[['x']], [[0, 0]], [0], [[1, 2]]],
+    [[], [[2], [2]], [0, 1], [[], []]],
+    [[], [[2], [13]], [1, 0], [[], []]],
+    [[], [[2], [13]], [0], [[]]],
+    [[], [[3]], [0], [[2, [2], [1, 2]]]],
+    [[], [[3]], [0], [[2, [], [1, 2]]]],
+    [[], [[3]], [0], [[2, [0, 3], []]]],
+    [[], [[3]], [0], [[3, [1, 0, 1], [1, 2]]]],
+    [[], [[3]], [0], [[3, [1], [1, 2]]]],
+    [[], [[2, 0], [13]], [0, 1, 1], [[1, 2], [], []]],
+    [[], [[2, 0], [18]], [0, 1, 1], [[1, 2], ['5'], ['5']]],
+    [[], [[18]], [0], [['-0']]],
+    [[], [[18]], [0], [['01']]],
+    [[], [[13, 0]], [0], [[]]],
+    [[], [[2]], [0], [[[1]]]],
+    [[], [[2]], [0], [[{}]]],
+    [[[1]]],
+    [[], [[2, 0], [2]], [0, 1, 1], [[2, 1], [], []]],
+    [[], [[2, 0], [2]], [0, 1], [[0], []]],
+    [[], [[2, 0], [2]], [0, 1, 1], [[1], [], []]],
   ]
   const rejected = JSON.parse(
     await run('Serialization', [], { input: JSON.stringify(invalid.map((wire) => ({ wire }))) }),
   ) as Response[]
   for (let index = 0; index < invalid.length; index++) {
-    assert.equal(rejected[index].ok, false)
-    assert.throws(() => parse(JSON.stringify(invalid[index])))
+    assert.equal(rejected[index].ok, false, JSON.stringify(invalid[index]))
+    assert.throws(() => parse(JSON.stringify(invalid[index])), JSON.stringify(invalid[index]))
   }
-  // An unused shape is not interpreted by the format's first-use checks.
-  const unused = [null, [42], []]
-  const accepted = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify([{ wire: unused }]) }),
-  ) as Response[]
-  assert.equal(accepted[0].ok, true)
-  assert.equal(parse(JSON.stringify(unused)), null)
-  await checkCompactScalars(run)
+  await checkLiteralRoots(run)
   console.log(
-    `Serialization Lean bridge: ${good.length} graphs, ${invalid.length} malformed documents, unused shape accepted`,
+    `Serialization Lean bridge: ${good.length} graphs re-emitted exactly, ${invalid.length} malformed documents`,
   )
 }

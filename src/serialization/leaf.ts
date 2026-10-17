@@ -7,30 +7,32 @@ import { readDate, readBuffer, readParameters, readTemporal } from './native'
 
 function captureDate(value: object) {
   const time = readDate(value)
-  return [6, Number.isNaN(time) ? null : time]
+  // As in Date.prototype.toJSON, an invalid time is null.
+  return [Number.isNaN(time) ? null : time]
 }
 
 function captureBuffer(value: object, context: EncodeContext) {
   const state = readBuffer(value)
   context.hasBuffers = true
-  return [7, encodeBytes(state.buffer)]
+  return [encodeBytes(state.buffer)]
 }
 
 function captureParameters(value: object) {
-  return [10, readParameters(value)]
+  return [readParameters(value)]
 }
 
 function captureTemporal(value: object, _context: EncodeContext, kind?: number) {
-  const state = readTemporal(value, kind)
-  return [11, state.kind, state.payload]
+  const payload = readTemporal(value, kind).payload
+  // A Duration's ten fields, or the ISO text; the Temporal kind is the layout's key field.
+  return typeof payload === 'string' ? [payload] : payload
 }
 
-// Sparse by the existing wire tag; structural/dependent facets remain generators.
+// Sparse by node tag; structural/dependent facets remain generators.
 export const leafCaptures = /* @__PURE__ */ (() => {
   const leaves: Array<Leaf | undefined> = []
   leaves[6] = captureDate
   leaves[7] = captureBuffer
   leaves[10] = captureParameters
-  leaves[11] = captureTemporal
+  leaves[12] = captureTemporal
   return Object.freeze(leaves)
 })()

@@ -8,10 +8,13 @@ describe('serialization', () => {
     expectTypeOf(stringify).toEqualTypeOf<(value: unknown) => string>()
     expectTypeOf(parse).toEqualTypeOf<(text: string) => unknown>()
     expect(JSON.parse(stringify({ count: 3, title: 'hello' }))).toEqual([
-      -6,
       [['count', 'title']],
-      [[0, 0, 3, 'hello']],
+      [[0, 0]],
+      [0],
+      [[3, 'hello']],
     ])
+    expect(stringify([-1, 'x', null])).toBe('[[],[[2]],[0],[[-1,"x",null]]]')
+    expect(stringify(-1.5)).toBe('[-1.5]')
     for (const value of [
       undefined,
       null,
@@ -29,9 +32,45 @@ describe('serialization', () => {
       expect(Object.is(copy(value), value)).toBe(true)
   })
 
-  it('rejects legacy singleton special tokens', () => {
-    for (const tag of [-1, -2, -3, -4, -5])
-      expect(() => parse(JSON.stringify([[tag], [], []]))).toThrow()
+  it('accepts only canonical literals, runs, tables and shared scalars', () => {
+    for (const text of [
+      '[-0]',
+      '[1e400]',
+      '[[1]]',
+      '[{}]',
+      '[[],[[2]],[0],[[-0]]]',
+      '[[],[[2]],[0],[[[1]]]]',
+      '[[],[[2]],[0],[[{}]]]',
+      '[[],[[2]],[0],[[-1e400]]]',
+      '[[],[[2,1]],[0],[[1]]]',
+      '[[],[[2,1,0]],[0],[[1,0,1]]]',
+      '[[],[[2,0]],[0],[[0.5]]]',
+      '[[],[[2,0]],[0],[[1]]]',
+      '[[],[[2],[2]],[0,1],[[],[]]]',
+      '[[],[[2],[6]],[1,0],[[null],[]]]',
+      '[[],[[2],[6]],[0],[[]]]',
+      '[[],[[2,0],[13],[13]],[0,1,2],[[1,2],[],[]]]',
+      '[[],[[2,0],[18]],[0,1,1],[[1,2],["5"],["5"]]]',
+      '[[],[[18]],[0],[["-0"]]]',
+      '[[],[[6]],[0],[[-0]]]',
+      '[[[]],[[2]],[0],[[]]]',
+      '[[["a"],["a"]],[[0,0],[0,1]],[0,1],[[1],[2]]]',
+      '[[],[[3]],[0],[[2,[],[1,2]]]]',
+      '[[],[[3]],[0],[[2,[2],[1,2]]]]',
+      '[[],[[3]],[0],[[0,[0],[]]]]',
+      '[[],[[9],[11]],[0,1,1],[["https://a.example/"],[0],[0]]]',
+      '[[],[[9]],[0],[["https://a.example/"]]]',
+      '[[],[[8,1],[6]],[0,1],[[1,0,0],[0]]]',
+      '[[],[[2,0],[2]],[0,1,1],[[2,1],[],[]]]',
+      '[[],[[2,0],[2]],[0,1],[[0],[]]]',
+    ])
+      expect(() => parse(text)).toThrow(
+        expect.objectContaining({
+          cause: { reason: expect.any(String) as unknown, type: 'ParseInputInvalid' },
+        }),
+      )
+    const shared = parse('[[],[[2,0],[13],[18]],[0,1,2],[[1,1,2],[],["-5"]]]') as unknown[]
+    expect(shared).toEqual([undefined, undefined, -5n])
   })
 
   it('preserves cycles, shared identities and distinct equal objects in collections', () => {
@@ -103,7 +142,9 @@ describe('serialization', () => {
       })
     // eslint-disable-next-line no-sparse-arrays -- The hole is the observed case.
     const nested = spy({ a: spy([1, , spy({ b: 2 }, 'inner')], 'list'), c: 3 }, 'root')
-    expect(stringify(nested)).toBe('[-6,[["a","c"],["b"]],[[0,0,-7,3],[3,3,0,1,2,-8],[0,1,2]]]')
+    expect(stringify(nested)).toBe(
+      '[[["a","c"],["b"]],[[0,0,0,1],[3,1],[0,1]],[0,1,2],[[1,3],[3,[1,1],[1,2]],[2]]]',
+    )
     expect(log).toEqual([
       'proto root',
       'ownKeys root',
@@ -182,7 +223,9 @@ describe('serialization', () => {
         return 2
       },
     })
-    expect(stringify(spy(list, 'list'))).toBe('[-6,[["grow"]],[[2,3,1,-7,"tail"],[0,0,2]]]')
+    expect(stringify(spy(list, 'list'))).toBe(
+      '[[["grow"]],[[2,1,1],[0,0]],[0,1],[[1,1,"tail"],[2]]]',
+    )
     expect(log).toEqual([
       'proto list',
       'get list.length',
@@ -262,7 +305,7 @@ describe('serialization', () => {
         }),
       )
     }
-    for (const text of ['{}', '[-6,[],[]]', '[0,[],[[100]]]', '[0,[],[[7,"!"]]]']) {
+    for (const text of ['{}', '[[],[],[],[]]', '[[],[[100]],[0],[[]]]', '[[],[[7]],[0],[["!"]]]']) {
       expect(() => parse(text)).toThrow(
         expect.objectContaining({
           cause: { reason: expect.any(String) as unknown, type: 'ParseInputInvalid' },

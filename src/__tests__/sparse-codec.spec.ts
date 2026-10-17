@@ -2,7 +2,9 @@ import { assert, it } from 'vitest'
 import { parse } from '../index'
 
 it.each([0, 1, 4_294_967_295])('decodes an all-hole sparse shell of length %s', (length) => {
-  const result = parse(JSON.stringify([-6, [], [[3, length]]])) as unknown[]
+  // Length zero has no hole and is the dense empty array.
+  const payload = length === 0 ? [] : [length, [0], []]
+  const result = parse(JSON.stringify([[], [[length === 0 ? 2 : 3]], [0], [payload]])) as unknown[]
   assert.isTrue(Array.isArray(result))
   assert.equal(Object.getPrototypeOf(result), Array.prototype)
   assert.isTrue(Object.isExtensible(result))
@@ -18,11 +20,15 @@ it.each([0, 1, 4_294_967_295])('decodes an all-hole sparse shell of length %s', 
 it('fills sparse maximum-index cycles and preserves aliases and default descriptors', () => {
   const result = parse(
     JSON.stringify([
-      -6,
       [],
       [
-        [2, 2, -7, -7],
-        [3, 4_294_967_295, 0, -7, 4_294_967_294, -6],
+        [2, 0],
+        [3, 0],
+      ],
+      [0, 1],
+      [
+        [1, 1],
+        [4_294_967_295, [1, 4_294_967_293], [1, 0]],
       ],
     ]),
   ) as unknown[][]
@@ -45,12 +51,13 @@ it('keeps sparse decoder allocation separate from own prototype data', () => {
   const before = Object.getOwnPropertyDescriptors(Object.prototype)
   const result = parse(
     JSON.stringify([
-      -6,
       [['__proto__']],
       [
-        [0, 0, -7],
-        [3, 3, 1, -6],
+        [0, 0, 0],
+        [3, 0],
       ],
+      [0, 1],
+      [[1], [3, [0, 1, 1], [0]]],
     ]),
   ) as Record<string, unknown>
   assert.equal(Object.getPrototypeOf(result), Object.prototype)

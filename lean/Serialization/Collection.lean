@@ -201,6 +201,54 @@ theorem successful_set_fold (canonical decoded : Nat → Nat) (keys tokens : Lis
   | nil => rfl
   | cons token rest ih => simp [decodeSet, ih, firstOrder, prepend]
 
+-- The positional decoder resolves every slot of a collection before its first insertion, so
+-- a failed occurrence leaves the destination untouched; on success it is the same fold.
+def resolvedMap (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (rows entries : List (Nat × Nat)) : MapResult :=
+  match (validate read (flatten entries)).error with
+  | some _ => ⟨rows, validate read (flatten entries)⟩
+  | none => decodeMap canonical read rows entries
+
+def resolvedSet (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (keys tokens : List Nat) : SetResult :=
+  match (validate read tokens).error with
+  | some _ => ⟨keys, validate read tokens⟩
+  | none => decodeSet canonical read keys tokens
+
+theorem resolved_map_trace (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (rows entries : List (Nat × Nat)) :
+    (resolvedMap canonical read rows entries).trace = validate read (flatten entries) := by
+  unfold resolvedMap
+  split
+  · rfl
+  · exact map_reads_every_occurrence canonical read rows entries
+
+theorem resolved_map_rows (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (rows entries : List (Nat × Nat)) :
+    (resolvedMap canonical read rows entries).rows =
+      match (validate read (flatten entries)).error with
+      | some _ => rows
+      | none => (decodeMap canonical read rows entries).rows := by
+  unfold resolvedMap
+  split <;> rfl
+
+theorem resolved_set_trace (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (keys tokens : List Nat) :
+    (resolvedSet canonical read keys tokens).trace = validate read tokens := by
+  unfold resolvedSet
+  split
+  · rfl
+  · exact set_reads_every_occurrence canonical read keys tokens
+
+theorem resolved_set_keys (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
+    (keys tokens : List Nat) :
+    (resolvedSet canonical read keys tokens).keys =
+      match (validate read tokens).error with
+      | some _ => keys
+      | none => (decodeSet canonical read keys tokens).keys := by
+  unfold resolvedSet
+  split <;> rfl
+
 -- These inhabited witnesses reject duplicate rejection, first-value retention,
 -- last-position movement, raw signed-zero equality, and skipping invalid values.
 example : foldMap ([] : List (Nat × Nat)) [(1, 10), (2, 20), (1, 30)] =
@@ -210,6 +258,8 @@ example : (decodeMap id (fun token => if token = 3 then .error 99 else .ok (toke
     [] [(0, 1), (2, 3), (4, 5)]).trace = ⟨[0, 1, 2, 3], some 99⟩ := by decide
 example : (decodeMap id (fun token => if token = 1 then .error 99 else .ok 0)
     [] [(0, 1), (2, 3)]).rows = [] := by decide
+example : (resolvedMap id (fun token => if token = 3 then .error 99 else .ok (token % 2))
+    [] [(0, 1), (2, 3), (4, 5)]) = ⟨[], ⟨[0, 1, 2, 3], some 99⟩⟩ := by decide
 example : firstOrder ([] : List Nat) ([5, 6, 5].map fun key => if key = 5 then 6 else key) =
     [6] := by decide
 
@@ -222,5 +272,9 @@ example : firstOrder ([] : List Nat) ([5, 6, 5].map fun key => if key = 5 then 6
 #print axioms set_reads_every_occurrence
 #print axioms successful_map_fold
 #print axioms successful_set_fold
+#print axioms resolved_map_trace
+#print axioms resolved_map_rows
+#print axioms resolved_set_trace
+#print axioms resolved_set_keys
 
 end SerializationCollection
