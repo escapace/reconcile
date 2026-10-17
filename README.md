@@ -46,11 +46,11 @@ reconcile(state, next) // state.tags is still the same array, now ['a', 'b']
 import { parse, stringify } from '@escapace/reconcile'
 
 const text = stringify({ count: 3, title: 'hello' })
-// [[["count","title"]],[[0,0]],[0],[[3,"hello"]]]
+// [[0,1,2,"count","title",2,0,0],[[3,"hello"]]]
 const restored = parse(text)
 ```
 
-The transport is a single JSON literal, or four tables: property-name shapes, node layouts, one layout id per node and one payload per node, with the root as node 0. A layout fixes the kind of every slot, literal or node reference, so no number or string is reserved. It has no format identifier or version negotiation: producers and consumers must use matching versions. This is a graph transport, not a transparent replacement for ordinary JSON data.
+The transport is a single JSON literal in an array, or a control table and one payload per node, with the root as node 0. The control table lists each node's layout id, then the property-name shapes and the node layouts, each preceded by its length. A layout fixes the kind of every slot, literal or node reference, so no number or string is reserved. Parsing uses the tables as given: their order, repeated or unused entries and repeated shared scalars do not change the result, and a name repeated within one shape keeps its first position and last value. It has no format identifier or version negotiation: producers and consumers must use matching versions. This is a graph transport, not a transparent replacement for ordinary JSON data.
 
 Supported values are JSON primitives, `undefined`, `bigint`, special numbers (including negative zero), plain and null-prototype records, arrays, `Map`, `Set`, `Date`, fixed `ArrayBuffer` and standard views, `URL`, `URLSearchParams`, and the eight global Temporal value classes when available. Backing buffers and URL-owned search parameters preserve their graph identities. RegExp, boxed primitives, functions, symbols, promises, weak collections, Buffer, shared or resizable buffers, custom native subclasses and arbitrary class instances are outside this contract. There are no custom codecs or asynchronous operations.
 

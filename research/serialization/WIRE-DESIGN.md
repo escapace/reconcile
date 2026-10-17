@@ -1,8 +1,9 @@
-# Positional wire: design proposal (2026-10-17)
+# Positional wire: design and adoption record (2026-10-17)
 
-Status: approved and implemented on this branch (runtime, Lean models `Positional.lean` and
-`Preorder.lean`, bridges and tests). Performance work and decision rounds are in progress; the
-measurements below are the original exploratory prototypes, not decision evidence.
+Status: approved and adopted on this branch. The proposal below is kept as written; the
+[adoption record](#adoption-record) at the end lists what changed during implementation, the
+decision rounds and the accepted and rejected hypotheses. The exploratory measurements are the
+original prototypes, not decision evidence.
 
 ## Problem
 
@@ -116,3 +117,81 @@ ordinary and null-prototype records.
 2. Confirm records as value rows and the flat table; the measurements above reject the
    alternatives.
 3. Sparse-array allocation stays as accepted, or is revisited separately.
+
+## Adoption record
+
+### Changes from the proposal
+
+- **Document.** `[literal]` for a JSON-literal root, otherwise `[control, payloads]` with the
+  root as node 0. One control table replaces the four tables: each node's layout id, the shape
+  count, each shape framed by its length, then each layout framed by its length. The decoder
+  reads shapes and layouts in place by offset (`Positional.lean` `decode_encode_control`,
+  `encode_decode_control`).
+- **Decision point 1: neither extreme.** Literal slots stay checked (no composite, `-0` or
+  non-finite number), as do the run grammar, control integers, reference range and kind, URL
+  ownership and the depth-first node numbering (`Preorder.lean` `preorder_iff`), which makes
+  every node reachable. Table distinctness and first-use order are not checked: tables are used
+  as given, so reordered, repeated or unused entries, a name repeated within a shape (first
+  position, last value) and repeated shared scalars are accepted with one meaning each
+  (`decode_encode_relaxed`, `decodeNodes_sound`). The encoder still writes first-use tables, so
+  equal graphs still give equal text. The canonical theorems are retained as research.
+- **Decision point 2.** Records stay value rows over interned shapes; the flat table is the
+  control table above.
+- **Decision point 3.** A sparse array whose present values are fewer than half its length
+  grows from an empty array, filled in ascending order, and then takes its declared length;
+  a denser one is still allocated at its length. Holes and the accepted memory cost are kept.
+- **Encoder.** Layouts without runs are interned by tag and key in a per-call table; layouts
+  with runs go through a scratch key and an integer radix lookup before interning. Constant
+  nodes share one frozen empty payload. Output is segmented only around base64 of at least
+  256 characters, which skips the serializer's escape scan.
+
+### Decision rounds
+
+Pre-registered rule and harness as in
+[ENCODER-CAPTURE.md](ENCODER-CAPTURE.md#method): a cell is a regression when it is above
+1.03 and outside the identical copy's range in every round. Evidence:
+[wire-design-evidence](wire-design-evidence/README.md).
+
+| Rounds                                        | enc   | encc  | dec   | rt    |
+| --------------------------------------------- | ----- | ----- | ----- | ----- |
+| W3+W4 isolated, vs previous wire (geomean)    | 0.991 | 0.980 | 0.898 | 0.952 |
+| H5 history mode, vs previous wire             | 1.063 | 1.037 | 0.872 | 0.956 |
+| FP2 `--json-stringify-fast-path`, vs previous | 1.042 | 1.051 | 0.907 | 0.972 |
+| DV4+DV5 vs devalue (30 fixtures)              | 0.508 | 0.490 | 0.760 | 0.569 |
+
+Against the previous wire, decoding is faster almost everywhere, and the wire is 12.5% smaller
+by geometric mean (half the size on arrays with one hole). Encoding regressed in every round on
+`mixed-10k` (1.6–2.3×), `dict-records` (1.5–1.6×), `records-small` (1.1–1.5×), `rich`
+(1.3–2.0×) and `undefined-10k` (1.1–1.3×), and on `views-shared` encode in the isolated rounds
+(1.15–1.2×). These documents are dominated by values the previous wire wrote in-band (negative
+sentinels for undefined and special numbers, `[-6, digits]` for bigint) or by per-call setup;
+here each is a shared node with a layout id, and distinct bigints are interned by value
+(about 90 ns each). Profiles show no single hotspot. The minified bundle grew from 13.5 kB to
+17.3 kB (5.2 to 6.6 kB gzip).
+
+Against devalue, 97 of 120 cells were more than 5% faster in both rounds. Cells more than 5%
+slower in both rounds: `scalar-boundaries` decode (1.5–1.9×, accepted), `records-small` decode
+(1.14–1.30×, previously 1.45×; a longer text for native parsing), `rich` (1.05–1.37×) and
+`views-shared` decode and encode (1.06–1.18×). `binary-1m` read 1.07–1.25× in these rounds
+but 0.98–1.06× against the previous wire with the copy control, so it is attributed to arm
+interleaving, not the codec.
+
+### Hypotheses
+
+Accepted: positional slots with shared scalar nodes; one flat control table read by offset;
+relaxed table checks with the numbering check kept; density-based sparse allocation; tag-keyed
+interning of run-free layouts; a shared empty payload for constants; an explicit stack index
+for run boundaries instead of shrinking the array; array children for integer radix keys
+instead of a `Map`; segmenting output only at long base64.
+
+Rejected or not pursued:
+
+- First flat-control prototype that sliced layouts out of the control table: not clearly better.
+  Adopted later with in-place offsets.
+- Literal deduplication: not pursued by decision.
+- A `Map` for integer radix children: slower than array children.
+- Building the control text from separately serialized parts: about 0.2 µs slower per tiny
+  document, within noise on large ones.
+- A presized control array and lazily created radix roots: within noise.
+- Dropping bigint interning: would remove about 90 ns per distinct bigint but changes the
+  output for repeated bigints. Not pursued.

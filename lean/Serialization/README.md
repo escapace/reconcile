@@ -1,6 +1,6 @@
-# Adopted compact scalar tokens
+# Serialization proofs
 
-The active codec uses integer layout A: scalar −1 through −5 for special values and −(id+6) for references. See [COMPACT.md](COMPACT.md) for the checked claims and actual-wire bridge boundary. Layout B and the historical scalar proofs below are retained as inactive research; the active oracle uses `Compact.decode` with `.integers`.
+The active codec uses the [positional wire](POSITIONAL.md): slot kinds come from interned layouts, so no number or string is reserved, and the decoder uses the control table as given. The compact scalar tokens below and in [COMPACT.md](COMPACT.md), and the three-component document further down, are retained research for the previous wire; no runtime path uses them.
 
 The [collection reconstruction proof and native bridge](COLLECTION.md) cover repeated
 Map keys and Set members, native insertion order and every attempted token read.

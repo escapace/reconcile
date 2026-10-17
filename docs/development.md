@@ -69,7 +69,8 @@ The independent serialization pipeline lives under `src/serialization/`, behind 
 `src/stringify.ts` and `src/parse.ts` public wrappers. It uses its own wire facets and
 explicit traversal frames; the three graph operations do not call it. Native URL
 extraction shares the existing intrinsic helpers. Parsing allocates nodes, links
-dependent native wrappers, then fills graph edges. Shapes are validated on first use.
+dependent native wrappers, then fills graph edges. Layouts and shapes are read in place
+from the control table and checked when a node uses them.
 Collection filling decodes every captured entry before applying native `Map.set` or
 `Set.add`; repeated entries retain first insertion order and the last Map value.
 The wire has no format identifier, allocation policy or custom-codec registry. See

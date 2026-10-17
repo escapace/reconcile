@@ -1,0 +1,154 @@
+stat=median; ratio=arm/devalue per rep -> median [min,max]; abs = devalue median us/call
+fixture            op       ref_us             positional               previous
+undefined-10k      enc       351.3  0.559 [0.522,0.620]  0.528 [0.527,0.615]
+undefined-10k      encc      462.8  0.484 [0.437,0.504]  0.487 [0.414,0.507]
+undefined-10k      dec       218.0  0.935 [0.917,0.956]  1.031 [0.910,1.031]
+undefined-10k      rt        610.4  0.663 [0.543,0.666]  0.658 [0.506,0.718]
+records-varied     enc      2109.0  0.460 [0.442,0.498]  0.472 [0.441,0.506]
+records-varied     encc     2516.3  0.409 [0.405,0.499]  0.431 [0.387,0.457]
+records-varied     dec      1155.0  0.516 [0.507,0.555]  0.519 [0.469,0.529]
+records-varied     rt       3610.7  0.468 [0.437,0.502]  0.483 [0.429,0.531]
+small-collections  enc      2309.1  0.608 [0.547,0.836]  0.737 [0.612,0.975]
+small-collections  encc     2162.5  0.676 [0.663,0.823]  0.831 [0.789,0.832]
+small-collections  dec      1040.5  0.879 [0.803,0.887]  0.896 [0.863,1.006]
+small-collections  rt       3054.0  0.773 [0.747,0.858]  0.858 [0.781,0.894]
+long-strings       enc       562.1  0.640 [0.578,0.651]  0.620 [0.555,0.662]
+long-strings       encc      789.1  0.422 [0.371,0.451]  0.426 [0.365,0.448]
+long-strings       dec       113.2  0.869 [0.780,0.887]  0.878 [0.851,0.955]
+long-strings       rt        834.0  0.510 [0.423,0.572]  0.519 [0.423,0.559]
+mixed-10k          enc      1341.8  0.700 [0.588,0.849]  0.388 [0.359,0.514]
+mixed-10k          encc     1264.9  0.673 [0.612,0.767]  0.407 [0.361,0.445]
+mixed-10k          dec       728.7  0.928 [0.771,1.049]  0.853 [0.767,0.975]
+mixed-10k          rt       2121.8  0.704 [0.679,0.849]  0.533 [0.494,0.719]
+dense-dag          enc      1383.4  0.608 [0.523,0.811]  0.569 [0.551,0.596]
+dense-dag          encc     1255.4  0.636 [0.526,0.686]  0.629 [0.628,0.655]
+dense-dag          dec       587.5  0.757 [0.618,0.829]  0.693 [0.677,0.731]
+dense-dag          rt       1949.4  0.660 [0.594,0.703]  0.706 [0.605,0.727]
+set-shared         enc       953.2  0.483 [0.425,0.486]  0.441 [0.437,0.522]
+set-shared         encc      916.5  0.501 [0.481,0.512]  0.457 [0.422,0.510]
+set-shared         dec       479.2  0.758 [0.725,0.796]  0.761 [0.714,0.767]
+set-shared         rt       1496.3  0.592 [0.576,0.596]  0.580 [0.577,0.602]
+dag-2k             enc      1384.0  0.658 [0.644,0.668]  0.659 [0.613,0.715]
+dag-2k             encc     1417.7  0.635 [0.508,0.755]  0.631 [0.473,0.891]
+dag-2k             dec       653.7  0.679 [0.627,0.749]  0.673 [0.649,0.838]
+dag-2k             rt       2141.7  0.642 [0.491,0.672]  0.612 [0.528,0.615]
+hole-last          enc      1951.8  0.128 [0.107,0.131]  0.362 [0.319,0.369]
+hole-last          encc     1964.3  0.128 [0.104,0.138]  0.347 [0.307,0.351]
+hole-last          dec       532.6  0.371 [0.300,0.397]  0.800 [0.659,0.848]
+hole-last          rt       2409.7  0.191 [0.186,0.230]  0.470 [0.448,0.478]
+views-shared       enc         8.3  1.091 [1.006,1.175]  1.021 [0.849,1.300]
+views-shared       encc        9.4  1.070 [1.035,1.079]  0.961 [0.915,1.076]
+views-shared       dec         6.3  1.127 [1.091,1.316]  1.054 [0.965,1.086]
+views-shared       rt         15.9  1.125 [1.062,1.277]  0.999 [0.947,1.044]
+binary-1m          enc     11728.2  1.151 [0.962,1.230]  1.004 [0.953,1.045]
+binary-1m          encc    12540.9  1.146 [0.977,1.284]  0.990 [0.989,1.031]
+binary-1m          dec      3953.5  1.160 [1.050,1.408]  1.140 [1.012,1.148]
+binary-1m          rt      16345.6  1.103 [0.955,1.171]  1.007 [0.968,1.031]
+rich               enc         8.9  1.092 [0.869,1.479]  0.853 [0.818,1.017]
+rich               encc        9.2  1.109 [1.075,1.166]  0.871 [0.834,0.907]
+rich               dec         7.7  1.146 [1.083,1.157]  0.940 [0.836,0.965]
+rich               rt         17.9  1.055 [1.033,1.110]  0.899 [0.755,0.957]
+hole-first         enc      1972.4  0.125 [0.114,0.130]  0.300 [0.290,0.390]
+hole-first         encc     1986.7  0.125 [0.123,0.129]  0.318 [0.280,0.456]
+hole-first         dec       489.1  0.420 [0.364,0.428]  0.889 [0.833,0.957]
+hole-first         rt       2508.8  0.185 [0.178,0.197]  0.405 [0.384,0.499]
+records-wide       enc      5743.4  0.556 [0.536,0.689]  0.464 [0.445,0.498]
+records-wide       encc     6021.8  0.542 [0.507,0.588]  0.461 [0.452,0.539]
+records-wide       dec      3070.0  0.668 [0.645,0.752]  0.608 [0.501,0.711]
+records-wide       rt       8173.3  0.704 [0.658,0.713]  0.573 [0.557,0.691]
+sparse-big         enc       564.8  0.569 [0.547,0.597]  0.624 [0.589,0.654]
+sparse-big         encc      554.7  0.601 [0.565,0.639]  0.673 [0.609,0.680]
+sparse-big         dec       247.0  1.006 [0.947,1.039]  1.849 [1.768,2.240]
+sparse-big         rt        893.6  0.661 [0.569,0.683]  0.878 [0.841,1.108]
+cycle-300          enc       189.7  0.640 [0.635,0.775]  0.557 [0.532,0.698]
+cycle-300          encc      227.9  0.498 [0.466,0.571]  0.592 [0.469,0.605]
+cycle-300          dec       128.4  0.849 [0.715,0.949]  0.767 [0.755,0.793]
+cycle-300          rt        339.8  0.781 [0.550,0.834]  0.651 [0.531,0.669]
+records-1k         enc      1546.9  0.610 [0.579,0.738]  0.576 [0.542,0.589]
+records-1k         encc     1592.6  0.548 [0.496,0.552]  0.584 [0.486,0.632]
+records-1k         dec       775.4  0.736 [0.670,0.745]  0.774 [0.682,0.812]
+records-1k         rt       2417.7  0.637 [0.595,0.674]  0.630 [0.536,0.700]
+dates-2k           enc      1617.2  0.237 [0.233,0.248]  0.218 [0.201,0.237]
+dates-2k           encc     1643.1  0.240 [0.232,0.354]  0.222 [0.197,0.238]
+dates-2k           dec       838.0  0.440 [0.403,0.510]  0.405 [0.394,0.509]
+dates-2k           rt       2432.5  0.349 [0.325,0.394]  0.291 [0.290,0.358]
+strings-10k        enc      3703.8  0.171 [0.149,0.177]  0.170 [0.158,0.185]
+strings-10k        encc     3793.9  0.166 [0.155,0.182]  0.165 [0.158,0.174]
+strings-10k        dec       719.4  0.582 [0.518,0.639]  0.555 [0.551,0.581]
+strings-10k        rt       4863.7  0.210 [0.206,0.231]  0.209 [0.209,0.212]
+nested-arrays      enc      2694.9  0.370 [0.346,0.394]  0.355 [0.339,0.387]
+nested-arrays      encc     2599.4  0.360 [0.324,0.503]  0.348 [0.326,0.353]
+nested-arrays      dec       966.5  0.788 [0.723,0.815]  0.940 [0.741,0.987]
+nested-arrays      rt       3716.9  0.464 [0.414,0.544]  0.516 [0.443,0.562]
+map-object-keys    enc      2888.3  0.665 [0.565,0.745]  0.695 [0.693,0.698]
+map-object-keys    encc     2821.2  0.737 [0.538,0.747]  0.650 [0.571,0.772]
+map-object-keys    dec      1303.8  0.834 [0.819,0.930]  0.856 [0.710,0.929]
+map-object-keys    rt       4169.1  0.722 [0.625,0.722]  0.751 [0.647,0.869]
+records-10k        enc     28364.8  0.490 [0.424,0.555]  0.429 [0.357,0.455]
+records-10k        encc    28496.1  0.540 [0.437,0.613]  0.461 [0.376,0.543]
+records-10k        dec     10994.5  0.735 [0.648,0.782]  0.771 [0.717,0.796]
+records-10k        rt      43594.9  0.507 [0.420,0.563]  0.583 [0.422,0.605]
+scalar-boundaries  enc       601.7  1.163 [1.046,1.281]  1.466 [1.226,1.543]
+scalar-boundaries  encc      614.3  1.105 [1.001,1.272]  1.384 [1.379,1.451]
+scalar-boundaries  dec       234.5  1.884 [1.787,1.885]  3.858 [3.724,4.254]
+scalar-boundaries  rt        821.5  1.340 [1.317,1.445]  2.185 [2.149,2.552]
+records-small      enc         2.3  0.965 [0.935,0.969]  0.706 [0.648,0.727]
+records-small      encc        2.4  0.947 [0.930,1.077]  0.656 [0.652,0.740]
+records-small      dec         1.3  1.304 [1.284,1.427]  1.482 [1.305,1.631]
+records-small      rt          4.0  1.113 [1.007,1.149]  0.933 [0.854,0.979]
+unicode-10k        enc      5264.6  0.212 [0.201,0.223]  0.206 [0.197,0.240]
+unicode-10k        encc     6245.6  0.237 [0.231,0.274]  0.239 [0.230,0.260]
+unicode-10k        dec       918.9  0.624 [0.621,0.701]  0.640 [0.570,0.683]
+unicode-10k        rt       6575.3  0.268 [0.248,0.273]  0.251 [0.246,0.290]
+numeric-10k        enc      3310.4  0.192 [0.163,0.210]  0.206 [0.173,0.232]
+numeric-10k        encc     3475.2  0.206 [0.182,0.206]  0.199 [0.188,0.201]
+numeric-10k        dec       754.4  0.411 [0.348,0.458]  0.452 [0.392,0.529]
+numeric-10k        rt       4481.5  0.229 [0.190,0.256]  0.257 [0.205,0.259]
+collections        enc       612.0  0.694 [0.557,0.759]  0.607 [0.585,0.667]
+collections        encc      564.5  0.640 [0.610,0.709]  0.694 [0.578,0.725]
+collections        dec       288.9  0.826 [0.782,0.908]  0.823 [0.666,0.906]
+collections        rt        907.5  0.692 [0.630,0.738]  0.747 [0.556,0.790]
+dict-10k           enc      7486.4  0.478 [0.404,0.493]  0.452 [0.444,0.457]
+dict-10k           encc     6638.4  0.466 [0.412,0.499]  0.509 [0.428,0.531]
+dict-10k           dec      5458.2  0.369 [0.368,0.389]  0.557 [0.555,0.694]
+dict-10k           rt      11780.3  0.442 [0.429,0.476]  0.559 [0.452,0.582]
+deep-200           enc        71.9  0.776 [0.710,0.917]  0.801 [0.758,0.830]
+deep-200           encc       72.7  0.735 [0.664,0.797]  0.869 [0.656,0.889]
+deep-200           dec        56.5  0.948 [0.878,0.986]  0.951 [0.920,1.202]
+deep-200           rt        148.4  0.751 [0.640,0.941]  0.730 [0.672,0.884]
+dict-records       enc      4880.2  0.630 [0.399,0.636]  0.369 [0.265,0.386]
+dict-records       encc     5190.4  0.516 [0.497,0.580]  0.340 [0.337,0.501]
+dict-records       dec      5132.7  0.835 [0.747,0.857]  0.872 [0.743,0.956]
+dict-records       rt      11654.1  0.638 [0.470,0.788]  0.565 [0.476,0.623]
+
+wire chars / alloc bytes per call (enc, dec) by arm
+undefined-10k      | devalue: 30003 enc 626K dec 171K | positional: 20027 enc 260K dec 85K | previous: 30019 enc 288K dec 172K
+records-varied     | devalue: 97626 enc 1879K dec 512K | positional: 41711 enc 1388K dec 398K | previous: 47258 enc 1400K dec 411K
+small-collections  | devalue: 89929 enc 1955K dec 759K | positional: 66518 enc 2440K dec 746K | previous: 71520 enc 2323K dec 714K
+long-strings       | devalue: 244895 enc 286K dec 249K | positional: 244215 enc 246K dec 244K | previous: 244217 enc 246K dec 245K
+mixed-10k          | devalue: 68531 enc 1253K dec 346K | positional: 56388 enc 1090K dec 428K | previous: 49648 enc 432K dec 430K
+dense-dag          | devalue: 47352 enc 1024K dec 293K | positional: 34990 enc 700K dec 203K | previous: 47659 enc 705K dec 287K
+set-shared         | devalue: 43340 enc 1006K dec 271K | positional: 22653 enc 727K dec 214K | previous: 26673 enc 735K dec 215K
+dag-2k             | devalue: 62316 enc 1333K dec 409K | positional: 31847 enc 1337K dec 335K | previous: 40188 enc 1332K dec 333K
+hole-last          | devalue: 97779 enc 2206K dec 326K | positional: 48915 enc 308K dec 175K | previous: 97789 enc 979K dec 242K
+views-shared       | devalue: 1465 enc 15K dec 4K | positional: 1468 enc 18K dec 4K | previous: 1457 enc 16K dec 4K
+binary-1m          | devalue: 1398202 enc 12117K dec 2403K | positional: 1398205 enc 12116K dec 2392K | previous: 1398193 enc 12114K dec 2400K
+rich               | devalue: 394 enc 9K dec 4K | positional: 473 enc 18K dec 5K | previous: 371 enc 10K dec 5K
+hole-first         | devalue: 97782 enc 2164K dec 344K | positional: 48917 enc 289K dec 174K | previous: 97795 enc 753K dec 237K
+records-wide       | devalue: 288456 enc 3875K dec 1745K | positional: 144761 enc 2466K dec 1549K | previous: 147772 enc 2516K dec 1550K
+sparse-big         | devalue: 15682 enc 585K dec 136K | positional: 10911 enc 89K dec 207K | previous: 11796 enc 65K dec 799K
+cycle-300          | devalue: 8430 enc 225K dec 60K | positional: 4512 enc 216K dec 50K | previous: 5727 enc 214K dec 50K
+records-1k         | devalue: 84377 enc 1435K dec 401K | positional: 48913 enc 1224K dec 288K | previous: 54919 enc 1202K dec 350K
+dates-2k           | devalue: 80896 enc 636K dec 435K | positional: 25804 enc 515K dec 392K | previous: 27819 enc 445K dec 376K
+strings-10k        | devalue: 277787 enc 2756K dec 769K | positional: 228905 enc 481K dec 503K | previous: 228909 enc 480K dec 549K
+nested-arrays      | devalue: 103242 enc 2048K dec 571K | positional: 96284 enc 1132K dec 311K | previous: 102299 enc 1068K dec 539K
+map-object-keys    | devalue: 112405 enc 2658K dec 819K | positional: 67612 enc 2837K dec 768K | previous: 79613 enc 2832K dec 756K
+records-10k        | devalue: 933385 enc 20706K dec 4071K | positional: 558417 enc 12656K dec 2893K | previous: 618430 enc 12591K dec 3587K
+scalar-boundaries  | devalue: 27777 enc 647K dec 171K | positional: 60575 enc 389K dec 168K | previous: 83498 enc 641K dec 581K
+records-small      | devalue: 97 enc 3K dec 1K | positional: 117 enc 5K dec 1K | previous: 108 enc 3K dec 2K
+unicode-10k        | devalue: 277773 enc 3032K dec 751K | positional: 228891 enc 710K dec 504K | previous: 228895 enc 702K dec 594K
+numeric-10k        | devalue: 114457 enc 2382K dec 515K | positional: 65575 enc 477K dec 85K | previous: 65579 enc 507K dec 362K
+collections        | devalue: 23717 enc 769K dec 238K | positional: 15664 enc 727K dec 216K | previous: 19671 enc 740K dec 207K
+dict-10k           | devalue: 206677 enc 4146K dec 1534K | positional: 157803 enc 1505K dec 963K | previous: 157796 enc 1233K dec 1569K
+deep-200           | devalue: 2510 enc 79K dec 32K | positional: 1539 enc 131K dec 31K | previous: 2140 enc 130K dec 29K
+dict-records       | devalue: 127371 enc 3102K dec 1672K | positional: 157146 enc 2757K dec 1271K | previous: 146268 enc 1813K dec 1986K

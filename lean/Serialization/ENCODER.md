@@ -1,9 +1,10 @@
 # Encoder traversal, direct rows and shape trie
 
 The encoder tokenizes container children in place, builds array rows directly and interns
-record shapes in a per-call path-compressed trie. The wire is byte-identical to the previous
-encoder. These modules were checked before the corresponding runtime edits; existing theorem
-statements are unchanged.
+record shapes in a per-call path-compressed trie. These modules were checked before the
+corresponding runtime edits; existing theorem statements are unchanged. The row layouts below
+belong to the previous wire. The [positional wire](POSITIONAL.md) keeps the traversal and the
+trie, which also interns its layouts, and emits slots and layout runs instead of rows.
 
 ## Checked finite claims
 

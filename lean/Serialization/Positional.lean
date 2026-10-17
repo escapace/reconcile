@@ -7,7 +7,7 @@ import Mathlib.Data.List.Nodup
 Every value position is a slot. A slot is a literal or a reference, and which one is decided by
 its container's layout, never by the value: the wire reserves no number or string. Slot kinds
 are alternating run lengths, starting with literals, whose last run is open (implied by the
-payload length). Layouts and shapes are interned tables in first-use order.
+payload length). The encoder interns layouts and shapes in first-use order.
 
 This file proves, over an abstract wire value type:
 
@@ -18,7 +18,10 @@ This file proves, over an abstract wire value type:
 * interning in first-use order is inverted exactly by the decoder's first-use and distinctness
   checks (`intern_canonical`, `canonical_intern`);
 * a document of nodes decodes to exactly the encoded nodes, and every accepted document is the
-  encoding of the nodes it decodes to (`decode_encode_document`, `encode_decode_document`).
+  encoding of the nodes it decodes to (`decode_encode_document`, `encode_decode_document`);
+* the runtime's decoder, which uses the tables as given, also inverts the encoder
+  (`decode_encode_relaxed`, with `decodeNodes_sound` for what it accepts), and the control
+  table's framing is a bijection (`decode_encode_control`, `encode_decode_control`).
 
 `Values` abstracts the wire value channel. Its laws say only that literals and naturals each
 round-trip; they need not be disjoint, which is the point: a slot's kind, not its value,
