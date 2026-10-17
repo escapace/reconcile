@@ -8,10 +8,12 @@ open Lean SerializationPositional
 # Positional wire oracle
 
 Parses a runtime document over the bridge domain (records, null-prototype records, dense and
-sparse arrays, JSON literals and shared scalar nodes), decodes it with the proved
-`decodeDocument`, `kindsOf` and `presentFrom`, and re-emits it with `encodeDocument` and
-`presenceRuns`. The TypeScript bridge requires the re-emitted document to equal the input, so
-every accepted runtime document is checked to be the encoding of the graph the oracle reads.
+sparse arrays, JSON literals and shared scalar nodes), splits its control table with the proved
+`decodeControl`, decodes it with the proved `decodeRelaxed`, `kindsOf`, `presentFrom` and the
+`Preorder` numbering check, and re-emits it with `encodeDocument`, `encodeControl` and
+`presenceRuns`. The TypeScript bridge requires the re-emitted document to equal every
+`stringify` output, and requires accepted non-canonical documents to decode to the same graph
+in Lean and at runtime.
 Fixed-schema headers (a sparse array's length and presence runs, a bigint's digits) are split
 from the slots by tag, as the runtime schema does.
 -/
@@ -100,28 +102,26 @@ structure Parsed where
 
 def parseDocument (wire : Json) : E Parsed := do
   let doc ← wire.getArr?
-  if doc.size != 4 then throw "envelope"
-  let shapes ← (← doc[0]!.getArr?).toList.mapM strings
-  if !shapes.all (·.Nodup) then throw "duplicate shape key"
-  if !shapes.Nodup then throw "duplicate shape"
-  let layouts ← (← doc[1]!.getArr?).toList.mapM fun j => do
-    let flat ← nats j
+  if doc.size != 2 then throw "envelope"
+  let payloads ← (← doc[1]!.getArr?).toList.mapM pure
+  if payloads.isEmpty then throw "envelope"
+  -- Executes the proved control framing (decode_encode_control, encode_decode_control).
+  let (descriptors, shapeJson, layoutJson) ←
+    need "control" (decodeControl V payloads.length (← doc[0]!.getArr?).toList)
+  let shapes ← shapeJson.mapM fun keys => keys.mapM Json.getStr?
+  let layouts ← layoutJson.mapM fun j => do
+    let flat ← j.mapM nat
     let tag ← need "layout" flat.head?
     let width ← keyWidth tag
     if flat.length < width then throw "layout key"
+    if tag ≤ 1 && flat[1]! ≥ shapes.length then throw "shape reference"
     pure (flat.take width, flat.drop width)
-  let recordShapes := layouts.filterMap fun (key, _) =>
-    if key.head? = some 0 ∨ key.head? = some 1 then key[1]? else none
-  if firstUse 0 recordShapes != some shapes.length then throw "shape order"
-  let descriptors ← nats doc[2]!
-  let payloads ← (← doc[3]!.getArr?).toList.mapM pure
-  if payloads.isEmpty ∨ payloads.length != descriptors.length then throw "envelope"
   let split ← (descriptors.zip payloads).mapM fun (d, p) => do
     let (key, _) ← need "layout id" layouts[d]?
     split key.head! p
   let document : Document (List Nat) Json := ⟨layouts, descriptors, split.map Prod.snd⟩
-  -- Executes the proved decoder: distinct first-use tables, canonical runs, bounded references.
-  let nodes ← need "positional decode" (decodeDocument V document)
+  -- Executes the proved relaxed decoder: canonical runs and bounded references, tables as given.
+  let nodes ← need "positional decode" (decodeRelaxed V document)
   return ⟨shapes, layouts, descriptors, split.map Prod.fst, nodes⟩
 
 def bigintText (text : String) : Bool :=
@@ -158,6 +158,13 @@ def checkHeader (shapes : List (List String)) (v : Node (List Nat) Lit) (header 
   if !header.isEmpty ∨ !v.slots.isEmpty then throw "scalar"
   return none
 
+/-- Defining a repeated key keeps its first position and its last value, as the runtime's
+property definitions do. -/
+def foldKeys (es : List (String × Json)) : List (String × Json) :=
+  es.foldl (fun acc (k, v) =>
+    if acc.any (·.1 == k) then acc.map fun (k', v') => (k', if k' == k then v else v')
+    else acc ++ [(k, v)]) []
+
 def kindText (tag : Nat) : String := if tag == 0 then "object" else if tag == 1 then "nullObject"
   else "array"
 
@@ -170,10 +177,6 @@ def evaluate (request : Json) : E Json := do
       ("rows", toJson ([] : List Json))]), ("reemitted", wire)]
   let parsed ← parseDocument wire
   let infos ← (parsed.nodes.zip parsed.headers).mapM fun (v, h) => checkHeader parsed.shapes v h
-  -- Shared scalar nodes are distinct: each constant tag and each bigint text occurs once.
-  let scalarKeys := (parsed.nodes.zip parsed.headers).filterMap fun (v, h) =>
-    if v.key.head! ≥ 13 then some (v.key.head!, h.map Json.compress) else none
-  if !scalarKeys.Nodup then throw "repeated scalar node"
   -- Executes the proved numbering check (Preorder.lean check_iff) on the reference graph.
   let children : SerializationDFS.Graph := fun v =>
     (parsed.nodes.getD v ⟨[], []⟩).slots.filterMap fun s => match s with
@@ -201,19 +204,21 @@ def evaluate (request : Json) : E Json := do
         if tag ≤ 1 then pure ([], parsed.shapes[v.key[1]!]!)
         else pure ([toString v.slots.length], (List.range v.slots.length).map toString)
     rows := rows ++ [Json.mkObj [("kind", toJson (kindText tag)), ("payload", toJson payload),
-      ("edges", toJson ((keys.zip v.slots).map fun (k, s) => toJson [toJson k, token s]))]]
+      ("edges", toJson ((foldKeys ((keys.zip v.slots).map fun (k, s) => (k, token s))).map
+        fun (k, t) => toJson [toJson k, t]))]]
   let root := token (.ref 0)
   -- Re-emit with the proved encoder and reattach the fixed-schema headers.
   let encoded := encodeDocument V parsed.nodes
-  let layouts := encoded.layouts.map fun (key, runs) => toJson (key ++ runs)
+  let layouts := encoded.layouts.map fun (key, runs) => (key ++ runs).map natJson
   let payloads := (List.range encoded.payloads.length).map fun i =>
     let slots := encoded.payloads[i]!
     match infos[i]! with
     | some (length, positions) =>
       Json.arr #[toJson length, toJson (presenceRuns positions length), Json.arr slots.toArray]
     | none => Json.arr (parsed.headers[i]! ++ slots).toArray
-  let reemitted := toJson [toJson parsed.shapes, toJson layouts, toJson encoded.descriptors,
-    Json.arr payloads.toArray]
+  let control := encodeControl V encoded.descriptors (parsed.shapes.map (·.map toJson))
+    layouts
+  let reemitted := toJson [Json.arr control.toArray, Json.arr payloads.toArray]
   return Json.mkObj [("ok", toJson true), ("expanded", Json.mkObj [("root", root),
     ("rows", toJson rows)]), ("reemitted", reemitted)]
 

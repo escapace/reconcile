@@ -2,6 +2,7 @@ import type { Row, EncodeContext } from './contracts'
 import { advances, closeFrame } from './frames'
 import { frame, layout, node, slot } from './emit'
 import { radixTrie } from './radix'
+import { longBase64 } from './binary'
 // DFS.lean recursive_refines_stack / entries_unique, Inline.lean inline_matches_recursive,
 // ShapeRadix.lean radix_matches_signature and Positional.lean decode_encode_document /
 // renumber_first_use checked before implementation.
@@ -16,6 +17,7 @@ export function encodeGraph(value: unknown): string {
     layouts: [],
     owners: undefined,
     payloads: [],
+    plain: undefined,
     scalars: undefined,
     scratch: [],
     shapeRoot: radixTrie(),
@@ -54,6 +56,14 @@ export function encodeGraph(value: unknown): string {
   return documentText(context)
 }
 // The root is one slot: a literal document, returned as text, or node 0.
+function documentText(context: EncodeContext): string {
+  const layouts = renumber(context)
+  const control = controlTable(context, layouts)
+  const payloads = context.payloads as Row[]
+  return context.hasBuffers
+    ? withLongBuffers(control, payloads, layouts, context.descriptors)
+    : JSON.stringify([control, payloads])
+}
 function enter(value: unknown, context: EncodeContext): string | undefined {
   if (value !== null && typeof value === 'object') {
     node(value, context)
@@ -68,9 +78,8 @@ function enter(value: unknown, context: EncodeContext): string | undefined {
 }
 // Positional.lean renumber_first_use: interning the provisional ids in node order yields the
 // first-use layout table.
-function documentText(context: EncodeContext): string {
-  const { descriptors, layouts: provisional, shapes } = context
-  const payloads = context.payloads as Row[]
+function renumber(context: EncodeContext): number[][] {
+  const { descriptors, layouts: provisional } = context
   const order = new Array<number>(provisional.length).fill(-1)
   const layouts: number[][] = []
   for (let index = 0; index < descriptors.length; index++) {
@@ -82,18 +91,38 @@ function documentText(context: EncodeContext): string {
     }
     descriptors[index] = next
   }
-  if (!context.hasBuffers) return JSON.stringify([shapes, layouts, descriptors, payloads])
-  // Base64 needs no escaping, so buffer payloads skip the serializer's string scan; the payloads
-  // between them are serialized together.
+  return layouts
+}
+// Positional.lean encodeControl: each node's layout id, the number of shapes, each shape framed
+// by its length, then each layout framed by its length.
+function controlTable(context: EncodeContext, layouts: number[][]): unknown[] {
+  // The layout ids open the table, so it extends the descriptor array in place.
+  const control: unknown[] = context.descriptors
+  control.push(context.shapes.length)
+  for (const table of [context.shapes, layouts] as unknown[][][])
+    for (const entry of table) {
+      control.push(entry.length)
+      for (const item of entry) control.push(item)
+    }
+  return control
+}
+// Base64 needs no escaping, so long buffer payloads skip the serializer's string scan; the
+// payloads between them are serialized together.
+function withLongBuffers(
+  control: unknown[],
+  payloads: Row[],
+  layouts: number[][],
+  descriptors: number[],
+): string {
   const parts: string[] = []
   let start = 0
-  for (let index = 0; index < payloads.length; index++)
-    if (layouts[descriptors[index]][0] === 7) {
-      if (index > start) parts.push(JSON.stringify(payloads.slice(start, index)).slice(1, -1))
-      parts.push('["' + (payloads[index][0] as string) + '"]')
-      start = index + 1
-    }
+  for (let index = 0; index < payloads.length; index++) {
+    const text = payloads[index][0]
+    if (layouts[descriptors[index]][0] !== 7 || (text as string).length < longBase64) continue
+    if (index > start) parts.push(JSON.stringify(payloads.slice(start, index)).slice(1, -1))
+    parts.push('["' + (text as string) + '"]')
+    start = index + 1
+  }
   if (start < payloads.length) parts.push(JSON.stringify(payloads.slice(start)).slice(1, -1))
-  const tables = JSON.stringify([shapes, layouts, descriptors])
-  return tables.slice(0, -1) + ',[' + parts.join(',') + ']]'
+  return '[' + JSON.stringify(control) + ',[' + parts.join(',') + ']]'
 }

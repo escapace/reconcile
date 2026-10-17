@@ -279,6 +279,13 @@ function literalDocuments(): string[] {
   )
 }
 
+// Positional.lean encodeControl: layout ids, the shape count, framed shapes, framed layouts.
+function wire([shapes, layouts, ids, payloads]: unknown[][]): unknown[] {
+  const control: unknown[] = [...ids, shapes.length]
+  for (const entry of [...shapes, ...layouts] as unknown[][]) control.push(entry.length, ...entry)
+  return [control, payloads]
+}
+
 export async function checkSerializationRuntime(run: Oracle): Promise<void> {
   const wires = good.map((x) => JSON.parse(stringify(x.input)) as unknown)
   const responses = JSON.parse(
@@ -293,15 +300,13 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
     // The proved encoder re-emits exactly the runtime document: it is canonical.
     assert.deepEqual(r.reemitted, wires[index], good[index].name)
   }
+  // Documents in table notation [shapes, layouts, layout ids, payloads], framed by `wire`.
   const invalid = [
-    [-6, [], [[0, 0]]],
     [[], [], [], []],
     [[], [[2, 0]], [0], [[1]]],
     [[], [[2, 0]], [0], [[0.5]]],
     [[], [[2, 1]], [0], [[1]]],
     [[], [[2, 1, 0]], [0], [[1, 0, 1]]],
-    [[['x']], [[2]], [0], [[]]],
-    [[['x', 'x']], [[0, 0]], [0], [[1, 2]]],
     [
       [['x'], ['x']],
       [
@@ -312,26 +317,24 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
       [[1], [2]],
     ],
     [[['x']], [[0, 0]], [0], [[1, 2]]],
+    [[['x']], [[0, 1]], [0], [[1]]],
     [[], [[2], [2]], [0, 1], [[], []]],
     [[], [[2], [13]], [1, 0], [[], []]],
-    [[], [[2], [13]], [0], [[]]],
     [[], [[3]], [0], [[2, [2], [1, 2]]]],
     [[], [[3]], [0], [[2, [], [1, 2]]]],
     [[], [[3]], [0], [[2, [0, 3], []]]],
     [[], [[3]], [0], [[3, [1, 0, 1], [1, 2]]]],
     [[], [[3]], [0], [[3, [1], [1, 2]]]],
-    [[], [[2, 0], [13]], [0, 1, 1], [[1, 2], [], []]],
-    [[], [[2, 0], [18]], [0, 1, 1], [[1, 2], ['5'], ['5']]],
     [[], [[18]], [0], [['-0']]],
     [[], [[18]], [0], [['01']]],
     [[], [[13, 0]], [0], [[]]],
     [[], [[2]], [0], [[[1]]]],
     [[], [[2]], [0], [[{}]]],
-    [[[1]]],
     [[], [[2, 0], [2]], [0, 1, 1], [[2, 1], [], []]],
     [[], [[2, 0], [2]], [0, 1], [[0], []]],
     [[], [[2, 0], [2]], [0, 1, 1], [[1], [], []]],
-  ]
+  ].map(wire)
+  invalid.push([-6, [], [[0, 0]]], [[1]], [[0], [[1]]])
   const rejected = JSON.parse(
     await run('Serialization', [], { input: JSON.stringify(invalid.map((wire) => ({ wire }))) }),
   ) as Response[]
@@ -339,8 +342,35 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
     assert.equal(rejected[index].ok, false, JSON.stringify(invalid[index]))
     assert.throws(() => parse(JSON.stringify(invalid[index])), JSON.stringify(invalid[index]))
   }
+  // Tables are used as given: repeated, reordered or unused entries and a repeated key keep one
+  // meaning, which Lean and the runtime must agree on.
+  const accepted = [
+    [[['x']], [[2]], [0], [[]]],
+    [[['x', 'x']], [[0, 0]], [0], [[1, 2]]],
+    [[], [[2], [13]], [0], [[]]],
+    [[], [[2, 0], [13]], [0, 1, 1], [[1, 2], [], []]],
+    [[], [[2, 0], [18]], [0, 1, 1], [[1, 2], ['5'], ['5']]],
+    [[], [[2, 0], [2], [2]], [0, 1, 2], [[1, 2], [], []]],
+    [
+      [['b'], ['a']],
+      [
+        [0, 1],
+        [0, 0, 0],
+      ],
+      [1, 0],
+      [[1], [5]],
+    ],
+  ].map(wire)
+  const agreed = JSON.parse(
+    await run('Serialization', [], { input: JSON.stringify(accepted.map((wire) => ({ wire }))) }),
+  ) as Response[]
+  for (let index = 0; index < accepted.length; index++) {
+    const text = JSON.stringify(accepted[index])
+    assert.equal(agreed[index].ok, true, text)
+    assert.deepEqual(normalizeModel(agreed[index].expanded), sourceModel(parse(text)), text)
+  }
   await checkLiteralRoots(run)
   console.log(
-    `Serialization Lean bridge: ${good.length} graphs re-emitted exactly, ${invalid.length} malformed documents`,
+    `Serialization Lean bridge: ${good.length} graphs re-emitted exactly, ${invalid.length} malformed and ${accepted.length} non-canonical documents`,
   )
 }

@@ -2,145 +2,118 @@ import type { DecodeContext, Row } from './contracts'
 import { decoders } from './facets/decode'
 import { int, decodeFail as fail, literal } from './common'
 import { keyed, slotted } from './layout'
-import { intern, radixTrie } from './radix'
-import type { RadixNode } from './radix'
 import { temporalKinds, validViewKind } from './facets/native'
-// Positional.lean encode_decode_document: distinct first-use tables, typed references and
-// canonical slots and runs accept exactly the encoder's documents for the decoded node list;
-// Preorder.lean check_iff fixes the node numbering to the encoder's.
+// Positional.lean decode_encode_relaxed / decodeNodes_sound: every accepted document is the slot
+// encoding of the nodes it decodes to, with runs and references checked. Tables are used as
+// given; their order and distinctness are not checked. Preorder.lean check_iff makes every
+// node reachable and numbered in depth-first entry order.
 export function decodeGraph(text: string): unknown {
   if (typeof text !== 'string') fail('text')
   const document: unknown = JSON.parse(text)
   if (!Array.isArray(document)) fail('envelope')
   // A root without nodes is one literal.
   if (document.length === 1) return literal(document[0])
-  if (!envelope(document)) fail('envelope')
-  const shapes = checkShapes(document[0] as unknown[])
-  const layouts = document[1] as number[][]
-  checkLayouts(layouts, shapes.length)
-  const payloads = document[3] as Row[]
+  const control = document[0] as unknown[]
+  const payloads = document[1] as Row[]
+  if (
+    document.length !== 2 ||
+    !Array.isArray(control) ||
+    !Array.isArray(payloads) ||
+    payloads.length === 0 ||
+    control.length <= payloads.length
+  )
+    fail('envelope')
   const context: DecodeContext = {
-    bigints: undefined,
+    control,
     cursor: 0,
     ends: new Array<number>(payloads.length),
-    layouts,
-    nodeLayouts: new Array<number[]>(payloads.length),
+    nodeLayouts: new Array<number>(payloads.length),
     output: new Array<unknown>(payloads.length),
     owned: 0,
     parameters: undefined,
     payloads,
-    scalars: 0,
-    shapes,
+    shapes: [],
     urls: 0,
   }
-  checkDescriptors(document[2] as unknown[], context)
+  checkControl(context)
   allocate(context)
   fill(context)
   return context.output[0]
 }
-function envelope(document: unknown[]): boolean {
-  return (
-    document.length === 4 &&
-    Array.isArray(document[0]) &&
-    Array.isArray(document[1]) &&
-    Array.isArray(document[2]) &&
-    Array.isArray(document[3]) &&
-    document[3].length !== 0 &&
-    document[2].length === document[3].length
-  )
-}
-// Fresh natives and empty containers first, then dependent natives against their typed targets.
-function allocate(context: DecodeContext): void {
-  const { nodeLayouts, output, payloads } = context
-  for (let index = 0; index < payloads.length; index++)
-    output[index] = decoders[nodeLayouts[index][0]].allocate(
-      payloads[index],
-      nodeLayouts[index],
-      context,
-    )
-  for (let index = 0; index < payloads.length; index++) {
-    const link = decoders[nodeLayouts[index][0]].link
-    if (link !== undefined)
-      output[index] = link(payloads[index], nodeLayouts[index], context, index)
+// Positional.lean decodeControl: each node's layout id, the number of shapes, each shape framed
+// by its length, then each layout framed by its length to the end. Shapes and layouts are read
+// in place by the offset of their first entry; the length precedes it.
+function checkControl(context: DecodeContext): void {
+  const { control, nodeLayouts, payloads, shapes } = context
+  const count = control[payloads.length]
+  if (!int(count)) fail('shapes')
+  let at = payloads.length + 1
+  for (let shape = 0; shape < count; shape++) {
+    const length = frameLength(control, at)
+    for (let index = at + 1; index <= at + length; index++)
+      if (typeof control[index] !== 'string') fail('shape key')
+    shapes.push(at + 1)
+    at += length + 1
   }
-  if (context.owned !== context.urls) fail('params owner')
-}
-// Positional.lean firstUse: each node's layout id is a used one or the next new one, and every
-// layout is used.
-function checkDescriptors(descriptors: unknown[], context: DecodeContext): void {
-  const { layouts, nodeLayouts, payloads } = context
-  let used = 0
+  const layouts: number[] = []
+  while (at < control.length) {
+    checkLayout(control, at + 1, at + 1 + frameLength(control, at), shapes.length)
+    layouts.push(at + 1)
+    at += (control[at] as number) + 1
+  }
   for (let index = 0; index < payloads.length; index++) {
-    const id = descriptors[index]
-    if (!int(id, used) || id >= layouts.length) fail('layout order')
-    if (id === used) used++
+    const id = control[index]
+    if (!int(id, layouts.length - 1)) fail('layout id')
     nodeLayouts[index] = layouts[id]
     if (!Array.isArray(payloads[index])) fail('payload')
   }
-  if (used !== layouts.length) fail('unused layout')
+}
+function frameLength(control: unknown[], at: number): number {
+  const length = control[at]
+  if (!int(length, control.length - at - 1)) fail('frame')
+  return length
+}
+// A layout is [tag, key?, ...runs] of control integers; each payload checks its own runs.
+function checkKey(tag: number, key: unknown, shapeCount: number): void {
+  if (
+    tag <= 1
+      ? !int(key, shapeCount - 1)
+      : tag === 8
+        ? !validViewKind(key)
+        : !int(key, temporalKinds - 1)
+  )
+    fail('layout key')
+}
+function checkLayout(control: unknown[], at: number, stop: number, shapeCount: number): void {
+  const tag = control[at]
+  if (stop === at || !int(tag, decoders.length - 1)) fail('layout')
+  if (keyed(tag)) checkKey(tag, control[at + 1], shapeCount)
+  if (!slotted(tag) && stop !== at + (keyed(tag) ? 2 : 1)) fail('layout')
+  for (let index = at + 1; index < stop; index++) if (!int(control[index])) fail('layout')
+}
+// Fresh natives and empty containers first, then dependent natives against their typed targets.
+function allocate(context: DecodeContext): void {
+  const { control, nodeLayouts, output, payloads } = context
+  for (let index = 0; index < payloads.length; index++) {
+    const at = nodeLayouts[index]
+    output[index] = decoders[control[at] as number].allocate(payloads[index], at, context)
+  }
+  for (let index = 0; index < payloads.length; index++) {
+    const at = nodeLayouts[index]
+    const link = decoders[control[at] as number].link
+    if (link !== undefined) output[index] = link(payloads[index], at, context, index)
+  }
+  if (context.owned !== context.urls) fail('params owner')
 }
 // Preorder.lean check_iff: filling in reverse records each node's subtree end; the root's must
 // cover every node, so all nodes are reachable and numbered in depth-first entry order.
 function fill(context: DecodeContext): void {
-  const { ends, nodeLayouts, output, payloads } = context
+  const { control, ends, nodeLayouts, output, payloads } = context
   for (let index = payloads.length - 1; index >= 0; index--) {
     context.cursor = index + 1
-    const layout = nodeLayouts[index]
-    decoders[layout[0]].fill?.(payloads[index], output[index], layout, context, index)
+    const at = nodeLayouts[index]
+    decoders[control[at] as number].fill?.(payloads[index], output[index], at, context, index)
     ends[index] = context.cursor
   }
   if (ends[0] !== payloads.length) fail('node order')
-}
-// Shapes are distinct lists of distinct keys. Key order is not checked: a proxy's ownKeys may
-// list names before indices, and the decoder defines keys in the listed order.
-function checkShapes(shapes: unknown[]): string[][] {
-  const root = radixTrie<string>()
-  const interned: string[][] = []
-  // The shape that last listed each key: a repeat within one shape finds its own index.
-  const last = new Map<string, number>()
-  for (let index = 0; index < shapes.length; index++) {
-    const keys = shapes[index]
-    if (!Array.isArray(keys)) fail('shape')
-    for (const key of keys as unknown[]) {
-      if (typeof key !== 'string' || last.get(key) === index) fail('shape key')
-      last.set(key, index)
-    }
-    if (intern(root, interned, keys as string[]) !== index) fail('duplicate shape')
-  }
-  return interned
-}
-// Layouts are distinct and use shapes in first-use order. Each node checks its layout's runs
-// against its own payload.
-function checkLayouts(layouts: unknown[], shapeCount: number): void {
-  const root = radixTrie<number>()
-  const interned: number[][] = []
-  let shapes = 0
-  for (let index = 0; index < layouts.length; index++) {
-    const layout = layouts[index]
-    if (!Array.isArray(layout) || !int(layout[0], decoders.length - 1)) fail('layout')
-    const tag = layout[0]
-    if (keyed(tag)) shapes = checkKey(tag, layout[1], shapes, shapeCount)
-    if (!slotted(tag) && layout.length !== (keyed(tag) ? 2 : 1)) fail('layout')
-    distinct(root, interned, layout as unknown[], index)
-  }
-  if (shapes !== shapeCount) fail('unused shape')
-}
-// Every entry is a control integer, and no layout repeats an earlier one.
-function distinct(
-  root: RadixNode<number>,
-  interned: number[][],
-  layout: unknown[],
-  index: number,
-): void {
-  for (const key of layout) if (!int(key)) fail('layout')
-  if (intern(root, interned, layout as number[]) !== index) fail('duplicate layout')
-}
-// Returns the number of shapes used so far.
-function checkKey(tag: number, key: unknown, shapes: number, shapeCount: number): number {
-  if (tag <= 1) {
-    if (!int(key, shapes) || key >= shapeCount) fail('shape order')
-    return key === shapes ? shapes + 1 : shapes
-  }
-  if (tag === 8 ? !validViewKind(key) : !int(key, temporalKinds - 1)) fail('layout key')
-  return shapes
 }

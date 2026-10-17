@@ -6,10 +6,12 @@ import { resolve, runEnd } from './slots'
 export const denseArray: Decoder = {
   allocate: (payload) => payload,
   fill(payload, _value, layout, context) {
-    resolve(payload, layout, 1, context)
+    resolve(payload, layout, context)
   },
 }
-// A sparse payload is [length, presence runs, values].
+// A sparse payload is [length, presence runs, values]. A mostly present array is allocated at
+// its length; a mostly absent one grows from empty as its elements are written in ascending
+// order, so storage follows the present elements. The two are indistinguishable to code.
 export const sparseArray: Decoder = {
   allocate(payload) {
     if (
@@ -20,11 +22,11 @@ export const sparseArray: Decoder = {
       !Array.isArray(payload[2])
     )
       fail('sparse array')
-    return new Array<unknown>(payload[0])
+    return (payload[2] as unknown[]).length * 2 >= payload[0] ? new Array<unknown>(payload[0]) : []
   },
   fill(payload, value, layout, context) {
     const values = payload[2] as unknown[]
-    resolve(values, layout, 1, context)
+    resolve(values, layout, context)
     place(value as unknown[], payload[0] as number, payload[1] as unknown[], values)
   },
 }
@@ -40,9 +42,10 @@ function place(array: unknown[], length: number, presence: unknown[], values: un
   let position = 0
   let next = 0
   for (let run = 0; run <= presence.length; run++) {
-    const end = runEnd(presence, 0, run, position, length)
+    const end = runEnd(presence, 0, presence.length, run, position, length)
     if (run % 2 === 0) next = copy(array, position, end, values, next)
     position = end
   }
   if (next !== values.length) fail('sparse values')
+  array.length = length
 }

@@ -4,7 +4,7 @@ import { parse } from '../index'
 it.each([0, 1, 4_294_967_295])('decodes an all-hole sparse shell of length %s', (length) => {
   // Length zero has no hole and is the dense empty array.
   const payload = length === 0 ? [] : [length, [0], []]
-  const result = parse(JSON.stringify([[], [[length === 0 ? 2 : 3]], [0], [payload]])) as unknown[]
+  const result = parse(JSON.stringify([[0, 0, 1, length === 0 ? 2 : 3], [payload]])) as unknown[]
   assert.isTrue(Array.isArray(result))
   assert.equal(Object.getPrototypeOf(result), Array.prototype)
   assert.isTrue(Object.isExtensible(result))
@@ -20,12 +20,7 @@ it.each([0, 1, 4_294_967_295])('decodes an all-hole sparse shell of length %s', 
 it('fills sparse maximum-index cycles and preserves aliases and default descriptors', () => {
   const result = parse(
     JSON.stringify([
-      [],
-      [
-        [2, 0],
-        [3, 0],
-      ],
-      [0, 1],
+      [0, 1, 0, 2, 2, 0, 2, 3, 0],
       [
         [1, 1],
         [4_294_967_295, [1, 4_294_967_293], [1, 0]],
@@ -51,12 +46,7 @@ it('keeps sparse decoder allocation separate from own prototype data', () => {
   const before = Object.getOwnPropertyDescriptors(Object.prototype)
   const result = parse(
     JSON.stringify([
-      [['__proto__']],
-      [
-        [0, 0, 0],
-        [3, 0],
-      ],
-      [0, 1],
+      [0, 1, 1, 1, '__proto__', 3, 0, 0, 0, 2, 3, 0],
       [[1], [3, [0, 1, 1], [0]]],
     ]),
   ) as Record<string, unknown>

@@ -8,7 +8,7 @@ export const map: Decoder = {
     return new Map<unknown, unknown>()
   },
   fill(payload, value, layout, context) {
-    resolve(payload, layout, 1, context)
+    resolve(payload, layout, context)
     const target = value as Map<unknown, unknown>
     for (let index = 0; index < payload.length; index += 2)
       target.set(payload[index], payload[index + 1])
@@ -19,7 +19,7 @@ export const set: Decoder = {
     return new Set<unknown>()
   },
   fill(payload, value, layout, context) {
-    resolve(payload, layout, 1, context)
+    resolve(payload, layout, context)
     const target = value as Set<unknown>
     for (let index = 0; index < payload.length; index++) target.add(payload[index])
   },

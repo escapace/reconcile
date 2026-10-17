@@ -2,7 +2,7 @@ import type { EncodeContext, Leaf } from './contracts'
 // Refinement.lean leaf_contract / leaf_step_refines checked before implementation.
 // These facets have no child yield. The caller reserves identity before invoking
 // them and retains parent IteratorClose behavior if native extraction throws.
-import { encodeBytes } from './binary'
+import { encodeBytes, longBase64 } from './binary'
 import { readDate, readBuffer, readParameters, readTemporal } from './native'
 
 function captureDate(value: object) {
@@ -13,8 +13,9 @@ function captureDate(value: object) {
 
 function captureBuffer(value: object, context: EncodeContext) {
   const state = readBuffer(value)
-  context.hasBuffers = true
-  return [encodeBytes(state.buffer)]
+  const text = encodeBytes(state.buffer)
+  if (text.length >= longBase64) context.hasBuffers = true
+  return [text]
 }
 
 function captureParameters(value: object) {

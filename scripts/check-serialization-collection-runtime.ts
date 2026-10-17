@@ -70,7 +70,7 @@ function project(values: unknown[], value: unknown): number {
 
 // Payload slots are node references into `values`; the output proxy records each resolved
 // read. A failing occurrence is an out-of-range reference, rejected before it is read.
-function contextFor(values: unknown[], reads: number[]): DecodeContext {
+function contextFor(request: Request, values: unknown[], reads: number[]): DecodeContext {
   const output = new Proxy(values, {
     get(target, key, receiver) {
       if (typeof key === 'string' && /^\d+$/.test(key)) reads.push(Number(key))
@@ -78,17 +78,17 @@ function contextFor(values: unknown[], reads: number[]): DecodeContext {
     },
   })
   // Every slot node is already entered, so the bridge isolates resolution and the fold.
+  // The control table holds only the collection's framed layout, at offset 1.
+  const layout = layoutFor(request)
   return {
-    bigints: undefined,
+    control: [layout.length, ...layout],
     cursor: values.length,
     ends: [],
-    layouts: [],
     nodeLayouts: [],
     output,
     owned: 0,
     parameters: undefined,
     payloads: [],
-    scalars: 0,
     shapes: [],
     urls: 0,
   }
@@ -120,17 +120,16 @@ function fillTrace(
   target: unknown,
   values: unknown[],
 ): number[] {
-  const layout = layoutFor(request)
   // Slot i references the node at its own position; that node holds the value's code.
   const nodes = request.values.map((code) => values[code])
   const payload: unknown[] = request.values.map((_, index) => index)
   const reads: number[] = []
-  const context = contextFor(nodes, reads)
-  if (request.failAt === null) facet.fill!(payload, target, layout, context, values.length)
+  const context = contextFor(request, nodes, reads)
+  if (request.failAt === null) facet.fill!(payload, target, 1, context, values.length)
   else {
     payload[request.failAt] = nodes.length
     assert.throws(
-      () => facet.fill!(payload, target, layout, context, values.length),
+      () => facet.fill!(payload, target, 1, context, values.length),
       (error: Error) => (error.cause as { reason?: string }).reason === 'reference',
     )
     reads.push(request.failAt)
@@ -140,7 +139,7 @@ function fillTrace(
 
 function check(request: Request, expected: Response): void {
   const facet = request.map ? map : set
-  const target = facet.allocate([], layoutFor(request), contextFor([], [])) as
+  const target = facet.allocate([], 1, contextFor(request, [], [])) as
     Map<unknown, unknown> | Set<unknown>
   const values = domain(target)
   const reads = fillTrace(facet, request, target, values)

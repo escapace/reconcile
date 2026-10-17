@@ -42,7 +42,7 @@ export const view: Decoder = {
   },
   link(payload, layout, context) {
     const storage = typed(payload[0], 7, context) as ArrayBuffer
-    const kind = layout[1]
+    const kind = context.control[layout + 1] as number
     const offset = payload[1] as number
     const length = payload[2] as number
     const unit = kind === dataViewKind ? 1 : viewConstructors[kind]!.BYTES_PER_ELEMENT
@@ -86,8 +86,8 @@ export const ownedParameters: Decoder = {
   },
 }
 export const temporal: Decoder = {
-  allocate(payload, layout) {
-    const kind = layout[1]
+  allocate(payload, layout, context) {
+    const kind = context.control[layout + 1] as number
     if (kind === 7) {
       if (payload.length !== 10 || !payload.every(integer)) fail('duration')
       return decodeTemporal(kind, payload as number[])
@@ -96,28 +96,23 @@ export const temporal: Decoder = {
     return decodeTemporal(kind, payload[0])
   },
 }
-// Shared scalar nodes occur once each; their tags follow 13 in this order.
+// Shared scalar nodes: undefined, NaN, Infinity, -Infinity and -0 by tag, then bigints.
 const scalarValues = [undefined, NaN, Infinity, -Infinity, -0]
 export const scalar: Decoder = {
   allocate(payload, layout, context) {
-    const bit = 1 << (layout[0] - 13)
-    if (payload.length !== 0 || (context.scalars & bit) !== 0) fail('scalar')
-    context.scalars |= bit
-    return scalarValues[layout[0] - 13]
+    if (payload.length !== 0) fail('scalar')
+    return scalarValues[(context.control[layout] as number) - 13]
   },
 }
 export const bigint: Decoder = {
-  allocate(payload, _layout, context) {
+  allocate(payload) {
     const text = payload[0]
-    const seen = (context.bigints ??= new Set())
     if (
       payload.length !== 1 ||
       typeof text !== 'string' ||
-      /^(?:0|-?[1-9]\d*)$/.exec(text) === null ||
-      seen.has(text)
+      /^(?:0|-?[1-9]\d*)$/.exec(text) === null
     )
       fail('bigint')
-    seen.add(text)
     return BigInt(text)
   },
 }
@@ -129,7 +124,10 @@ function integer(value: unknown): boolean {
   return Number.isInteger(value) && !Object.is(value, -0)
 }
 function typed(reference: unknown, tag: number, context: DecodeContext): unknown {
-  if (!int(reference, context.output.length - 1) || context.nodeLayouts[reference][0] !== tag)
+  if (
+    !int(reference, context.output.length - 1) ||
+    context.control[context.nodeLayouts[reference]] !== tag
+  )
     fail('typed reference')
   return context.output[reference]
 }

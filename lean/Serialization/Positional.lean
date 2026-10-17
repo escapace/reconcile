@@ -551,6 +551,217 @@ theorem encode_decode_document {κ : Type} [DecidableEq κ] (V : Values σ W)
     simp only [encodeDocument, hc, p1]
   · cases h
 
+/-! ## Relaxed document decoding
+
+The runtime decoder checks meaning, not canonical form: it does not require the tables to be
+duplicate-free or in first-use order. `decodeNodes` alone is that decoder. It still inverts the
+encoder, and `decodeNodes_sound` says every accepted document is the slot encoding of the
+nodes it decodes to, with each layout id naming that node's layout and every reference in
+range; the canonical theorems above remain the stronger model of the encoder's output. -/
+
+def decodeRelaxed {κ : Type} (V : Values σ W) (d : Document κ W) : Option (List (Node κ σ)) :=
+  decodeNodes V d.payloads.length d.layouts d.descriptors d.payloads
+
+theorem decode_encode_relaxed {κ : Type} [DecidableEq κ] (V : Values σ W)
+    (nodes : List (Node κ σ)) (hb : ∀ v ∈ nodes, Bounded nodes.length v.slots) :
+    decodeRelaxed V (encodeDocument V nodes) = some nodes := by
+  obtain ⟨_, _, h3, _⟩ := intern_canonical (nodes.map layoutOf) [] List.nodup_nil
+  simp only [encodeDocument, decodeRelaxed, List.length_map]
+  exact decodeNodes_encode V nodes.length _ nodes _ hb h3
+
+/-! ## Control table framing
+
+Shapes, layouts and layout ids travel in one control array: the layout id of each node (their
+count is the number of payloads), the number of shapes, each shape framed by its length, then
+each layout framed by its length up to the end. Lengths use the natural-number channel. -/
+
+def frame (V : Values σ W) : List (List W) → List W
+  | [] => []
+  | e :: es => V.nat e.length :: (e ++ frame V es)
+
+/-- Reads framed entries until the input ends. -/
+def unframe (V : Values σ W) : List W → Option (List (List W))
+  | [] => some []
+  | w :: ws =>
+    match V.ofNat w with
+    | some k => if k ≤ ws.length then (unframe V (ws.drop k)).map (ws.take k :: ·) else none
+    | none => none
+termination_by ws => ws.length
+decreasing_by simp; omega
+
+/-- Reads exactly `c` framed entries and returns the rest. -/
+def unframeN (V : Values σ W) : Nat → List W → Option (List (List W) × List W)
+  | 0, ws => some ([], ws)
+  | _ + 1, [] => none
+  | c + 1, w :: ws =>
+    match V.ofNat w with
+    | some k =>
+      if k ≤ ws.length then (unframeN V c (ws.drop k)).map fun r => (ws.take k :: r.1, r.2)
+      else none
+    | none => none
+
+theorem unframe_frame (V : Values σ W) : ∀ es : List (List W), unframe V (frame V es) = some es := by
+  intro es
+  induction es with
+  | nil => simp [frame, unframe]
+  | cons e es ih =>
+    rw [frame, unframe]
+    simp [V.ofNat_nat, ih]
+
+theorem frame_unframe_bound (V : Values σ W) :
+    ∀ (m : Nat) (ws : List W), ws.length ≤ m → ∀ es, unframe V ws = some es → frame V es = ws := by
+  intro m
+  induction m with
+  | zero =>
+    intro ws hl es h
+    have : ws = [] := List.eq_nil_of_length_eq_zero (by omega)
+    subst this
+    simp only [unframe, Option.some.injEq, List.nil_eq] at h
+    subst h; rfl
+  | succ m ihm =>
+    intro ws hl es h
+    cases ws with
+    | nil => simp only [unframe, Option.some.injEq, List.nil_eq] at h; subst h; rfl
+    | cons w ws =>
+      rw [unframe] at h
+      split at h
+      · rename_i k hk
+        split at h
+        · rename_i hle
+          obtain ⟨rest, hrest, rfl⟩ := Option.map_eq_some_iff.mp h
+          have := ihm (ws.drop k) (by simp at hl ⊢; omega) rest hrest
+          simp only [frame, List.length_take, Nat.min_eq_left hle, V.nat_ofNat w k hk, this,
+            List.take_append_drop]
+        · cases h
+      · cases h
+
+theorem frame_unframe (V : Values σ W) (ws : List W) (es : List (List W))
+    (h : unframe V ws = some es) : frame V es = ws :=
+  frame_unframe_bound V _ ws (Nat.le_refl _) es h
+
+theorem unframeN_frame (V : Values σ W) :
+    ∀ (es : List (List W)) (rest : List W),
+      unframeN V es.length (frame V es ++ rest) = some (es, rest) := by
+  intro es
+  induction es with
+  | nil => intro rest; simp [frame, unframeN]
+  | cons e es ih =>
+    intro rest
+    simp [frame, unframeN, V.ofNat_nat, ih]
+
+theorem frame_unframeN (V : Values σ W) :
+    ∀ (c : Nat) (ws : List W) (es : List (List W)) (rest : List W),
+      unframeN V c ws = some (es, rest) → frame V es ++ rest = ws ∧ es.length = c := by
+  intro c
+  induction c with
+  | zero => intro ws es rest h; simp only [unframeN, Option.some.injEq, Prod.mk.injEq, List.nil_eq] at h; obtain ⟨rfl, rfl⟩ := h; simp [frame]
+  | succ c ih =>
+    intro ws es rest h
+    cases ws with
+    | nil => simp [unframeN] at h
+    | cons w ws =>
+      simp only [unframeN] at h
+      split at h
+      · rename_i k hk
+        split at h
+        · rename_i hle
+          obtain ⟨r, hr, he⟩ := Option.map_eq_some_iff.mp h
+          obtain ⟨r1, r2⟩ := r
+          simp only [Prod.mk.injEq] at he
+          obtain ⟨rfl, rfl⟩ := he
+          obtain ⟨h1, h2⟩ := ih _ _ _ hr
+          refine ⟨?_, by simp [h2]⟩
+          simp only [frame, List.length_take, Nat.min_eq_left hle, V.nat_ofNat w k hk,
+            List.cons_append, List.append_assoc, h1, List.take_append_drop]
+        · cases h
+      · cases h
+
+theorem mapM_ofNat (V : Values σ W) :
+    ∀ ds : List Nat, (ds.map V.nat).mapM V.ofNat = some ds := by
+  intro ds
+  induction ds with
+  | nil => rfl
+  | cons d ds ih => simp [List.mapM_cons, V.ofNat_nat, ih]
+
+theorem ofNat_mapM (V : Values σ W) :
+    ∀ (ws : List W) (ds : List Nat), ws.mapM V.ofNat = some ds → ds.map V.nat = ws := by
+  intro ws
+  induction ws with
+  | nil =>
+    intro ds h
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq, List.nil_eq] at h
+    subst h; rfl
+  | cons w ws ih =>
+    intro ds h
+    simp only [List.mapM_cons, Option.bind_eq_bind, Option.pure_def] at h
+    cases hw : V.ofNat w with
+    | none => simp [hw] at h
+    | some d =>
+      cases hr : ws.mapM V.ofNat with
+      | none => simp [hw, hr] at h
+      | some r =>
+        simp only [hw, hr, Option.bind_some, Option.some.injEq] at h
+        subst h
+        simp [V.nat_ofNat w d hw, ih r hr]
+
+def encodeControl (V : Values σ W) (ids : List Nat) (shapes layouts : List (List W)) : List W :=
+  ids.map V.nat ++ (V.nat shapes.length :: (frame V shapes ++ frame V layouts))
+
+/-- Splits the control array of a document with `n` nodes. -/
+def decodeControl (V : Values σ W) (n : Nat) (ws : List W) :
+    Option (List Nat × List (List W) × List (List W)) :=
+  if n ≤ ws.length then
+    match (ws.take n).mapM V.ofNat, ws.drop n with
+    | some ids, c :: rest =>
+      match V.ofNat c with
+      | some k =>
+        match unframeN V k rest with
+        | some (shapes, tail) => (unframe V tail).map fun layouts => (ids, shapes, layouts)
+        | none => none
+      | none => none
+    | _, _ => none
+  else none
+
+theorem decode_encode_control (V : Values σ W) (ids : List Nat) (shapes layouts : List (List W)) :
+    decodeControl V ids.length (encodeControl V ids shapes layouts) = some (ids, shapes, layouts) := by
+  have ht : (encodeControl V ids shapes layouts).take ids.length = ids.map V.nat := by
+    simp [encodeControl]
+  have hd : (encodeControl V ids shapes layouts).drop ids.length =
+      V.nat shapes.length :: (frame V shapes ++ frame V layouts) := by
+    simp [encodeControl]
+  have hl : ids.length ≤ (encodeControl V ids shapes layouts).length := by simp [encodeControl]
+  simp only [decodeControl, if_pos hl, ht, hd, mapM_ofNat, V.ofNat_nat, unframeN_frame,
+    unframe_frame, Option.map_some]
+
+theorem encode_decode_control (V : Values σ W) {n : Nat} {ws : List W}
+    {ids : List Nat} {shapes layouts : List (List W)}
+    (h : decodeControl V n ws = some (ids, shapes, layouts)) :
+    encodeControl V ids shapes layouts = ws ∧ ids.length = n := by
+  unfold decodeControl at h
+  split at h
+  · rename_i hn
+    split at h
+    · rename_i ids' c rest hm hd
+      split at h
+      · rename_i k hk
+        split at h
+        · rename_i sh tail hu
+          obtain ⟨ls, hl, he⟩ := Option.map_eq_some_iff.mp h
+          simp only [Prod.mk.injEq] at he
+          obtain ⟨e1, e2, e3⟩ := he
+          rw [← e1, ← e2, ← e3]
+          obtain ⟨h1, h2⟩ := frame_unframeN V k rest sh tail hu
+          have h3 := frame_unframe V tail ls hl
+          have h4 := ofNat_mapM V _ _ hm
+          have hlen : ids'.length = n := by
+            have := congrArg List.length h4; simp at this; omega
+          refine ⟨?_, hlen⟩
+          rw [encodeControl, h4, h2, V.nat_ofNat c k hk, h3, h1, ← hd, List.take_append_drop]
+        · cases h
+      · cases h
+    · cases h
+  · cases h
+
 /-! ## Typed references -/
 
 /-- A dependent native (a view's buffer, an owned parameter list's URL) must reference a node of
@@ -830,5 +1041,9 @@ example : kindsOf [0, 2, 1, 2, 1] 9 = some (gapKinds [2, 5] 0 9) := rfl
 #print axioms sparse_roundtrip
 #print axioms sparse_canonical
 #print axioms runsOf_nil_iff
+#print axioms decode_encode_relaxed
+#print axioms decode_encode_control
+#print axioms encode_decode_control
+#print axioms frame_unframe
 
 end SerializationPositional

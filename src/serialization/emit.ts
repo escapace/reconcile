@@ -58,8 +58,10 @@ function leaf(payload: Row, tag: number, context: EncodeContext): number {
   context.descriptors.push(layout(tag, undefined, -1, context))
   return id
 }
+// Constant nodes share one empty payload; payloads are never written after capture.
+const empty: Row = /* @__PURE__ */ Object.freeze([]) as unknown as Row
 function scalar(tag: number, context: EncodeContext): number {
-  return ((context.scalars ??= [])[tag] ??= leaf([], tag, context))
+  return ((context.scalars ??= [])[tag] ??= leaf(empty, tag, context))
 }
 // Interns [tag, key?, ...runs] with provisional ids in completion order, the runs being the
 // lengths between boundaries[from ..< top]; Positional.lean renumber_first_use renumbers them.
@@ -69,18 +71,27 @@ export function layout(
   from: number,
   context: EncodeContext,
 ): number {
+  // A layout without runs is identified by its tag and key alone. For one tag it is shorter
+  // than every layout with runs, so the two never coincide.
+  if (from < 0) {
+    const byKey = ((context.plain ??= [])[tag] ??= [])
+    const key = keyed(tag) ? detail! : 0
+    let id = byKey[key]
+    if (id === undefined) {
+      id = byKey[key] = context.layouts.length
+      context.layouts.push(keyed(tag) ? [tag, detail!] : [tag])
+    }
+    return id
+  }
   // The key is built in a per-call scratch array and copied only when it is new.
   const key = context.scratch
   key[0] = tag
   let length = 1
   if (keyed(tag)) key[length++] = detail!
-  // A frame without boundaries (from < 0) has no runs.
-  if (from >= 0) {
-    const boundaries = context.boundaries
-    for (let index = from; index < context.top; index++)
-      key[length++] = boundaries[index] - (index > from ? boundaries[index - 1] : 0)
-    context.top = from
-  }
+  const boundaries = context.boundaries
+  for (let index = from; index < context.top; index++)
+    key[length++] = boundaries[index] - (index > from ? boundaries[index - 1] : 0)
+  context.top = from
   const id = lookup(context.layoutRoot, key, length)
   return id >= 0 ? id : intern(context.layoutRoot, context.layouts, key.slice(0, length))
 }

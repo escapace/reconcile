@@ -48,6 +48,9 @@ export function decodedSize(text: unknown): number {
   }
   return (text.length / 4) * 3 - (text.length - end)
 }
+// Base64 at least this long is written without the serializer's escape scan, which costs more
+// than the extra concatenation only for longer text.
+export const longBase64 = 256
 export function encodeBytes(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   // eslint-disable-next-line baseline-js/use-baseline -- Capability checked; btoa is the portable fallback.
