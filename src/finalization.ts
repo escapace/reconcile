@@ -1,4 +1,6 @@
 import { isObject } from './object-property'
+import { ATOM_KIND } from './constants'
+import { OBSERVED_ACCESSOR } from './types/object'
 import { recognize } from './adapters/recognition'
 import type { DraftSession } from './draft-session'
 import { finalizationAccessorUnstable } from './error'
@@ -9,16 +11,18 @@ import { restoreIdentities } from './restore-identities'
 import type {
   DraftState,
   FinalizedReference,
+  Layout,
   MaterializationTraversal,
   ReuseNode,
   SpecialFacts,
   SpecialPolicy,
 } from './types'
+import { Detached, isDataDescriptor } from './standard-prototypes'
 
 /** Retains observed structural slots for later activation without rereading their source. */
 interface PendingActivation {
-  readonly record: ReuseNode
-  readonly slots: Array<{ readonly currentBacked: boolean; readonly value: unknown }>
+  readonly record: ReuseNode | undefined
+  readonly slots: Array<{ readonly currentBacked: boolean; readonly value: unknown }> | undefined
 }
 
 /** Owns finite activation facts and dormant records for one finalization discovery pass. */
@@ -29,35 +33,38 @@ interface Discovery {
 }
 
 /** Separates probe, discovery and sealed caches so facts cannot outlive their phase. */
-type ObservationPhase = (
-  { readonly kind: 'discover'; readonly plan: Discovery } | { readonly kind: 'probe' | 'sealed' }
-) & {
+type ObservationPhase = {
+  nativeOwners: WeakMap<object, object> | undefined
   readonly required: WeakMap<object, boolean>
   readonly values: WeakMap<object, unknown>
-  nativeOwners?: WeakMap<object, object>
-}
+} & (
+  { readonly kind: 'discover'; readonly plan: Discovery } | { readonly kind: 'probe' | 'sealed' }
+)
 
 // This object is owned by one finalization call, never by recipe-visible handles.
 // Failed observations abandon the entire phase; there is no shared state to restore.
-export class Finalization {
+export class Finalization extends Detached {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
   // Native kind knowledge for one observation phase; never attached to application objects.
   declare private forcedOwnedCopies: WeakSet<object> | undefined
   declare private kinds: Map<object, symbol>
   declare private phase: ObservationPhase
-  declare private readonly session: DraftSession
-  declare private readonly untrackedSpecialsToClone: WeakSet<object>
+  declare readonly session: DraftSession
+  // Created at the first forced special copy; until then no value needs one.
+  declare private untrackedSpecialsToClone: WeakSet<object> | undefined
 
   constructor(session: DraftSession) {
+    super()
     this.session = session
     this.accessorObservations = undefined
     this.kinds = new Map()
     this.phase = {
       kind: 'probe',
+      nativeOwners: undefined,
       required: new WeakMap(),
       values: new WeakMap(),
     }
-    this.untrackedSpecialsToClone = new WeakSet()
+    this.untrackedSpecialsToClone = undefined
     this.forcedOwnedCopies = undefined
   }
 
@@ -66,7 +73,7 @@ export class Finalization {
   }
 
   /** Recognizes once per unknown-identity certificate lifetime; accessor effects end it. */
-  private kindOf(value: object): symbol {
+  kindOf(value: object): symbol {
     let kind = this.kinds.get(value)
     if (kind === undefined) {
       // A drafted object's kind was established when its state was created.
@@ -98,6 +105,7 @@ export class Finalization {
     // of reading the unchanged subtrees again.
     const discovery: ObservationPhase = {
       kind: 'discover',
+      nativeOwners: undefined,
       plan,
       required: this.phase.required,
       values: new WeakMap(),
@@ -108,19 +116,27 @@ export class Finalization {
       const activation = plan.dormant.get(node)
       if (activation === undefined) continue
       plan.dormant.delete(node)
-      for (const [index, slot] of activation.slots.entries())
-        activation.record.children[index] = this.materializeContainerSlot(
-          slot.value,
-          slot.currentBacked,
+      const slots = activation.slots!
+      for (let index = 0; index < slots.length; index += 1)
+        activation.record!.children[index] = this.materializeContainerSlot(
+          slots[index].value,
+          slots[index].currentBacked,
         )
     }
-    this.phase = {
-      kind: 'sealed',
-      required: new WeakMap(),
-      values: new WeakMap(),
+    // The sealed phase is entered only when something materializes in it: a projection, or the
+    // fallback below. Nothing reads the phase in between.
+    const sealed = (): unknown => {
+      if (this.phase.kind !== 'sealed')
+        this.phase = {
+          kind: 'sealed',
+          nativeOwners: undefined,
+          required: new WeakMap(),
+          values: new WeakMap(),
+        }
+      return this.materializeContainerSlot(value, false)
     }
     const project = plan.clonesSpecialValues || this.accessorObservations !== undefined
-    const finalized = project ? this.materializeContainerSlot(value, false) : result
+    const finalized = project ? sealed() : result
     if (!isObject(finalized)) return finalized
     const { types } = this.session
     const kindOf = (value: object): symbol => this.kindOf(value)
@@ -128,12 +144,7 @@ export class Finalization {
     // settled record, the sealed pass (already current) materializes everything and selects again.
     return (
       restoreIdentities(types, finalized as FinalizedReference, project, kindOf) ??
-      restoreIdentities(
-        types,
-        this.materializeContainerSlot(value, false) as FinalizedReference,
-        true,
-        kindOf,
-      )!
+      restoreIdentities(types, sealed() as FinalizedReference, true, kindOf)!
     )
   }
 
@@ -144,7 +155,7 @@ export class Finalization {
    * Records parent dependencies during planning. Negative results are cached only after a complete
    * reachable search finds no changes; a cycle-guard hit alone cannot settle an ancestor.
    */
-  private needsMaterialization(
+  needsMaterialization(
     value: unknown,
     knownKind: symbol | undefined = undefined,
     traversal?: MaterializationTraversal,
@@ -190,10 +201,10 @@ export class Finalization {
 
     if (
       state?.modified === true ||
-      this.untrackedSpecialsToClone.has(value) ||
+      this.untrackedSpecialsToClone?.has(value) === true ||
       (state === undefined &&
-        (this.session.specialCloneCloneToBase.has(value) ||
-          this.session.specialCloneBaseToClone.has(value)))
+        (this.session.specialCloneCloneToBase?.has(value) === true ||
+          this.session.specialCloneBaseToClone?.has(value) === true))
     ) {
       memo.set(base, true)
       return true
@@ -220,13 +231,13 @@ export class Finalization {
   /** Checks type-declared copy dependencies in their native observation order. */
   private stableSpecialDependencies(value: object, policy: SpecialPolicy): boolean {
     return policy.dependencies(value, (dependency, dependencyKind) => {
-      if (this.untrackedSpecialsToClone.has(dependency)) return false
-      if (this.session.specialCloneCloneToBase.has(dependency))
+      if (this.untrackedSpecialsToClone?.has(dependency) === true) return false
+      if (this.session.specialCloneCloneToBase?.has(dependency) === true)
         return (
           (this.materializeContainerSlot(dependency, false) as FinalizedReference).target ===
           dependency
         )
-      const clone = this.session.specialCloneBaseToClone.get(dependency)
+      const clone = this.session.specialCloneBaseToClone?.get(dependency)
       return (
         clone === undefined ||
         (policy.dependencyEquivalent?.(value, dependency, clone, this.session) ??
@@ -243,15 +254,13 @@ export class Finalization {
     copy: object | undefined,
     policy: SpecialPolicy,
   ): SpecialFacts {
-    const forced = this.untrackedSpecialsToClone.has(value)
+    const forced = this.untrackedSpecialsToClone?.has(value) === true
     const dependenciesStable =
-      copyBase === undefined && currentBacked && !forced
-        ? this.stableSpecialDependencies(value, policy)
-        : true
+      copyBase === undefined && !forced ? this.stableSpecialDependencies(value, policy) : true
     const equivalent =
       copyBase !== undefined
         ? this.forcedOwnedCopies?.has(value) !== true && policy.equivalent(copyBase, value)
-        : copy === undefined || !currentBacked || forced || !dependenciesStable
+        : copy === undefined || forced || !dependenciesStable
           ? true
           : policy.equivalent(value, copy)
     return {
@@ -268,12 +277,12 @@ export class Finalization {
     if (policy.ownsDependencies !== true) return
     policy.dependencies(value, (child) => {
       const copy =
-        this.session.specialCloneBaseToClone.get(child) ??
-        (this.session.specialCloneCloneToBase.has(child) ? child : undefined)
+        this.session.specialCloneBaseToClone?.get(child) ??
+        (this.session.specialCloneCloneToBase?.has(child) === true ? child : undefined)
       if (copy !== undefined && this.forcedOwnedCopies?.has(copy) !== true) {
         ;(this.forcedOwnedCopies ??= new WeakSet()).add(copy)
         this.phase.values.delete(copy)
-        const base = this.session.specialCloneCloneToBase.get(copy)
+        const base = this.session.specialCloneCloneToBase?.get(copy)
         if (base !== undefined) this.phase.values.delete(base)
         const plan = this.materializationPlan
         if (plan !== undefined) plan.clonesSpecialValues = true
@@ -288,15 +297,23 @@ export class Finalization {
 
   /** Memoizes a resolved object identity that needs no structural reuse analysis. */
   private recordLeaf(target: object, memoKey: object, leaf?: true): FinalizedReference {
-    const reference = { leaf, target }
+    const reference = { discoveredBy: undefined, layout: undefined, leaf, target }
     this.phase.values.set(memoKey, reference)
     return reference
   }
 
   /** Finalizes a slot using its provenance to distinguish base-backed reuse from replacement values. */
-  private materializeContainerSlot(value: unknown, isCurrentBackedSlot: boolean): unknown {
+  materializeContainerSlot(value: unknown, isCurrentBackedSlot: boolean): unknown {
     if (!isObject(value)) {
       return value
+    }
+
+    // A drafted value is memoized under its base, never under its handle, so its state is
+    // found first and the memo is read once, by base.
+    const draftState = this.session.statesByIdentity.get(value)
+
+    if (draftState !== undefined) {
+      return this.materializeState(draftState)
     }
 
     const memo = this.phase.values
@@ -306,14 +323,8 @@ export class Finalization {
       return cached
     }
 
-    const draftState = this.session.statesByIdentity.get(value)
-
-    if (draftState !== undefined) {
-      return this.materializeState(draftState, value)
-    }
-
-    const copyBase = this.session.specialCloneCloneToBase.get(value)
-    const copy = this.session.specialCloneBaseToClone.get(value)
+    const copyBase = this.session.specialCloneCloneToBase?.get(value)
+    const copy = this.session.specialCloneBaseToClone?.get(value)
     // Preserve the native observation boundary: authored base references resolve
     // their registered copy before classifying or observing the base again.
     if (
@@ -326,6 +337,8 @@ export class Finalization {
       return result
     }
     const kind = this.kindOf(copyBase ?? value)
+    // An atom is a fixed leaf kept by identity, as a function slot keeps its function.
+    if (kind === ATOM_KIND) return this.recordLeaf(value, value, true)
     const policy = this.session.types.specials[kind]
     if (policy === undefined) {
       const active = this.needsMaterialization(value, kind)
@@ -402,72 +415,29 @@ export class Finalization {
     active = true,
   ): ReuseNode {
     const base = state?.base ?? currentBackedBase
-    let record: ReuseNode | undefined
     const plan = this.materializationPlan
     // Dormant records keep their observed slots for later activation; active ones need none.
-    const slots: PendingActivation['slots'] | undefined =
-      active || plan === undefined ? undefined : []
-    this.session.types.structural[kind].observeDraft(
-      source,
-      (layout) => {
-        record = {
-          attributes: undefined,
-          children: [],
-          keys: undefined,
-          layout,
-          settled: !active,
-          target: base ?? source,
-        }
-        this.phase.values.set(memoKey, record)
-        if (plan !== undefined) {
-          if (slots === undefined) plan.closure.require(memoKey)
-          else plan.dormant.set(memoKey, { record, slots })
-        }
-      },
-      (value, key, backed, attributes) => {
-        const currentBacked = backed === true
-        if (key !== undefined) (record!.keys ??= []).push(key)
-        if (slots !== undefined) slots.push({ currentBacked, value })
-        let resolve = true
-        if (!active && isObject(value)) {
-          // An active parent is already a closure fact; SeededRequirements proves that
-          // omitting implications into initial facts preserves the closure.
-          if (plan !== undefined)
-            plan.closure.imply(this.session.statesByIdentity.get(value)?.base ?? value, memoKey)
-          // Unchanged special children of an inactive record stay settled leaves in every phase;
-          // unchanged structural children become fixed leaves in materializeContainerSlot.
-          if (this.phase.values.get(value) === undefined) {
-            const kind = this.kindOf(value)
-            if (this.session.types.specials[kind] !== undefined)
-              resolve = this.needsMaterialization(value, kind)
-          }
-        }
-        record!.children.push(
-          resolve
-            ? this.materializeContainerSlot(value, currentBacked)
-            : { target: value as object },
-        )
-        if (attributes !== undefined) (record!.attributes ??= []).push(attributes)
-      },
-      {
-        base,
-        properties: state?.properties,
-        read: (value, key) => this.readTraversalProperty(value, key, state),
-      },
+    const observer = new DraftObservation(
+      this,
+      this.phase.values,
+      state,
+      memoKey,
+      base ?? source,
+      base,
+      active,
+      plan,
+      active || plan === undefined ? undefined : [],
     )
-    return record!
+    this.session.types.structural[kind].observeDraft(source, observer)
+    return observer.record!
   }
 
   /** Captures one draft state and records whether its slots need semantic resolution. */
-  private materializeState(state: DraftState, knownUncachedValue?: object): object {
-    const memo = this.phase.values
+  private materializeState(state: DraftState): object {
+    const cached = this.phase.values.get(state.base)
 
-    if (knownUncachedValue !== state.base) {
-      const cached = memo.get(state.base)
-
-      if (cached !== undefined) {
-        return cached as object
-      }
+    if (cached !== undefined) {
+      return cached as object
     }
 
     const active = state.modified || this.needsMaterialization(state.base)
@@ -491,12 +461,13 @@ export class Finalization {
   /** Records an unmanaged special-value copy requirement before a planning cache can hide it. */
   private planSpecialClone(value: object): void {
     if (
-      this.session.specialCloneBaseToClone.has(value) ||
-      this.session.specialCloneCloneToBase.has(value) ||
-      this.untrackedSpecialsToClone.has(value)
+      this.session.specialCloneBaseToClone?.has(value) === true ||
+      this.session.specialCloneCloneToBase?.has(value) === true ||
+      this.untrackedSpecialsToClone?.has(value) === true
     ) {
       return
     }
+    this.untrackedSpecialsToClone ??= new WeakSet()
     this.untrackedSpecialsToClone.add(value)
     if (this.materializationPlan !== undefined) {
       this.materializationPlan.clonesSpecialValues = true
@@ -512,13 +483,13 @@ export class Finalization {
    * property, shared across finalization passes, and separate from recipe reads. Once observations
    * are sealed, encountering an unobserved accessor throws instead of repeating application code.
    */
-  private readTraversalProperty(value: object, key: PropertyKey, knownState?: DraftState): unknown {
+  readTraversalProperty(value: object, key: PropertyKey, knownState?: DraftState): unknown {
     const properties = knownState?.properties
     const descriptor =
       properties === undefined
         ? propertyDescriptor(value, key)
         : (properties.ownDescriptor(key) ?? propertyDescriptor(properties.sourcePrototype(), key))
-    if (descriptor !== undefined && !('value' in descriptor)) {
+    if (descriptor !== undefined && !isDataDescriptor(descriptor)) {
       const receiver = knownState?.handle ?? this.session.materializeChild(value)
       const state = knownState ?? this.session.statesByIdentity.get(value)!
       this.accessorObservations ??= new WeakMap()
@@ -550,5 +521,128 @@ export class Finalization {
       (source, key) => this.readTraversalProperty(source, key),
       (child) => this.needsMaterialization(child, undefined, { parent: value, visited }),
     )
+  }
+}
+
+/**
+ * Receives one structural observation for finalization.
+ *
+ * @remarks
+ * One private object per observed record replaces per-record callbacks; it holds only the
+ * record under construction and is never reachable from application code.
+ */
+class DraftObservation extends Detached implements PendingActivation {
+  declare readonly active: boolean
+  declare readonly base: object | undefined
+  declare readonly finalization: Finalization
+  declare readonly memoKey: object
+  declare readonly plan: Discovery | undefined
+  declare readonly properties: DraftState['properties']
+  declare record: ReuseNode | undefined
+  declare readonly slots: PendingActivation['slots']
+  declare readonly state: DraftState | undefined
+  declare readonly target: object
+  // The memo of the phase that created this observer; a phase never changes during an
+  // observation, and a dormant activation reads only `record` and `slots`.
+  declare readonly values: WeakMap<object, unknown>
+
+  constructor(
+    finalization: Finalization,
+    values: WeakMap<object, unknown>,
+    state: DraftState | undefined,
+    memoKey: object,
+    target: object,
+    base: object | undefined,
+    active: boolean,
+    plan: Discovery | undefined,
+    slots: PendingActivation['slots'] | undefined,
+  ) {
+    super()
+    this.active = active
+    this.base = base
+    this.finalization = finalization
+    this.memoKey = memoKey
+    this.plan = plan
+    this.properties = state?.properties
+    this.record = undefined
+    this.slots = slots
+    this.state = state
+    this.target = target
+    this.values = values
+  }
+
+  begin(layout: Layout): void {
+    const record: ReuseNode = {
+      attributes: undefined,
+      children: [],
+      collectedAs: undefined,
+      collectedBy: undefined,
+      discoveredBy: undefined,
+      keys: undefined,
+      layout,
+      leaf: undefined,
+      observed: undefined,
+      settled: !this.active,
+      target: this.target,
+    }
+    this.record = record
+    this.values.set(this.memoKey, record)
+    const plan = this.plan
+    if (plan !== undefined) {
+      if (this.slots === undefined) plan.closure.require(this.memoKey)
+      else plan.dormant.set(this.memoKey, this)
+    }
+  }
+
+  edge(value: unknown, key?: PropertyKey, backed?: boolean, attributes?: number): void {
+    const finalization = this.finalization
+    const record = this.record!
+    const currentBacked = backed === true
+    if (key !== undefined) (record.keys ??= []).push(key)
+    if (this.slots !== undefined) this.slots.push({ currentBacked, value })
+    if (!isObject(value)) {
+      // A primitive slot resolves to itself in every phase.
+      record.children.push(value)
+      if (attributes === undefined) return
+      ;(record.attributes ??= []).push(attributes)
+      if (attributes === OBSERVED_ACCESSOR)
+        (record.observed ??= [])[record.children.length - 1] = value
+      return
+    }
+    const resolve = this.active || this.resolvesInactive(value)
+    record.children.push(
+      resolve
+        ? finalization.materializeContainerSlot(value, currentBacked)
+        : { discoveredBy: undefined, layout: undefined, leaf: undefined, target: value },
+    )
+    if (attributes === undefined) return
+    ;(record.attributes ??= []).push(attributes)
+    // The raw value lets reuse keep the accessor only if it returned the resolved child itself.
+    if (attributes === OBSERVED_ACCESSOR)
+      (record.observed ??= [])[record.children.length - 1] = value
+  }
+
+  /** Records an inactive record's implication and decides whether its child is resolved. */
+  resolvesInactive(value: object): boolean {
+    const finalization = this.finalization
+    // An active parent is already a closure fact; SeededRequirements proves that omitting
+    // implications into initial facts preserves the closure.
+    const plan = this.plan
+    if (plan !== undefined)
+      plan.closure.imply(
+        finalization.session.statesByIdentity.get(value)?.base ?? value,
+        this.memoKey,
+      )
+    // Unchanged special children of an inactive record stay settled leaves in every phase;
+    // unchanged structural children become fixed leaves in materializeContainerSlot.
+    if (this.values.get(value) !== undefined) return true
+    const kind = finalization.kindOf(value)
+    return finalization.session.types.specials[kind] === undefined
+      ? true
+      : finalization.needsMaterialization(value, kind)
+  }
+
+  read(value: object, key: PropertyKey): unknown {
+    return this.finalization.readTraversalProperty(value, key, this.state)
   }
 }

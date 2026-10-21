@@ -6,6 +6,7 @@ import type {
   Label,
   SupportGraph,
 } from '../types'
+import { denseArray } from '../standard-prototypes'
 
 /** Builds mandatory implications using every support in the complete target domain. */
 export function supportGraph(domains: Domains): SupportGraph {
@@ -76,19 +77,24 @@ export function componentLabels(edges: ReadonlyArray<readonly number[]>): number
   const finished: number[] = []
   depthFirst(edges, edges.keys(), seen, (vertex) => finished.push(vertex))
   seen.fill(0)
-  const labels = new Array<number>(size)
+  const labels = denseArray<number>(size)
   depthFirst(reverse, finished.reverse(), seen, (vertex, root) => (labels[vertex] = root))
   // Ascending positions canonically name components without a comparison sort.
-  const leaders = new Array<number>(size)
+  const leaders = denseArray<number>(size)
   for (let id = 0; id < size; id += 1) labels[id] = leaders[labels[id]] ??= id
   return labels
 }
 
 // Whether some requirement points at its own node or an earlier one.
 function backward(domains: Domains): boolean {
-  for (let node = 0; node < domains.length; node += 1)
-    for (const choice of domains[node])
-      for (const edge of choice.required) if (edge.node <= node) return true
+  for (let node = 0; node < domains.length; node += 1) {
+    const domain = domains[node]
+    for (let position = 0; position < domain.length; position += 1) {
+      const required = domain[position].required
+      for (let edge = 0; edge < required.length; edge += 1)
+        if (required[edge].node <= node) return true
+    }
+  }
   return false
 }
 
@@ -105,7 +111,7 @@ export function forcedGroups(domains: Domains): ForcedGroups | undefined {
   if (!backward(domains)) return undefined
   const { edges, positions } = supportGraph(domains)
   const labels = componentLabels(edges)
-  const members: ChoicePosition[][] = []
+  const members = denseArray<ChoicePosition[] | undefined>(positions.length)
   for (let id = 0; id < positions.length; id += 1) (members[labels[id]] ??= []).push(positions[id])
   let result: Array<Array<ForcedGroup | null | undefined> | undefined> | undefined
   const owners = new Set<number>()
@@ -123,8 +129,11 @@ export function forcedGroups(domains: Domains): ForcedGroups | undefined {
       storage.add(choice.storage)
     }
     const decision = valid ? group : null
-    result ??= []
-    for (const position of group) (result[position.node] ??= [])[position.choice] = decision
+    result ??= denseArray<Array<ForcedGroup | null | undefined> | undefined>(domains.length)
+    for (const position of group)
+      (result[position.node] ??= denseArray<ForcedGroup | null | undefined>(
+        domains[position.node].length,
+      ))[position.choice] = decision
   }
   return result
 }

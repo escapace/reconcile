@@ -3,7 +3,7 @@ import { forcedGroupDomains } from './fixtures/forced-groups'
 import { activeDemandDomains } from './fixtures/active-demands'
 import { forwardDemandDomains } from './fixtures/forward-demands'
 import { retainedCapacityDomains } from './fixtures/retained-capacity'
-import { selections } from '../graph/selection'
+import { headSelection, selections } from '../graph/selection'
 import type { Choice, Domains } from '../types'
 
 // Deliberately enumerate all tuples before checking whole-plan constraints.
@@ -50,6 +50,69 @@ it('streams exactly the feasible plans in retention and traversal order', () => 
     assert.deepEqual([...selections(domains)], oracle(domains), `fixture ${test}`)
     assert.equal(JSON.stringify(domains), before)
   }
+})
+
+// GraphPolicy.rankedPreferred_head: a feasible, maximal head plan is the stream's first plan
+// while the top tier has no preference, and a stream resumed after it repeats nothing.
+it('takes the head plan first and resumes the stream after it', () => {
+  let seed = 40_123
+  const random = (size: number): number => {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
+    return (seed >>> 8) % size
+  }
+  let heads = 0
+  let declined = 0
+  for (let test = 0; test < 3000; test += 1) {
+    const size = 1 + random(5)
+    const domains: Choice[][] = Array.from({ length: size }, (_, node) =>
+      Array.from({ length: 1 + random(3) }, (_, option) => ({
+        identity: option * 5 + node,
+        required: Array.from({ length: random(4) === 0 ? 1 + random(2) : 0 }, () => {
+          const target = random(size + 1)
+          return { identity: random(3) === 0 ? random(16) : 5 * random(2) + target, node: target }
+        }),
+        retained: random(3) !== 0,
+        storage: random(3) === 0 ? random(4) : 10 + option * 5 + node,
+      })),
+    )
+    const head = headSelection(domains)
+    const tiers = new Map<number, Set<number>>()
+    const top = head?.reduce(
+      (count, choice, node) => count + Number(domains[node][choice].retained),
+      0,
+    )
+    // Preferences differ per tier and stay fixed for the stream; the head's tier has none.
+    const preferFresh = (score: number): ReadonlySet<number> => {
+      if (score === top) return new Set()
+      let preferred = tiers.get(score)
+      if (preferred === undefined) {
+        preferred = new Set(Array.from({ length: random(size + 1) }, () => random(size)))
+        tiers.set(score, preferred)
+      }
+      return preferred
+    }
+    const stream = [...selections(domains, preferFresh)]
+    if (head === undefined) {
+      declined += 1
+      continue
+    }
+    heads += 1
+    assert.deepEqual(stream[0], head, `fixture ${test}`)
+    // The head attempt may record failures before the search starts; the top tier keeps the
+    // order it would have had, since its preference was due before any attempt.
+    const afterHead = (score: number): ReadonlySet<number> =>
+      score === top ? new Set(domains.keys()) : preferFresh(score)
+    // As the driver does: the first preference asked for is the top tier's, answered with none.
+    let ordinary = true
+    const resumed = (score: number): ReadonlySet<number> => {
+      if (!ordinary) return afterHead(score)
+      ordinary = false
+      return new Set()
+    }
+    assert.deepEqual([...selections(domains, resumed)].slice(1), stream.slice(1), `fixture ${test}`)
+  }
+  assert.isAbove(heads, 300)
+  assert.isAbove(declined, 300)
 })
 
 it('handles shared views and immutable cyclic reuse through the same dependency constraints', () => {

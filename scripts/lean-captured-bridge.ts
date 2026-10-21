@@ -98,7 +98,7 @@ export async function checkCapturedRuntime(oracle: Oracle): Promise<void> {
   await checkGraphFixtures(
     oracle,
     'Contract',
-    'lean/reuse-fixtures.json',
+    'lean/fixtures/reuse-fixtures.json',
     'captured',
     observeCaptured,
   )

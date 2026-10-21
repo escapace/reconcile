@@ -192,17 +192,20 @@ function distribution(numbers: number[]) {
 /** Median, minimum and maximum of every metric, per compared source. */
 export function comparisonMetrics(
   samples: ReadonlyArray<{
-    readonly label: 'a' | 'b'
+    readonly label: 'baseline' | 'candidate'
     readonly metrics: Readonly<Record<string, number>>
   }>,
 ) {
   const names = [...new Set(samples.flatMap((sample) => Object.keys(sample.metrics)))]
-  const observed = (label: 'a' | 'b', name: string): number[] =>
+  const observed = (label: 'baseline' | 'candidate', name: string): number[] =>
     samples.filter((sample) => sample.label === label).map((sample) => sample.metrics[name])
   return Object.fromEntries(
     names.map((name) => [
       name,
-      { a: distribution(observed('a', name)), b: distribution(observed('b', name)) },
+      {
+        baseline: distribution(observed('baseline', name)),
+        candidate: distribution(observed('candidate', name)),
+      },
     ]),
   )
 }

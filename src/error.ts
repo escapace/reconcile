@@ -1,17 +1,21 @@
+import { defineData } from './standard-prototypes'
 /**
- * Every error type this library raises, named by the phase that detects it.
+ * Every error type this library throws.
  *
  * @remarks
- * The prefix names the phase. `Draft` types come from `produce` while the recipe runs.
- * `Finalization` types come from `produce` after the recipe returns. `Publication` types come
- * from `reconcile`. `Snapshot` types come from `snapshot`. After the prefix, the name states the
- * subject and the condition, so each type names exactly one situation.
+ * The prefix of each name identifies the function or phase that detects the failure. `Draft`
+ * types come from `produce` while the recipe runs, `Finalization` types from `produce` after the
+ * recipe returns, `Publication` types from `reconcile`, `Snapshot` types from `snapshot`,
+ * `Serialize` types from `serialize`, and `Deserialize` types from `deserialize` and
+ * `requiredMaxBytes`.
  */
 export const RECONCILE_ERROR_TYPES = [
+  'DeserializeInputInvalid',
+  'DeserializeLimitExceeded',
+  'DeserializeLimitInvalid',
   'DraftArrayIndexRejected',
   'DraftArrayLengthRejected',
   'DraftDefinePropertyUnsupported',
-  'DraftIterationUnsupported',
   'DraftWrapperIdentityChanged',
   'DraftWrapperIteratorMismatched',
   'FinalizationAccessorUnstable',
@@ -19,30 +23,44 @@ export const RECONCILE_ERROR_TYPES = [
   'FinalizationConstructionImpossible',
   'FinalizationStorageMissing',
   'PublicationRejected',
+  'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible',
 ] as const
 
 /** The `type` of a {@link ReconcileError}: one of {@link RECONCILE_ERROR_TYPES}. */
 export type ReconcileErrorType = (typeof RECONCILE_ERROR_TYPES)[number]
 
-/** Draft `Map` and `Set` methods that throw; `iterator` stands for `[Symbol.iterator]`. */
-export type DraftIterationMethod = 'entries' | 'forEach' | 'iterator' | 'keys' | 'values'
-
 /**
- * The facts each error type carries in `cause`, next to `type`.
+ * The properties of `cause` for each error type, in addition to `type`.
  *
  * @remarks
- * The facts are values the library already held when it detected the failure. Reporting an
- * error reads nothing more from application objects.
+ * Creating an error runs no application code, such as getters, setters or proxy traps.
  */
 export interface ReconcileErrorMetadata {
   /**
-   * An exotic source array, such as a proxy, reported an index at or beyond a non-writable
-   * length, which a real array cannot have. `index` is that index.
+   * The data passed to `deserialize` or `requiredMaxBytes` is not in the format that `serialize`
+   * produces. `reason` names the failed check for diagnostics; its values are not part of the API
+   * and can change.
+   */
+  DeserializeInputInvalid: { reason: string }
+  /**
+   * The value `deserialize` would return is larger than `maxBytes` allows, or `requiredMaxBytes`
+   * would return more than `maxBytes`. `maxBytes` is the limit; the error does not report the size
+   * of the value.
+   */
+  DeserializeLimitExceeded: { maxBytes: number }
+  /**
+   * `maxBytes` is missing, or is neither a non-negative safe integer nor `Infinity`.
+   * `maxBytes` is the value received.
+   */
+  DeserializeLimitInvalid: { maxBytes: unknown }
+  /**
+   * An array in `current`, such as a proxy, reported an index at or beyond a non-writable length,
+   * which a real array cannot have. `index` is that index.
    */
   DraftArrayIndexRejected: { index: number }
   /**
-   * An exotic source array, such as a proxy, reported a length that its other properties make
+   * An array in `current`, such as a proxy, reported a length that its other properties make
    * impossible. `length` is the reported length.
    */
   DraftArrayLengthRejected: { length: number }
@@ -51,39 +69,38 @@ export interface ReconcileErrorMetadata {
    * `Reflect.defineProperty` on a draft. `property` is the key. Use assignment instead.
    */
   DraftDefinePropertyUnsupported: { property: PropertyKey }
-  /** The recipe called an iteration method on a draft `Map` or `Set`. `method` names it. */
-  DraftIterationUnsupported: { method: DraftIterationMethod }
   /**
-   * A reactive wrapper around a `Map` or `Set` reported an inconsistent chain of raw objects
-   * while a draft entry was being inserted.
+   * A reactive proxy of a `Map` or `Set` reported a different raw object while the recipe was
+   * adding an entry to its draft.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   DraftWrapperIdentityChanged: {}
   /**
-   * A reactive wrapper around a `Map` or `Set` did not return the value just inserted when it
-   * was iterated.
+   * A reactive proxy of a `Map` or `Set` reported keys or members that do not include exactly the
+   * one just added.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   DraftWrapperIteratorMismatched: {}
   /**
-   * A getter that ran after the recipe returned put a new getter into the result, which the
-   * library found only after it had stopped running getters. `property` is the new getter's key.
+   * A getter that ran after the recipe returned added a new getter to a part of the result that
+   * `produce` had already visited, so `produce` cannot call it. `property` is the new getter's key.
    */
   FinalizationAccessorUnstable: { property: PropertyKey }
   /**
-   * Internal error: a record of the result referred to a child that does not exist. `index` is
-   * the record and `child` the invalid reference. This indicates a bug in the library.
+   * Internal error in `produce`, which indicates a bug in the library. `index` and `child` are
+   * diagnostic values for a bug report.
    */
   FinalizationChildInvalid: { child: unknown; index: number }
   /**
-   * No consistent result exists: objects the result must keep would share storage, or the new
-   * objects have no valid creation order.
+   * No consistent result exists: objects the result must keep would share their contents, so a
+   * write through one changes the other, as with a Vue reactive proxy and its raw object, or the
+   * new objects cannot be created in any order.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   FinalizationConstructionImpossible: {}
   /**
-   * Internal error: an object that could be kept had no storage. `index` identifies its record.
-   * This indicates a bug in the library.
+   * Internal error in `produce`, which indicates a bug in the library. `index` is a diagnostic
+   * value for a bug report.
    */
   FinalizationStorageMissing: { index: number }
   /**
@@ -92,31 +109,35 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   PublicationRejected: {}
-  /** A borrowed parameter copy cannot be adopted by a fresh native URL. */
+  /**
+   * `serialize` met a value it cannot encode, such as a symbol-keyed property, a function or an
+   * object of an unsupported class. `reason` names it for diagnostics; its values are not part of
+   * the API and can change.
+   */
+  SerializeValueUnsupported: { reason: string }
+  /**
+   * The `seen` map passed to `snapshot` maps the `searchParams` of a URL in the value but not the
+   * URL.
+   */
   // eslint-disable-next-line typescript/no-empty-object-type
   SnapshotURLSearchParamsMemoIncompatible: {}
 }
 
-/** The `cause` of a {@link ReconcileError}: its `type` together with that type's facts. */
+/** The `cause` of a {@link ReconcileError}: its `type` and that type's properties. */
 export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorType> =
   T extends ReconcileErrorType ? { type: T } & ReconcileErrorMetadata[T] : never
 
 /**
- * The error this library throws when an operation cannot keep its contract.
+ * The error this library throws for every failure it detects.
  *
  * @remarks
- * Every failure the library detects is a `ReconcileError`. Its `cause` holds a stable `type` and
- * the facts for that type. Its message is for people and may change between versions. Check for
- * it with `instanceof ReconcileError` or {@link isReconcileError}, then branch on `cause.type`.
+ * Its `cause` holds a stable `type` and that type's properties. Its message is for people and can
+ * change between versions. Check for it with `instanceof ReconcileError` or
+ * {@link isReconcileError}, then branch on `cause.type`.
  *
- * The library never throws for an outcome that is part of a contract, such as `reconcile`
- * returning `next` when a root is not an object.
- *
- * Three kinds of errors keep their original identity and are not wrapped: `RangeError` for an
- * invalid array length, as native arrays throw it; errors thrown by application code that the
- * operations reach, such as getters, setters, proxy traps and iterators; and errors the host
- * throws when `reconcile` writes into `current`. When one of them interrupts `reconcile`, earlier
- * writes are not rolled back.
+ * Errors from native constructors and allocation, and errors thrown by application getters,
+ * setters, proxy traps, iterators and writes into `current`, propagate unchanged. When an error
+ * interrupts `reconcile`, earlier writes are not rolled back.
  *
  * @example
  * ```ts
@@ -124,27 +145,28 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
  *   reconcile(current, next)
  * } catch (error) {
  *   if (isReconcileError(error) && error.cause.type === 'PublicationRejected') {
- *     // current may hold some of the writes; nothing was rolled back
+ *     // current can hold some of the new values
  *   } else throw error
  * }
  * ```
  */
 export class ReconcileError<T extends ReconcileErrorType = ReconcileErrorType> extends Error {
-  /** The error's `type` and the facts for that type. */
+  /** The error's `type` and that type's properties. */
   declare readonly cause: ReconcileErrorCause<T>
   /** Always `'ReconcileError'`. */
   declare readonly name: 'ReconcileError'
 
   /**
-   * Creates an error. The library creates these itself; applications normally only inspect them.
+   * Creates an error. The library creates these errors; applications inspect them.
    *
-   * @param cause - The error's `type` and the facts for that type.
+   * @param cause - The error's `type` and that type's properties.
    * @param message - A description for people; not part of the stable contract.
    */
   constructor(cause: ReconcileErrorCause<T>, message: string) {
     super(message)
-    this.cause = cause
-    this.name = 'ReconcileError'
+    // Defined, not assigned, so that nothing Object.prototype holds intercepts either field.
+    defineData(this, 'cause', cause)
+    defineData(this, 'name', 'ReconcileError')
   }
 }
 
@@ -157,7 +179,7 @@ export const isReconcileError = (value: unknown): value is ReconcileError =>
   value instanceof ReconcileError
 
 /**
- * Returns whether `error` has the given `type`, narrowing `cause` to that type's facts.
+ * Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
  *
  * @param error - An error already known to be a {@link ReconcileError}.
  * @param type - The error type to test for.
@@ -176,13 +198,13 @@ const key = (property: PropertyKey): string =>
 export const draftArrayIndexRejected = (index: number) =>
   new ReconcileError(
     { index, type: 'DraftArrayIndexRejected' },
-    `Draft array index ${index} exceeds a non-writable length.`,
+    `An array in current reports index ${index} at or beyond its non-writable length.`,
   )
 
 export const draftArrayLengthRejected = (length: number) =>
   new ReconcileError(
     { length, type: 'DraftArrayLengthRejected' },
-    `Draft array length ${length} cannot be applied.`,
+    `An array in current reports length ${length}, which its other properties make impossible.`,
   )
 
 export const draftDefinePropertyUnsupported = (property: PropertyKey) =>
@@ -191,56 +213,71 @@ export const draftDefinePropertyUnsupported = (property: PropertyKey) =>
     `Draft property ${key(property)} cannot be defined; use assignment instead.`,
   )
 
-export const draftIterationUnsupported = (method: DraftIterationMethod) =>
-  new ReconcileError(
-    { method, type: 'DraftIterationUnsupported' },
-    `Draft Map and Set iteration is not supported: ${method}.`,
-  )
-
 export const draftWrapperIdentityChanged = () =>
   new ReconcileError(
     { type: 'DraftWrapperIdentityChanged' },
-    'Draft wrapper identity changed during insertion.',
+    'A reactive Map or Set proxy reported a different raw object while an entry was added.',
   )
 
 export const draftWrapperIteratorMismatched = () =>
   new ReconcileError(
     { type: 'DraftWrapperIteratorMismatched' },
-    'Draft wrapper iterator did not expose the inserted value.',
+    'A reactive Map or Set proxy did not return exactly the key or member just added.',
   )
 
 export const finalizationAccessorUnstable = (property: PropertyKey) =>
   new ReconcileError(
     { property, type: 'FinalizationAccessorUnstable' },
-    `Finalization accessor ${key(property)} appeared after sealing.`,
+    `A getter added getter ${key(property)} to a part of the result that produce had already visited.`,
   )
 
 export const finalizationChildInvalid = (index: number, child: unknown) =>
   new ReconcileError(
     { child, index, type: 'FinalizationChildInvalid' },
-    `Finalization record ${index} has invalid child ${String(child)}.`,
+    `Internal error in produce: record ${index} has invalid child ${String(child)}. This is a bug in @escapace/reconcile.`,
   )
 
 export const finalizationConstructionImpossible = () =>
   new ReconcileError(
     { type: 'FinalizationConstructionImpossible' },
-    'Finalization cannot order construction.',
+    'produce cannot build a consistent result.',
   )
 
 export const finalizationStorageMissing = (index: number) =>
   new ReconcileError(
     { index, type: 'FinalizationStorageMissing' },
-    `Finalization record ${index} has no storage.`,
+    `Internal error in produce: record ${index} has no storage. This is a bug in @escapace/reconcile.`,
   )
 
 export const publicationRejected = () =>
-  new ReconcileError(
-    { type: 'PublicationRejected' },
-    'Publication into the current root was rejected.',
-  )
+  new ReconcileError({ type: 'PublicationRejected' }, 'reconcile cannot make current match next.')
 
 export const snapshotURLSearchParametersMemoIncompatible = () =>
   new ReconcileError(
     { type: 'SnapshotURLSearchParamsMemoIncompatible' },
-    'A supplied URLSearchParams memo copy has no compatible URL owner.',
+    "The seen map supplies a copy of a URL's searchParams but not of the URL.",
+  )
+
+export const deserializeInputInvalid = (reason: string) =>
+  new ReconcileError(
+    { reason, type: 'DeserializeInputInvalid' },
+    `The input is not in the format that serialize produces: ${reason}.`,
+  )
+
+export const deserializeLimitExceeded = (maxBytes: number) =>
+  new ReconcileError(
+    { maxBytes, type: 'DeserializeLimitExceeded' },
+    `The deserialized value would exceed maxBytes (${maxBytes}).`,
+  )
+
+export const deserializeLimitInvalid = (maxBytes: unknown) =>
+  new ReconcileError(
+    { maxBytes, type: 'DeserializeLimitInvalid' },
+    'maxBytes must be a non-negative safe integer or Infinity.',
+  )
+
+export const serializeValueUnsupported = (reason: string) =>
+  new ReconcileError(
+    { reason, type: 'SerializeValueUnsupported' },
+    `serialize cannot encode this value: ${reason}.`,
   )

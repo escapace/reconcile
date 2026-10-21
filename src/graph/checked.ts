@@ -1,11 +1,13 @@
 import type { CheckedSet } from '../types'
+import { Detached } from '../standard-prototypes'
 
 /** Call-owned membership for one publication revision; node IDs remain ordinary numbers. */
-export class CheckedNodes implements CheckedSet {
+export class CheckedNodes extends Detached implements CheckedSet {
   declare private count: number
   declare private readonly marks: Uint8Array
 
   constructor(size: number) {
+    super()
     this.count = 0
     this.marks = new Uint8Array(size)
   }

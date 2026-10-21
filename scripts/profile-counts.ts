@@ -118,9 +118,9 @@ function countCheckedCopy(
 }
 
 const matchesText =
-  (text: string, key: string): BinaryRule =>
+  (texts: string | readonly string[], key: string): BinaryRule =>
   (node, file) =>
-    node.getText(file) === text ? key : undefined
+    (typeof texts === 'string' ? [texts] : texts).includes(node.getText(file)) ? key : undefined
 
 /** Forced-follower slots restore with `undefined` and force with any other value. */
 const forcedWrite: BinaryRule = (node, file) => {
@@ -143,7 +143,10 @@ const binaryRules = new Map<string, BinaryRule[]>([
       matchesText('incoming !== event.exposed', 'execution.incomingSummaryComparisons'),
     ],
   ],
-  [FORCED_GROUPS, [matchesText('edge.node <= node', 'selection.groupScanEdges')]],
+  [
+    FORCED_GROUPS,
+    [matchesText(['required[edge].node <= node', 'edge.node <= node'], 'selection.groupScanEdges')],
+  ],
   [
     SELECTION,
     [
@@ -155,7 +158,10 @@ const binaryRules = new Map<string, BinaryRule[]>([
   [
     SUPPORTED_CHOICES,
     [
-      matchesText('target.identity === edge.identity', 'selection.supportProbePositions'),
+      matchesText(
+        ['domain[position].identity === identity', 'target.identity === edge.identity'],
+        'selection.supportProbePositions',
+      ),
       matchesText('edge.node === node', 'selection.supportRequirementVisits'),
       matchesText('bucket.remaining === 0', 'selection.supportDeletions'),
     ],
@@ -341,38 +347,6 @@ const countPlans: Rewrite = (counter, _node, updated) => {
   )
 }
 
-/** Every full classification by the `objectKindOf` arrow, per classified value. */
-const countObjectKind: Rewrite = (counter, node, updated) => {
-  if (
-    !ts.isArrowFunction(updated) ||
-    !ts.isVariableDeclaration(node.parent) ||
-    node.parent.name.getText(counter.site.file) !== 'objectKindOf' ||
-    counter.site.path !== 'src/object-kind.ts'
-  )
-    return undefined
-  const f = counter.factory
-  const body = ts.isBlock(updated.body)
-    ? updated.body.statements
-    : [f.createReturnStatement(updated.body)]
-  return f.updateArrowFunction(
-    updated,
-    updated.modifiers,
-    updated.typeParameters,
-    updated.parameters,
-    updated.type,
-    updated.equalsGreaterThanToken,
-    f.createBlock(
-      [
-        f.createExpressionStatement(
-          counter.tally('classification.full', f.createIdentifier('value')),
-        ),
-        ...body,
-      ],
-      true,
-    ),
-  )
-}
-
 /** Function-entry counters by owning file and function name. */
 const entryTallies = new Map<string, ReadonlyMap<string, string>>([
   [
@@ -380,6 +354,7 @@ const entryTallies = new Map<string, ReadonlyMap<string, string>>([
     new Map([
       ['matchesKind', 'classification.expected'],
       ['recognize', 'classification.full'],
+      ['recognizeStructure', 'classification.full'],
     ]),
   ],
   ['src/adapters/vue.ts', new Map([['storageIdentity', 'storage.probes']])],
@@ -493,14 +468,38 @@ const countObservation: Rewrite = (counter, node, updated) => {
   return prependToArrow(counter, updated, updated.body, 'observation.events')
 }
 
+/** Finalization observes through the `begin` and `edge` methods of its `DraftObservation`. */
+const countObservationMethod: Rewrite = (counter, node, updated) => {
+  if (
+    !ts.isMethodDeclaration(updated) ||
+    updated.body === undefined ||
+    counter.site.path !== FINALIZATION ||
+    !['begin', 'edge'].includes(updated.name.getText(counter.site.file)) ||
+    !ts.isClassDeclaration(node.parent) ||
+    node.parent.name?.text !== 'DraftObservation'
+  )
+    return undefined
+  return counter.factory.updateMethodDeclaration(
+    updated,
+    updated.modifiers,
+    updated.asteriskToken,
+    updated.name,
+    updated.questionToken,
+    updated.typeParameters,
+    updated.parameters,
+    updated.type,
+    counter.prepend(updated.body, 'observation.events'),
+  )
+}
+
 /** Statement-level rewrites; the first that applies wins. */
 const rewrites: Rewrite[] = [
   countPlans,
-  countObjectKind,
   countFunctionEntry,
   countMethodMemo,
   countArrowMemo,
   countObservation,
+  countObservationMethod,
 ]
 
 function rewrite(counter: Counter, node: ts.Node, updated: ts.Node): ts.Node | undefined {

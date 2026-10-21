@@ -1,3 +1,4 @@
+import { adoptPrototype } from './shared/prototype'
 import {
   emptyEdges,
   freeze,
@@ -19,6 +20,7 @@ import type {
   SpecialPolicy,
 } from '../types'
 import { defineType } from './registry'
+import { globalTemporal } from '../standard-prototypes'
 
 /** Stable global identity owned by the Temporal module. */
 export const TEMPORAL_KIND = Symbol.for('@escapace/reconcile/temporal')
@@ -57,7 +59,7 @@ type TemporalNamespace = Partial<
 
 /** Static probes preserve native property and instanceof order; Temporal is read live. */
 function temporalClass(value: object) {
-  const temporal = (globalThis as { Temporal?: TemporalNamespace | null }).Temporal
+  const temporal = globalTemporal() as TemporalNamespace | null | undefined
   if (temporal == null) return undefined
   let constructor = temporal.Duration
   if (typeof constructor === 'function' && value instanceof constructor)
@@ -100,9 +102,11 @@ function equivalentValue(
   const base = type.temporalConstructor.from(source)
   const candidate = type.temporalConstructor.from(other)
   if (type.temporalDuration) {
-    for (const field of durationFields)
+    for (let index = 0; index < durationFields.length; index += 1) {
+      const field = durationFields[index]
       if ((base as Record<string, number>)[field] !== (candidate as Record<string, number>)[field])
         return false
+    }
     return true
   }
   return (base as { equals: (other: object) => boolean }).equals(candidate)
@@ -111,6 +115,8 @@ function equivalentValue(
 /** Stores a detached native immutable value, retaining all native fields. */
 export interface TemporalLayout {
   readonly kind: typeof TEMPORAL_KIND
+  /** The source's prototype, which a copy keeps. */
+  readonly prototype: object | null
   readonly temporalConstructor: TemporalConstructor
   readonly temporalDuration: boolean
   readonly temporalValue: object
@@ -123,21 +129,33 @@ function matches(layout: TemporalLayout, current: object): boolean {
   )
 }
 
+/** Copies a Temporal value through its class's `from`, on the source's prototype. */
+function copyTemporal(
+  value: object,
+  constructor: TemporalConstructor,
+  prototype: object | null,
+): object {
+  return adoptPrototype(constructor.from(value), prototype, constructor.prototype as object)
+}
+
 const temporalCapture = {
   construction: noValue,
   observe(value, begin) {
     const type = temporalClass(value)!
+    const prototype = Object.getPrototypeOf(value) as object | null
     begin({
       kind: TEMPORAL_KIND,
       ...type,
-      temporalValue: type.temporalConstructor.from(value),
+      prototype,
+      temporalValue: copyTemporal(value, type.temporalConstructor, prototype),
     })
   },
 } satisfies CapturePolicy<TemporalLayout>
 
 const temporalConstruction = {
   bindings: independentBindings,
-  allocate: (node) => node.layout.temporalConstructor.from(node.layout.temporalValue),
+  allocate: (node) =>
+    copyTemporal(node.layout.temporalValue, node.layout.temporalConstructor, node.layout.prototype),
 } satisfies ConstructionPolicy<TemporalLayout>
 
 export const temporalSnapshot = /* @__PURE__ */ (() =>
@@ -166,7 +184,12 @@ export const temporalImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value) => temporalClass(value)!.temporalConstructor.from(value),
+      copy: (value) =>
+        copyTemporal(
+          value,
+          temporalClass(value)!.temporalConstructor,
+          Object.getPrototypeOf(value) as object | null,
+        ),
       equivalent(base, candidate) {
         const type = temporalClass(base)!
         return (

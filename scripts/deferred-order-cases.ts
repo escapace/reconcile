@@ -22,7 +22,14 @@ type Mode = (typeof modes)[number]
 const label = (key: PropertyKey): string => String(deferredKeys.indexOf(key))
 
 function capturedNode(properties: Map<PropertyKey, Edge>, keys: PropertyKey[]): CapturedNode {
-  return { edges: [...properties.values()], keys, layout: { kind: OBJECT_KIND } }
+  return {
+    attributes: undefined,
+    edges: [...properties.values()],
+    keys,
+    layout: { kind: OBJECT_KIND },
+    observed: undefined,
+    pinned: undefined,
+  }
 }
 
 /** An ordered surface that accepts every receiver and reads keys natively. */
@@ -31,6 +38,7 @@ function nativeSurface(
   ordered: boolean,
 ): DeferredOrderCase['surface'] {
   return {
+    desired: undefined,
     keys: Reflect.ownKeys,
     ordered,
     compatible: () => true,
@@ -85,8 +93,11 @@ function orderedCase(length: number, mask: number, mode: Mode): DeferredOrderCas
   const wanted = desiredOrder(mask)
   const events: string[] = []
   const current = new Proxy(orderedBase(length, mode), recordingHandler(events))
-  const properties = new Map<PropertyKey, Edge>(wanted.map((key) => [key, { value: 1 }]))
+  const properties = new Map<PropertyKey, Edge>(
+    wanted.map((key) => [key, { node: undefined, value: 1 }]),
+  )
   const surface: DeferredOrderCase['surface'] = {
+    desired: undefined,
     ordered: mode !== 'unordered',
     compatible(_node, receiver) {
       assert.equal(receiver, current)
@@ -127,9 +138,9 @@ function arrayCase(extensible: boolean): DeferredOrderCase {
     },
   })
   const properties = new Map<PropertyKey, Edge>([
-    ['0', { value: 1 }],
-    ['2', { value: 1 }],
-    ['length', { value: 3 }],
+    ['0', { node: undefined, value: 1 }],
+    ['2', { node: undefined, value: 1 }],
+    ['length', { node: undefined, value: 3 }],
   ])
   return {
     current,
@@ -165,8 +176,8 @@ function lateFixedCase(): DeferredOrderCase {
     },
   })
   const properties = new Map<PropertyKey, Edge>([
-    ['a', { value: 1 }],
-    ['b', { value: 1 }],
+    ['a', { node: undefined, value: 1 }],
+    ['b', { node: undefined, value: 1 }],
   ])
   return {
     current,
@@ -202,7 +213,7 @@ function throwingCase(boundary: string): DeferredOrderCase {
     },
   })
   // Removing a first key leaves the late fixed key retainable, so every error boundary is reached.
-  const properties = new Map<PropertyKey, Edge>([['b', { value: 1 }]])
+  const properties = new Map<PropertyKey, Edge>([['b', { node: undefined, value: 1 }]])
   return {
     current,
     events,

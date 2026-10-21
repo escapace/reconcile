@@ -1,20 +1,12 @@
 /**
  * Comprehensive semantic tests for `reconcile`.
  *
- * This file locks in the intended behavior of the `reconcile` operator as
- * specified in lean/README.md §§5-7 and proven in the Lean theorem layer
- * (ReconcileSpec.lean, ReconcileSoundness.lean).
+ * This file locks in the intended behavior of `reconcile` as specified by the reconcile
+ * contract in the Lean models (ReconcileSpec.lean, ReconcileSoundness.lean; see docs/lean.md).
  *
- * Test organization mirrors the specification structure:
- *   §5.1 - Witness invariants (observable through behavior)
- *   §5.2 - Root rule
- *   §5.3 - Recursive value rule
- *   §5.4 - Shared-object fast path
- *   §5.5 - Entry rule
- *   §6.x - Kind-specific rules
- *   §7.x - Surface equivalence and topology preservation
- *
- * Each test references the corresponding Lean theorem (R3-R14) where applicable.
+ * Test organization follows the contract: witness invariants, the root rule, the recursive
+ * value rule, the shared-object fast path and the entry rule, then kind-specific rules, then
+ * surface equivalence and topology preservation.
  */
 
 import { assert, describe, it } from 'vitest'
@@ -26,11 +18,11 @@ const assertSameReference = (actual: unknown, expected: unknown): void => {
 }
 
 // ============================================================================
-// §5.2 — Root rule (ReconcileRootSpec)
+// Root rule
 // ============================================================================
 
-describe('§5.2 Root rule', () => {
-  describe('R4 — Root fast-path: SameValue equality returns current unchanged', () => {
+describe('Root rule', () => {
+  describe('Root fast-path: SameValue equality returns current unchanged', () => {
     it('returns current for identical primitive values', () => {
       // SameValue(current, next) => return current
       assert.equal(reconcile(42, 42), 42)
@@ -60,7 +52,7 @@ describe('§5.2 Root rule', () => {
     })
   })
 
-  describe('R5 — Root replacement: returns next when types differ or mismatch', () => {
+  describe('Root replacement: returns next when types differ or mismatch', () => {
     it('returns next when current is primitive and next is object', () => {
       const next = { x: 1 }
       const result = reconcile(42, next)
@@ -133,11 +125,11 @@ describe('§5.2 Root rule', () => {
 })
 
 // ============================================================================
-// §5.3 — Recursive value rule (ReconcileValueSpec)
+// Recursive value rule
 // ============================================================================
 
-describe('§5.3 Recursive value rule', () => {
-  describe('R6 — Nested replacement via snapshot', () => {
+describe('Recursive value rule', () => {
+  describe('Nested replacement via snapshot', () => {
     it('snapshots next when current child is primitive and next child is object', () => {
       const nested = { x: 1 }
       const current = { child: 42 }
@@ -195,10 +187,10 @@ describe('§5.3 Recursive value rule', () => {
 })
 
 // ============================================================================
-// §5.4 — Shared-object fast path (SharedObjectSpec)
+// Shared-object fast path
 // ============================================================================
 
-describe('§5.4 Shared-object fast path', () => {
+describe('Shared-object fast path', () => {
   describe('Equal current and next entries', () => {
     it('returns cached image when next is already mapped', () => {
       // If image(next) is defined, return image(next)
@@ -244,7 +236,7 @@ describe('§5.4 Shared-object fast path', () => {
     })
   })
 
-  describe('Witness invariant: current-node injectivity (R9)', () => {
+  describe('Witness invariant: current-node injectivity', () => {
     it('one current node serves at most one next node', () => {
       // Demonstrates the reuse injectivity invariant
       const shared = { count: 0 }
@@ -266,10 +258,10 @@ describe('§5.4 Shared-object fast path', () => {
 })
 
 // ============================================================================
-// §5.5 — Entry rule (ReconcileEntrySpec)
+// Entry rule
 // ============================================================================
 
-describe('§5.5 Entry rule', () => {
+describe('Entry rule', () => {
   it('returns current for SameValue atoms', () => {
     const current = { x: 42 }
     const next = { x: 42 }
@@ -294,12 +286,12 @@ describe('§5.5 Entry rule', () => {
 })
 
 // ============================================================================
-// §6.1 — Array reconciliation
+// Array reconciliation
 // ============================================================================
 
-describe('§6.1 Arrays', () => {
+describe('Arrays', () => {
   it('aligns by index, not by value matching', () => {
-    // R11 — Canonical alignment: fixed by index
+    // Canonical alignment: fixed by index
     const current = [1, 2, 3]
     const next = [3, 2, 1]
     const result = reconcile(current, next)
@@ -375,10 +367,10 @@ describe('§6.1 Arrays', () => {
 })
 
 // ============================================================================
-// §6.2 — Date reconciliation
+// Date reconciliation
 // ============================================================================
 
-describe('§6.2 Date', () => {
+describe('Date', () => {
   it('mutates current date to next timestamp', () => {
     const current = new Date(1000)
     const next = new Date(2000)
@@ -398,11 +390,11 @@ describe('§6.2 Date', () => {
 })
 
 // ============================================================================
-// §6.3 — Map reconciliation
+// Map reconciliation
 // ============================================================================
 
-describe('§6.3 Map', () => {
-  describe('R14 — Ordinal alignment (not associative lookup)', () => {
+describe('Map', () => {
+  describe('Ordinal alignment (not associative lookup)', () => {
     it('aligns by ordinal position, not by key matching', () => {
       const current = new Map([
         ['a', 1],
@@ -505,11 +497,11 @@ describe('§6.3 Map', () => {
 })
 
 // ============================================================================
-// §6.4 — Set reconciliation
+// Set reconciliation
 // ============================================================================
 
-describe('§6.4 Set', () => {
-  describe('R14 — Ordinal alignment (not membership matching)', () => {
+describe('Set', () => {
+  describe('Ordinal alignment (not membership matching)', () => {
     it('aligns by ordinal position, not by membership', () => {
       const current = new Set([1, 2, 3])
       // eslint-disable-next-line perfectionist/sort-sets
@@ -575,10 +567,10 @@ describe('§6.4 Set', () => {
 })
 
 // ============================================================================
-// §6.5 — ArrayBuffer reconciliation
+// ArrayBuffer reconciliation
 // ============================================================================
 
-describe('§6.5 ArrayBuffer', () => {
+describe('ArrayBuffer', () => {
   it('copies bytes in place when lengths match', () => {
     const current = new ArrayBuffer(4)
     const currentView = new Uint8Array(current)
@@ -604,10 +596,10 @@ describe('§6.5 ArrayBuffer', () => {
 })
 
 // ============================================================================
-// §6.6 — DataView reconciliation
+// DataView reconciliation
 // ============================================================================
 
-describe('§6.6 DataView', () => {
+describe('DataView', () => {
   it('reuses view when buffer and metadata match', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new DataView(currentBuffer, 0, 4)
@@ -659,10 +651,10 @@ describe('§6.6 DataView', () => {
 })
 
 // ============================================================================
-// §6.7 — TypedArray reconciliation
+// TypedArray reconciliation
 // ============================================================================
 
-describe('§6.7 TypedArray', () => {
+describe('TypedArray', () => {
   it('reuses view when buffer and metadata match', () => {
     const currentBuffer = new ArrayBuffer(8)
     const current = new Uint8Array(currentBuffer, 0, 4)
@@ -749,11 +741,11 @@ describe('§6.7 TypedArray', () => {
 })
 
 // ============================================================================
-// §6.8 — Plain object reconciliation
+// Plain object reconciliation
 // ============================================================================
 
-describe('§6.8 Plain objects', () => {
-  describe('R13 — Ordered-key publication', () => {
+describe('Plain objects', () => {
+  describe('Ordered-key publication', () => {
     it('result key order matches next key order exactly', () => {
       const current = { a: 1, b: 2, c: 3 }
       // eslint-disable-next-line perfectionist/sort-objects
@@ -886,10 +878,10 @@ describe('§6.8 Plain objects', () => {
 })
 
 // ============================================================================
-// §7.1 — Surface equivalence (R3)
+// Surface equivalence
 // ============================================================================
 
-describe('§7.1 Surface equivalence (R3)', () => {
+describe('Surface equivalence', () => {
   it('result is surface-equivalent to next for plain objects', () => {
     const current = { a: 1, b: { c: 2 } }
     const next = { a: 10, b: { c: 20 }, d: 30 }
@@ -944,11 +936,11 @@ describe('§7.1 Surface equivalence (R3)', () => {
 })
 
 // ============================================================================
-// §7.2 — Topology preservation
+// Topology preservation
 // ============================================================================
 
-describe('§7.2 Topology preservation', () => {
-  describe('T1/R7 — Sharing preservation', () => {
+describe('Topology preservation', () => {
+  describe('Sharing preservation', () => {
     it('equal next references produce equal result references', () => {
       const shared = { x: 1 }
       const current = { a: { x: 0 }, b: { x: 0 } }
@@ -980,7 +972,7 @@ describe('§7.2 Topology preservation', () => {
     })
   })
 
-  describe('T2/R8 — No-collapse', () => {
+  describe('No-collapse', () => {
     it('distinct next references produce distinct result references', () => {
       const nextA = { x: 1 }
       const nextB = { x: 1 } // Same value, different identity
@@ -1005,7 +997,7 @@ describe('§7.2 Topology preservation', () => {
     })
   })
 
-  describe('T3/R9 — Current-node injectivity', () => {
+  describe('Current-node injectivity', () => {
     it('a current node is consumed for at most one next node', () => {
       const shared = { count: 0 }
       const current = { a: shared, b: shared, c: shared }
@@ -1095,7 +1087,7 @@ describe('§7.2 Topology preservation', () => {
     })
   })
 
-  describe('T5/R12 — Buffer/view alias preservation', () => {
+  describe('Buffer/view alias preservation', () => {
     it('multiple DataViews sharing one next buffer share one result buffer', () => {
       const currentBuffer1 = new ArrayBuffer(8)
       const currentBuffer2 = new ArrayBuffer(8)
@@ -1158,10 +1150,10 @@ describe('§7.2 Topology preservation', () => {
 })
 
 // ============================================================================
-// R10 — Locality of replacement
+// Locality of replacement
 // ============================================================================
 
-describe('R10 Locality of replacement', () => {
+describe('Locality of replacement', () => {
   it('replaces only incompatible child, not parent', () => {
     const currentChild = [1, 2, 3] // Array
     const current = { child: currentChild, sibling: { x: 1 } }
@@ -1216,10 +1208,10 @@ describe('R10 Locality of replacement', () => {
 })
 
 // ============================================================================
-// R11 — Canonical alignment (no search-based matching)
+// Canonical alignment (no search-based matching)
 // ============================================================================
 
-describe('R11 Canonical alignment', () => {
+describe('Canonical alignment', () => {
   it('array alignment is by index, not by element equality', () => {
     const current = ['a', 'b', 'c']
     const next = ['c', 'b', 'a'] // Reverse order

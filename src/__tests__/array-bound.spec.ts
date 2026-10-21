@@ -121,12 +121,13 @@ it('retains partial failure and numeric-key boundaries after summary updates', (
   assert.equal(2 in handle, false)
   assert.equal(state.modified, true)
   const symbol = Symbol('marker')
-  for (const key of ['01', '4294967295', symbol]) Reflect.set(handle, key, 42)
+  // Keys an array result cannot carry are refused, as by a non-extensible object.
+  for (const key of ['01', '4294967295', symbol]) assert.equal(Reflect.set(handle, key, 42), false)
   Reflect.set(handle, '4294967294', 9)
   assert.equal(handle.length, 4_294_967_295)
   assert.equal(Reflect.deleteProperty(handle, '4294967294'), true)
   assert.equal(Reflect.set(handle, 'length', 2), true)
-  for (const key of ['01', '4294967295', symbol]) assert.equal(Reflect.get(handle, key), 42)
+  for (const key of ['01', '4294967295', symbol]) assert.equal(Reflect.get(handle, key), undefined)
   state.copy!.length.writable = false
   assert.equal(Reflect.set(handle, 'length', 1), false)
   assert.equal(Reflect.set(handle, '2', 7), false)

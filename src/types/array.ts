@@ -1,3 +1,6 @@
+import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
+import { adoptPrototype } from './shared/prototype'
+import { arraySearches } from './shared/draft-members'
 import { freeze, independentBindings, yes } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
 import { noValue } from './shared/empty'
@@ -21,16 +24,27 @@ import type { PropertySurface } from './shared/property-publication'
 import { propertyRequirements, propertySlots, publishProperty } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
+import { hasElement, isDataDescriptor } from '../standard-prototypes'
 
 /** Stable global identity owned by the array module. */
 export const ARRAY_KIND = Symbol.for('@escapace/reconcile/array')
 
 const arraySurface: PropertySurface<ArrayLayout> = {
+  desired: undefined,
   ordered: false,
   compatible(node, current, properties) {
     const prototype = Object.getPrototypeOf(current) as object | null
+    const slots = properties()
     for (let index = 0; index < node.layout.length; index += 1)
-      if (!properties.has(String(index)) && prototype !== null && index in prototype) return false
+      // A hole the array's own prototype fills cannot be published; one only a standard prototype
+      // fills stays a hole, as hasElement reads it.
+      if (
+        !slots.has(String(index)) &&
+        prototype !== null &&
+        index in prototype &&
+        !(index in Array.prototype)
+      )
+        return false
     return true
   },
   keys(value) {
@@ -42,37 +56,48 @@ const arraySurface: PropertySurface<ArrayLayout> = {
   slots(node) {
     if (node.layout.slots !== undefined) return node.layout.slots
     const slots = propertySlots(node)
-    slots.set('length', { value: node.layout.length })
+    slots.set('length', { node: undefined, value: node.layout.length })
     return slots
   },
 }
 
 const arrayCapture = {
   construction: noValue,
-  observe(value, begin, edge) {
+  observe(value, begin, edge, mode) {
     const array = value as unknown[]
-    begin({ kind: ARRAY_KIND, length: array.length })
+    const length = array.length
+    begin({
+      kind: ARRAY_KIND,
+      length,
+      prototype: Object.getPrototypeOf(array) as object | null,
+      slots: undefined,
+    })
+    // A snapshot only writes the element, and a numeric key names the same property.
     for (let index = 0; index < array.length; index += 1)
-      if (index in array) {
-        const key = String(index)
-        edge(array[index], key)
-      }
+      if (hasElement(array, index)) edge(array[index], mode === 'snapshot' ? index : String(index))
   },
 } satisfies CapturePolicy<ArrayLayout>
 
 const arrayConstruction = {
   bindings: independentBindings,
-  allocate: (node) => new Array<unknown>(node.layout.length),
+  allocate: (node) =>
+    adoptPrototype(new Array<unknown>(node.layout.length), node.layout.prototype, Array.prototype),
 } satisfies ConstructionPolicy<ArrayLayout>
+
+// Writes one snapshot element into the receiving reference's target.
+function writeArraySlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
+  ;(this.target as Record<PropertyKey, unknown>)[key!] = snapshotValue(edge)
+}
 
 export const arraySnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...arrayCapture,
-    snapshot(layout, resolve, writer) {
-      const target = new Array<unknown>(layout.length)
-      writer.initialize(layout, target, (edge, key) => {
-        ;(target as unknown as Record<PropertyKey, unknown>)[key!] = resolve(edge)
-      })
+    snapshot(layout, _resolve, writer) {
+      writer.initialize(
+        layout,
+        adoptPrototype(new Array<unknown>(layout.length), layout.prototype, Array.prototype),
+        writeArraySlot,
+      )
     },
   }))() satisfies SnapshotPolicy<ArrayLayout>
 
@@ -90,7 +115,7 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         const present = properties.has(key)
-        if (hasOwn(array, index) !== present || index in array !== present) return false
+        if (hasOwn(array, index) !== present || hasElement(array, index) !== present) return false
         if (present && !visit(array[index], properties.get(key)!)) return false
       }
       return true
@@ -113,7 +138,7 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       let length = node.layout.length
       for (const key of node.keys) length = Math.max(length, Number(key) + 1)
       const slots = propertySlots(node)
-      slots.set('length', { value: length })
+      slots.set('length', { node: undefined, value: length })
       const layout = node.layout as { length: number; slots?: ReadonlyMap<PropertyKey, Edge> }
       layout.length = length
       layout.slots = slots
@@ -125,16 +150,28 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
   ...arrayConstruction,
   immutable: /* @__PURE__ */ freeze({
     tag: 'structural',
-    observeDraft(source, begin, edge, { base, properties, read }) {
+    observeDraft(source, observer) {
+      const { base, properties } = observer
       const array = source as unknown[]
       const length = (): number =>
         properties === undefined ? array.length : (properties.read('length') as number)
-      begin({ kind: ARRAY_KIND, length: new Array(length()).length })
+      const size = new Array(length()).length
+      const prototype =
+        properties === undefined
+          ? (Object.getPrototypeOf(source) as object | null)
+          : properties.sourcePrototype()
+      observer.begin({ kind: ARRAY_KIND, length: size, prototype, slots: undefined })
       for (let index = 0; index < length(); index += 1) {
         const key = String(index)
-        if (!(properties === undefined ? index in array : properties.contains(key))) continue
-        const value = read(source, key)
-        edge(value, key, isObject(value) && backedProperty(base, key, value))
+        if (
+          !(properties === undefined
+            ? hasElement(array, index)
+            : properties.contains(key) &&
+              (!(index in Array.prototype) || properties.ownDescriptor(key) !== undefined))
+        )
+          continue
+        const value = observer.read(source, key)
+        observer.edge(value, key, isObject(value) && backedProperty(base, key, value))
       }
     },
     reuse(node, current, visit) {
@@ -146,7 +183,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
         if (descriptor === undefined) continue
         if (
           node.keys[position] !== String(index) ||
-          !('value' in descriptor) ||
+          !isDataDescriptor(descriptor) ||
           !visit(array[index], node.edges[position])
         )
           return false
@@ -161,7 +198,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
   someChild(source, read, test) {
     const array = source as unknown[]
     for (let index = 0; index < array.length; index += 1)
-      if (index in array && test(read(source, String(index)))) return true
+      if (hasElement(array, index) && test(read(source, String(index)))) return true
     return false
   },
 }))() satisfies ImmutablePolicy<ArrayLayout>
@@ -177,7 +214,9 @@ const arrayPolicy = /* @__PURE__ */ (() => ({
 export interface ArrayLayout {
   readonly kind: typeof ARRAY_KIND
   readonly length: number
-  readonly slots?: ReadonlyMap<PropertyKey, Edge>
+  /** The source's prototype, which a copy keeps. */
+  readonly prototype: object | null
+  readonly slots: ReadonlyMap<PropertyKey, Edge> | undefined
 }
 
 /**
@@ -215,6 +254,8 @@ function writeArrayLength(copy: Record<PropertyKey, PropertyDescriptor>, value: 
 
 const arrayDraftRules: PropertyDraftRules<typeof ARRAY_KIND> = {
   kind: ARRAY_KIND,
+  methods: arraySearches,
+  admits: (key) => key === 'length' || arrayIndex(key) !== undefined,
   capture(copy, key, descriptor) {
     if (key === 'length') {
       if (!writeArrayLength(copy, descriptor.value))
@@ -246,10 +287,11 @@ const arrayDraftRules: PropertyDraftRules<typeof ARRAY_KIND> = {
       return written
     }
     const index = arrayIndex(property)
-    if (index !== undefined && index >= previousLength && copy.length.writable === false)
-      return false
+    // Like a non-extensible object, refuse what an array result cannot carry (admits).
+    if (index === undefined) return false
+    if (index >= previousLength && copy.length.writable === false) return false
     if (!writeDataSlot(copy, property, value)) return false
-    if (index !== undefined && index >= previousLength) copy.length.value = index + 1
+    if (index >= previousLength) copy.length.value = index + 1
     return true
   },
 }

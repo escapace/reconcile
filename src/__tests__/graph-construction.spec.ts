@@ -39,10 +39,13 @@ it('constructs a registered three-layer native chain through the unchanged core'
 
       bindings: {
         tag: 'dependent' as const,
-        dependencies: (node) => node.edges.flatMap((edge) => ('node' in edge ? [edge.node] : [])),
+        dependencies: (node) =>
+          node.edges.flatMap((edge) => (edge.node !== undefined ? [edge.node] : [])),
         read: (node, target) =>
           node.edges.flatMap((edge) =>
-            'node' in edge ? [{ identity: (target as Cell).value as object, node: edge.node }] : [],
+            edge.node !== undefined
+              ? [{ identity: (target as Cell).value as object, node: edge.node }]
+              : [],
           ),
       },
       allocate: (node, resolve) => {

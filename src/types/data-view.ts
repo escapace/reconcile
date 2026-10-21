@@ -1,3 +1,4 @@
+import { adoptPrototype } from './shared/prototype'
 import { freeze } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
 import { ARRAY_BUFFER_KIND } from './array-buffer'
@@ -60,7 +61,11 @@ export const dataViewType = /* @__PURE__ */ defineType<DataViewLayout>({
   requires: [ARRAY_BUFFER_KIND],
 })
 
-/** Recreates the byte range using the native DataView constructor. */
+/** Recreates the byte range using the native DataView constructor, on the source's prototype. */
 export function copyDataView(value: ArrayBufferView, buffer: ArrayBuffer): DataView {
-  return new DataView(buffer, value.byteOffset, value.byteLength)
+  return adoptPrototype(
+    new DataView(buffer, value.byteOffset, value.byteLength),
+    Object.getPrototypeOf(value) as object | null,
+    DataView.prototype,
+  )
 }

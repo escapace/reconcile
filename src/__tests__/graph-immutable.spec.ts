@@ -13,8 +13,10 @@ function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLay
     children: Object.entries(target).map(([key, value]) =>
       key === 'n' ? n : { target: value as object },
     ),
+    discoveredBy: undefined,
     keys: Object.keys(target),
-    layout: { kind: OBJECT_KIND, prototype: Object.prototype },
+    layout: { hidden: undefined, kind: OBJECT_KIND, prototype: Object.prototype, slots: undefined },
+    leaf: undefined,
     target,
   }
 }
@@ -106,6 +108,36 @@ describe('complete immutable graph compilation', () => {
     expect(Reflect.get(result.next!, 'left')).toBe(result)
     expect(Reflect.get(result.next!, 'right')).toBe(result)
     expect(current.n).toBe(0)
+  })
+
+  it('continues after a failed eligibility mask without building that mask again', () => {
+    const child = { n: 0 }
+    const current = { child, n: 0 }
+    const source = record(current, 1)
+    source.children[0] = record(child, 0)
+    const allocated: object[] = []
+    const policy = builtinTypes.policies[OBJECT_KIND]
+    const types: TypeRegistry = {
+      ...builtinTypes,
+      policies: {
+        ...builtinTypes.policies,
+        [OBJECT_KIND]: {
+          ...policy,
+          // The first construction fails, so the eligibility mask (child kept) is rejected.
+          allocate(node, resolve, targets) {
+            allocated.push(node)
+            return allocated.length === 1 ? undefined : policy.allocate(node, resolve, targets)
+          },
+        },
+      },
+    }
+    const result = restoreIdentities(types, source, true) as typeof current
+    // The stream's next mask copies both records; the rejected mask is not attempted again.
+    expect(allocated).toHaveLength(3)
+    expect(result.child).not.toBe(child)
+    expect(result.child).toEqual({ n: 0 })
+    expect(result.n).toBe(1)
+    expect(current.child).toBe(child)
   })
 
   it('interns structural aliases and cycles before collecting their children', () => {

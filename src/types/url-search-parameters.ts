@@ -1,3 +1,4 @@
+import { adoptPrototype } from './shared/prototype'
 import {
   freeze,
   noValue,
@@ -36,14 +37,19 @@ export const URL_SEARCH_PARAMS_KIND = Symbol.for('@escapace/reconcile/url-search
 export interface URLSearchParametersLayout {
   readonly carrier: URL
   readonly kind: typeof URL_SEARCH_PARAMS_KIND
+  /** The source's prototype, which a copy keeps. */
+  readonly prototype: object | null
   readonly text: string
 }
 
 const urlSearchParametersCapture = {
   construction: (layout) => urlCarrierResponse(layout.carrier),
   observe(value, begin) {
+    const prototype = Object.getPrototypeOf(value) as object | null
     const text = nativeParametersText(value as URLSearchParams)
-    begin({ carrier: createURLCarrier(text), kind: URL_SEARCH_PARAMS_KIND, text })
+    const carrier = createURLCarrier(text)
+    adoptPrototype(nativeURLSearchParameters(carrier), prototype, URLSearchParams.prototype)
+    begin({ carrier, kind: URL_SEARCH_PARAMS_KIND, prototype, text })
   },
 } satisfies CapturePolicy<URLSearchParametersLayout>
 
@@ -69,7 +75,11 @@ const parametersConstruction = {
     const carrier = createURLCarrier(node.layout.text)
     if (owners !== undefined)
       (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
-    return nativeURLSearchParameters(carrier)
+    return adoptPrototype(
+      nativeURLSearchParameters(carrier),
+      node.layout.prototype,
+      URLSearchParams.prototype,
+    )
   },
 } satisfies ConstructionPolicy<URLSearchParametersLayout>
 
@@ -100,10 +110,15 @@ export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
     operations: freeze({
       dependencies: noDependencies,
       copy(value, _resolve, owners) {
+        const prototype = Object.getPrototypeOf(value) as object | null
         const carrier = createURLCarrier(nativeParametersText(value as URLSearchParams))
         if (owners !== undefined)
           (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
-        return nativeURLSearchParameters(carrier)
+        return adoptPrototype(
+          nativeURLSearchParameters(carrier),
+          prototype,
+          URLSearchParams.prototype,
+        )
       },
       equivalent: (base, candidate) =>
         nativeParametersText(base as URLSearchParams) ===

@@ -44,7 +44,7 @@ it('rejects removing or changing a fixed scalar while accepting SameValue', () =
   assert.isNaN(current.n)
 })
 
-it('replaces changed configurable accessors without calling their setters', () => {
+it('rejects a changed accessor whose setter does not store the value', () => {
   let writes = 0
   const current = {}
   Object.defineProperty(current, 'n', {
@@ -55,14 +55,9 @@ it('replaces changed configurable accessors without calling their setters', () =
       writes += 1
     },
   })
-  assert.equal(reconcile(current, { n: 2 }), current)
-  assert.equal(writes, 0)
-  assert.deepEqual(Object.getOwnPropertyDescriptor(current, 'n'), {
-    configurable: true,
-    enumerable: false,
-    value: 2,
-    writable: true,
-  })
+  assert.throws(() => reconcile(current, { n: 2 }), ReconcileError)
+  assert.equal(writes, 1)
+  assert.equal(typeof Object.getOwnPropertyDescriptor(current, 'n')?.get, 'function')
 })
 
 it('uses a fixed accessor setter when the requested value changes', () => {

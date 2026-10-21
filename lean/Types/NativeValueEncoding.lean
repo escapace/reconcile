@@ -1,6 +1,9 @@
 import Types.Cell
 import Types.NativeValue
 
+/-! Encodes a native value as a heap node that holds its payload as an atom in one slot
+(`Types.Cell`), and a bigint as an atom, both injectively. -/
+
 namespace Reconcile.Types.NativeValue
 
 /-- Each native identity remains a heap node; its payload is an atom in one slot.

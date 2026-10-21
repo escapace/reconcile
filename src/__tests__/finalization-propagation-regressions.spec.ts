@@ -5,7 +5,7 @@ import { produce } from '../index'
 describe('finalization dependency propagation', () => {
   for (const dataView of [false, true]) {
     for (const reverse of [false, true]) {
-      it(`rebinds unread views when a replacement clones their buffer (DataView: ${dataView}, reverse: ${reverse})`, () => {
+      it(`keeps an unchanged outside buffer and the views on it (DataView: ${dataView}, reverse: ${reverse})`, () => {
         const buffer = new ArrayBuffer(4)
         const view = dataView ? new DataView(buffer, 1, 2) : new Uint8Array(buffer, 1, 2)
         const current = { nested: { view } }
@@ -15,9 +15,9 @@ describe('finalization dependency propagation', () => {
         assert.equal(result.buffer, result.root.nested.view.buffer)
         assert.equal(result.root.nested.view.byteOffset, 1)
         assert.equal(result.root.nested.view.byteLength, 2)
-        new Uint8Array(result.buffer)[1] = 9
-        assert.equal(new Uint8Array(result.root.nested.view.buffer)[1], 9)
-        assert.equal(new Uint8Array(buffer)[1], 0)
+        // Nothing changed, so the result holds the caller's buffer and the original view.
+        assert.equal(result.buffer, buffer)
+        assert.equal(result.root.nested.view, view)
       })
     }
   }
@@ -51,7 +51,7 @@ describe('finalization dependency propagation', () => {
     for (let index = 1; index < length; index += 1) {
       assert.equal(result.entries[index - 1].right, result.entries[index].left)
     }
-    assert.notEqual(result.seed, dates[0])
+    assert.equal(result.seed, dates[0])
     // Bound observable graph inspection work rather than machine-dependent elapsed time.
     assert.isBelow(scans, length * 30)
   })
@@ -100,7 +100,7 @@ for (const kind of ['date', 'buffer', 'typed array', 'data view'] as const) {
   }
 }
 
-it('keeps settled special copies and their buffer aliases when another subtree needs ownership expansion', () => {
+it('keeps unchanged outside specials and their buffer aliases when another subtree needs ownership expansion', () => {
   const buffer = new ArrayBuffer(4)
   const view = new Uint8Array(buffer, 1, 2)
   const date = new Date(0)
@@ -116,17 +116,13 @@ it('keeps settled special copies and their buffer aliases when another subtree n
     view,
   }))
   assert.equal(result.trigger, current)
-  assert.notEqual(result.buffer, buffer)
-  assert.notEqual(result.date, date)
-  assert.notEqual(result.view, view)
+  assert.equal(result.buffer, buffer)
+  assert.equal(result.date, date)
+  assert.equal(result.view, view)
   assert.equal(result.view, result.repeated)
   assert.equal(result.view.buffer, result.buffer)
   assert.equal(result.view.byteOffset, 1)
   assert.equal(result.view.byteLength, 2)
-  result.date.setTime(9)
-  result.view[0] = 7
-  assert.equal(date.getTime(), 0)
-  assert.equal(new Uint8Array(buffer)[1], 0)
   result.left.n = 9
   assert.equal(result.right.n, 0)
 })
@@ -152,7 +148,7 @@ it('keeps changed draft specials during ownership expansion', () => {
   assert.equal(result.right.n, 0)
 })
 
-it('activates captured slots without observing a dormant container again', () => {
+it('keeps outside dates in a dormant container without extra container reads', () => {
   const events: string[] = []
   class ObservedDate extends Date {
     constructor(
@@ -182,13 +178,27 @@ it('activates captured slots without observing a dormant container again', () =>
     seed,
     trigger: draft.child,
   }))
-  const start = events.indexOf('seed')
-  const end = events.indexOf('next', start + 1)
-  assert.isAtLeast(start, 0)
-  assert.isAbove(end, start)
-  assert.notInclude(events.slice(start + 1, end), 'container')
+  // Unchanged outside dates stay themselves, so no copy reads them, and they cost the container
+  // no more reads than plain objects in the same places.
+  assert.notInclude(events, 'seed')
+  assert.notInclude(events, 'next')
+  const plainEvents: string[] = []
+  const plain = { t: 1 }
+  produce({ child: {} }, (draft) => ({
+    dormant: new Proxy(
+      { next: { t: 2 }, value: plain },
+      {
+        ownKeys(target) {
+          plainEvents.push('container')
+          return Reflect.ownKeys(target)
+        },
+      },
+    ),
+    seed: plain,
+    trigger: draft.child,
+  }))
+  assert.equal(events.length, plainEvents.length)
   assert.equal(result.dormant.value, result.seed)
-  assert.notEqual(result.seed, seed)
-  assert.notEqual(result.dormant.next, next)
-  assert.equal(result.dormant.next.getTime(), 2)
+  assert.equal(result.seed, seed)
+  assert.equal(result.dormant.next, next)
 })

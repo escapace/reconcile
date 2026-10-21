@@ -1,6 +1,6 @@
 {
   "name": "@escapace/reconcile",
-  "description": "Detached snapshots, draft-based next-value construction, and in-place reconciliation for JavaScript objects, arrays, maps, and sets.",
+  "description": "Detached snapshots, in-place reconciliation, draft-based next-value construction, and graph-preserving JSON serialization for JavaScript objects, arrays, maps, and sets.",
   "version": "0.0.0",
   "author": {
     "name": "escapace",
@@ -15,6 +15,8 @@
     "@ls-lint/ls-lint": "2.3.1",
     "@vitest/coverage-v8": "5.0.3",
     "alien-deepsignals": "0.4.3",
+    "arktype": "2.2.8",
+    "es-toolkit": "1.51.0",
     "eslint": "10.12.0",
     "eslint-config-escapace": "5.20.4",
     "esroll": "1.3.1",
@@ -51,9 +53,6 @@
   "homepage": "https://github.com/escapace/reconcile#readme",
   "license": "MPL-2.0",
   "module": "lib/neutral/index.js",
-  "peerDependencies": {
-    "es-toolkit": "^1.51.0"
-  },
   "private": false,
   "publishConfig": {
     "access": "public",
@@ -62,14 +61,13 @@
   "repository": "escapace/reconcile",
   "scripts": {
     "bench": "tsx scripts/bench.ts",
-    "build": "tsx scripts/build.ts",
+    "build": "tsx scripts/build.ts && prettier --log-level warn --write README.md",
     "check:lean": "python3 scripts/check-lean.py",
     "format": "syncpack format && eslint --no-warn-ignored --fix && prettier --log-level warn --no-error-on-unmatched-pattern -uw .",
     "lint": "ls-lint --config .ls-lint.yaml && fallow --fail-on-issues && eslint --concurrency auto",
     "ls-lint": "ls-lint --config .ls-lint.yaml",
     "pack": "pnpm-pack package --pack-destination lib",
     "prepare": "lefthook install",
-    "profile": "python3 scripts/profile.py",
     "syncpack": "syncpack fix && syncpack format",
     "test": "vitest --no-watch --coverage --coverage.reporter=json --coverage.reporter=text-summary",
     "test:lib": "vitest --no-watch --config vitest-library.config.ts",

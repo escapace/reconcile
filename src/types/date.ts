@@ -1,3 +1,4 @@
+import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings, same, yes } from './shared/empty'
 import type { SpecialPolicy } from '../types'
 import { ordinaryExposure, independentDraft } from './shared/empty'
@@ -19,20 +20,26 @@ export const DATE_KIND = Symbol.for('@escapace/reconcile/date')
 const dateCapture = {
   construction: noValue,
   observe(value, begin) {
-    begin({ kind: DATE_KIND, time: (value as Date).getTime() })
+    const time = (value as Date).getTime()
+    begin({ kind: DATE_KIND, prototype: Object.getPrototypeOf(value) as object | null, time })
   },
 } satisfies CapturePolicy<DateLayout>
 
 const dateConstruction = {
   bindings: independentBindings,
-  allocate: (node) => new Date(node.layout.time),
+  allocate: (node) =>
+    adoptPrototype(new Date(node.layout.time), node.layout.prototype, Date.prototype),
 } satisfies ConstructionPolicy<DateLayout>
 
 export const dateSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...dateCapture,
     snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, new Date(layout.time), noValue)
+      writer.initialize(
+        layout,
+        adoptPrototype(new Date(layout.time), layout.prototype, Date.prototype),
+        noValue,
+      )
     },
   }))() satisfies SnapshotPolicy<DateLayout>
 
@@ -57,7 +64,12 @@ export const dateImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value) => new Date((value as Date).getTime()),
+      copy: (value) =>
+        adoptPrototype(
+          new Date((value as Date).getTime()),
+          Object.getPrototypeOf(value) as object | null,
+          Date.prototype,
+        ),
       equivalent: (base, candidate) =>
         Object.is((base as Date).getTime(), (candidate as Date).getTime()),
     } satisfies SpecialPolicy),
@@ -75,6 +87,8 @@ const datePolicy = /* @__PURE__ */ (() => ({
 /** Stores the captured native timestamp, including an invalid-date NaN. */
 export interface DateLayout {
   readonly kind: typeof DATE_KIND
+  /** The source's prototype, which a copy keeps. */
+  readonly prototype: object | null
   readonly time: number
 }
 

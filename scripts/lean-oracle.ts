@@ -30,7 +30,7 @@ function logDuration(family: string, arguments_: string[], started: number): voi
 
 /** Audit once, then share one native oracle process across sequential requests. */
 export async function startOracle() {
-  execFileSync('python3', ['lean/check-axioms.py'], { stdio: 'inherit', timeout: 120_000 })
+  execFileSync('python3', ['scripts/check-axioms.py'], { stdio: 'inherit', timeout: 120_000 })
   const child = spawn('.lake/build/bin/reconcile-oracle', [], {
     stdio: ['pipe', 'pipe', 'inherit'],
   })

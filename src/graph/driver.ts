@@ -1,6 +1,9 @@
 import type { Adapter, Domains, Execution, Result, ScoredSelection, Selection } from '../types'
 import { advanceExecution, startExecution } from './execution'
-import { selections } from './selection'
+import { headSelection, selections } from './selection'
+
+// The top tier's preference before any attempt: no node prefers a fresh choice.
+const NO_PREFERENCE: ReadonlySet<number> = /* @__PURE__ */ new Set()
 
 /**
  * Executes ranked candidates until a completed native report certifies an acceptable image.
@@ -11,7 +14,7 @@ import { selections } from './selection'
  * bindings but cannot supply verification receipts. Native failure outcomes and propagated
  * user exceptions retain their separate public boundaries; no rollback is promised.
  */
-export function execute(domains: Domains, adapter: Adapter): Result {
+export function execute(domains: Domains, adapter: Adapter, distinctStorages = false): Result {
   const failures = new Set<number>()
   const failed = (node: number): void => {
     if (Number.isInteger(node) && node >= 0 && node < domains.length) failures.add(node)
@@ -82,18 +85,42 @@ export function execute(domains: Domains, adapter: Adapter): Result {
       ? state
       : undefined
   }
-  for (const selection of selections(domains, () => failures)) {
+  // Attempts one streamed selection; a result ends the search.
+  const consider = (selection: Selection): Result | undefined => {
     const upper = score(selection)
     const settled = settle(upper)
     if (settled !== undefined) return { kind: 'accepted', state: settled }
     const state = attempt(selection)
-    if (state === undefined) continue
+    if (state === undefined) return undefined
     const observed = adapter.retention?.(state) ?? upper
     // A fresh allocation must not impersonate an old candidate. Native adapters
     // certify this bound; violating it rejects the supplied candidate facts.
-    if (!Number.isInteger(observed) || observed < 0 || observed > upper) continue
+    if (!Number.isInteger(observed) || observed < 0 || observed > upper) return undefined
     if (observed === upper) return { kind: 'accepted', state }
     if (best === undefined || observed > best.score) best = { score: observed, selection }
+    return undefined
+  }
+  // The stream's first plan is often determined without searching; the search starts only
+  // if that plan is not accepted. The top tier's preference is the one it would have had
+  // before any attempt, and the stream's first plan, already considered, is skipped.
+  const head = headSelection(domains, distinctStorages)
+  const first = head === undefined ? undefined : consider(head)
+  if (first !== undefined) return first
+  // The stream asks for the top tier's preference first, before its first plan.
+  let ordinary = head !== undefined
+  let skip = head !== undefined
+  const preferFresh = (): ReadonlySet<number> => {
+    if (!ordinary) return failures
+    ordinary = false
+    return NO_PREFERENCE
+  }
+  for (const selection of selections(domains, preferFresh)) {
+    if (skip) {
+      skip = false
+      continue
+    }
+    const result = consider(selection)
+    if (result !== undefined) return result
   }
   // Every retention score is at least 0, so the remaining best always replays.
   const state = settle(0)

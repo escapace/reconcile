@@ -78,5 +78,11 @@ function observePruned(fixture: Fixture): GraphObservation {
 }
 
 export async function checkPrunedRuntime(oracle: Oracle): Promise<void> {
-  await checkGraphFixtures(oracle, 'Pruned', 'lean/pruned-fixtures.json', 'pruned', observePruned)
+  await checkGraphFixtures(
+    oracle,
+    'Pruned',
+    'lean/fixtures/pruned-fixtures.json',
+    'pruned',
+    observePruned,
+  )
 }

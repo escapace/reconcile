@@ -29,7 +29,7 @@ it('rejects a new accessor introduced behind an already captured edge instead of
         return draft
       }),
     ReconcileError,
-    'Finalization accessor "value" appeared after sealing.',
+    'A getter added getter "value" to a part of the result that produce had already visited.',
   )
   assert.equal(replacements, 1)
   assert.equal(lateReads, 0)

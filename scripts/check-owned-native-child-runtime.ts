@@ -30,7 +30,7 @@ function query(url: URL): string {
 /** Uses native parsing as an explicit label supplier, not as a Lean-proved operation. */
 export async function checkOwnedNativeChildRuntime(oracle: Oracle): Promise<void> {
   const fixtures = JSON.parse(
-    readFileSync('lean/owned-native-child-fixtures.json', 'utf8'),
+    readFileSync('lean/fixtures/owned-native-child-fixtures.json', 'utf8'),
   ) as Fixture[]
   const inputs = []
   const actual: Observation[] = []

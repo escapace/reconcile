@@ -2,6 +2,7 @@ import type { Choice, Domains, IncomingConsensus, Label, Selection } from '../ty
 import { forcedGroups } from './forced-groups'
 import { addIncoming } from './incoming-consensus'
 import { unsupportedChoices } from './supported-choices'
+import { denseArray } from '../standard-prototypes'
 
 // fallow-ignore-next-line complexity -- checked for every candidate choice; kept inline for speed
 function compatible(
@@ -11,7 +12,8 @@ function compatible(
   node: number,
   choice: Choice,
 ): boolean {
-  for (const requirement of choice.required) {
+  for (let index = 0; index < choice.required.length; index += 1) {
+    const requirement = choice.required[index]
     const domain = domains[requirement.node]
     if (domain === undefined) return false
     if (requirement.node === node) {
@@ -26,6 +28,41 @@ function compatible(
   }
   const demand = incoming[node]
   return demand === undefined || demand === choice.identity
+}
+
+/**
+ * Returns the selection taking every domain's first choice when that plan is feasible and each
+ * first choice is retained or its domain offers none, and undefined otherwise. Such a plan reaches
+ * the top score, so it is the first plan `selections` streams while the top tier has no
+ * preference (GraphPolicy.rankedPreferred_head). A caller that knows no two choices share
+ * storage passes `distinctStorages`, and storages are then not compared.
+ */
+export function headSelection(domains: Domains, distinctStorages = false): Selection | undefined {
+  const owners = distinctStorages ? undefined : new Set<Label>()
+  for (let node = 0; node < domains.length; node += 1) {
+    const domain = domains[node]
+    if (domain.length === 0) return undefined
+    const head = domain[0]
+    if (!head.retained && domain.some((choice) => choice.retained)) return undefined
+    if (!headsMeet(domains, head)) return undefined
+    if (owners !== undefined) {
+      if (owners.has(head.storage)) return undefined
+      owners.add(head.storage)
+    }
+  }
+  return new Array<number>(domains.length).fill(0)
+}
+
+// Whether every requirement of a head choice names the head identity of its target domain.
+function headsMeet(domains: Domains, head: Choice): boolean {
+  const required = head.required
+  for (let index = 0; index < required.length; index += 1) {
+    const edge = required[index]
+    const target = domains[edge.node] as Domains[number] | undefined
+    if (target === undefined || target.length === 0 || target[0].identity !== edge.identity)
+      return false
+  }
+  return true
 }
 
 /**
@@ -48,7 +85,7 @@ export function* selections(
   preferFresh?: (score: number) => ReadonlySet<number>,
 ): Generator<Selection, void> {
   const size = domains.length
-  const incoming = new Array<IncomingConsensus>(size)
+  const incoming = denseArray<IncomingConsensus>(size)
   const trail: IncomingConsensus[] = []
   const maximum = new Array<number>(size + 1).fill(0)
   const minimum = new Array<number>(size + 1).fill(0)
@@ -83,8 +120,8 @@ export function* selections(
     for (let node = size - 1; node >= 0; node -= 1) bounds(node, admitted[node])
   }
   const groups = forcedGroups(domains)
-  const forced = groups === undefined ? undefined : new Array<number | undefined>(size)
-  const selected = new Array<number>(size)
+  const forced = groups === undefined ? undefined : denseArray<number | undefined>(size)
+  const selected = denseArray<number>(size)
   const next = new Array<number>(size + 1).fill(0)
   const owners = new Set<Label>()
   const freshFirst: number[][] = []

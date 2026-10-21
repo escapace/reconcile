@@ -276,7 +276,7 @@ it.each(['throw', 'empty', 'wrong', 'extra'] as const)(
       mode === 'throw' ? Error : ReconcileError,
       mode === 'throw'
         ? 'Iterator failure'
-        : 'Draft wrapper iterator did not expose the inserted value.',
+        : 'A reactive Map or Set proxy did not return exactly the key or member just added.',
     )
     assert.equal(backing.size, 0)
     assert.equal(key.n, 0)

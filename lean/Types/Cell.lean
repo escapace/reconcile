@@ -1,9 +1,9 @@
-import Defs
+import Heap.Defs
 
-/- The test-only runtime Cell module declares one own slot named "value".
-   Its native premise is faithful observation/publication of that slot. The
-   constructor and registration predicate stay outside Lean; no new Node kind
-   or solver rule is introduced by this encoding witness. -/
+/-! The test-only runtime Cell module declares one own slot named "value". Its native premise is
+faithful observation and publication of that slot. The constructor and registration predicate
+stay outside Lean; this encoding witness introduces no new node kind or solver rule. -/
+
 namespace Reconcile.Types.Cell
 
 variable {A ι : Type}

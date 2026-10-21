@@ -64,3 +64,16 @@ it('does not inspect or coerce non-string objects', () => {
   expect(Reflect.apply(arrayIndex, undefined, [input])).toBeUndefined()
   expect(observations).toBe(0)
 })
+
+it('agrees with native array indices on every short string over a numeric alphabet', () => {
+  const alphabet = ['', '0', '1', '9', '-', '+', 'e', '.', 'a', ' ', '٠']
+  const array: unknown[] = []
+  for (const a of alphabet)
+    for (const b of alphabet)
+      for (const c of alphabet) {
+        const key = a + b + c
+        array.length = 0
+        if (key !== 'length') Object.defineProperty(array, key, { configurable: true, value: true })
+        expect(arrayIndex(key)).toBe(array.length === 0 ? undefined : array.length - 1)
+      }
+})

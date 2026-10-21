@@ -1,3 +1,4 @@
+import { Detached } from '../../standard-prototypes'
 /** Stable global identity shared by native URL ownership facets. */
 export const URL_KIND = Symbol.for('@escapace/reconcile/url')
 
@@ -46,14 +47,15 @@ export function replaceNativeParameters(
   }
   const keys = Array.from(URLSearchParams.prototype.keys.call(target))
   for (const key of keys) URLSearchParams.prototype.delete.call(target, key)
-  for (const [key, value] of new URLSearchParams(text))
-    URLSearchParams.prototype.append.call(target, key, value)
+  for (const entry of new URLSearchParams(text))
+    URLSearchParams.prototype.append.call(target, entry[0], entry[1])
 }
 
 /** Private construction metadata, distinct from every caller-supplied native memo value. */
-class URLCarrierResponse {
+class URLCarrierResponse extends Detached {
   declare readonly carrier: URL
   constructor(carrier: URL) {
+    super()
     this.carrier = carrier
   }
 }

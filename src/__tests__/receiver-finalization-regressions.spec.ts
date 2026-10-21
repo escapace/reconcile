@@ -89,8 +89,8 @@ it('invokes an accessor setter with the explicit receiver', () => {
     return draft
   })
   assert.equal(receiver.n, 2)
-  assert.notEqual(result, current)
-  assert.deepEqual(result, current)
+  // Nothing in `current` changed, so it is kept with its own accessor.
+  assert.equal(result, current)
 })
 
 it('tracks an explicit draft receiver without invoking its inherited setter', () => {
@@ -128,8 +128,7 @@ it('rejects writes to an explicit draft receiver with an own accessor', () => {
     assert.isFalse(Reflect.set(draft.source, 'n', 2, draft.receiver))
     return draft
   })
-  assert.notEqual(result, current)
-  assert.deepEqual(result, current)
+  assert.equal(result, current)
 })
 
 it('keeps held recipe state isolated after finalization abandons a throwing getter', () => {

@@ -24,7 +24,11 @@ export const independentDraft = /* @__PURE__ */ freeze({
   tag: 'copy',
 } as const)
 
-/** Freezes private configuration while keeping its initialization calls independently removable. */
+/**
+ * Freezes private configuration while keeping its initialization calls independently removable.
+ * The object is detached from `Object.prototype`, so an absent optional member reads as
+ * `undefined` whatever `Object.prototype` holds.
+ */
 export function freeze<const T>(value: T): Readonly<T> {
-  return Object.freeze(value)
+  return Object.freeze(Object.setPrototypeOf(value, null) as T)
 }

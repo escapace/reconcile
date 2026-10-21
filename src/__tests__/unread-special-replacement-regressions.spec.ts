@@ -42,7 +42,8 @@ describe('unread specials in replacement graphs', () => {
               : { ...{ nested }, child: draft.child, direct: value }
           })
           assert.equal(result.direct, container.read(result.nested))
-          assert.notEqual(result.direct, value)
+          // An unchanged value assigned from outside `current` stays itself.
+          assert.equal(result.direct, value)
           assert.equal(result.child.count, 1)
           assert.equal(current.child.count, 0)
         })
@@ -67,7 +68,7 @@ describe('unread specials in replacement graphs', () => {
     })
   }
 
-  it('propagates clone requirements through previously reused subtrees', () => {
+  it('keeps unchanged outside values and their aliases through previously reused subtrees', () => {
     const first = new Date(1)
     const second = new Date(2)
     const third = new Date(3)
@@ -80,9 +81,9 @@ describe('unread specials in replacement graphs', () => {
     }))
     assert.equal(result.direct, result.b.value)
     assert.equal(result.b.next, result.a.value)
-    assert.notEqual(result.direct, first)
-    assert.notEqual(result.a.value, second)
-    assert.notEqual(result.a.next, third)
+    assert.equal(result.direct, first)
+    assert.equal(result.a.value, second)
+    assert.equal(result.a.next, third)
   })
 
   it('preserves aliases into a reused cyclic draft subtree', () => {

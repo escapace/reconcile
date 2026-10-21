@@ -25,6 +25,7 @@ const write: NativePolicy<CellLayout<symbol>>['freshWrite'] = (node, target, ind
 /** Builds an extension from an independently owned identity without a central kind catalog. */
 export function createCellType<K extends symbol>(kind: K) {
   const surface: PropertySurface<CellLayout<K>> = {
+    desired: undefined,
     ordered: false,
     slots: propertySlots,
     compatible: () => true,
@@ -35,10 +36,11 @@ export function createCellType<K extends symbol>(kind: K) {
     freshWrite: write,
     immutable: {
       tag: 'structural',
-      observeDraft(source, begin, edge, { base }) {
-        begin({ kind })
+      observeDraft(source, observer) {
+        const { base } = observer
+        observer.begin({ kind })
         const value = (source as Cell).value
-        edge(value, 'value', base !== undefined && Object.is(value, (base as Cell).value))
+        observer.edge(value, 'value', base !== undefined && Object.is(value, (base as Cell).value))
       },
       reuse: (node, current, visit) => visit((current as Cell).value, node.edges[0]),
     },

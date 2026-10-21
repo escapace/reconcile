@@ -123,9 +123,14 @@ describe('deterministic public API fuzz regressions', () => {
                 key === 'length' && array
                   ? [0, 1, 2, 3, 5, 7, -1, 2.5, Number.NaN, '2', undefined, 0n][random.next(12)]
                   : random.next(20)
-              const expected = operationOutcome(() =>
-                remove ? Reflect.deleteProperty(native, key) : Reflect.set(native, key, value),
-              )
+              // An array draft refuses own properties an array result cannot carry
+              // (DraftSurface.admits); `__proto__` reaches the inherited accessor first.
+              const refused = array && !remove && ['-0', '01', '4294967295'].includes(key)
+              const expected = refused
+                ? operationOutcome(() => false)
+                : operationOutcome(() =>
+                    remove ? Reflect.deleteProperty(native, key) : Reflect.set(native, key, value),
+                  )
               const actual = operationOutcome(() =>
                 remove ? Reflect.deleteProperty(draft, key) : Reflect.set(draft, key, value),
               )

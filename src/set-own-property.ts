@@ -1,27 +1,28 @@
-import { hasOwn } from './object-property'
-
+import { defineData } from './standard-prototypes'
 /**
- * Assigns a snapshot property while treating a missing `__proto__` as an own data key.
+ * Creates one property of a new snapshot object as an own data property.
  *
  * @remarks
- * Other keys use ordinary assignment, including inherited and reactive setters. This snapshot
- * write policy intentionally differs from reconciliation's descriptor-aware publication and
- * from writes to a draft's private descriptor store.
+ * On `Object.prototype` or a null prototype, assignment of a key `Object.prototype` lacks
+ * reaches nothing, so it creates the same data property as a definition; a key it holds, such as
+ * `__proto__` or one any code added, is defined, as is every key on any other prototype, such as
+ * a class's. An inherited setter therefore never runs, nothing inherited makes the write fail,
+ * and the copy holds the value. A property copied from a non-enumerable one is defined
+ * non-enumerable; writability and configurability are not copied. `PropertyWrite.constructFromOn`
+ * is this decision.
  * @internal
  */
 export function setOwnProperty(
   object: Record<PropertyKey, unknown>,
   key: PropertyKey,
   value: unknown,
+  standard: boolean,
+  enumerable = true,
 ): void {
-  if (key === '__proto__' && !hasOwn(object, key)) {
-    Object.defineProperty(object, key, {
-      configurable: true,
-      enumerable: true,
-      value,
-      writable: true,
-    })
-  } else {
-    object[key] = value
-  }
+  if (standard && enumerable && !(key in Object.prototype)) object[key] = value
+  else defineData(object, key, value, enumerable)
 }
+
+/** Whether a new object's prototype is `Object.prototype` or null. */
+export const standardPrototype = (prototype: object | null): boolean =>
+  prototype === null || prototype === Object.prototype

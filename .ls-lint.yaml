@@ -1,5 +1,4 @@
 ls:
-  .bench.ts: kebab-case
   .browser.spec.ts: kebab-case
   .config.browser.ts: kebab-case
   .config.neutral.ts: kebab-case

@@ -1,3 +1,4 @@
+import { adoptPrototype } from './shared/prototype'
 import { freeze, noValue, same, yes, ordinaryExposure } from './shared/empty'
 import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
@@ -30,12 +31,15 @@ export interface URLLayout {
   readonly carrier: URL
   readonly href: string
   readonly kind: typeof URL_KIND
+  /** The source's prototype, which a copy keeps. */
+  readonly prototype: object | null
 }
 
 const urlCapture = {
   construction: noValue,
   observe(value, begin, edge, mode) {
     const url = value as URL
+    const prototype = Object.getPrototypeOf(url) as object | null
     const href = nativeURLHref(url)
     const response = edge(
       nativeURLSearchParameters(url),
@@ -47,8 +51,8 @@ const urlCapture = {
       carrierFromResponse(response) ??
       (mode !== 'snapshot' && response instanceof URLSearchParams ? new URL(href) : undefined)
     if (carrier === undefined) throw snapshotURLSearchParametersMemoIncompatible()
-    adoptURLCarrier(carrier, href)
-    begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND })
+    adoptPrototype(adoptURLCarrier(carrier, href), prototype, URL.prototype)
+    begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })
   },
 } satisfies CapturePolicy<URLLayout>
 
@@ -75,7 +79,7 @@ function urlBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
 }
 
 const urlConstruction = {
-  bindings: freeze({
+  bindings: /* @__PURE__ */ freeze({
     read: urlBindings,
     tag: 'dependent',
     dependencies: (node) => [(node.edges[0] as { node: number }).node],
@@ -83,7 +87,13 @@ const urlConstruction = {
   allocate(node, resolve, owners) {
     const parameters = resolve(node.edges[0]) as object
     const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
-    return carrier === undefined ? undefined : adoptURLCarrier(carrier, node.layout.href)
+    return carrier === undefined
+      ? undefined
+      : adoptPrototype(
+          adoptURLCarrier(carrier, node.layout.href),
+          node.layout.prototype,
+          URL.prototype,
+        )
   },
 } satisfies ConstructionPolicy<URLLayout>
 
@@ -121,7 +131,11 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
         const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
         if (carrier === undefined) throw finalizationConstructionImpossible()
-        return adoptURLCarrier(carrier, href)
+        return adoptPrototype(
+          adoptURLCarrier(carrier, href),
+          Object.getPrototypeOf(url) as object | null,
+          URL.prototype,
+        )
       },
       dependencies: (value, visit) =>
         visit(nativeURLSearchParameters(value as URL), URL_SEARCH_PARAMS_KIND),
@@ -140,7 +154,7 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
 }))() satisfies ImmutablePolicy<URLLayout>
 
 export const urlDraft = /* @__PURE__ */ freeze({
-  links: freeze({
+  links: /* @__PURE__ */ freeze({
     tag: 'dependent',
     register: (source, target, visit) =>
       visit(nativeURLSearchParameters(target as URL), nativeURLSearchParameters(source as URL)),

@@ -1,6 +1,7 @@
 import { isNode } from '../../graph/edge'
 import { arrayIndex, hasOwn, isObject } from '../../object-property'
 import type { BoundEdge, CapturedNode, Edge } from '../../types'
+import { defineData, Detached, isDataDescriptor } from '../../standard-prototypes'
 
 // Property lookup is a derived index over the sealed graph, never a second graph.
 export function propertySlots(node: Pick<CapturedNode, 'edges' | 'keys'>): Map<PropertyKey, Edge> {
@@ -13,13 +14,11 @@ export function propertySlots(node: Pick<CapturedNode, 'edges' | 'keys'>): Map<P
 /** Checks whether the shared prefix already has the requested order, allowing a trailing suffix. */
 export function alignedPrefix(
   previous: readonly PropertyKey[],
-  desired: Iterable<unknown>,
+  desired: readonly unknown[],
 ): boolean {
-  let index = 0
-  for (const key of desired) {
-    if (index === previous.length) break
-    if (previous[index++] !== key) return false
-  }
+  const shared = Math.min(previous.length, desired.length)
+  for (let index = 0; index < shared; index += 1)
+    if (previous[index] !== desired[index]) return false
   return true
 }
 
@@ -31,7 +30,7 @@ export function alignedPrefix(
  * that appears as a subsequence of current keys. Consume current keys once in native order.
  * Preflight and publication use separate instances so no observation is cached across phases.
  */
-export class PropertyOrder {
+export class PropertyOrder extends Detached {
   declare private cursor: number
   declare private readonly keys: readonly PropertyKey[]
   // This flag describes only the private desired-key cursor, never a live receiver: the
@@ -43,6 +42,7 @@ export class PropertyOrder {
   declare private symbol: number
 
   constructor(properties: ReadonlyMap<PropertyKey, Edge>) {
+    super()
     this.properties = properties
     this.keys = [...properties.keys()]
     this.cursor = 0
@@ -80,8 +80,10 @@ export interface PropertySurface<L extends { readonly kind: symbol }> {
   readonly compatible: (
     node: CapturedNode<L>,
     current: object,
-    properties: ReadonlyMap<PropertyKey, Edge>,
+    properties: () => ReadonlyMap<PropertyKey, Edge>,
   ) => boolean
+  /** The requested keys in order, equal to the slot index's keys; defaults to listing them. */
+  readonly desired: ((node: CapturedNode<L>) => readonly PropertyKey[]) | undefined
   readonly keys: (current: object) => PropertyKey[]
   readonly slots: (node: CapturedNode<L>) => ReadonlyMap<PropertyKey, Edge>
 }
@@ -101,11 +103,13 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   node: CapturedNode<L>,
   current: object,
   surface: PropertySurface<L>,
-  properties: ReadonlyMap<PropertyKey, Edge>,
   pin: BoundEdge[],
 ): boolean {
+  // The slot index is private; a surface that lists desired keys builds it only on demand.
+  let index: ReadonlyMap<PropertyKey, Edge> | undefined
+  const properties = (): ReadonlyMap<PropertyKey, Edge> => (index ??= surface.slots(node))
   // Desired keys are buffered eagerly; DeferredOrder's cursor model and bridge rely on it.
-  const desiredKeys = [...properties.keys()]
+  const desiredKeys = surface.desired?.(node) ?? [...properties().keys()]
   const previous = surface.keys(current)
   let needsOrder = surface.ordered
   let order: PropertyOrder | undefined
@@ -118,7 +122,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
         needsOrder = false
         return undefined
       }
-      order = new PropertyOrder(properties)
+      order = new PropertyOrder(properties())
     }
     while (position < previous.length) {
       const currentKey = previous[position++]
@@ -127,16 +131,19 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     }
     return undefined
   }
-  // A non-configurable slot must keep its place in the desired order and, unless it can still
-  // change, already hold its expected value; an object pins its node, and two slots may not
-  // pin one node to different objects.
+  // A slot that cannot be recreated, a non-configurable one or an accessor written only through
+  // its setter, must keep its place in the desired order and, unless it can still change,
+  // already hold its expected value; an object pins its node, and two slots may not pin one node
+  // to different objects. A configurable accessor that is not desired is deleted.
   const holdsFixed = (key: PropertyKey): boolean => {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)!
-    if (descriptor.configurable !== false) return true
+    const accessor = !isDataDescriptor(descriptor)
+    if (descriptor.configurable !== false && !accessor) return true
     const retained = needsOrder ? retainThrough(key) : undefined
-    if (!properties.has(key) || retained === false) return false
-    const expected = properties.get(key)!
-    if ('value' in descriptor ? descriptor.writable !== false : descriptor.set !== undefined)
+    if (!properties().has(key)) return descriptor.configurable !== false
+    if (retained === false) return false
+    const expected = properties().get(key)!
+    if (isDataDescriptor(descriptor) ? descriptor.writable !== false : descriptor.set !== undefined)
       return true
     const actual = Reflect.get(current, key) as unknown
     if (!isNode(expected) || !isObject(actual))
@@ -147,22 +154,70 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     pinned.set(expected.node, actual)
     return true
   }
-  if (!surface.compatible(node, current, properties) || !previous.every(holdsFixed)) return false
+  if (
+    !surface.compatible(node, current, properties) ||
+    !previous.every(holdsFixed) ||
+    reachesInheritedAccessor(current, desiredKeys)
+  )
+    return false
   if (!Object.isExtensible(current)) {
     if (needsOrder) retainThrough()
     if (order !== undefined) return order.retained === desiredKeys.length
-    for (const key of desiredKeys) if (!hasOwn(current, key)) return false
+    for (let index = 0; index < desiredKeys.length; index += 1)
+      if (!hasOwn(current, desiredKeys[index])) return false
   }
   return true
 }
 
 /**
- * Writes one requested own value while preserving applicable descriptor and receiver behavior.
+ * Whether assigning a desired key that `current` lacks would reach an accessor on its prototype
+ * chain. `__proto__` is defined, never assigned.
+ */
+function reachesInheritedAccessor(current: object, desiredKeys: readonly PropertyKey[]): boolean {
+  const first = Object.getPrototypeOf(current) as object | null
+  if (first === null) return false
+  // On a standard prototype only a key it holds can reach an accessor; the prototype is asked
+  // first, so `current` is asked only for such a key, which no unmodified prototype makes.
+  if (first === Object.prototype || first === Array.prototype) {
+    for (let index = 0; index < desiredKeys.length; index += 1) {
+      const key = desiredKeys[index]
+      if (key !== '__proto__' && accessorFrom(first, key) && !hasOwn(current, key)) return true
+    }
+    return false
+  }
+  for (let index = 0; index < desiredKeys.length; index += 1) {
+    const key = desiredKeys[index]
+    if (key !== '__proto__' && !hasOwn(current, key) && accessorFrom(first, key)) return true
+  }
+  return false
+}
+
+/**
+ * Whether the first descriptor for `key` from `prototype` up is an accessor.
  *
  * @remarks
- * Unchanged values require no write. Configurable accessors become data properties when their
- * value must change. A missing `__proto__` becomes an own data key. Other writes try ordinary
- * assignment before defining an own property, preserving reactive setters where supported.
+ * `Array.prototype` and `Object.prototype` are read only for a key they hold, whatever code added
+ * it: `in` answers for both, since one inherits from the other.
+ */
+function accessorFrom(prototype: object | null, key: PropertyKey): boolean {
+  for (let current = prototype; current !== null;) {
+    if ((current === Object.prototype || current === Array.prototype) && !(key in current))
+      return false
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
+    if (descriptor !== undefined) return !isDataDescriptor(descriptor)
+    current = Object.getPrototypeOf(current) as object | null
+  }
+  return false
+}
+
+/**
+ * Writes one requested own value by assignment, so own setters run and accessors are kept.
+ *
+ * @remarks
+ * Unchanged values require no write. An own accessor is assigned, never redefined. A missing
+ * key whose assignment would reach an accessor, including `__proto__`, becomes an own data
+ * property. Other writes assign before defining an own property, so a reactive proxy observes
+ * them. `PropertyWrite.publish` is this decision.
  *
  * @returns Whether the native operations accepted the write. Contents require separate readback.
  */
@@ -171,18 +226,38 @@ export function publishProperty(target: object, key: PropertyKey, value: unknown
   const present = hasOwn(target, key)
   if (present && Object.is(Reflect.get(target, key), value)) return true
   const descriptor = present ? Object.getOwnPropertyDescriptor(target, key) : undefined
-  if (descriptor !== undefined && !('value' in descriptor) && descriptor.configurable === true)
-    return defineData(target, key, value, descriptor.enumerable)
-  if (key === '__proto__' && descriptor === undefined) return defineData(target, key, value)
-  if (!Reflect.set(target, key, value) || !hasOwn(target, key))
-    return descriptor === undefined
+  // A missing key whose assignment would reach an accessor is defined, so no setter runs; for an
+  // object `reconcile` keeps, the preflight has already rejected that case.
+  if (descriptor === undefined)
+    return key === '__proto__' || accessorFrom(Object.getPrototypeOf(target) as object | null, key)
       ? defineData(target, key, value)
-      : Reflect.defineProperty(target, key, { ...descriptor, value })
-  return true
+      : assignData(target, key, value, undefined)
+  // An own accessor is assigned, so its setter runs; it is never redefined.
+  return isDataDescriptor(descriptor)
+    ? assignData(target, key, value, descriptor)
+    : Reflect.set(target, key, value)
 }
 
-const defineData = (target: object, key: PropertyKey, value: unknown, enumerable = true) =>
-  Reflect.defineProperty(target, key, { configurable: true, enumerable, value, writable: true })
+// Assignment lets a reactive proxy observe the write; a definition follows only when assignment
+// left no own property.
+function assignData(
+  target: object,
+  key: PropertyKey,
+  value: unknown,
+  descriptor: PropertyDescriptor | undefined,
+): boolean {
+  if (Reflect.set(target, key, value) && hasOwn(target, key)) return true
+  return descriptor === undefined
+    ? defineData(target, key, value)
+    : defineData(
+        target,
+        key,
+        value,
+        descriptor.enumerable,
+        descriptor.configurable,
+        descriptor.writable,
+      )
+}
 
 // Native fixed slots produce finite identity implications. No target selection occurs here.
 export function propertyRequirements<L extends { readonly kind: symbol }>(
@@ -191,7 +266,5 @@ export function propertyRequirements<L extends { readonly kind: symbol }>(
   surface: PropertySurface<L>,
 ): readonly BoundEdge[] | undefined {
   const required: BoundEdge[] = []
-  return canPublishProperties(node, candidate, surface, surface.slots(node), required)
-    ? required
-    : undefined
+  return canPublishProperties(node, candidate, surface, required) ? required : undefined
 }

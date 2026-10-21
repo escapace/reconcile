@@ -12,6 +12,7 @@ import * as temporal from './temporal'
 import * as url from './url'
 import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
+import { ATOM_KIND } from '../constants'
 
 /** Orders native recognition with the plain-object fallback last. */
 export const builtinModules = [
@@ -162,6 +163,8 @@ export const publicationTypes: PublicationRegistry = /* @__PURE__ */ (() =>
     ]) as unknown as PublicationRegistry['policies'],
   }))()
 
+const atomLeaf = /* @__PURE__ */ freeze({ someChild: () => false })
+
 export const produceTypes: ImmutableRegistry = /* @__PURE__ */ (() => {
   // Special copies resolve through `specials`, so production needs no snapshot facet.
   const immutable = [
@@ -179,11 +182,14 @@ export const produceTypes: ImmutableRegistry = /* @__PURE__ */ (() => {
   ] as const
   const specials: Record<symbol, unknown> = {}
   const structural: Record<symbol, unknown> = {}
-  for (const [index, facet] of immutable.entries()) {
+  for (let index = 0; index < immutable.length; index += 1) {
+    const facet = immutable[index]
     freeze(facet)
     if (facet.immutable.tag === 'copy') specials[KINDS[index]] = facet.immutable.operations
     else structural[KINDS[index]] = facet.immutable
   }
+  // An atom is a fixed leaf: identity restoration asks it for children and finds none.
+  const policies: Record<symbol, unknown> = { ...table(immutable), [ATOM_KIND]: atomLeaf }
   return freeze({
     ...recognition,
     drafts: table([
@@ -199,7 +205,7 @@ export const produceTypes: ImmutableRegistry = /* @__PURE__ */ (() => {
       urlSearchParameters.urlSearchParametersDraft,
       object.objectDraft,
     ]) as unknown as ImmutableRegistry['drafts'],
-    policies: table(immutable) as unknown as ImmutableRegistry['policies'],
+    policies: freeze(policies) as unknown as ImmutableRegistry['policies'],
     specials: freeze(specials) as ImmutableRegistry['specials'],
     structural: freeze(structural) as ImmutableRegistry['structural'],
   })

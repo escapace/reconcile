@@ -1332,111 +1332,27 @@ describe('caller publication', () => {
     assert.deepEqual(result.item, { count: 16 })
   })
 
-  it('rejects iterator and callback iteration APIs on Map and Set drafts', () => {
+  it('applies changes made while iterating Map and Set drafts', () => {
     const current = {
-      map: new Map<string, number>([['a', 1]]),
-      set: new Set<number>([1]),
+      map: new Map([['a', { n: 1 }]]),
+      set: new Set([{ n: 1 }]),
     }
-
-    assert.throws(
-      () =>
-        reconcile(
-          current,
-          produce(current, (draft) => {
-            ;(draft.map as unknown as { entries: () => unknown }).entries()
-            return draft
-          }),
-        ),
-      ReconcileError,
-      /not supported/,
+    const map = current.map
+    const entry = current.map.get('a')!
+    reconcile(
+      current,
+      produce(current, (draft) => {
+        for (const [, value] of draft.map) value.n = 2
+        draft.set.forEach((member) => {
+          member.n = 3
+        })
+        return draft
+      }),
     )
-
-    assert.throws(
-      () =>
-        reconcile(
-          current,
-          produce(current, (draft) => {
-            ;(draft.set as unknown as { forEach: () => unknown }).forEach()
-            return draft
-          }),
-        ),
-      ReconcileError,
-      /not supported/,
-    )
-  })
-
-  it('rejects Map keys, values, entries, iterator, and forEach consistently', () => {
-    const current = {
-      map: new Map<string, number>([['a', 1]]),
-    }
-
-    const run = (callback: (draft: { map: Map<string, number> }) => void) =>
-      reconcile(
-        current,
-        produce(current, (draft) => {
-          callback(draft)
-          return draft
-        }),
-      )
-
-    assert.throws(() => run((draft) => draft.map.keys()), ReconcileError, /not supported/)
-    assert.throws(() => run((draft) => draft.map.values()), ReconcileError, /not supported/)
-    assert.throws(() => run((draft) => draft.map.entries()), ReconcileError, /not supported/)
-    assert.throws(
-      () =>
-        run((draft) => {
-          ;(draft.map as unknown as Iterable<readonly [string, number]>)[Symbol.iterator]()
-        }),
-      ReconcileError,
-      /not supported/,
-    )
-    assert.throws(
-      () =>
-        run((draft) => {
-          ;(draft.map as unknown as { forEach: (callback_: () => void) => void }).forEach(
-            () => undefined,
-          )
-        }),
-      ReconcileError,
-      /not supported/,
-    )
-  })
-
-  it('rejects Set keys, values, entries, iterator, and forEach consistently', () => {
-    const current = {
-      set: new Set<number>([1]),
-    }
-
-    const run = (callback: (draft: { set: Set<number> }) => void) =>
-      reconcile(
-        current,
-        produce(current, (draft) => {
-          callback(draft)
-          return draft
-        }),
-      )
-
-    assert.throws(() => run((draft) => draft.set.keys()), ReconcileError, /not supported/)
-    assert.throws(() => run((draft) => draft.set.values()), ReconcileError, /not supported/)
-    assert.throws(() => run((draft) => draft.set.entries()), ReconcileError, /not supported/)
-    assert.throws(
-      () =>
-        run((draft) => {
-          ;(draft.set as unknown as Iterable<number>)[Symbol.iterator]()
-        }),
-      ReconcileError,
-      /not supported/,
-    )
-    assert.throws(
-      () =>
-        run((draft) => {
-          ;(draft.set as unknown as { forEach: (callback_: () => void) => void }).forEach(
-            () => undefined,
-          )
-        }),
-      ReconcileError,
-      /not supported/,
-    )
+    assert.strictEqual(current.map, map)
+    assert.strictEqual(current.map.get('a'), entry)
+    assert.equal(entry.n, 2)
+    assert.deepEqual([...current.set], [{ n: 3 }])
   })
 
   it('supports Date mutation through clone-on-read semantics', () => {

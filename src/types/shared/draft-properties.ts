@@ -1,7 +1,14 @@
-import { isObject, ownKeys } from '../../object-property'
+import { hasOwn, isObject, ownKeys } from '../../object-property'
 import { draftDefinePropertyUnsupported } from '../../error'
 import { propertyDescriptor } from '../../object-property'
 import type { BaseDraftState, DraftContext, PropertyDraftPort } from '../../types'
+import {
+  type DataDescriptor,
+  accessorDescriptor,
+  dataDescriptor,
+  Detached,
+  isDataDescriptor,
+} from '../../standard-prototypes'
 
 // V8 keeps a null-prototype object in dictionary mode; a store behind an empty frozen
 // prototype keeps fast properties, so slot reads and key listing stay on the fast path.
@@ -24,13 +31,25 @@ function preparePropertyCopy(state: PropertyDraftState): Record<PropertyKey, Pro
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
     if (descriptor === undefined) continue
     // Capture wrapper-exposed values in the same order as the former physical copy.
-    if ('value' in descriptor) descriptor.value = source[key]
+    if (isDataDescriptor(descriptor)) descriptor.value = source[key]
     state.rules.capture(replacement, key, descriptor)
     replacement[key] = descriptor
   }
   state.copyPrototype = prototype
   state.copy = replacement
   return replacement
+}
+
+const ASSIGNED_FLAGS = ['writable', 'enumerable', 'configurable'] as const
+
+/** Whether a definition's descriptor is the one assignment makes: own data, writable,
+ * enumerable and configurable, with no field read through `Object.prototype`. */
+function assignedData(descriptor: PropertyDescriptor): boolean {
+  for (let index = 0; index < ASSIGNED_FLAGS.length; index += 1) {
+    const flag = ASSIGNED_FLAGS[index]
+    if (!hasOwn(descriptor, flag) || descriptor[flag] !== true) return false
+  }
+  return hasOwn(descriptor, 'value')
 }
 
 /**
@@ -47,7 +66,7 @@ function writeProperty(
   descriptor: PropertyDescriptor | undefined,
 ): boolean {
   if (descriptor !== undefined) {
-    if (!('value' in descriptor) || descriptor.writable === false) return false
+    if (!isDataDescriptor(descriptor) || descriptor.writable === false) return false
     if (state.context.isSameDraftValue(state.read(property), value)) return true
   }
   const copy = preparePropertyCopy(state)
@@ -67,6 +86,7 @@ function writeProperty(
  * @internal
  */
 export class PropertyDraftState<K extends symbol = symbol>
+  extends Detached
   implements BaseDraftState, PropertyDraftPort, ProxyHandler<object>
 {
   declare readonly base: object
@@ -77,7 +97,15 @@ export class PropertyDraftState<K extends symbol = symbol>
   declare readonly kind: K
   declare modified: boolean
   declare readonly properties: this
+  declare private provided: ReadonlyMap<unknown, unknown> | undefined
+  // The data descriptor this proxy's getOwnPropertyDescriptor trap returns, reused: the trap
+  // fills it after its last call into other code, the engine reads it as the trap returns, and it
+  // inherits nothing.
+  declare private reported: DataDescriptor | undefined
+  // The key whose inherited setter is running with this draft as receiver; its definition of
+  // that key is the one reflective definition the draft accepts.
   declare readonly rules: PropertyDraftRules<K>
+  declare private settingThrough: PropertyKey | undefined
 
   source(): object {
     return this.base
@@ -85,6 +113,7 @@ export class PropertyDraftState<K extends symbol = symbol>
 
   /** Binds the base and call context without observing or copying properties. */
   constructor(base: object, context: DraftContext, rules: PropertyDraftRules<K>) {
+    super()
     this.base = base
     this.context = context
     this.copy = undefined
@@ -93,22 +122,69 @@ export class PropertyDraftState<K extends symbol = symbol>
     this.kind = rules.kind
     this.modified = false
     this.properties = this
+    this.reported = undefined
+    this.settingThrough = undefined
     this.rules = rules
   }
-  /** Tests own and inherited presence through the current descriptor store. */
+  /** Tests own presence on the object or its working copy, then inherited presence on the
+   * prototype. */
   contains(property: PropertyKey): boolean {
-    if (this.copy === undefined) return property in this.base
-    if (this.copy[property] !== undefined) return true
+    return this.owns(property) || this.inherits(property)
+  }
+  /** Whether the prototype the draft reports has the property. */
+  private inherits(property: PropertyKey): boolean {
     const prototype = this.sourcePrototype()
     return prototype !== null && property in prototype
   }
-  /** Rejects reflective definitions, which are outside the draft mutation surface. */
-  defineProperty(_target: object, property: PropertyKey): never {
-    throw draftDefinePropertyUnsupported(property)
+  /** Whether the object, or after the first write its working copy, owns the property. */
+  private owns(property: PropertyKey): boolean {
+    return this.copy === undefined ? hasOwn(this.base, property) : this.copy[property] !== undefined
   }
-  /** Deletes a configurable own entry and records the change. */
+  /**
+   * Assigns through an accessor, own or inherited. While an inherited setter runs with this draft
+   * as receiver, the draft accepts that setter's definition of the key (`defineProperty`).
+   */
+  private setThrough(
+    descriptor: PropertyDescriptor,
+    property: PropertyKey,
+    value: unknown,
+    receiver: unknown,
+    inherited: boolean,
+  ): boolean {
+    if (descriptor.set === undefined) return false
+    if (!inherited || receiver !== this.handle) {
+      descriptor.set.call(receiver, value)
+      return true
+    }
+    const outer = this.settingThrough
+    this.settingThrough = property
+    try {
+      descriptor.set.call(receiver, value)
+    } finally {
+      this.settingThrough = outer
+    }
+    return true
+  }
+  /**
+   * Rejects reflective definitions, which are outside the draft mutation surface, except the one
+   * an inherited setter makes while this draft assigns the key: the key defined as assignment
+   * would, while the draft lacks it, as `node --frozen-intrinsics` and SES setters do.
+   * `PropertyWrite.draftThroughSetter` is this decision.
+   */
+  defineProperty(_target: object, property: PropertyKey, descriptor: PropertyDescriptor): boolean {
+    if (
+      property !== this.settingThrough ||
+      !assignedData(descriptor) ||
+      this.ownDescriptor(property) !== undefined
+    )
+      throw draftDefinePropertyUnsupported(property)
+    this.settingThrough = undefined
+    return writeProperty(this, property, descriptor.value, undefined)
+  }
+  /** Deletes a configurable own entry the result could carry and records the change. */
   deleteProperty(_target: object, property: PropertyKey): boolean {
     if (this.ownDescriptor(property) === undefined) return true
+    if (!this.rules.admits(property)) return false
     const copy = preparePropertyCopy(this)
     if (copy[property]?.configurable === false) return false
     delete copy[property]
@@ -117,20 +193,47 @@ export class PropertyDraftState<K extends symbol = symbol>
   }
   /** Wraps object-valued reads while preserving ordinary getter receiver behavior. */
   get(_target: object, property: PropertyKey, receiver: unknown): unknown {
+    // An own store entry decides presence privately, so one store read serves both steps.
+    const descriptor = this.copy?.[property]
+    if (descriptor !== undefined) {
+      const value = isDataDescriptor(descriptor)
+        ? (descriptor.value as unknown)
+        : (descriptor.get?.call(receiver) as unknown)
+      return !isObject(value) ? value : this.context.materializeChild(value)
+    }
+    // Before the first write an own property is read through the object; any other property
+    // comes from the prototype, before and after it, so a wrapper of the object never answers a
+    // property the object does not own (DraftRead.read).
+    if (this.copy === undefined && hasOwn(this.base, property)) {
+      const value = Reflect.get(this.base, property, receiver) as unknown
+      return !isObject(value) ? value : this.context.materializeChild(value)
+    }
     // The presence check precedes the read: inherited `has` traps may introduce the property.
-    const hasProperty = this.contains(property)
+    // The trap can also add the property to the draft, so the read decides the source again.
+    const present = this.inherits(property)
     const value = this.read(property, receiver)
-    return !hasProperty || !isObject(value) ? value : this.context.materializeChild(value)
+    // A native method the draft replaces resolves to its replacement; an override of it, in a
+    // subclass or on the object, still runs (DraftMembers).
+    if (typeof value === 'function' && this.rules.methods !== undefined)
+      return (this.provided ??= this.rules.methods(this.context, this.base)).get(value) ?? value
+    return !present || !isObject(value) ? value : this.context.materializeChild(value)
   }
   /** Returns a separate descriptor whose data value follows ordinary draft reads. */
   getOwnPropertyDescriptor(_target: object, property: PropertyKey): PropertyDescriptor | undefined {
     const ownDescriptor = this.ownDescriptor(property)
     if (ownDescriptor === undefined) return undefined
-    const descriptor = { ...ownDescriptor }
-    if ('value' in descriptor) descriptor.value = Reflect.get(this.handle!, property) as unknown
-    descriptor.configurable = this.rules.configurable(property)
-    if (!descriptor.configurable) descriptor.writable = true
-    return descriptor
+    const configurable = this.rules.configurable(property)
+    if (isDataDescriptor(ownDescriptor)) {
+      // The read can run code that reenters this trap, so the shared descriptor is filled after it.
+      const value = Reflect.get(this.handle!, property) as unknown
+      const reported = (this.reported ??= dataDescriptor())
+      reported.configurable = configurable
+      reported.enumerable = ownDescriptor.enumerable === true
+      reported.value = value
+      reported.writable = !configurable || ownDescriptor.writable === true
+      return reported
+    }
+    return accessorDescriptor(ownDescriptor, configurable)
   }
   /** Exposes the base prototype independently of the captured copy prototype. */
   getPrototypeOf(): object | null {
@@ -157,12 +260,19 @@ export class PropertyDraftState<K extends symbol = symbol>
   }
   /** Reads the logical value with the supplied getter receiver, without wrapping children. */
   read(property: PropertyKey, receiver: unknown = this.base): unknown {
-    if (this.copy === undefined) return Reflect.get(this.base, property, receiver) as unknown
-    const descriptor = this.copy[property]
-    if (descriptor !== undefined)
-      return 'value' in descriptor
-        ? (descriptor.value as unknown)
-        : (descriptor.get?.call(receiver) as unknown)
+    if (this.copy === undefined) {
+      if (hasOwn(this.base, property)) return Reflect.get(this.base, property, receiver) as unknown
+    } else {
+      const descriptor = this.copy[property]
+      if (descriptor !== undefined)
+        return isDataDescriptor(descriptor)
+          ? (descriptor.value as unknown)
+          : (descriptor.get?.call(receiver) as unknown)
+    }
+    return this.inheritedValue(property, receiver)
+  }
+  /** Reads a property the draft does not own from the prototype it reports. */
+  private inheritedValue(property: PropertyKey, receiver: unknown): unknown {
     const prototype = this.sourcePrototype()
     return prototype === null ? undefined : (Reflect.get(prototype, property, receiver) as unknown)
   }
@@ -170,11 +280,8 @@ export class PropertyDraftState<K extends symbol = symbol>
   set(_target: object, property: PropertyKey, value: unknown, receiver: unknown): boolean {
     const ownDescriptor = this.ownDescriptor(property)
     const descriptor = ownDescriptor ?? propertyDescriptor(this.sourcePrototype(), property)
-    if (descriptor !== undefined && !('value' in descriptor)) {
-      if (descriptor.set === undefined) return false
-      descriptor.set.call(receiver, value)
-      return true
-    }
+    if (descriptor !== undefined && !isDataDescriptor(descriptor))
+      return this.setThrough(descriptor, property, value, receiver, ownDescriptor === undefined)
     if (descriptor?.writable === false) return false
     if (receiver !== this.handle) {
       const receiverState = isObject(receiver)
@@ -223,6 +330,12 @@ export type DescriptorStore = Record<PropertyKey, PropertyDescriptor>
 /** Type-owned native rules over the shared descriptor store and proxy protocol. */
 export interface PropertyDraftRules<K extends symbol = symbol> {
   readonly kind: K
+  /** Replacements for inherited native methods, keyed by the native function, built once per
+   * draft. */
+  readonly methods:
+    ((context: DraftContext, base: object) => ReadonlyMap<unknown, unknown>) | undefined
+  /** Whether the result can carry an own property with this key; DraftSurface.admits. */
+  readonly admits: (key: PropertyKey) => boolean
   readonly capture: (
     copy: DescriptorStore,
     key: PropertyKey,
@@ -246,7 +359,7 @@ export function writeDataSlot(
   value: unknown,
 ): boolean {
   const descriptor = copy[property]
-  if (descriptor !== undefined && (!('value' in descriptor) || descriptor.writable === false))
+  if (descriptor !== undefined && (!isDataDescriptor(descriptor) || descriptor.writable === false))
     return false
   if (descriptor === undefined)
     copy[property] = { configurable: true, enumerable: true, value, writable: true }

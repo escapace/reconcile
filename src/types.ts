@@ -12,6 +12,8 @@ export interface DraftContext {
   isSameDraftValue: (currentValue: unknown, value: unknown) => boolean
   /** Returns the handle or special-value copy that a recipe read sees. */
   materializeChild: (value: object) => object
+  /** Draft layers of `Map` and `Set` subclasses, by subclass prototype, for this call. */
+  draftLayers?: Map<object, object>
 }
 
 /**
@@ -50,10 +52,12 @@ export type DraftState = BaseDraftState
  * @internal
  */
 export interface FinalizedReference<L extends Layout = Layout> {
+  readonly layout: L | undefined
   readonly target: object
-  readonly layout?: L
   /** An unchanged structural subtree kept by identity: a fixed node with no edges. */
-  readonly leaf?: boolean
+  readonly leaf: boolean | undefined
+  /** The mark of the identity compile that last discovered this reference. */
+  discoveredBy: object | undefined
 }
 
 /**
@@ -76,8 +80,13 @@ export interface ReuseNode<L extends Layout = Layout> extends FinalizedReference
   readonly settled?: boolean
   /** Packs configurable, enumerable, and writable data-property flags into bits 1, 2, and 4. */
   attributes?: number[]
+  /** The value each observed own accessor returned, by slot, as the getter returned it. */
+  observed?: unknown[]
   /** Maps ordered array or object property names to child slots. */
   keys?: PropertyKey[]
+  /** The mark of the identity compile that last collected this record, and its node there. */
+  collectedAs?: NodeEdge
+  collectedBy?: object
 }
 
 /** Exposes a logical descriptor store to finalization without exposing its representation. */
@@ -90,16 +99,18 @@ export interface PropertyDraftPort {
   sourcePrototype: () => object | null
 }
 
-/** Supplies base provenance and isolated property reads to a structural observer. */
-export interface DraftObservationContext {
+/** Receives a structural draft observation: its layout and slots, with base provenance and isolated reads. */
+export interface DraftObservationContext<L extends Layout = Layout> {
   readonly base: object | undefined
+  readonly edge: DraftEdge
   readonly properties: PropertyDraftPort | undefined
+  readonly begin: (layout: L) => void
   readonly read: (source: object, key: PropertyKey) => unknown
 }
 
 /** Per-call native ownership metadata, allocated only when a child is registered. */
 export interface NativeOwners {
-  nativeOwners?: WeakMap<object, object>
+  nativeOwners: WeakMap<object, object> | undefined
 }
 
 /** Defines copy identity and dependency rules for a nonstructural value. */
@@ -158,6 +169,7 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     begin: Begin<L>,
     edge: CaptureEdge,
     mode?: 'publication' | 'snapshot',
+    prototype?: object | null,
   ) => void
   /** Finalizes derived layout indexes and native collection normalization after observation. */
   readonly seal: (node: CapturedNode<L>) => CapturedNode<L>
@@ -167,12 +179,7 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     | {
         readonly tag: 'structural'
         /** Observes structural slots synchronously, retaining draft provenance and isolated reads. */
-        readonly observeDraft: (
-          source: object,
-          begin: Begin<L>,
-          edge: DraftEdge,
-          context: DraftObservationContext,
-        ) => void
+        readonly observeDraft: (source: object, observer: DraftObservationContext<L>) => void
         readonly reuse: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
       }
 
@@ -361,8 +368,14 @@ export interface TypeRegistry {
 }
 
 /** Represents an opaque atom or a canonical reference into the captured node domain. */
-export type Edge<R extends { readonly node: number } = { readonly node: number }> =
-  R | { readonly value: unknown }
+export type Edge<R extends { readonly node: number } = { readonly node: number }> = Atom | R
+
+/** An atom edge. `node` is present and undefined, so telling the two kinds apart never reads a
+ * property through `Object.prototype`. */
+export interface Atom {
+  readonly node: undefined
+  readonly value: unknown
+}
 
 /** Payload fields belong to the selected module; the core only reads its ID. */
 export interface Layout {
@@ -378,11 +391,12 @@ export interface Layout {
  * never become nodes: their parent edge holds the object itself as an atom.
  */
 export interface CapturedNode<L extends { readonly kind: symbol } = Layout> {
+  readonly attributes: readonly number[] | undefined
   readonly edges: readonly Edge[]
   readonly keys: readonly PropertyKey[]
   readonly layout: L
-  readonly attributes?: readonly number[]
-  readonly pinned?: object
+  readonly observed: readonly unknown[] | undefined
+  readonly pinned: object | undefined
 }
 
 /**
@@ -448,11 +462,6 @@ export interface CaptureSink<
   layout: (reference: R) => Layout | undefined
   // Creates private state only; native observation begins after memo registration.
   reserve: (index: number) => R
-  existing?: (source: object) => object | undefined
-  /** Resolves a completed canonical reference only after external memo observations. */
-  memoTarget?: (reference: R) => object | undefined
-  /** Resolves private construction metadata for an already selected external memo target. */
-  constructed?: (target: object) => object | undefined
   /**
    * Publication only: decides an edge's child before the traversal visits it. Returns the
    * child's edge, or undefined to visit it normally. `references` and `observe` are the
@@ -464,16 +473,19 @@ export interface CaptureSink<
     key: PropertyKey | undefined,
     construction: boolean | undefined,
     references: Map<object, Edge<R>>,
-    observe: (source: object, kind?: symbol) => R,
+    observe: (source: object, kind: symbol, prototype?: object | null) => R,
     kind: symbol | undefined,
   ) => Edge<R> | undefined
 }
 
 /** Accumulates a graph node before native sealing makes its layout consumable. */
 export interface BuildingNode {
+  readonly attributes: undefined
   edges: Edge[]
   keys: PropertyKey[]
   layout: Layout | undefined
+  readonly observed: undefined
+  readonly pinned: undefined
 }
 
 /**
@@ -645,9 +657,9 @@ export interface ImmutableRecord {
   readonly edges: readonly Edge[]
   readonly target: object
   // Settled specials need no allocation payload or additional scalar observation.
-  readonly payload?: CapturedNode
+  readonly payload: CapturedNode | undefined
   /** Captured from an inactive, accessor-free record: its payload equals its base. */
-  readonly settled?: boolean
+  readonly settled: boolean | undefined
 }
 
 /** Narrows an edge to a captured node reference. */

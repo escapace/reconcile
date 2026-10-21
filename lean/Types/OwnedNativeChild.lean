@@ -1,10 +1,10 @@
-import Std
 import Types.LazyOwnership
 import Types.OwnedPublication
 
-/- A feasibility witness for lazy ownership discovery, not a JS specification.
-   A native carrier owner is allocated together with its fixed child before its
-   source owner is known. Public output uses these native identities. -/
+/-! A feasibility witness for lazy ownership discovery, not a JavaScript specification. A native
+carrier owner is allocated together with its fixed child before its source owner is known. Public
+output uses these native identities. -/
+
 namespace Reconcile.OwnedNativeChild
 
 structure State (Payload Query : Type) where

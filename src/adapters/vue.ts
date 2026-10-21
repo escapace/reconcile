@@ -1,18 +1,20 @@
 import { draftWrapperIdentityChanged, draftWrapperIteratorMismatched } from '../error'
 import { isObject } from '../object-property'
 import type { ExposureFacet, ExposureObservation, KeyedCollection } from '../types'
+import { Detached, isDataDescriptor } from '../standard-prototypes'
 
 /** Reads wrapper markers without invoking an accessor declared as application data. */
 function marker(value: object, key: string): unknown {
   // Ordinary getters using these names are application data, not a wrapper protocol.
+  // `Object.prototype` has an immutable prototype, null, so the walk ends there without a read.
   for (
     let owner: object | null = value;
     owner !== null;
-    owner = Object.getPrototypeOf(owner) as object | null
+    owner = owner === Object.prototype ? null : (Object.getPrototypeOf(owner) as object | null)
   ) {
     const descriptor = Object.getOwnPropertyDescriptor(owner, key)
     if (descriptor !== undefined)
-      return 'value' in descriptor ? (descriptor.value as unknown) : undefined
+      return isDataDescriptor(descriptor) ? (descriptor.value as unknown) : undefined
   }
   // Vue exposes virtual markers through its get trap, without own descriptors.
   return Reflect.get(value, key) as unknown
@@ -48,21 +50,50 @@ export function storageIdentity(value: object): object {
   return current
 }
 
-// Vue collection copies retain iterated identities but need explicit wrapper
-// equivalence for lookup. Native collections never gain that equivalence. Only
-// object members can match an object identity, so undefined unambiguously means miss.
+/**
+ * The object members of one Vue collection by raw object, rebuilt when the collection or its
+ * revision changes.
+ *
+ * @remarks
+ * Bounded per-call state of one draft: the draft bumps `revision` whenever it adds or removes a
+ * member or key, so a lookup never answers from a stale index.
+ */
+export interface WrappedIndex {
+  built:
+    { readonly members: Map<object, object>; readonly revision: number; source: object } | undefined
+  revision: number
+  /** Whether the draft's object is Vue reactive state, read once. */
+  vue: boolean | undefined
+}
+
+/**
+ * Finds the member of a Vue collection copy that `value` is a form of.
+ *
+ * @remarks
+ * Vue collection copies retain iterated identities but need explicit wrapper equivalence for
+ * lookup. Native collections never gain that equivalence. Only object members can match an object
+ * identity, so undefined unambiguously means miss. The first member with a raw object wins, as a
+ * walk in insertion order finds it; `keys` walks them as the built-in methods do.
+ */
 export function resolveWrappedCollectionMember(
   source: KeyedCollection,
   value: object,
   base: object,
+  index: WrappedIndex,
+  keys: (source: KeyedCollection) => Iterable<unknown>,
 ): object | undefined {
-  if (storageIdentity(base) !== base) {
-    const raw = storageIdentity(value)
-    for (const entry of source.keys()) {
-      if (isObject(entry) && storageIdentity(entry) === raw) return entry
-    }
+  if (storageIdentity(base) === base) return undefined
+  let built = index.built
+  if (built?.source !== source || built.revision !== index.revision) {
+    const members = new Map<object, object>()
+    for (const entry of keys(source))
+      if (isObject(entry)) {
+        const raw = storageIdentity(entry)
+        if (!members.has(raw)) members.set(raw, entry)
+      }
+    built = index.built = { members, revision: index.revision, source }
   }
-  return undefined
+  return built.members.get(storageIdentity(value))
 }
 
 // The caller supplies an optional resolved identity, not draft state or a callback.
@@ -170,7 +201,7 @@ function classifyExposure(
 
 // One mode must certify one actual handle for a given storage during the call.
 // Distinct handles claiming the same mode are an adapter failure, not new fuel.
-export class ExposurePalette {
+export class ExposurePalette extends Detached {
   // Alternating mode/handle pairs per storage; a storage rarely exposes more than one mode.
   declare private readonly exposureOf: (value: object) => ExposureFacet
   declare private readonly known: WeakMap<object, unknown[]>
@@ -179,6 +210,7 @@ export class ExposurePalette {
     exposureOf: (value: object) => ExposureFacet,
     storage: (value: object) => object = storageIdentity,
   ) {
+    super()
     this.exposureOf = exposureOf
     this.known = new WeakMap()
     this.storage = storage
@@ -186,10 +218,10 @@ export class ExposurePalette {
 
   observe(value: object, knownExposure?: ExposureFacet): ExposureObservation | undefined {
     const storage = this.storage(value)
-    const mode =
-      storage === value
-        ? 0
-        : classifyExposure(value, storage, knownExposure ?? this.exposureOf(value))
+    // An ordinary object is its own storage and its own mode-0 handle, so recording it could
+    // never reject a later observation: mode 0 needs no entry.
+    if (storage === value) return { mode: 0, storage }
+    const mode = classifyExposure(value, storage, knownExposure ?? this.exposureOf(value))
     if (mode === undefined) return undefined
     let modes = this.known.get(storage)
     if (modes === undefined) this.known.set(storage, (modes = []))

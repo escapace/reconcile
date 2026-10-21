@@ -1,4 +1,6 @@
 import { expect, it } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { counterReport, counterSetup, instrumentCounts } from '../../scripts/profile-counts'
@@ -187,4 +189,45 @@ it('counts forced assignments and restoration without changing indexed storage',
   expect(Array.from(run({}) as unknown[])).toEqual([7, undefined])
   expect(counts['selection.forceWrites']).toBe(1)
   expect(counts['selection.forceRestores']).toBe(1)
+})
+
+// Rules that find their call sites by exact source text drop their counter silently when the
+// source changes, so each one must still match in the library.
+it('finds a site in the library for every text-matched counter', () => {
+  const root = path.resolve(import.meta.dirname, '../..')
+  const files = readdirSync(path.join(root, 'src'), { encoding: 'utf8', recursive: true }).filter(
+    (file) => file.endsWith('.ts') && !file.endsWith('.d.ts') && !file.startsWith('__tests__'),
+  )
+  const found = new Map<string, Set<string>>()
+  for (const file of files) {
+    const relative = `src/${file.split(path.sep).join('/')}`
+    const { sites } = instrumentCounts(readFileSync(path.join(root, relative), 'utf8'), relative)
+    for (const [key, count] of Object.entries(sites))
+      if (count > 0) found.set(key, (found.get(key) ?? new Set()).add(relative))
+  }
+  const textMatched = [
+    'classification.full',
+    'classification.memoLookups',
+    'classification.predicateTests',
+    'execution.incomingQueries',
+    'execution.incomingSummaryComparisons',
+    'execution.incomingSummaryUpdates',
+    'selection.activeQueries',
+    'selection.choiceChecks',
+    'selection.forceRestores',
+    'selection.forceWrites',
+    'selection.groupScanEdges',
+    'selection.plans',
+    'selection.supportDeletions',
+    'selection.supportProbePositions',
+    'selection.supportRequirementVisits',
+    'selection.trailRestores',
+    'selection.trailWrites',
+    'storage.probes',
+  ]
+  expect(textMatched.filter((key) => !found.has(key))).toEqual([])
+  expect([...(found.get('observation.events') ?? [])].toSorted()).toEqual([
+    'src/finalization.ts',
+    'src/publication/capture.ts',
+  ])
 })

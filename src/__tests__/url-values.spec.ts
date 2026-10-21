@@ -62,9 +62,13 @@ describe('URL native values', () => {
     const subclass = new OverriddenURL('https://example.test/subclass?b=2')
     const result = snapshot({ own, subclass }) as { own: URL; subclass: URL }
     assert.strictEqual(result.own.href, 'https://example.test/own?a=1')
-    assert.strictEqual(result.subclass.href, 'https://example.test/subclass?b=2')
     assert.deepEqual([...result.own.searchParams], [['a', '1']])
-    assert.deepEqual([...result.subclass.searchParams], [['b', '2']])
+    // The copy keeps the subclass, so read it through the native accessors as the copy did.
+    assert.strictEqual(Object.getPrototypeOf(result.subclass), OverriddenURL.prototype)
+    const native = (key: 'href' | 'searchParams') =>
+      Object.getOwnPropertyDescriptor(URL.prototype, key)!.get!.call(result.subclass) as unknown
+    assert.strictEqual(native('href'), 'https://example.test/subclass?b=2')
+    assert.deepEqual([...(native('searchParams') as URLSearchParams)], [['b', '2']])
   })
 
   it('does not merge native owners with misleading own searchParams values', () => {

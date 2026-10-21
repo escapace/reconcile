@@ -27,7 +27,17 @@ export function compactFixture(input: CompactImmutableInput): ImmutableProblem {
     const edges = row.children.map((node) => ({ node }))
     return {
       edges,
-      payload: row.fixed ? undefined : { edges, keys: [], layout: { kind } },
+      payload: row.fixed
+        ? undefined
+        : {
+            attributes: undefined,
+            edges,
+            keys: [],
+            layout: { kind },
+            observed: undefined,
+            pinned: undefined,
+          },
+      settled: undefined,
       target: object(row.proposed),
     }
   })
@@ -48,7 +58,7 @@ export function immutableDomains({ records, storages, unavailable }: ImmutablePr
       domain.push({
         identity: record.target,
         required: record.edges.flatMap((edge) =>
-          'node' in edge ? [{ identity: records[edge.node].target, node: edge.node }] : [],
+          edge.node !== undefined ? [{ identity: records[edge.node].target, node: edge.node }] : [],
         ),
         retained: true,
         storage: storages[node],

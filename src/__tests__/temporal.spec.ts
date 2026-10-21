@@ -3,6 +3,7 @@ import { assert, describe, it, vi } from 'vitest'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
+import { decodeText, encodeText } from './fixtures/text-codec'
 
 interface TemporalConstructor {
   new (...arguments_: unknown[]): TemporalValue
@@ -39,6 +40,24 @@ describe.skipIf(temporal === undefined)('Temporal values', () => {
       assert.notStrictEqual(result.first, result.second)
       assert.strictEqual(result.first, result.again)
       assert.strictEqual(result.map.get(result.first), result.second)
+      assert.strictEqual(
+        result.first.toString({ calendarName: 'always' }),
+        first.toString({ calendarName: 'always' }),
+      )
+      if (name === 'Duration') {
+        assert.strictEqual(Reflect.get(result.first, 'seconds'), 0)
+        assert.strictEqual(Reflect.get(result.first, 'milliseconds'), 1000)
+      }
+    })
+
+    it(`${name} serializes with its class, exact value and aliases`, () => {
+      const constructor = temporal![name]
+      const first = constructor.from(input)
+      const source = { again: first, first, second: constructor.from(input) }
+      const result = decodeText(encodeText(source)) as typeof source
+      assert.strictEqual(result.first, result.again)
+      assert.notStrictEqual(result.first, result.second)
+      assert.strictEqual(Object.getPrototypeOf(result.first), constructor.prototype)
       assert.strictEqual(
         result.first.toString({ calendarName: 'always' }),
         first.toString({ calendarName: 'always' }),
@@ -190,19 +209,20 @@ describe.skipIf(temporal === undefined)('Temporal recipe methods and subclasses'
     )
   })
 
-  it('normalizes fresh subclass copies and omits extra properties', () => {
+  it('keeps the subclass in fresh copies and omits extra properties', () => {
     class CustomDate extends temporal!.PlainDate {
       extra = { ignored: true }
     }
     const value = new CustomDate(2025, 1, 2)
-    const nativePrototype = Object.getPrototypeOf(temporal!.PlainDate.from('2025-01-02')) as object
+    // A copy keeps its source's prototype, as for every built-in subclass. Compare prototypes with
+    // `===`: an assertion message would format the prototype and call its getters.
     const copy = snapshot(value) as TemporalValue
-    assert.strictEqual(Object.getPrototypeOf(copy), nativePrototype)
+    assert.isTrue(Object.getPrototypeOf(copy) === CustomDate.prototype)
     assert.strictEqual(Object.hasOwn(copy, 'extra'), false)
     assert.strictEqual(copy.toString(), '2025-01-02')
     const base = { value: temporal!.PlainDate.from('2024-01-01') }
     reconcile(base, { value })
-    assert.strictEqual(Object.getPrototypeOf(base.value), nativePrototype)
+    assert.isTrue(Object.getPrototypeOf(base.value) === CustomDate.prototype)
     assert.strictEqual(Object.hasOwn(base.value, 'extra'), false)
     assert.strictEqual(base.value.toString(), value.toString())
     assert.deepEqual(value.extra, { ignored: true })

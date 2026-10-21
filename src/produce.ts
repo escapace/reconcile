@@ -9,44 +9,100 @@ import { produceTypes } from './types/builtins'
  * unchanged.
  *
  * @remarks
- * The draft behaves like `current` but records changes instead of applying them. The recipe
- * returns the next value explicitly: the draft, a part of it, or any other value. Drafts inside
- * the returned value are turned back into ordinary values. If the recipe returns `current`
- * itself, its draft changes are discarded.
+ * The draft behaves like `current` but records changes instead of applying them. The recipe returns
+ * the next value explicitly: the draft, a part of it or any other value. Drafts inside the returned
+ * value are turned back into ordinary values. If the recipe returns `current` itself, its draft
+ * changes are discarded. The recipe must be synchronous: a returned `Promise` is kept as it is, and
+ * the draft it resolves to is never finished. Writes to a draft after the recipe returns reach
+ * neither `current` nor the result.
  *
  * The result reuses the parts of `current` the recipe left unchanged where it can, so it is not
  * detached from `current`; use `snapshot(produce(...))` for a detached copy. The result is not
- * frozen. An edit that is later undone restores the original object when its whole subtree ends
- * up equal, including key order, holes, shared references and cycles. A new object the recipe
- * creates stays distinct from an equal existing one.
+ * frozen. An edit that is later undone restores the original object when its whole subtree ends up
+ * equal, including key order, holes, shared references and cycles. A new object the recipe creates
+ * stays distinct from an equal existing one. A value the recipe assigns or returns from outside
+ * `current` is kept as it is, unless the recipe changes it through the draft.
  *
- * Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. A `Set` draft
- * treats a draft and the object it drafts as the same member. Reading a `Date`, `ArrayBuffer`,
- * `DataView` or typed array gives the recipe a writable copy; an unchanged copy resolves back to
- * the original, and changed copies keep their buffer sharing. URLs and URLSearchParams also
- * copy when read, preserving the URL's live parameter identity in either read order. Native
- * query normalization counts as a change even when parameter entries stay equal. Available Temporal values are
- * copied when read; they are immutable, so assign the value returned by their methods. An
- * unchanged Temporal copy resolves back to the original. Other objects, such as class
- * instances, are drafted like plain objects: an unchanged one is kept, and a changed one is
- * rebuilt with the same prototype and own properties but without private fields or other
- * internal state. Primitives, including bigint, and functions are single values. Vue reactive wrappers that behave
- * like objects, arrays, maps or sets are supported.
+ * Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. Reading a
+ * `Date`, `ArrayBuffer`, `DataView` or typed array gives the recipe a writable copy; if the recipe
+ * does not change a copy, the result holds the original, and changed copies preserve their buffer
+ * sharing. `URL` and `URLSearchParams` values are also copied when read; a URL's copy and the copy
+ * of its `searchParams` stay linked, whichever the recipe reads first. A buffer and its views, or a
+ * URL and its `searchParams`, are copied together only when the recipe changes one of them. A
+ * native method that changes the query text, such as `sort` turning `%20` into `+`, counts as a
+ * change even when the parameter entries stay equal. Temporal values are copied when read; they are
+ * immutable, so assign the value returned by their methods. A Temporal value the recipe reads but
+ * does not replace stays the original in the result.
+ *
+ * A changed array, `Map`, `Set`, `Date`, buffer, view, URL or `URLSearchParams` value keeps its
+ * source's prototype, so an instance of a subclass stays one. Other objects, such as class
+ * instances, are drafted like plain objects: an unchanged one is kept, and a changed one is rebuilt
+ * with the same prototype and own properties but without private fields. A getter, setter or method
+ * that uses a private field throws when it runs on the draft, which is not the instance that holds
+ * the field. Primitives, including bigints, and objects kept by reference are not drafted; they are
+ * read and assigned as they are, so a method that changes such a value, such as
+ * `WeakMap.prototype.set`, changes the original. Objects kept by reference are functions, a
+ * `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry` or `Blob`,
+ * a boxed primitive and an instance of a subclass of one of them.
+ *
+ * Vue reactive proxies of objects, arrays, maps and sets are supported. Their drafts are not
+ * reactive: `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such
+ * as `forEach` called on a draft receive drafts.
  *
  * Reading a value or writing an equal value back does not count as a change. During the recipe,
- * getters run on every read and assignments call setters with the draft as `this`;
- * `Reflect.set` honors an explicit receiver. Reading descriptors or enumerating keys, for example
- * with `Object.keys`, returns draft values like ordinary reads, so it can create child drafts or
- * copies. Defining properties with `Object.defineProperty`, `Object.defineProperties` or
+ * getters run on every read and assignments call setters with the draft as `this`; `Reflect.set`
+ * with an explicit receiver calls the setter with that receiver as `this`. Reflection, such as
+ * `Object.getOwnPropertyDescriptor` or `Object.values`, returns the same draft values as ordinary
+ * reads. Defining properties with `Object.defineProperty`, `Object.defineProperties` or
  * `Reflect.defineProperty` throws; use assignment instead.
  *
- * After the recipe returns, each getter in the result runs once, in depth-first order, with a
- * temporary draft as `this`. Its value becomes an ordinary data property, so an object with a
- * getter is always rebuilt. Writes the getter makes through `this` become part of the result;
- * changes it makes to other state are not isolated.
+ * Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values, including instances of their
+ * subclasses, carry only their elements, entries, time, bytes or text. Their drafts and copies
+ * refuse to set or delete any other property, such as a field that a subclass declares, as a
+ * non-extensible object refuses a new one: in strict-mode code the assignment throws a `TypeError`.
+ * An array draft still shows these properties; other drafts and copies do not, and a changed value
+ * loses them in the result. A `Date`, buffer, view, URL or `URLSearchParams` value the recipe
+ * changes stays non-extensible in the result.
  *
- * Array drafts support normal iteration, including `for...of` and callback methods. Iterating a
- * draft `Map` or `Set` with `keys`, `values`, `entries`, `forEach` or `[Symbol.iterator]` throws.
+ * A draft follows its object's property attributes: a read-only property refuses writes and a
+ * non-configurable one refuses deletion, so a frozen object in `current` cannot be changed through
+ * its draft; pass `snapshot(state)` to change frozen state. In the result, a changed object keeps
+ * the attributes of its existing data properties, and properties the recipe adds are writable,
+ * enumerable and configurable.
+ *
+ * After the recipe returns, each own getter in the result is called once, in depth-first order. An
+ * object that the recipe did not change, and whose getters returned values the result keeps, stays
+ * the original object with its getters. Otherwise the object is new, and each getter is replaced by
+ * a data property that holds the value it returned. Inside the getter, `this` is a draft of its
+ * object: writes through `this` become part of the result, and changes to other objects take effect
+ * immediately and are not undone.
+ *
+ * A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag`,
+ * `constructor` and methods a subclass adds work as on the source. Its methods act on the original
+ * until the first change and on a working copy of the same class afterwards, through that object's
+ * own methods, so a subclass's overrides still run. Array, `Map` and `Set` drafts iterate like
+ * native collections, including `for...of`, spreading and callback methods: object values come back
+ * as drafts, a write during a walk shows up in it, and a walk that changes nothing keeps the
+ * original. `Map` keys are not drafts: a walk gives the keys as the `Map` gives them, which in Vue
+ * reactive state is Vue's proxy of the stored key. Changing a key object changes `current`. To
+ * change a key, delete its entry and set a new one.
+ *
+ * Draft searches count an object and its draft as the same value: `includes`, `indexOf` and
+ * `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as
+ * `union` on a `Set` draft. In Vue reactive state, a reactive proxy and its raw object also count
+ * as the same value. `===` in recipe code compares references, so compare such values with these
+ * methods or by a key.
+ *
+ * `Set` draft methods return this draft's members as drafts and an operand's values as the operand
+ * gives them. An operand whose `has` is the built-in `Set` or `Map` method, or a Vue reactive `Set`
+ * or `Map` of such an operand, finds a member whether it holds the object or its draft. Any other
+ * operand's `has`, including a subclass override, receives drafts and must recognize them itself. A
+ * subclass's own version of a `Set` method, such as an overridden `union`, runs with the working
+ * copy as `this`, and its changes to `this` become part of the result. If that method returns a
+ * plain `Set` holding members of this draft, such as the result of `super.union`, the draft returns
+ * a new `Set` holding them as drafts and leaves the returned set unchanged; any other return value
+ * is passed through as it is. A draft has the `Set` methods that the runtime's `Set` has when this
+ * library is imported; install a polyfill for them before importing it.
  *
  * @example
  * ```ts
@@ -58,21 +114,22 @@ import { produceTypes } from './types/builtins'
  * // current is unchanged; next.todos is a new array; next.filter is still 'all'
  * ```
  *
- * @param current - The value to start from. It is not modified.
+ * @param current - The value to start from. `produce` does not modify it; a recipe can, through
+ * `Map` key objects and objects kept by reference.
  * @param recipe - Receives a draft of `current` and returns the next value.
  * @typeParam T - Type of `current` and of the draft.
  * @typeParam R - Type of the value the recipe returns.
  * @returns The value the recipe returned, with drafts replaced by ordinary values. A recipe that
  * returns nothing yields `undefined`.
- * @throws {@link ReconcileError} while the recipe runs: `DraftIterationUnsupported` for draft
- * `Map` or `Set` iteration, `DraftDefinePropertyUnsupported` for reflective property definition,
- * `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an exotic array whose descriptors a
- * real array could not have, and `DraftWrapperIdentityChanged` or
- * `DraftWrapperIteratorMismatched` for a misbehaving reactive wrapper.
- * @throws {@link ReconcileError} after the recipe returns: `FinalizationAccessorUnstable` when a
- * getter adds a new getter to the result, and `FinalizationConstructionImpossible` when no
- * consistent result exists. `FinalizationStorageMissing` and `FinalizationChildInvalid` indicate
- * a bug in the library.
+ * @throws {@link ReconcileError} while the recipe runs: `DraftDefinePropertyUnsupported` for
+ * reflective property definition, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an
+ * array in `current`, such as a proxy, whose properties a real array could not have, and
+ * `DraftWrapperIdentityChanged` or `DraftWrapperIteratorMismatched` for a reactive proxy that
+ * reports inconsistent contents.
+ * @throws {@link ReconcileError} after the recipe returns: `FinalizationAccessorUnstable` can be
+ * thrown when a getter adds a getter to a part of the result that `produce` has already visited,
+ * and `FinalizationConstructionImpossible` when no consistent result exists.
+ * `FinalizationStorageMissing` and `FinalizationChildInvalid` indicate a bug in the library.
  * @throws Errors thrown by the recipe, getters, setters or proxy traps, and native `RangeError`s
  * for invalid array lengths, propagate unchanged.
  */

@@ -1,6 +1,6 @@
 import { assert, it } from 'vitest'
 
-import { produce, reconcile } from '../index'
+import { isReconcileError, isReconcileErrorOfType, produce, reconcile } from '../index'
 
 it.each(['__v_raw', '__v_isReactive', '__v_isReadonly'] as const)(
   'does not invoke an inherited application getter for %s while resolving storage',
@@ -63,4 +63,35 @@ it('terminates cyclic raw-marker chains without merging independent identities',
   assert.equal(right.n, 2)
   left.n = 9
   assert.equal(right.n, 2)
+})
+
+const rejected = (run: () => unknown): void => {
+  try {
+    run()
+  } catch (error) {
+    assert.ok(isReconcileError(error) && isReconcileErrorOfType(error, 'PublicationRejected'))
+    return
+  }
+  assert.fail('expected the publication to be rejected')
+}
+
+it('rejects a fresh target whose wrapper markers resolve to old storage', () => {
+  const old = { n: 0 }
+  const fresh = Object.assign(
+    Object.create({ __v_isReactive: true, __v_raw: old }) as { n: number },
+    { n: 1 },
+  )
+  const current: { a: object; list: object[] } = { a: old, list: [] }
+  rejected(() => reconcile(current, { a: { n: 0 }, list: [fresh] }))
+  assert.equal(current.a, old)
+})
+
+it('rejects two fresh targets whose wrapper markers resolve to one storage', () => {
+  const shared = { n: 0 }
+  const next = {
+    a: { n: 9 },
+    x: Object.assign(Object.create({ __v_isReactive: true, __v_raw: shared }) as object, { n: 1 }),
+    y: Object.assign(Object.create({ __v_isReadonly: true, __v_raw: shared }) as object, { n: 2 }),
+  }
+  rejected(() => reconcile({ a: { n: 9 } }, next))
 })

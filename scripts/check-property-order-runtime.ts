@@ -34,7 +34,9 @@ function checkTrace(observation: Record<string, unknown>): boolean {
     Array.isArray(observation.keeps) &&
       observation.keeps.every((kept) => typeof kept === 'boolean'),
   )
-  const order = new PropertyOrder(new Map(desired.map((code) => [key(code), { value: 0 }])))
+  const order = new PropertyOrder(
+    new Map(desired.map((code) => [key(code), { node: undefined, value: 0 }])),
+  )
   assert.deepEqual(
     current.map((code) => order.keep(key(code))),
     observation.keeps,

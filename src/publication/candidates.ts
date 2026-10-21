@@ -11,6 +11,7 @@ import type {
   Edge,
   PublicationRegistry,
 } from '../types'
+import { denseArray } from '../standard-prototypes'
 
 // This native boundary compiles fixed own references and view construction into
 // the same Requires rule. It does not select a target or mutate captured records.
@@ -91,7 +92,7 @@ function collect(
   records: readonly CapturedNode[],
   alignment?: Pick<CapturedGraph, 'currents' | 'occupants'>,
 ): ReadonlyArray<object[] | undefined> {
-  const aligned = new Array<object[] | undefined>(records.length)
+  const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits; first visits reuse the capture's recognition.
   const kinds = new Map<object, symbol>()
   const kindOf = (object: object): symbol => {

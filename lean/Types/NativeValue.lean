@@ -1,5 +1,3 @@
-import Std
-
 /-! Finite native-value facet model. Native parsing, canonicalization, brand checks,
     allocation, and observation traces remain correspondence obligations. Payloads
     are observations, not JS strings interpreted by Lean. -/

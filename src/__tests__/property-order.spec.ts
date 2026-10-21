@@ -28,12 +28,20 @@ it.each([false, true])(
         return Reflect.ownKeys(object)
       },
     })
-    const node = { edges: [{ value: 1 }], keys: ['a'], layout: { kind: Symbol('surface') } }
+    const node = {
+      attributes: undefined,
+      edges: [{ node: undefined, value: 1 }],
+      keys: ['a'],
+      layout: { kind: Symbol('surface') },
+      observed: undefined,
+      pinned: undefined,
+    }
     expect(
       canPublishProperties(
         node,
         current,
         {
+          desired: undefined,
           keys: Reflect.ownKeys,
           ordered,
           slots: propertySlots,
@@ -42,7 +50,6 @@ it.each([false, true])(
             return true
           },
         },
-        propertySlots(node),
         [],
       ),
     ).toBe(true)
@@ -59,7 +66,7 @@ it.each([false, true])(
 
 it('normalizes once across misses and preserves readiness across other sectors', () => {
   const order = new PropertyOrder(
-    new Map(['1', 'kept', '2', 'next'].map((key) => [key, { value: 0 }])),
+    new Map(['1', 'kept', '2', 'next'].map((key) => [key, { node: undefined, value: 0 }])),
   )
   expect(order.keep('missing')).toBe(false)
   expect(Reflect.get(order, 'cursor')).toBe(1)
@@ -80,7 +87,9 @@ it('normalizes once across misses and preserves readiness across other sectors',
 })
 
 it('does not prepare an unused numeric-only name cursor', () => {
-  const order = new PropertyOrder(new Map(['0', '1'].map((key) => [key, { value: 0 }])))
+  const order = new PropertyOrder(
+    new Map(['0', '1'].map((key) => [key, { node: undefined, value: 0 }])),
+  )
   expect(order.keep('1')).toBe(true)
   expect(order.keep('0')).toBe(true)
   expect(Reflect.get(order, 'cursor')).toBe(0)
@@ -92,10 +101,10 @@ it('keeps symbol progress independent from exhausted and empty name cursors', ()
   const first = Symbol('first')
   const second = Symbol('second')
   const order = new PropertyOrder(
-    new Map<PropertyKey, { value: number }>([
-      ['name', { value: 0 }],
-      [first, { value: 0 }],
-      [second, { value: 0 }],
+    new Map<PropertyKey, { node: undefined; value: number }>([
+      ['name', { node: undefined, value: 0 }],
+      [first, { node: undefined, value: 0 }],
+      [second, { node: undefined, value: 0 }],
     ]),
   )
   expect(order.keep('name')).toBe(true)

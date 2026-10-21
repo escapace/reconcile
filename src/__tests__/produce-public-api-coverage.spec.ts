@@ -715,7 +715,7 @@ describe('produce public api coverage', () => {
     expect(result.self).toBe(result)
   })
 
-  it('finalizes fresh special values inside an ordinary returned root when another child forces root finalization', () => {
+  it('keeps unchanged special values inside an ordinary returned root when another child forces root finalization', () => {
     const current = {
       item: { count: 0 },
     }
@@ -743,14 +743,14 @@ describe('produce public api coverage', () => {
     }
 
     expect(result.item).toEqual({ count: 1 })
-    expect(result.date).not.toBe(date)
+    expect(result.date).toBe(date)
     expect(result.date.getTime()).toBe(date.getTime())
-    expect(result.buffer).not.toBe(buffer)
+    expect(result.buffer).toBe(buffer)
     expect(Array.from(new Uint8Array(result.buffer))).toEqual([1, 2, 3, 4])
-    expect(result.typed).not.toBe(typed)
+    expect(result.typed).toBe(typed)
     expect(result.typed.constructor).toBe(Uint16Array)
     expect(Array.from(result.typed)).toEqual([513, 1027])
-    expect(result.view).not.toBe(view)
+    expect(result.view).toBe(view)
     expect(result.view.byteOffset).toBe(1)
     expect(result.view.byteLength).toBe(2)
     expect(result.typed.buffer).toBe(result.buffer)

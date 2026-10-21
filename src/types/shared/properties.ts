@@ -1,6 +1,7 @@
 import { isNode } from '../../graph/edge'
 import { hasOwn } from '../../object-property'
 import type { Align, CapturedNode } from '../../types'
+import { isDataDescriptor } from '../../standard-prototypes'
 
 export function backedProperty(
   base: object | undefined,
@@ -9,7 +10,7 @@ export function backedProperty(
 ): boolean {
   return (
     base !== undefined &&
-    'value' in (Object.getOwnPropertyDescriptor(base, key) ?? {}) &&
+    isDataDescriptor(Object.getOwnPropertyDescriptor(base, key) ?? {}) &&
     Object.is(value, Reflect.get(base, key))
   )
 }

@@ -362,7 +362,7 @@ describe('clone-on-read sibling-write contract', () => {
     assert.equal(result.set.has(result.touched), true)
   })
 
-  it('continues to clone clone-on-read values placed into an ordinary returned root', () => {
+  it('keeps unchanged clone-on-read values placed into an ordinary returned root', () => {
     const date = new Date('2024-01-01T00:00:00.000Z')
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer
     const view = new DataView(buffer, 1, 2)
@@ -380,10 +380,10 @@ describe('clone-on-read sibling-write contract', () => {
       return { buffer, date, item: draft.item, typed, view }
     })
 
-    assert.notEqual(result.date, date)
-    assert.notEqual(result.buffer, buffer)
-    assert.notEqual(result.view, view)
-    assert.notEqual(result.typed, typed)
+    assert.equal(result.date, date)
+    assert.equal(result.buffer, buffer)
+    assert.equal(result.view, view)
+    assert.equal(result.typed, typed)
     assert.equal(result.view.buffer, result.buffer)
     assert.equal(result.typed.buffer, result.buffer)
     assert.deepEqual(result.item, { count: 1 })

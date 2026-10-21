@@ -1,7 +1,10 @@
+import { OBJECT_KIND } from '../constants'
+import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { freeze, independentBindings, yes } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
+  CapturedNode,
   CapturePolicy,
   ConstructionPolicy,
   SnapshotPolicy,
@@ -10,8 +13,8 @@ import type {
   DraftStrategy,
   Recognition,
 } from '../types'
-import { isObject, ownKeys } from '../object-property'
-import { setOwnProperty } from '../set-own-property'
+import { hasOwn, hiddenNames, isEnumerable, isObject, ownKeys } from '../object-property'
+import { setOwnProperty, standardPrototype } from '../set-own-property'
 import type { Edge } from '../types'
 import { defineType } from './registry'
 import type { PropertyDraftRules } from './shared/draft-properties'
@@ -26,27 +29,43 @@ import {
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
+import { defineData, hide, isDataDescriptor } from '../standard-prototypes'
 
 /** Stable global identity owned by the object module. */
-export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
+/** Stable global identity owned by the object module. */
+export { OBJECT_KIND }
 
 const objectSurface: PropertySurface<ObjectLayout> = {
   compatible: yes,
   keys: ownKeys,
   ordered: true,
-  slots: (node) => node.layout.slots ?? propertySlots(node),
+  desired: (node) => node.keys,
+  // The layout is private to this call's capture; the index is built on first demand.
+  slots: (node) =>
+    node.layout.slots ??
+    ((node.layout as { slots?: ReadonlyMap<PropertyKey, Edge> }).slots = propertySlots(node)),
 }
 
 const objectCapture = {
   construction: noValue,
-  observe(value, begin, edge) {
-    const prototype = Object.getPrototypeOf(value) as object | null
+  // A caller that classified the value passes the prototype it read.
+  observe(value, begin, edge, _mode, known) {
+    const prototype = known === undefined ? (Object.getPrototypeOf(value) as object | null) : known
     const names = Object.getOwnPropertyNames(value)
-    begin({ kind: OBJECT_KIND, prototype })
+    const layout: ObjectLayout = {
+      hidden: hiddenNames(value, names),
+      kind: OBJECT_KIND,
+      prototype,
+      slots: undefined,
+    }
+    begin(layout)
     // Symbols are listed after string getters run, so keys those getters add are captured.
     for (const key of names) edge(Reflect.get(value, key) as unknown, key)
-    for (const key of Object.getOwnPropertySymbols(value))
+    for (const key of Object.getOwnPropertySymbols(value)) {
       edge(Reflect.get(value, key) as unknown, key)
+      if (!isEnumerable(value, key))
+        ((layout as { hidden?: Set<PropertyKey> }).hidden ??= new Set()).add(key)
+    }
   },
 } satisfies CapturePolicy<ObjectLayout>
 
@@ -55,14 +74,56 @@ const objectConstruction = {
   allocate: (node) => Object.create(node.layout.prototype) as object,
 } satisfies ConstructionPolicy<ObjectLayout>
 
+// Writes one snapshot property into a new object on `Object.prototype` or a null prototype.
+function writeStandardSlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
+  setOwnProperty(
+    this.target as Record<PropertyKey, unknown>,
+    key!,
+    snapshotValue(edge),
+    true,
+    (this.layout as ObjectLayout).hidden?.has(key!) !== true,
+  )
+}
+
+// Writes one snapshot property into a new object on any other prototype, by definition.
+function writeDefinedSlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
+  setOwnProperty(
+    this.target as Record<PropertyKey, unknown>,
+    key!,
+    snapshotValue(edge),
+    false,
+    (this.layout as ObjectLayout).hidden?.has(key!) !== true,
+  )
+}
+
 export const objectSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...objectCapture,
-    snapshot(layout, resolve, writer) {
-      const target = Object.create(layout.prototype) as Record<PropertyKey, unknown>
-      writer.initialize(layout, target, (edge, key) => setOwnProperty(target, key!, resolve(edge)))
+    snapshot(layout, _resolve, writer) {
+      writer.initialize(
+        layout,
+        Object.create(layout.prototype) as object,
+        standardPrototype(layout.prototype) ? writeStandardSlot : writeDefinedSlot,
+      )
     },
   }))() satisfies SnapshotPolicy<ObjectLayout>
+
+/** Writes each requested property in order. A property this write adds takes next's
+ * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes. */
+function writeProperties(
+  node: CapturedNode<ObjectLayout>,
+  target: object,
+  image: (edge: Edge) => unknown,
+): boolean {
+  const hidden = node.layout.hidden
+  for (let index = 0; index < node.keys.length; index += 1) {
+    const key = node.keys[index]
+    const added = hidden?.has(key) === true && !hasOwn(target, key)
+    if (!publishProperty(target, key, image(node.edges[index]))) return false
+    if (added && !hide(target, key)) return false
+  }
+  return true
+}
 
 export const objectPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
@@ -81,33 +142,35 @@ export const objectPublication = /* @__PURE__ */ (() =>
       return true
     },
     publish(node, target, image) {
-      const properties = objectSurface.slots(node)
       const keys = node.keys
       const previous = ownKeys(target)
-      const order = alignedPrefix(previous, keys) ? undefined : new PropertyOrder(properties)
-      for (const key of previous) {
+      // Own keys are duplicate-free, so when they start with the requested order exactly the
+      // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
+      // i holds edge i.
+      const properties = alignedPrefix(previous, keys) ? undefined : objectSurface.slots(node)
+      const order = properties === undefined ? undefined : new PropertyOrder(properties)
+      for (let position = 0; position < previous.length; position += 1) {
+        const key = previous[position]
         const retained = order?.keep(key)
         if (
-          !properties.has(key) ||
+          !(properties === undefined ? position < keys.length : properties.has(key)) ||
           (retained === false &&
             Object.getOwnPropertyDescriptor(target, key)?.configurable !== false)
         ) {
           if (!Reflect.deleteProperty(target, key)) return false
         }
       }
-      for (const key of keys)
-        if (!publishProperty(target, key, image(properties.get(key)!))) return false
-      return true
+      return writeProperties(node, target, image)
     },
     requirements: (node, current) => propertyRequirements(node, current, objectSurface),
-    // The building node and its layout are private to this capture; seal indexes them in place.
-    seal(node) {
-      ;(node.layout as { slots?: ReadonlyMap<PropertyKey, Edge> }).slots = propertySlots(node)
-      return node
-    },
+    // Object slots are indexed on first demand; see objectSurface.
+    seal: (node) => node,
   }))() satisfies PublicationPolicy<ObjectLayout>
 
 // Packs a data descriptor's configurable, enumerable and writable flags into bits 1, 2 and 4.
+/** Data attributes of a getter's value in a rebuilt object, with a bit marking the accessor. */
+export const OBSERVED_ACCESSOR = 15
+
 const attributeBits = (descriptor: PropertyDescriptor): number =>
   (descriptor.configurable === true ? 1 : 0) |
   (descriptor.enumerable === true ? 2 : 0) |
@@ -117,38 +180,51 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
   ...objectConstruction,
   immutable: /* @__PURE__ */ freeze({
     tag: 'structural',
-    observeDraft(source, begin, edge, { base, properties, read }) {
+    observeDraft(source, observer) {
+      const { base, properties } = observer
       const prototype =
         properties === undefined
           ? (Object.getPrototypeOf(source) as object | null)
           : properties.sourcePrototype()
-      begin({ kind: OBJECT_KIND, prototype })
+      observer.begin({ hidden: undefined, kind: OBJECT_KIND, prototype, slots: undefined })
       const keys = properties === undefined ? ownKeys(source) : properties.keys(source)
       for (const key of keys) {
         const descriptor =
           properties === undefined
             ? Object.getOwnPropertyDescriptor(source, key)
             : properties.ownDescriptor(key)
-        const data = descriptor !== undefined && 'value' in descriptor
+        const data = descriptor !== undefined && isDataDescriptor(descriptor)
         const value: unknown = data
           ? properties === undefined
             ? Reflect.get(source, key)
             : properties.read(key)
-          : read(source, key)
-        const attributes = data ? attributeBits(descriptor) : 7
-        edge(value, key, (isObject(value) || !data) && backedProperty(base, key, value), attributes)
+          : observer.read(source, key)
+        const attributes = data ? attributeBits(descriptor) : OBSERVED_ACCESSOR
+        observer.edge(
+          value,
+          key,
+          (isObject(value) || !data) && backedProperty(base, key, value),
+          attributes,
+        )
       }
     },
     reuse(node, current, visit) {
       for (let index = 0; index < node.keys.length; index += 1) {
         const key = node.keys[index]
         const descriptor = Object.getOwnPropertyDescriptor(current, key)
-        if (
-          descriptor === undefined ||
-          !('value' in descriptor) ||
-          !visit(Reflect.get(current, key), node.edges[index])
-        )
-          return false
+        if (descriptor === undefined) return false
+        // An own accessor observed in this call stays when the value it returned is the
+        // resolved child itself, compared without calling the getter again; a draft handle it
+        // returned does not match, so that object is rebuilt with data.
+        if (!isDataDescriptor(descriptor)) {
+          if (
+            node.attributes?.[index] !== OBSERVED_ACCESSOR ||
+            !visit(node.observed?.[index], node.edges[index])
+          )
+            return false
+          continue
+        }
+        if (!visit(Reflect.get(current, key), node.edges[index])) return false
       }
       const keys = ownKeys(current)
       return (
@@ -160,25 +236,29 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
     const attributes = node.attributes![index]
     const key = node.keys[index]
     const prototype = node.layout.prototype
-    // A fresh plain shell has no own keys yet and no inherited setter except `__proto__`,
-    // so an ordinary data write creates the same own descriptor as the explicit definition.
+    // A fresh plain shell has no own keys yet, so assigning a key `Object.prototype` lacks
+    // creates the same own descriptor as the explicit definition (`PropertyWrite.constructOn`).
     if (
-      attributes === 7 &&
-      key !== '__proto__' &&
-      (prototype === Object.prototype || prototype === null)
+      (attributes & 7) === 7 &&
+      (prototype === Object.prototype || prototype === null) &&
+      !(key in Object.prototype)
     ) {
       ;(target as Record<PropertyKey, unknown>)[key] = resolve(node.edges[index])
       return
     }
-    Object.defineProperty(target, key, {
-      configurable: (attributes & 1) !== 0,
-      enumerable: (attributes & 2) !== 0,
-      value: resolve(node.edges[index]),
-      writable: (attributes & 4) !== 0,
-    })
+    defineData(
+      target,
+      key,
+      resolve(node.edges[index]),
+      (attributes & 2) !== 0,
+      (attributes & 1) !== 0,
+      (attributes & 4) !== 0,
+    )
   },
   someChild(source, read, test) {
-    for (const key of ownKeys(source)) if (test(read(source, key))) return true
+    const keys = ownKeys(source)
+    for (let index = 0; index < keys.length; index += 1)
+      if (test(read(source, keys[index]))) return true
     return false
   },
 }))() satisfies ImmutablePolicy<ObjectLayout>
@@ -193,11 +273,15 @@ const objectPolicy = /* @__PURE__ */ (() => ({
 export interface ObjectLayout {
   readonly kind: typeof OBJECT_KIND
   readonly prototype: object | null
-  readonly slots?: ReadonlyMap<PropertyKey, Edge>
+  /** The source's non-enumerable own keys, which a new property copies. */
+  readonly hidden: ReadonlySet<PropertyKey> | undefined
+  readonly slots: ReadonlyMap<PropertyKey, Edge> | undefined
 }
 
 const objectDraftRules: PropertyDraftRules<typeof OBJECT_KIND> = {
+  admits: yes,
   kind: OBJECT_KIND,
+  methods: undefined,
   capture: () => undefined,
   configurable: () => true,
   initialize: () => undefined,

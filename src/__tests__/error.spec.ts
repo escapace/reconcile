@@ -7,7 +7,7 @@ import {
   reconcile,
   ReconcileError,
 } from '../index'
-import type { DraftIterationMethod, ReconcileErrorMetadata, ReconcileErrorType } from '../index'
+import type { ReconcileErrorMetadata, ReconcileErrorType } from '../index'
 
 function thrown(run: () => unknown): unknown {
   try {
@@ -23,43 +23,20 @@ describe('ReconcileError', () => {
     assert.deepEqual([...RECONCILE_ERROR_TYPES], [...new Set(RECONCILE_ERROR_TYPES)].sort())
     expectTypeOf<keyof ReconcileErrorMetadata>().toEqualTypeOf<ReconcileErrorType>()
     for (const type of RECONCILE_ERROR_TYPES)
-      assert.match(type, /^(?:Draft|Finalization|Publication|Snapshot)[A-Z]/)
+      assert.match(type, /^(?:Deserialize|Draft|Finalization|Publication|Serialize|Snapshot)[A-Z]/)
   })
 
   it('is a plain Error with a stable name and a discriminated cause', () => {
     const error = thrown(() => reconcile({}, []))
     assert.instanceOf(error, Error)
-    assert.match(error.message, /^Publication .* rejected\.$/)
+    assert.equal(error.message, 'reconcile cannot make current match next.')
     assert.instanceOf(error, ReconcileError)
     assert.ok(isReconcileError(error))
     assert.equal(error.name, 'ReconcileError')
     assert.deepEqual(error.cause, { type: 'PublicationRejected' })
     assert.ok(isReconcileErrorOfType(error, 'PublicationRejected'))
-    assert.notOk(isReconcileErrorOfType(error, 'DraftIterationUnsupported'))
+    assert.notOk(isReconcileErrorOfType(error, 'DraftDefinePropertyUnsupported'))
     assert.notInstanceOf(error, TypeError)
-  })
-
-  it('reports each unsupported draft collection entry point with its method', () => {
-    const calls: Array<
-      [keyof Map<unknown, unknown> | typeof Symbol.iterator, DraftIterationMethod]
-    > = [
-      ['entries', 'entries'],
-      ['forEach', 'forEach'],
-      ['keys', 'keys'],
-      ['values', 'values'],
-      [Symbol.iterator, 'iterator'],
-    ]
-    for (const [name, method] of calls) {
-      const error = thrown(() =>
-        produce({ map: new Map([[1, 2]]) }, (draft) => {
-          ;(draft.map[name as 'keys'] as () => unknown)()
-          return draft
-        }),
-      )
-      assert.ok(isReconcileError(error))
-      assert.deepEqual(error.cause, { method, type: 'DraftIterationUnsupported' })
-      assert.match(error.message, /not supported/)
-    }
   })
 
   it('reports the property of a rejected reflective definition', () => {

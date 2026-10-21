@@ -15,6 +15,9 @@ it('preserves generic predicate traces, prefix stops and thrown errors', () => {
     new Uint8Array(4),
     new URL('https://example.test/'),
     new URLSearchParams('a=1'),
+    /a/,
+    new TypeError('atom'),
+    Object.create(null) as object,
   ]
   const failure = new Error('prototype observation')
   for (const value of values) {
@@ -45,10 +48,7 @@ it('preserves generic predicate traces, prefix stops and thrown errors', () => {
             return { error, trace }
           }
         }
-        assert.deepEqual(
-          run({ matches: publicationTypes.matches, recognize: snapshotTypes.recognize }),
-          run(builtinTypes),
-        )
+        assert.deepEqual(run(publicationTypes), run(builtinTypes))
       }
     }
   }

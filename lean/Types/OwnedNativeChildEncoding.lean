@@ -1,5 +1,8 @@
-import Defs
+import Heap.Defs
 import Types.OwnedNativeChild
+
+/-! Encodes an owned native object as a plain-object node holding its payload and an explicit
+reference to its child, injectively. -/
 
 namespace Reconcile.OwnedNativeChild
 

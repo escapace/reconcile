@@ -1,4 +1,7 @@
-import Mathlib.Data.List.Basic
+/-! Recognition by ordered native predicate probes (`src/types/builtins.ts`,
+`src/types/registry.ts`, `src/types/temporal.ts`): the unrolled built-in and Temporal probes select
+the same result, throw at the same position and visit the same native prefix as a generic ordered
+scan. -/
 
 namespace Reconcile.Types.Recognition
 
@@ -22,10 +25,6 @@ theorem accepts_iff (flags : List Bool) (rank : Nat) :
   | nil => simp [accepts, first]
   | cons flag rest ih =>
     cases flag <;> cases rank <;> simp [accepts, first, ih]
-
-end Reconcile.Types.Recognition
-
-namespace Reconcile.Types.Recognition
 
 /-- Supplied native outcomes; a throw terminates the observed predicate prefix. -/
 inductive ProbeOutcome where
@@ -82,10 +81,6 @@ example : scanTrace 0 0 [.miss, .raised] = { visited := [0] } := by decide
 example : scanTrace 2 0 [.hit, .raised] =
     { selected := some 0, visited := [0] } := by decide
 
-end Reconcile.Types.Recognition
-
-namespace Reconcile.Types.Recognition
-
 /-- Eight Temporal constructor probes; unlike registry recognition there is no fallback kind. -/
 def temporalTrace (p0 p1 p2 p3 p4 p5 p6 p7 : ProbeOutcome) : ProbeTrace :=
   probe 0 7 p0 fun _ =>
@@ -102,10 +97,6 @@ theorem temporalTrace_eq_scanTrace (p0 p1 p2 p3 p4 p5 p6 p7 : ProbeOutcome) :
     temporalTrace p0 p1 p2 p3 p4 p5 p6 p7 =
       scanTrace 7 0 [p0, p1, p2, p3, p4, p5, p6, p7] := by
   rfl
-
-end Reconcile.Types.Recognition
-
-namespace Reconcile.Types.Recognition
 
 /-- A full traversal has no prefix cutoff test between its native probes. -/
 def fullProbe (rank : Nat) (outcome : ProbeOutcome) (rest : Unit → ProbeTrace) : ProbeTrace :=

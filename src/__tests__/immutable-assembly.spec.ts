@@ -12,7 +12,9 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
   let parentReads = 0
   const parent: ReuseNode = {
     children: [],
+    discoveredBy: undefined,
     layout: { kind: cellType.kind },
+    leaf: undefined,
     get settled() {
       trace.push('parent.settled')
       return false
@@ -25,7 +27,9 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
   }
   const child: ReuseNode = {
     children: [parent],
+    discoveredBy: undefined,
     layout: { kind: cellType.kind },
+    leaf: undefined,
     get settled() {
       trace.push('child.settled')
       return false

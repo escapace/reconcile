@@ -1,7 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-import { ReconcileError } from '../index'
 import { snapshot } from '../snapshot'
 
 class UnsupportedCounter {
@@ -794,33 +793,6 @@ describe('produce', () => {
     assert.deepEqual(result.item, { count: 16 })
   })
 
-  it('rejects iterator and callback iteration APIs on map and set drafts', () => {
-    const current = {
-      map: new Map<string, number>([['a', 1]]),
-      set: new Set<number>([1]),
-    }
-
-    assert.throws(
-      () =>
-        produce(current, (draft) => {
-          ;(draft.map as unknown as { entries: () => unknown }).entries()
-          return draft
-        }),
-      ReconcileError,
-      /not supported/,
-    )
-
-    assert.throws(
-      () =>
-        produce(current, (draft) => {
-          ;(draft.set as unknown as { forEach: () => unknown }).forEach()
-          return draft
-        }),
-      ReconcileError,
-      /not supported/,
-    )
-  })
-
   it('preserves buffer and view alias coherence in the returned next graph', () => {
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer
     const current = {
@@ -1129,7 +1101,7 @@ describe('produce', () => {
     assert.deepEqual(bytesOfDataView(result.view), [5, 6])
   })
 
-  it('reuses one finalized DataView when the same ordinary returned next DataView is referenced twice', () => {
+  it('keeps one unchanged DataView referenced twice in an ordinary returned root', () => {
     const current = {
       touch: { count: 0 },
     }
@@ -1149,14 +1121,14 @@ describe('produce', () => {
     }
 
     assert.equal(result.left, result.right)
-    assert.notEqual(result.left, sharedNextView)
+    assert.equal(result.left, sharedNextView)
     assert.equal(result.left.byteOffset, 1)
     assert.equal(result.left.byteLength, 2)
     assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])
     assert.deepEqual(bytesOfDataView(result.left), [6, 7])
   })
 
-  it('reuses one finalized typed-array view when the same ordinary returned next typed array is referenced twice', () => {
+  it('keeps one unchanged typed-array view referenced twice in an ordinary returned root', () => {
     const current = {
       touch: { count: 0 },
     }
@@ -1176,7 +1148,7 @@ describe('produce', () => {
     }
 
     assert.equal(result.left, result.right)
-    assert.notEqual(result.left, sharedNextTyped)
+    assert.equal(result.left, sharedNextTyped)
     assert.equal(result.left.byteOffset, 1)
     assert.equal(result.left.byteLength, 2)
     assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])

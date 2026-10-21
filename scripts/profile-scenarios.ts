@@ -4,6 +4,7 @@ import { ring, type RingNode } from '../src/__tests__/fixtures/ring'
 import type { selections } from '../src/graph/selection'
 import type * as API from '../src/index'
 import type { Domains } from '../src/types'
+import { serializationFixtures, serializationOperation, textCodec } from './bench-workloads'
 
 export const diagnosticNames = [
   'diag-noop',
@@ -25,6 +26,13 @@ export const diagnosticNames = [
   'diag-unsupported-cycle',
   'diag-module-date',
   'diag-module-buffer',
+  'diag-serialize-graph',
+  'diag-deserialize-graph',
+  'diag-deserialize-bigints',
+  'diag-deserialize-limited',
+  'diag-required-max-bytes',
+  'serialize',
+  'deserialize',
 ] as const
 export type DiagnosticName = (typeof diagnosticNames)[number]
 
@@ -47,6 +55,19 @@ interface Scenario {
 }
 
 const identity = (value: object): object => value
+
+/** `size` records with shared children, a `Map`, dates and a cycle back to the first record. */
+function serializationGraph(size: number): object {
+  const pool = Array.from({ length: 8 }, (_, id) => ({ id, label: `shared-${id}` }))
+  const records = Array.from({ length: size }, (_, id): Record<string, unknown> => ({
+    id,
+    shared: pool[id % pool.length],
+    tags: [`t${id % 5}`, id],
+    when: new Date(id),
+  }))
+  records.at(-1)!.next = records[0]
+  return { index: new Map(records.map((record, id) => [id, record])), records }
+}
 
 /** A ring of frozen nodes with frozen payloads. */
 function frozenRing(length: number): RingNode[] {
@@ -93,6 +114,11 @@ function produceAlias({ alias, api, shared }: Context, undo: boolean): Scenario 
 
 /** Fixtures are created when a factory runs, before warmup; `run` and `validate` close over them. */
 const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
+  'deserialize': ({ api }) => ({
+    layer: 'serialization',
+    state: 'decodes the six serialization fixture texts in rotation, one per operation',
+    ...serializationOperation(api, 'deserialize'),
+  }),
   'diag-alias-dag': ({ alias, api, shared }) => {
     let last: unknown
     const root = { child: shared, left: alias, right: alias }
@@ -238,6 +264,50 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
+  'diag-deserialize-bigints': ({ api, size }) => {
+    const { decode, encode } = textCodec(api)
+    const large = 2n ** 256n
+    const text = encode(
+      Array.from({ length: size * 8 }, (_, n) => ({
+        flag: BigInt(n % 2),
+        id: BigInt(n),
+        signed: -BigInt(n) * 1_000_003n,
+        wide: large + BigInt(n),
+      })),
+    )
+    let last: unknown
+    return {
+      layer: 'serialization',
+      state: 'decodes the JSON text of 8 × size records with four distinct and shared bigints each',
+      run: () => {
+        last = decode(text)
+      },
+      validate: () => {
+        assert.equal(encode(last), text)
+      },
+    }
+  },
+  'diag-deserialize-graph': ({ api, size }) => {
+    const { decode, encode } = textCodec(api)
+    const text = encode(serializationGraph(size))
+    let last: unknown
+    return {
+      layer: 'serialization',
+      state:
+        'decodes the JSON text of a size-record graph with shared children, a Map, dates and a cycle',
+      run: () => {
+        last = decode(text)
+      },
+      validate: () => {
+        assert.equal(encode(last), text)
+      },
+    }
+  },
+  'diag-deserialize-limited': ({ api }) => ({
+    layer: 'serialization',
+    state: 'decodes the six serialization fixture texts in rotation under a limit never reached',
+    ...serializationOperation(api, 'deserialize', 2 ** 52),
+  }),
   'diag-fanout': ({ api, size }) => {
     let last: unknown
     const current = Array.from({ length: size }, () => ({ n: 0 }))
@@ -312,6 +382,48 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
         assert.equal(input.counter, 0)
         assert.equal(output.deep, deep)
         for (let n = 0; n < size; n += 1) assert.equal(output.deep[n], deep[n])
+      },
+    }
+  },
+  'diag-required-max-bytes': ({ api }) => {
+    const { deserialize, requiredMaxBytes } = api
+    if (requiredMaxBytes === undefined || deserialize === undefined)
+      throw new Error('This source tree has no requiredMaxBytes.')
+    // Measuring does not modify a document, so each is parsed once.
+    const documents = serializationFixtures(api).map(({ text }) => JSON.parse(text) as unknown)
+    const expected = documents.map((json) => {
+      const maxBytes = requiredMaxBytes(json, { maxBytes: Infinity })
+      deserialize(structuredClone(json), { maxBytes })
+      assert.throws(() => deserialize(structuredClone(json), { maxBytes: maxBytes - 1 }))
+      return maxBytes
+    })
+    let turn = 0
+    let last = 0
+    return {
+      layer: 'serialization',
+      state: 'measures the six serialization fixture documents in rotation, parsed once',
+      run: () => {
+        last = requiredMaxBytes(documents[turn++ % documents.length], { maxBytes: Infinity })
+      },
+      validate: () => {
+        assert.equal(last, expected[(turn - 1) % documents.length])
+      },
+    }
+  },
+  'diag-serialize-graph': ({ api, size }) => {
+    const { encode } = textCodec(api)
+    const graph = serializationGraph(size)
+    const text = encode(graph)
+    let last = ''
+    return {
+      layer: 'serialization',
+      state:
+        'encodes a size-record graph with shared children, a Map, dates and a cycle as JSON text',
+      run: () => {
+        last = encode(graph)
+      },
+      validate: () => {
+        assert.equal(last, text)
       },
     }
   },
@@ -452,6 +564,11 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
+  'serialize': ({ api }) => ({
+    layer: 'serialization',
+    state: 'encodes the six serialization fixture graphs as text in rotation, one per operation',
+    ...serializationOperation(api, 'serialize'),
+  }),
 }
 
 /** Fixtures are created before warmup. Validation happens after profiling stops. */
@@ -464,6 +581,10 @@ export function createDiagnostic(
     snapshot: typeof API.snapshot
     copyDate: (value: object, resolve: (child: object) => object) => object
     sameBuffer: (left: ArrayBuffer, right: ArrayBuffer) => boolean
+    /** The tree's serialization API, if any; only serialization scenarios need it. */
+    deserialize?: typeof API.deserialize
+    requiredMaxBytes?: typeof API.requiredMaxBytes
+    serialize?: typeof API.serialize
   },
   size: number,
 ) {

@@ -1,9 +1,9 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
 
-  // Development tooling that no package.json field or built-in plugin reveals: scripts launched
-  // by the Python wrappers or by hand, and the profiling harness that profile.ts bundles by
-  // path. The support role keeps them out of the shipped-code checks.
+  // Development tooling that no package.json field or built-in plugin reveals: scripts that
+  // scripts/bench.ts and the Python wrappers launch by path, and the profiling harness that
+  // profile.ts bundles by path. The support role keeps them out of the shipped-code checks.
   "framework": [
     {
       // Loaded by syncpack; the built-in syncpack plugin does not detect the .mjs name.
@@ -15,6 +15,8 @@
         "scripts/profile.ts",
         "scripts/check-lean.ts",
         "scripts/bundle-size.ts",
+        "scripts/bench-compare.ts",
+        "scripts/bench-run.ts",
         "perf/profile-harness.ts",
       ],
       "name": "repository-tooling",
@@ -89,7 +91,8 @@
     // CRAP needs real coverage; `pnpm test` writes this file, so run the tests before linting.
     "coverage": "coverage/coverage-final.json",
     // perf/ holds the frozen benchmark workloads (AGENTS.md); their findings cannot be acted on.
-    "ignore": ["perf/**"],
+    // The standard-prototypes driver runs in a child process, where coverage cannot see it.
+    "ignore": ["perf/**", "src/__tests__/fixtures/standard-prototypes.ts"],
     // SonarSource default for cognitive complexity.
     "maxCognitive": 15,
     // Original CRAP threshold (Savoia and Evans).
@@ -169,6 +172,7 @@
           "src/error.ts",
           "src/object-property.ts",
           "src/set-own-property.ts",
+          "src/standard-prototypes.ts",
         ],
       },
       // The proven finite algorithms, which work on private records only.

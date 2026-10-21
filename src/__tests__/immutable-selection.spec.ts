@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { reactive, shallowReactive } from 'vue'
 import { storageIdentity } from '../adapters/vue'
-import { immutableSelections } from '../graph/immutable-selection'
+import { immutableHead, immutableSelections } from '../graph/immutable-selection'
 import { selections } from '../graph/selection'
 import { produce } from '../produce'
 import type { ImmutableProblem } from '../types'
@@ -110,6 +110,39 @@ describe('compact immutable selection', () => {
       new Array<boolean>(2 * size + 1).fill(false),
     ])
     expect(masks).toEqual(reference(problem))
+  })
+
+  // CompactImmutable.ranked_head: an admissible, separated and closed eligibility mask is the
+  // stream's first mask.
+  it('streams the eligibility mask first when it is admissible, separated and closed', () => {
+    let seed = 91_357
+    const random = (size: number): number => {
+      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
+      return (seed >>> 8) % size
+    }
+    let heads = 0
+    let declined = 0
+    for (let test = 0; test < 3000; test += 1) {
+      const size = random(6)
+      const problem = fixture(
+        Array.from({ length: size }, (_, node) => ({
+          children: Array.from({ length: random(3) === 0 ? 1 + random(2) : 0 }, () => random(size)),
+          eligible: random(4) !== 0,
+          fixed: random(5) === 0,
+          storage: random(4) === 0 ? 200 + random(3) : 300 + node,
+        })),
+      )
+      const stream = [...immutableSelections(problem)]
+      const head = immutableHead(problem)
+      if (head === undefined) {
+        declined += 1
+        continue
+      }
+      heads += 1
+      expect(stream[0], `fixture ${test}`).toEqual(head)
+    }
+    expect(heads).toBeGreaterThan(300)
+    expect(declined).toBeGreaterThan(300)
   })
 
   it('rejects malformed retained storage and child indices explicitly', () => {

@@ -1,6 +1,7 @@
-import Std
+/-! Lazily allocated ownership tables: a table that does not exist yet reads as empty, and any
+writes give the same lookups whether the table starts absent or empty. A representation
+refinement only: no native observations or selection changes. -/
 
-/- Representation refinement only: no native observations or selection changes. -/
 namespace Reconcile.LazyOwnership
 
 abbrev Table := Nat → Option Nat

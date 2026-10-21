@@ -4,7 +4,7 @@ import { finalizationConstructionImpossible } from './error'
 import { storageIdentity } from './adapters/vue'
 import { constructionOrder } from './graph/construction'
 import { constructionDependencies } from './graph/construction-facts'
-import { immutableSelections } from './graph/immutable-selection'
+import { immutableHead, immutableSelections } from './graph/immutable-selection'
 import { closeRequirements } from './graph/requirements'
 import { isObject } from './object-property'
 import type {
@@ -26,7 +26,9 @@ export function compileImmutable(
   kindOf: (value: object) => symbol = (value) => recognize(types, value),
 ): ImmutableProblem {
   const records: ImmutableRecord[] = []
-  const indices = new Map<FinalizedReference, NodeEdge>()
+  // A per-compile mark on the private finalized references replaces two identity tables; a
+  // reference marked by another compile of the same graph carries a different mark.
+  const mark = {}
   const specials = new Map<object, NodeEdge>()
   const locallyReusable: boolean[] = []
   const parents: number[][] = []
@@ -40,7 +42,7 @@ export function compileImmutable(
     const index = records.length
     const reference = { node: index }
     specials.set(target, reference)
-    records.push({ edges: [], target })
+    records.push({ edges: [], payload: undefined, settled: undefined, target })
     locallyReusable[index] = true
     parents[index] = []
     return reference
@@ -51,12 +53,11 @@ export function compileImmutable(
   // shared owning storage.
   const discover = (): boolean => {
     let leaves = false
-    const visited = new Set<FinalizedReference>()
     const references = [result]
     while (references.length !== 0) {
       const reference = references.pop()!
-      if (visited.has(reference)) continue
-      visited.add(reference)
+      if (reference.discoveredBy === mark) continue
+      reference.discoveredBy = mark
       if (reference.layout === undefined) {
         special(reference.target)
         leaves ||= reference.leaf === true
@@ -70,18 +71,18 @@ export function compileImmutable(
   }
   const leaves = discover()
   const edge = (value: unknown): Edge => {
-    if (!isObject(value)) return { value }
+    if (!isObject(value)) return { node: undefined, value }
     const reference = value as FinalizedReference
     return reference.layout === undefined
       ? specials.get(reference.target)!
       : collect(reference as ReuseNode)
   }
   const collect = (record: ReuseNode): NodeEdge => {
-    const previous = indices.get(record)
-    if (previous !== undefined) return previous
+    if (record.collectedBy === mark) return record.collectedAs!
     const index = records.length
     const reference = { node: index }
-    indices.set(record, reference)
+    record.collectedBy = mark
+    record.collectedAs = reference
     if (leaves) byTarget.set(record.target, reference)
     const edges: Edge[] = []
     const entry = {
@@ -105,6 +106,8 @@ export function compileImmutable(
       edges,
       keys: record.keys ?? [],
       layout: record.layout,
+      observed: record.observed,
+      pinned: undefined,
     }
     // Only target is read through a pending cycle. Complete the same private entry
     // at the original replacement boundary, preserving both native property reads.
@@ -136,7 +139,9 @@ export function compileImmutable(
   // structural record elsewhere resolves to that record.
   const fixedStorage = new Set<object>()
   let conflict = false
-  for (const [target, { node: index }] of specials) {
+  for (const entry of specials) {
+    const target = entry[0]
+    const index = entry[1].node
     const storage = storageIdentity(target)
     storages[index] = storage
     if (fixedStorage.has(storage)) conflict = true
@@ -150,7 +155,7 @@ export function compileImmutable(
       }
       return false
     })
-    records[index] = { edges, target }
+    records[index] = { edges, payload: undefined, settled: undefined, target }
   }
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
@@ -175,13 +180,16 @@ function publishFresh(
   retained: readonly boolean[],
   order: readonly number[],
 ): object[] | undefined {
-  const targets: NativeOwners & object[] = []
+  const targets: object[] = []
+  // Native ownership found while allocating; a literal holds the field as its own data.
+  const owners: NativeOwners = { nativeOwners: undefined }
   const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : value.value)
   for (let index = 0; index < records.length; index += 1)
     if (retained[index]) targets[index] = records[index].target
-  for (const index of order) {
+  for (let position = 0; position < order.length; position += 1) {
+    const index = order[position]
     const node = records[index].payload!
-    const target = types.policies[node.layout.kind].allocate(node, resolve, targets)
+    const target = types.policies[node.layout.kind].allocate(node, resolve, owners)
     if (target === undefined) return undefined
     targets[index] = target
   }
@@ -225,7 +233,20 @@ export function restoreIdentities(
   // Fixed specials contribute the same score to every plan. Only structural
   // retention varies; their private fresh choices cannot claim settled storage.
   const dependencies = records.map((record) => constructionDependencies(types, record.payload))
+  // The stream's first mask is often determined without searching; the search starts only if
+  // that mask cannot be built, and its first mask, already tried, is skipped.
+  const head = immutableHead(problem)
+  if (head !== undefined) {
+    const order = constructionOrder(dependencies, head)
+    const targets = order === undefined ? undefined : publishFresh(types, records, head, order)
+    if (targets !== undefined) return targets[root]
+  }
+  let skip = head !== undefined
   for (const selection of immutableSelections(problem)) {
+    if (skip) {
+      skip = false
+      continue
+    }
     const order = constructionOrder(dependencies, selection)
     if (order === undefined) continue
     const targets = publishFresh(types, records, selection, order)

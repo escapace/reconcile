@@ -22,6 +22,7 @@ export async function checkDeferredOrderRuntime(oracle: Oracle): Promise<void> {
       replace("'../../object-property'", moduleUrl('src/object-property.ts'))
       replace("'../../graph/edge'", moduleUrl('src/graph/edge.ts'))
       replace("'../../types'", moduleUrl('src/types.ts'))
+      replace("'../../standard-prototypes'", moduleUrl('src/standard-prototypes.ts'))
       replace(
         '  const previous = surface.keys(current)',
         '  const previous = surface.keys(current);globalThis.__cursor.start(previous,desiredKeys,surface.ordered)',
@@ -54,7 +55,7 @@ globalThis.__cursor={
 };
 deferredOrderCases(input=>{
  current=undefined;let result,error;
- try{result=canPublishProperties(input.node,input.current,input.surface,input.properties,[])}catch(caught){error=caught}
+ try{result=canPublishProperties(input.node,input.current,input.surface,[])}catch(caught){error=caught}
  assert.equal(error,input.failure,input.name);assert.ok(current,input.name);
  traces.push({name:input.name,input:{previous:current.previous.map(key),desired:current.desired.map(key),ordered:current.ordered,demands:current.demands,finals:current.finals},observations:current.observations,events:input.events,result:result??null,error:error!==undefined});
 });

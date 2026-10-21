@@ -9,7 +9,19 @@ describe('classification work on repeated aliases', () => {
   it.each(['snapshot', 'unchanged', 'changed', 'reconcile'] as const)(
     'keeps %s recognition bounded by identities rather than occurrence count',
     (operation) => {
-      const recognition = vi.spyOn(kinds, 'recognize')
+      const ingress = vi.spyOn(kinds, 'recognize')
+      const structure = vi.spyOn(kinds, 'recognizeStructure')
+      const recognition = {
+        mock: {
+          get calls() {
+            return [...ingress.mock.calls, ...structure.mock.calls]
+          },
+        },
+        mockClear() {
+          ingress.mockClear()
+          structure.mockClear()
+        },
+      }
       const validation = vi.spyOn(kinds, 'matchesKind')
       const checks: number[] = []
       const calls: number[] = []

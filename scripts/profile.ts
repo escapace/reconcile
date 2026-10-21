@@ -6,7 +6,7 @@
  * configuration and a JSON summary for comparison or inspection.
  *
  * Usage:
- *   pnpm exec tsx scripts/profile.ts produce --batches 50 --out /tmp/profiles
+ *   pnpm bench profile produce --batches 50 --out /tmp/profiles
  */
 
 import assert from 'node:assert/strict'
@@ -20,12 +20,14 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { createRequire, SourceMap } from 'node:module'
+import { SourceMap } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 
 import { instrumentCounts, counterSetup, counterReset, counterReport } from './profile-counts'
+import { scenarioNames } from './bench-workloads'
+import { loadEsbuild } from './esbuild'
 import { diagnosticNames } from './profile-scenarios'
 import { parseDeopts } from './profile-deopts'
 import { parseCPUProfile, parseHeapProfile, type BundleMap } from './profile-frames'
@@ -43,8 +45,6 @@ import {
   timeResult,
 } from './profile-summary'
 import { BATCH_SIZE } from '../perf/config'
-
-const require = createRequire(import.meta.url)
 
 interface ScenarioDefinition {
   name: string
@@ -80,7 +80,7 @@ interface ScenarioArtifacts {
 
 interface ComparisonSample {
   directory: string
-  label: 'a' | 'b'
+  label: 'baseline' | 'candidate'
   metrics: Record<string, number>
   round: number
 }
@@ -92,35 +92,39 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
+    'baseline': { type: 'string' },
     'batches': { default: '200', type: 'string' },
     'bundle-only': { type: 'boolean' },
-    'compare': { type: 'string' },
+    'candidate': { type: 'string' },
     'cpu-interval': { default: '1000', type: 'string' },
     'heap-interval': { default: '32768', type: 'string' },
     'help': { short: 'h', type: 'boolean' },
-    'mode': { default: 'time', type: 'string' },
+    'mode': { default: 'cpu', type: 'string' },
     'out': { type: 'string' },
-    'repeats': { default: '5', type: 'string' },
+    'pairs': { default: '5', type: 'string' },
     'size': { default: '256', type: 'string' },
-    'source': { type: 'string' },
     'timeout': { default: '120000', type: 'string' },
     'warmup': { default: '5', type: 'string' },
   },
 })
 const usage =
-  'Usage: pnpm exec tsx scripts/profile.ts <scenario> [--mode time|counts|cpu|heap|deopt|all] [--batches N] [--warmup N] [--cpu-interval us] [--heap-interval bytes] [--timeout ms] [--out directory] [--source root] [--compare root --repeats N] [--size N] [--bundle-only]'
+  'Usage: pnpm bench profile <scenario> [--mode time|counts|cpu|heap|deopt|all] [--batches N] [--warmup N] [--cpu-interval us] [--heap-interval bytes] [--timeout ms] [--out directory] [--candidate tree] [--baseline tree --pairs N] [--size N] [--bundle-only]\n' +
+  '--baseline takes counts, cpu, heap or deopt; compare time with pnpm bench ab.'
 if (values.help === true) {
   console.log(usage)
-  console.log('Diagnostic scenarios: ' + diagnosticNames.join(', '))
+  console.log(
+    `Scenarios: ${scenarioNames.join(', ')}\n` +
+      'Diagnostic scenarios: ' +
+      diagnosticNames.filter((name) => name.startsWith('diag-')).join(', '),
+  )
   process.exit(0)
 }
 const targetArgument = positionals[0]
 if (
   !['all', 'counts', 'cpu', 'deopt', 'heap', 'time'].includes(values.mode) ||
+  (values.baseline !== undefined && values.mode === 'time') ||
   positionals.length !== 1 ||
-  !['produce', 'reconcile', 'reconcile-plain-object', 'snapshot', ...diagnosticNames].includes(
-    targetArgument,
-  )
+  !([...scenarioNames, ...diagnosticNames] as readonly string[]).includes(targetArgument)
 ) {
   console.error(usage)
   process.exit(1)
@@ -135,11 +139,11 @@ const target: TargetDefinition = { name: targetArgument }
 const config: WorkflowConfig = {
   cpuProfIntervalUs: integer(values['cpu-interval'], 'cpu-interval'),
   diagnosticSize: integer(values.size, 'size'),
-  harnessSource: path.join(path.resolve(values.source ?? ROOT), 'perf', 'profile-harness.ts'),
+  harnessSource: path.join(path.resolve(values.candidate ?? ROOT), 'perf', 'profile-harness.ts'),
   heapProfIntervalBytes: integer(values['heap-interval'], 'heap-interval'),
   measurementBatchCount: integer(values.batches, 'batches'),
   mode: values.mode as Mode,
-  root: path.resolve(values.source ?? ROOT),
+  root: path.resolve(values.candidate ?? ROOT),
   scenarios: [{ name: target.name }],
   target,
   timeout: integer(values.timeout, 'timeout'),
@@ -147,19 +151,6 @@ const config: WorkflowConfig = {
   warmupBatchCount: integer(values.warmup, 'warmup', 0),
 }
 const operations = config.measurementBatchCount * BATCH_SIZE
-
-const ESBUILD_PATH = (() => {
-  const pnpmDirectory = path.join(ROOT, 'node_modules', '.pnpm')
-  const candidates = readdirSync(pnpmDirectory).filter((directory) =>
-    directory.startsWith('esbuild@'),
-  )
-
-  if (candidates.length === 0) {
-    throw new Error('esbuild not found in pnpm store — is esroll installed?')
-  }
-
-  return path.join(pnpmDirectory, candidates[0], 'node_modules', 'esbuild')
-})()
 
 const outputParent = path.resolve(values.out ?? tmpdir())
 mkdirSync(outputParent, { recursive: true })
@@ -173,13 +164,6 @@ const digest = (content: string | Buffer): string =>
 
 const MEASUREMENT = 'for (let index = 0; index < batchCount; index += 1) run()'
 
-/** Imports the native date copy and buffer comparison from the source tree's type layout. */
-function copyOperationImports(): string {
-  return existsSync(path.join(config.root, 'src/types/builtins.ts'))
-    ? `import { dateType } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}; import { arrayBufferType } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}; const copyOperations = { date: dateType.policy.immutable.operations, buffer: arrayBufferType.policy.immutable.operations };`
-    : `import { policies } from ${JSON.stringify(path.join(config.root, 'src/graph/policies.ts'))}; const copyOperations = { date: policies[2].special, buffer: policies[5].special };`
-}
-
 /** Replaces the frozen scenario imports and registry with the selected diagnostic scenario. */
 function diagnosticOverlay(original: string): string {
   const importsStart = original.indexOf('import {\n  createContextRuntime')
@@ -190,9 +174,11 @@ function diagnosticOverlay(original: string): string {
     original.slice(0, importsStart) +
     `
 import { createDiagnostic } from ${JSON.stringify(path.join(ROOT, 'scripts/profile-scenarios.ts'))}
-import { produce, reconcile, snapshot } from ${JSON.stringify(path.join(config.root, 'src/index.ts'))}
+import * as api from ${JSON.stringify(path.join(config.root, 'src/index.ts'))}
 import { selections } from ${JSON.stringify(path.join(config.root, 'src/graph/selection.ts'))}
-${copyOperationImports()}
+import { dateType } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}
+import { arrayBufferType } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}
+const copyOperations = { date: dateType.policy.immutable.operations, buffer: arrayBufferType.policy.immutable.operations }
 ` +
     original.slice(importsEnd)
   const registryStart = harness.indexOf('const profileScenarios:')
@@ -201,7 +187,11 @@ ${copyOperationImports()}
   return (
     harness.slice(0, registryStart) +
     `
-const diagnostic = createDiagnostic(scenario, { produce, reconcile, snapshot, selections,
+// Trees from before serialization lack these exports and reject the serialization scenarios.
+const serialization = { deserialize: Reflect.get(api, 'deserialize'),
+  requiredMaxBytes: Reflect.get(api, 'requiredMaxBytes'), serialize: Reflect.get(api, 'serialize') }
+const diagnostic = createDiagnostic(scenario, { produce: api.produce, reconcile: api.reconcile,
+  snapshot: api.snapshot, ...serialization, selections,
   copyDate: copyOperations.date.copy, sameBuffer: copyOperations.buffer.equivalent }, ${config.diagnosticSize})
 console.log('RECONCILE_DIAGNOSTIC ' + JSON.stringify(diagnostic.metadata))
 const profileScenarios = { [scenario]: () => () => {
@@ -355,12 +345,7 @@ async function bundleHarness(): Promise<{ bundlePath: string; sourceMap: SourceM
   const contents = harnessOverlay(original)
   const counterSites: CounterSites = {}
   writeFileSync(path.join(outputDirectory, 'harness-source.ts'), contents)
-  const esbuild = require(ESBUILD_PATH) as {
-    version: string
-    build: (options: Record<string, unknown>) => Promise<{
-      metafile: { inputs: Record<string, unknown> }
-    }>
-  }
+  const esbuild = loadEsbuild()
   const options = {
     bundle: true,
     format: 'esm',
@@ -498,7 +483,7 @@ function sampleArguments(source: string, destination: string): string[] {
     ...process.execArgv,
     import.meta.filename,
     target.name,
-    '--source',
+    '--candidate',
     source,
     '--size',
     String(config.diagnosticSize),
@@ -534,7 +519,11 @@ function runSampleProcess(arguments_: string[], destination: string): void {
   }
 }
 
-function collectSample(round: number, label: 'a' | 'b', source: string): ComparisonSample {
+function collectSample(
+  round: number,
+  label: 'baseline' | 'candidate',
+  source: string,
+): ComparisonSample {
   const destination = path.join(outputDirectory, `${round}-${label}`)
   mkdirSync(destination)
   runSampleProcess(sampleArguments(source, destination), destination)
@@ -546,14 +535,14 @@ function collectSample(round: number, label: 'a' | 'b', source: string): Compari
 
 /** Alternates which source runs first in each round. */
 const roundOrder = (round: number) =>
-  round % 2 === 0 ? (['a', 'b'] as const) : (['b', 'a'] as const)
+  round % 2 === 0 ? (['candidate', 'baseline'] as const) : (['baseline', 'candidate'] as const)
 
 function compareSources(): void {
-  const repeats = integer(values.repeats, 'repeats', 2)
+  const pairs = integer(values.pairs, 'pairs', 2)
   const samples: ComparisonSample[] = []
-  const roots = { a: config.root, b: path.resolve(values.compare!) }
+  const roots = { baseline: path.resolve(values.baseline!), candidate: config.root }
   // Persist each completed sample: a failed later subprocess cannot erase earlier evidence.
-  for (let round = 0; round < repeats; round += 1) {
+  for (let round = 0; round < pairs; round += 1) {
     for (const label of roundOrder(round)) {
       samples.push(collectSample(round, label, roots[label]))
       writeFileSync(
@@ -563,7 +552,7 @@ function compareSources(): void {
     }
   }
   const metrics = comparisonMetrics(samples)
-  const comparison = { metrics, mode: config.mode, repeats, roots, samples }
+  const comparison = { metrics, mode: config.mode, pairs, roots, samples }
   writeFileSync(
     path.join(outputDirectory, 'comparison.json'),
     JSON.stringify(comparison, null, 2) + '\n',
@@ -572,7 +561,7 @@ function compareSources(): void {
     path.join(outputDirectory, 'report.md'),
     `# Alternating process comparison\n\nRaw observations and median/min/max: [comparison.json](comparison.json).\n\nEach sample uses a separate warmed process. Profiled time and sampled allocation are diagnostics; time mode measures loop latency without an active profiler. No significance or speedup claim is inferred automatically.\n`,
   )
-  console.log(JSON.stringify({ metrics, mode: config.mode, repeats, roots }, null, 2))
+  console.log(JSON.stringify({ metrics, mode: config.mode, pairs, roots }, null, 2))
 }
 
 function readCounterSites(): CounterSites {
@@ -685,7 +674,7 @@ async function runWorkflow(): Promise<void> {
   console.log(`Run ID:  ${runId}`)
   console.log(`Artifacts: ${outputDirectory}`)
   console.log('')
-  if (values.compare !== undefined) {
+  if (values.baseline !== undefined) {
     compareSources()
     return
   }
@@ -712,11 +701,11 @@ try {
     JSON.stringify(
       {
         comparison:
-          values.compare === undefined
+          values.baseline === undefined
             ? undefined
             : {
-                repeats: integer(values.repeats, 'repeats', 2),
-                source: path.resolve(values.compare),
+                baseline: path.resolve(values.baseline),
+                pairs: integer(values.pairs, 'pairs', 2),
               },
         config,
         finishedAt: new Date().toISOString(),

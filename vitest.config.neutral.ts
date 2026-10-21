@@ -7,20 +7,14 @@ export default mergeConfig(
   configShared,
   defineConfig({
     define: {
-      ...['neutral', 'browser', 'node']
-        .map(
-          (target) =>
-            (Reflect.get(builds, target) as { define?: Record<string, string> } | undefined)
-              ?.define,
-        )
-        .find((value) => value !== undefined),
+      ...builds.neutral.define,
       __ENVIRONMENT__: JSON.stringify('development'),
       __VERSION__: JSON.stringify(version),
       __VITEST_PROJECT__: JSON.stringify('neutral'),
     },
     test: {
       environment: 'node',
-      include: ['{src,test}/**/+([a-zA-Z0-9-]).{test,spec}.?(c|m)[jt]s?(x)'],
+      include: ['src/**/+([a-zA-Z0-9-]).{test,spec}.?(c|m)[jt]s?(x)'],
       name: 'neutral',
       sequence: {
         hooks: 'list',

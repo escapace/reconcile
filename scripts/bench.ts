@@ -1,15 +1,75 @@
-import { BATCH_SIZE } from '../perf/config'
-import { createBenchmarks } from './bench-scenarios'
+/**
+ * `pnpm bench`: one entry point for every benchmark and measurement. Each command answers one
+ * question and runs as one round within the 295-second budget, including shutdown of child
+ * processes. Run one round at a time, and nothing else alongside it. `pnpm bench help` lists
+ * the commands.
+ */
 
-console.log(`Tinybench: each sample is one batch of ${BATCH_SIZE} operations`)
-for (const benchmark of createBenchmarks()) {
-  console.log(`\n${benchmark.name}`)
-  for (const task of benchmark.runSync()) {
-    if (task.result.state !== 'completed') {
-      throw new Error(`Benchmark did not complete: ${benchmark.name} / ${task.name}`, {
-        cause: task.result,
-      })
-    }
-  }
-  console.table(benchmark.table())
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { scenarioNames } from './bench-workloads'
+
+const ROOT = path.resolve(import.meta.dirname, '..')
+
+const usage = `Usage:
+  pnpm bench [run] [--scenario <name>]...   How fast is each scenario against a reference?
+  pnpm bench compare --baseline <tree> ...  Does a candidate look faster? (in-process screen)
+  pnpm bench ab --baseline <tree> ...       Is it faster? (fresh-process pairs; decides)
+  pnpm bench profile <scenario> ...         Where does the work or time go?
+  pnpm bench size [--compare sizes.json]    How large are the consumer bundles?
+
+Scenarios: ${scenarioNames.join(', ')}.
+\`profile\` and \`ab\` also take the diag-* diagnostics that \`pnpm bench profile --help\` lists.`
+
+const tsx = (script: string) => (arguments_: string[]) => [
+  'pnpm',
+  'exec',
+  'tsx',
+  script,
+  ...arguments_,
+]
+
+/** The command line of each subcommand; `ab` defaults to every scenario. */
+const commands: Record<string, (arguments_: string[]) => string[]> = {
+  compare: tsx('scripts/bench-compare.ts'),
+  profile: tsx('scripts/profile.ts'),
+  run: tsx('scripts/bench-run.ts'),
+  size: tsx('scripts/bundle-size.ts'),
+  ab: (arguments_) => [
+    'python3',
+    'scripts/ab-time.py',
+    ...(arguments_.some(
+      (argument) => argument === '--scenario' || argument.startsWith('--scenario='),
+    )
+      ? arguments_
+      : [...arguments_, ...scenarioNames.flatMap((name) => ['--scenario', name])]),
+  ],
 }
+
+const [first, ...rest] = process.argv.slice(2)
+const [name, arguments_] =
+  first === undefined || first.startsWith('--') ? ['run', process.argv.slice(2)] : [first, rest]
+if (name === 'help' || name === '-h' || (name === 'run' && arguments_[0] === '--help')) {
+  console.log(usage)
+  process.exit(0)
+}
+const command = commands[name]
+if (command === undefined) {
+  console.error(`Unknown command ${name}.\n\n${usage}`)
+  process.exit(2)
+}
+const line = command(arguments_)
+// Help exits before any measurement, so it runs without a budget or a receipt.
+if (arguments_.includes('--help') || arguments_.includes('-h')) {
+  process.exit(spawnSync(line[0], line.slice(1), { cwd: ROOT, stdio: 'inherit' }).status ?? 1)
+}
+const receipt = path.join(mkdtempSync(path.join(tmpdir(), 'reconcile-bench-')), 'receipt.json')
+const result = spawnSync(
+  'python3',
+  ['scripts/bounded-check.py', '--seconds', '295', '--receipt', receipt, '--', ...line],
+  { cwd: ROOT, stdio: 'inherit' },
+)
+console.log(`Receipt: ${receipt}`)
+process.exit(result.status ?? 1)

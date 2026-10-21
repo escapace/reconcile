@@ -1,15 +1,30 @@
 import type { ChoicePosition, Domains, Label, SupportBucket } from '../types'
 
+// Whether a domain offers a choice labelled `identity`.
+function offers(domain: Domains[number] | undefined, identity: unknown): boolean {
+  if (domain === undefined) return false
+  for (let position = 0; position < domain.length; position += 1)
+    if (domain[position].identity === identity) return true
+  return false
+}
+
 function allSupported(domains: Domains): boolean {
-  for (let node = 0; node < domains.length; node += 1)
-    for (const choice of domains[node])
-      for (const edge of choice.required)
+  for (let node = 0; node < domains.length; node += 1) {
+    const domain = domains[node]
+    for (let position = 0; position < domain.length; position += 1) {
+      const choice = domain[position]
+      const required = choice.required
+      for (let index = 0; index < required.length; index += 1) {
+        const edge = required[index]
         if (
           edge.node === node
             ? edge.identity !== choice.identity
-            : !domains[edge.node]?.some((target) => target.identity === edge.identity)
+            : !offers(domains[edge.node], edge.identity)
         )
           return false
+      }
+    }
+  }
   return true
 }
 

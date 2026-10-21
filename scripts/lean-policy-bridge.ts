@@ -37,6 +37,19 @@ import type {
 import { builtinModules, builtinTypes } from '../src/types/builtins'
 import { OBJECT_KIND, type ObjectLayout } from '../src/types/object'
 import { checkPropertyOrderRuntime } from './check-property-order-runtime'
+import { checkAtomsRuntime } from './check-atoms-runtime'
+import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
+import { checkDraftSurfaceRuntime } from './check-draft-surface-runtime'
+import { checkDraftClassRuntime } from './check-draft-class-runtime'
+import { checkDraftIterationRuntime } from './check-draft-iteration-runtime'
+import { checkDraftReadRuntime } from './check-draft-read-runtime'
+import { checkDraftMembersRuntime } from './check-draft-members-runtime'
+import { checkDraftSetMethodsRuntime } from './check-draft-set-methods-runtime'
+import { checkKeyOrderRuntime } from './check-key-order-runtime'
+import { checkPropertyConstructRuntime } from './check-property-construct-runtime'
+import { checkPropertyThroughSetterRuntime } from './check-property-through-setter-runtime'
+import { checkPropertyPlacementRuntime } from './check-property-placement-runtime'
+import { checkPropertyWriteRuntime } from './check-property-write-runtime'
 import { checkSeededRequirementsRuntime } from './check-seeded-requirements-runtime'
 import { checkDeferredOrderRuntime } from './check-deferred-order-runtime'
 import { checkFactRenamingRuntime } from './check-fact-renaming-runtime'
@@ -182,8 +195,15 @@ function immutableSpecialFixture(variant: number): Fixture {
     children: Object.entries(current).map(([key, value]) =>
       key === 'n' ? Number((variant & 8) !== 0) : { target: value as object },
     ),
+    discoveredBy: undefined,
     keys: Object.keys(current),
-    layout: { kind: OBJECT_KIND, prototype: (variant & 16) === 0 ? Object.prototype : null },
+    layout: {
+      hidden: undefined,
+      kind: OBJECT_KIND,
+      prototype: (variant & 16) === 0 ? Object.prototype : null,
+      slots: undefined,
+    },
+    leaf: undefined,
     target: current,
   }
   if ((variant & 32) !== 0) Object.freeze(current)
@@ -219,8 +239,10 @@ function extensionImmutable(types: TypeRegistry, variant: number): Fixture {
   const record: ReuseNode<{ readonly kind: typeof CELL_KIND }> = {
     attributes: undefined,
     children: [],
+    discoveredBy: undefined,
     keys: ['value'],
     layout: { kind: CELL_KIND },
+    leaf: undefined,
     target: cell,
   }
   if ((variant & 2) !== 0) cell.value = cell
@@ -257,7 +279,9 @@ function sharedFrozenCycle(size: number): Fixture {
 }
 
 function policyFixtures(): Fixture[] {
-  const fixtures = JSON.parse(readFileSync('lean/policy-fixtures.json', 'utf8')) as Fixture[]
+  const fixtures = JSON.parse(
+    readFileSync('lean/fixtures/policy-fixtures.json', 'utf8'),
+  ) as Fixture[]
   return [
     ...fixtures,
     ...family(16, 'forward-demands', forwardDemandDomains),
@@ -767,6 +791,19 @@ export async function checkPolicyRuntime(oracle: Oracle): Promise<void> {
     rmSync(temporary, { recursive: true })
   }
   await checkPropertyOrderRuntime(oracle)
+  await checkPropertyWriteRuntime(oracle)
+  await checkPropertyPlacementRuntime(oracle)
+  await checkPropertyConstructRuntime(oracle)
+  await checkPropertyThroughSetterRuntime(oracle)
+  await checkKeyOrderRuntime(oracle)
+  await checkAtomsRuntime(oracle)
+  await checkDraftSurfaceRuntime(oracle)
+  await checkDraftClassRuntime(oracle)
+  await checkDraftIterationRuntime(oracle)
+  await checkDraftReadRuntime(oracle)
+  await checkDraftMembersRuntime(oracle)
+  await checkDraftSetMethodsRuntime(oracle)
+  await checkCopyPrototypeRuntime(oracle)
   await checkSeededRequirementsRuntime(oracle)
   await checkDeferredOrderRuntime(oracle)
   await checkFactRenamingRuntime(oracle)

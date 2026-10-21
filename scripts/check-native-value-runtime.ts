@@ -114,7 +114,7 @@ function evaluateFacets(current: object, desired: object, kind: symbol, name: st
 }
 
 /** Captures oracle labels before publication can mutate the native current value. */
-function checkFixture(fixture: Fixture): { actual: Result; observed: Fixture; } | undefined {
+function checkFixture(fixture: Fixture): { actual: Result; observed: Fixture } | undefined {
   const current = construct(fixture.current)
   const desired = construct(fixture.desired)
   if (current === undefined || desired === undefined) return undefined
@@ -132,7 +132,9 @@ function checkFixture(fixture: Fixture): { actual: Result; observed: Fixture; } 
 
 /** Compares actual registered facets and native readback with the finite oracle. */
 export async function checkNativeValueRuntime(oracle: Oracle): Promise<void> {
-  const fixtures = JSON.parse(readFileSync('lean/native-value-fixtures.json', 'utf8')) as Fixture[]
+  const fixtures = JSON.parse(
+    readFileSync('lean/fixtures/native-value-fixtures.json', 'utf8'),
+  ) as Fixture[]
   const active: Fixture[] = []
   const actual: Result[] = []
   const skipped = new Set<string>()

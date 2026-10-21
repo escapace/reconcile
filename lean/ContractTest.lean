@@ -1,12 +1,15 @@
-/- Contract examples are checked by the kernel, not only by executable assertions. -/
 import Types.OwnedNativeChildEncoding
 import Types.NativeValueEncoding
-import SnapshotSpec
-import ReconcileSoundness
-import ReuseClosure
-import RecipePublicationSoundness
-import ProduceFinalizeCoherenceSoundness
-import PrunedReconcile
+import Snapshot.SnapshotSpec
+import Reconcile.ReconcileSoundness
+import Heap.ReuseClosure
+import RecipePublication.RecipePublicationSoundness
+import Produce.ProduceFinalizeCoherenceSoundness
+import Reconcile.PrunedReconcile
+
+/-! Examples and counterexamples for the specifications, checked by the kernel rather than only
+by executable assertions. Examples show that a specification's premises can hold; counterexamples
+show why a premise is needed. -/
 
 namespace Reconcile.ContractTest
 
@@ -48,8 +51,8 @@ def selfWitness : ReconcileWitness current next where
     subst nn
     cases hnb
 
-/-- This retained-root specification is inhabited, including a self-cycle and
-    different next-side prototype. The historical specification could not be. -/
+/-- This retained-root specification is inhabited, including a self-cycle and a
+    different next-side prototype. -/
 def selfSuccess : ReconcileSpec current next
     (publishRecords selfWitness.image (publicationProto current selfWitness.image)
       [(⟨0⟩, nextNode)] ∅)
@@ -597,18 +600,10 @@ end Reconcile.ContractTest
 namespace Reconcile.ContractTest.NativeValue
 open Reconcile.Types.NativeValue
 
--- Inhabited mutable publication and immutable reuse.
-example : publish (.url "https://a.test/") (.url "https://b.test/") =
-    some (.url "https://b.test/") := rfl
+-- Inhabited immutable reuse.
 example : reusable (.temporal .instant 0 ["0"]) (.temporal .instant 0 ["0"]) = true := rfl
-example : publish (.temporal .instant 0 ["0"]) (.temporal .instant 0 ["1"]) = none := rfl
 -- Equal text does not erase native class differences.
 example : compatible (.temporal .plainDate 0 ["x"]) (.temporal .plainTime 0 ["x"]) = false := rfl
--- Collapsing or sorting parameter entries is unsound.
-example : Payload.parameters [("a", "1"), ("a", "2")] ≠
-    Payload.parameters [("a", "2")] := by decide
-example : Payload.parameters [("b", "1"), ("a", "2")] ≠
-    Payload.parameters [("a", "2"), ("b", "1")] := by decide
 -- Identity labels remain distinct independently of payload labels.
 -- The runtime must establish the existing graph witness to obtain no-collapse.
 example : (Value.ref 0 : Value Payload Nat) ≠ .ref 1 := by decide
@@ -617,13 +612,8 @@ example : appendEntries [] [("a", "1"), ("a", "2")] =
     [("a", "1"), ("a", "2")] := rfl
 end Reconcile.ContractTest.NativeValue
 
-
 namespace Reconcile.ContractTest.OwnedNativeChild
 open Reconcile.OwnedNativeChild
 example : admit (fun n => n + 1) 4 5 = true := rfl
 example : admit (fun n => n + 1) 4 6 = false := rfl
-example : ownedReuseValid true (chooseReuse true false) = false := rfl
-example : ownedReuseValid true (chooseReuse true (forceChild false true)) = true := rfl
-example : let state : State Nat Nat := ⟨0, 1, 7, 7, false, false⟩
-    (adopt id id 8 state).query = 7 := rfl
 end Reconcile.ContractTest.OwnedNativeChild

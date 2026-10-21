@@ -1,9 +1,8 @@
-import Std
+/-! Bulk owned-child publication. Native correspondence must establish that clearing a nonempty
+URL parameter list has the same context effect as `URL.search = ""`; appending to the empty list
+preserves that context and serializes the new list. Context includes opaque-path normalization.
+Equal payloads perform no mutation. -/
 
-/- Bulk owned-child publication. Native correspondence must establish that clearing
-   a nonempty URL parameter list has the same context effect as URL.search = "";
-   appending to the empty list preserves that context and serializes the new list.
-   Context includes opaque-path normalization. Equal payloads perform no mutation. -/
 namespace Reconcile.OwnedPublication
 
 structure State (E Q C : Type) where
