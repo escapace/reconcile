@@ -29,7 +29,8 @@ interface PendingActivation {
 interface Discovery {
   clonesSpecialValues: boolean
   readonly closure: RequirementClosure<object>
-  readonly dormant: Map<object, PendingActivation>
+  // Created on the first dormant record.
+  dormant: Map<object, PendingActivation> | undefined
 }
 
 /** Separates probe, discovery and sealed caches so facts cannot outlive their phase. */
@@ -47,7 +48,8 @@ export class Finalization extends Detached {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
   // Native kind knowledge for one observation phase; never attached to application objects.
   declare private forcedOwnedCopies: WeakSet<object> | undefined
-  declare private kinds: Map<object, symbol>
+  // Created on the first recognition.
+  declare private kinds: Map<object, symbol> | undefined
   declare private phase: ObservationPhase
   declare readonly session: DraftSession
   // Created at the first forced special copy; until then no value needs one.
@@ -57,7 +59,7 @@ export class Finalization extends Detached {
     super()
     this.session = session
     this.accessorObservations = undefined
-    this.kinds = new Map()
+    this.kinds = undefined
     this.phase = {
       kind: 'probe',
       nativeOwners: undefined,
@@ -74,11 +76,11 @@ export class Finalization extends Detached {
 
   /** Recognizes once per unknown-identity certificate lifetime; accessor effects end it. */
   kindOf(value: object): symbol {
-    let kind = this.kinds.get(value)
+    let kind = this.kinds?.get(value)
     if (kind === undefined) {
       // A drafted object's kind was established when its state was created.
       kind = this.session.statesByIdentity.get(value)?.kind ?? recognize(this.session.types, value)
-      this.kinds.set(value, kind)
+      ;(this.kinds ??= new Map()).set(value, kind)
     }
     return kind
   }
@@ -98,31 +100,33 @@ export class Finalization extends Detached {
     const plan: Discovery = {
       clonesSpecialValues: false,
       closure: new RequirementClosure<object>(),
-      dormant: new Map(),
+      dormant: undefined,
     }
     // The probe settled every negative reachability answer before any discovery work, and no
     // native write happens between the two passes, so discovery reuses those answers instead
-    // of reading the unchanged subtrees again.
+    // of reading the unchanged subtrees again. The probe materializes nothing, so its value
+    // memo is still empty and discovery starts from it.
     const discovery: ObservationPhase = {
       kind: 'discover',
       nativeOwners: undefined,
       plan,
       required: this.phase.required,
-      values: new WeakMap(),
+      values: this.phase.values,
     }
     this.phase = discovery
     const result = this.materializeContainerSlot(value, false)
-    for (const node of plan.closure.facts) {
-      const activation = plan.dormant.get(node)
-      if (activation === undefined) continue
-      plan.dormant.delete(node)
-      const slots = activation.slots!
-      for (let index = 0; index < slots.length; index += 1)
-        activation.record!.children[index] = this.materializeContainerSlot(
-          slots[index].value,
-          slots[index].currentBacked,
-        )
-    }
+    if (plan.dormant !== undefined)
+      for (const node of plan.closure.facts) {
+        const activation = plan.dormant.get(node)
+        if (activation === undefined) continue
+        plan.dormant.delete(node)
+        const slots = activation.slots!
+        for (let index = 0; index < slots.length; index += 1)
+          activation.record!.children[index] = this.materializeContainerSlot(
+            slots[index].value,
+            slots[index].currentBacked,
+          )
+      }
     // The sealed phase is entered only when something materializes in it: a projection, or the
     // fallback below. Nothing reads the phase in between.
     const sealed = (): unknown => {
@@ -167,6 +171,10 @@ export class Finalization extends Detached {
     }
     if (traversal !== undefined)
       return this.checkMaterialization(value, knownKind, traversal.visited)
+    // A handle needs unwrapping whatever its base holds, which is checkMaterialization's first
+    // answer; it needs no visited set.
+    const state = isObject(value) ? this.session.statesByIdentity.get(value) : undefined
+    if (state !== undefined && state.base !== value) return true
     const visited = new Set<object>()
     const result = this.checkMaterialization(value, knownKind, visited)
     // A cycle guard remains provisional until the entire reachable check settles.
@@ -501,7 +509,7 @@ export class Finalization extends Detached {
       if (observations.has(key)) return observations.get(key)
       if (this.phase.kind === 'sealed') throw finalizationAccessorUnstable(key)
       const observed = state.properties!.read(key, receiver)
-      this.kinds = new Map()
+      this.kinds = undefined
       observations.set(key, observed)
       if (this.materializationPlan !== undefined)
         this.materializationPlan.closure.require(state.base)
@@ -590,7 +598,7 @@ class DraftObservation extends Detached implements PendingActivation {
     const plan = this.plan
     if (plan !== undefined) {
       if (this.slots === undefined) plan.closure.require(this.memoKey)
-      else plan.dormant.set(this.memoKey, this)
+      else (plan.dormant ??= new Map()).set(this.memoKey, this)
     }
   }
 

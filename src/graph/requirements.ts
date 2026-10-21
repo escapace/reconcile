@@ -53,18 +53,20 @@ function admit<Fact>(closed: Set<Fact>, pending: Fact[], facts: Iterable<Fact>):
 export class RequirementClosure<Fact = number> extends Detached {
   declare readonly facts: Set<Fact>
   // Successor lists may repeat a consequence; admission already skips closed facts, so
-  // the closure and its insertion order equal the deduplicated rule set.
-  declare private readonly implications: Map<Fact, Fact[]>
+  // the closure and its insertion order equal the deduplicated rule set. Created on the first
+  // implication.
+  declare private implications: Map<Fact, Fact[]> | undefined
 
   constructor() {
     super()
     this.facts = new Set()
-    this.implications = new Map()
+    this.implications = undefined
   }
 
   imply(antecedent: Fact, consequence: Fact): void {
-    const successors = this.implications.get(antecedent)
-    if (successors === undefined) this.implications.set(antecedent, [consequence])
+    const implications = (this.implications ??= new Map<Fact, Fact[]>())
+    const successors = implications.get(antecedent)
+    if (successors === undefined) implications.set(antecedent, [consequence])
     else successors.push(consequence)
     if (this.facts.has(antecedent)) this.require(consequence)
   }
@@ -75,8 +77,9 @@ export class RequirementClosure<Fact = number> extends Detached {
     const facts = this.facts
     if (facts.has(fact)) return
     facts.add(fact)
-    const successors = this.implications.get(fact)
+    const implications = this.implications
+    const successors = implications?.get(fact)
     if (successors !== undefined)
-      propagate(facts, successors, (next) => this.implications.get(next) ?? EMPTY_FACTS)
+      propagate(facts, successors, (next) => implications!.get(next) ?? EMPTY_FACTS)
   }
 }

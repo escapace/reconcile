@@ -29,19 +29,20 @@ export function compileImmutable(
   // A per-compile mark on the private finalized references replaces two identity tables; a
   // reference marked by another compile of the same graph carries a different mark.
   const mark = {}
-  const specials = new Map<object, NodeEdge>()
+  // Special targets by identity, created on the first one.
+  let specials: Map<object, NodeEdge> | undefined
   const locallyReusable: boolean[] = []
   const parents: number[][] = []
   const storages: object[] = []
   // Structural records by target, so a fixed subtree that reaches an object captured
   // elsewhere resolves to that record instead of duplicating it; only kept when a leaf exists.
-  const byTarget = new Map<object, NodeEdge>()
+  let byTarget: Map<object, NodeEdge> | undefined
   const special = (target: object): NodeEdge => {
-    const previous = specials.get(target)
+    const previous = specials?.get(target)
     if (previous !== undefined) return previous
     const index = records.length
     const reference = { node: index }
-    specials.set(target, reference)
+    ;(specials ??= new Map()).set(target, reference)
     records.push({ edges: [], payload: undefined, settled: undefined, target })
     locallyReusable[index] = true
     parents[index] = []
@@ -74,7 +75,7 @@ export function compileImmutable(
     if (!isObject(value)) return { node: undefined, value }
     const reference = value as FinalizedReference
     return reference.layout === undefined
-      ? specials.get(reference.target)!
+      ? specials!.get(reference.target)!
       : collect(reference as ReuseNode)
   }
   const collect = (record: ReuseNode): NodeEdge => {
@@ -83,7 +84,7 @@ export function compileImmutable(
     const reference = { node: index }
     record.collectedBy = mark
     record.collectedAs = reference
-    if (leaves) byTarget.set(record.target, reference)
+    if (leaves) (byTarget ??= new Map()).set(record.target, reference)
     const edges: Edge[] = []
     const entry = {
       edges,
@@ -131,31 +132,36 @@ export function compileImmutable(
     return reference
   }
   const root = (
-    result.layout === undefined ? specials.get(result.target)! : collect(result as ReuseNode)
+    result.layout === undefined ? specials!.get(result.target)! : collect(result as ReuseNode)
   ).node
   // Fixed nodes expose their children after structural collection: settled specials their
   // construction dependencies, unchanged leaves their whole subtree, so storage ownership
   // and identity implications cover every object the result keeps. A child captured as a
   // structural record elsewhere resolves to that record.
-  const fixedStorage = new Set<object>()
+  let fixedStorage: Set<object> | undefined
   let conflict = false
-  for (const entry of specials) {
-    const target = entry[0]
-    const index = entry[1].node
-    const storage = storageIdentity(target)
-    storages[index] = storage
-    if (fixedStorage.has(storage)) conflict = true
-    fixedStorage.add(storage)
-    const edges: Edge[] = []
-    types.policies[kindOf(target)].someChild(target, Reflect.get, (child) => {
-      if (isObject(child)) {
-        const reference = (leaves ? byTarget.get(child) : undefined) ?? special(child)
-        edges.push(reference)
-        parents[reference.node].push(index)
-      }
-      return false
-    })
-    records[index] = { edges, payload: undefined, settled: undefined, target }
+  if (specials !== undefined) {
+    // Structural collection is complete, so the records by target no longer change.
+    const collected = leaves ? byTarget : undefined
+    fixedStorage = new Set()
+    for (const entry of specials) {
+      const target = entry[0]
+      const index = entry[1].node
+      const storage = storageIdentity(target)
+      storages[index] = storage
+      if (fixedStorage.has(storage)) conflict = true
+      fixedStorage.add(storage)
+      const edges: Edge[] = []
+      types.policies[kindOf(target)].someChild(target, Reflect.get, (child) => {
+        if (isObject(child)) {
+          const reference = collected?.get(child) ?? special(child)
+          edges.push(reference)
+          parents[reference.node].push(index)
+        }
+        return false
+      })
+      records[index] = { edges, payload: undefined, settled: undefined, target }
+    }
   }
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
@@ -165,7 +171,7 @@ export function compileImmutable(
     if (records[index].payload !== undefined && !unavailable.has(index)) {
       const storage = storageIdentity(records[index].target)
       storages[index] = storage
-      if (fixedStorage.has(storage)) conflict = true
+      if (fixedStorage?.has(storage) === true) conflict = true
     }
   return { conflict, records, root, storages, unavailable }
 }
