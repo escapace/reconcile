@@ -1,5 +1,5 @@
 import { addIncoming } from './incoming-consensus'
-import type { Binding, Event, Execution, IncomingConsensus } from '../types'
+import type { Binding, Claims, Event, Execution, IncomingConsensus } from '../types'
 import { CheckedNodes } from './checked'
 import { claim, hasClaim, withClaim } from './claims'
 
@@ -8,7 +8,12 @@ import { claim, hasClaim, withClaim } from './claims'
  * The finite fold/guard correspondence is proved in `IncomingConsensus.lean`.
  */
 export function startExecution(id: number | object, bindings: readonly Binding[]): Execution {
-  const incoming: IncomingConsensus[] = bindings.map(() => undefined)
+  const incoming: IncomingConsensus[] = []
+  const claims: Claims[] = []
+  for (let node = 0; node < bindings.length; node += 1) {
+    incoming.push(undefined)
+    claims.push(claim(bindings[node].mode))
+  }
   for (const binding of bindings)
     for (const edge of binding.construction) {
       if (bindings[edge.node] === undefined) continue
@@ -17,11 +22,23 @@ export function startExecution(id: number | object, bindings: readonly Binding[]
     }
   return {
     bindings,
-    claims: bindings.map((binding) => claim(binding.mode)),
+    claims,
     id,
     incoming,
     phase: 'publishing',
     revision: 0,
+  }
+}
+
+// A state's plan with a terminal phase, written out field by field instead of spread.
+function settled(state: Execution, phase: 'done' | 'rejected'): Execution {
+  return {
+    bindings: state.bindings,
+    claims: state.claims,
+    id: state.id,
+    incoming: state.incoming,
+    phase,
+    revision: state.revision,
   }
 }
 
@@ -38,7 +55,7 @@ function rebind(state: Execution, event: Extract<Event, { readonly tag: 'rebind'
     hasClaim(state.claims[event.node], event.mode) ||
     (incoming !== undefined && incoming !== event.exposed)
   )
-    return { ...state, phase: 'rejected' }
+    return settled(state, 'rejected')
   const bindings = state.bindings.slice()
   bindings[event.node] = { ...binding, exposed: event.exposed, mode: event.mode }
   const claims = state.claims.slice()
@@ -76,15 +93,23 @@ export function advanceExecution(state: Execution, event: Event): Execution {
       return state
     case 'finish':
       return state.phase === 'checking' && state.checked.size === state.bindings.length
-        ? { ...state, phase: 'done' }
+        ? settled(state, 'done')
         : state
     case 'published':
       return state.phase === 'publishing'
-        ? { ...state, checked: new CheckedNodes(state.bindings.length), phase: 'checking' }
+        ? {
+            bindings: state.bindings,
+            checked: new CheckedNodes(state.bindings.length),
+            claims: state.claims,
+            id: state.id,
+            incoming: state.incoming,
+            phase: 'checking',
+            revision: state.revision,
+          }
         : state
     case 'rebind':
       return rebind(state, event)
     case 'reject':
-      return { ...state, phase: 'rejected' }
+      return settled(state, 'rejected')
   }
 }
