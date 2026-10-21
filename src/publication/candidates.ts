@@ -82,8 +82,12 @@ function replayOccupants(
   for (const child of node.edges) if (isNode(child)) visit(slots[slot++], child)
 }
 
+// A node visited without an aligned object of its kind; it holds no candidate.
+const VISITED: readonly object[] = /* @__PURE__ */ Object.freeze([])
+
 // Traversal and visitation are graph-owned; native policies only expose aligned slots.
-// Aligned objects per node are few, so a small array replaces a Set per node.
+// Aligned objects per node are few, so a small array replaces a Set per node; a visited node
+// without one holds the shared empty `VISITED`.
 // Pinned nodes are fixed and never aligned; a first visit through the object aligned
 // capture already recognized reuses the occupant reads recorded for its edges.
 function collect(
@@ -91,16 +95,16 @@ function collect(
   old: unknown,
   records: readonly CapturedNode[],
   alignment?: Pick<CapturedGraph, 'currents' | 'occupants'>,
-): ReadonlyArray<object[] | undefined> {
+): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
-  // Per-call recognition memo for alias visits; first visits reuse the capture's recognition.
-  const kinds = new Map<object, symbol>()
+  // Per-call recognition memo for alias visits, created on the first; first visits reuse the
+  // capture's recognition.
+  let kinds: Map<object, symbol> | undefined
   const kindOf = (object: object): symbol => {
-    let kind = kinds.get(object)
+    let kind = (kinds ??= new Map<object, symbol>()).get(object)
     if (kind === undefined) kinds.set(object, (kind = recognize(types, object)))
     return kind
   }
-  const visited = new Uint8Array(records.length)
   const currents = alignment?.currents
   const occupants = alignment?.occupants
   const visit = (current: unknown, edge: Edge): void => {
@@ -113,13 +117,15 @@ function collect(
     const choices = aligned[index]
     const object = isObject(current) ? current : undefined
     if (object !== undefined && choices?.includes(object) === true) return
-    const first = visited[index] === 0
-    visited[index] = 1
+    const first = choices === undefined
     const recorded = first && object !== undefined && object === currents?.[index]
     const candidate =
       recorded || (object !== undefined && kindOf(object) === node.layout.kind) ? object : undefined
-    if (candidate !== undefined) (aligned[index] ??= []).push(candidate)
-    else if (!first) return
+    if (candidate !== undefined) {
+      if (choices === undefined || choices === VISITED) aligned[index] = [candidate]
+      else choices.push(candidate)
+    } else if (!first) return
+    else aligned[index] = VISITED as object[]
     const slots = recorded ? occupants![index] : undefined
     if (slots === undefined) types.policies[node.layout.kind].aligned(node, candidate, visit)
     else replayOccupants(node, slots, visit)

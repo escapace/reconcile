@@ -451,33 +451,6 @@ export interface BoundEdge {
 /** Resolves an edge through the current selected image, leaving atoms unchanged. */
 export type Resolve = (edge: Edge) => unknown
 
-/** Owns canonical traversal references independently of native observation rules. */
-export interface CaptureSink<
-  R extends { readonly node: number },
-  P extends CapturePolicy = NativePolicy,
-> {
-  begin: (source: object, reference: R, layout: Layout) => void
-  edge: (reference: R, child: Edge<R>, key: PropertyKey | undefined) => void
-  finish: (reference: R, policy: P) => void
-  layout: (reference: R) => Layout | undefined
-  // Creates private state only; native observation begins after memo registration.
-  reserve: (index: number) => R
-  /**
-   * Publication only: decides an edge's child before the traversal visits it. Returns the
-   * child's edge, or undefined to visit it normally. `references` and `observe` are the
-   * traversal's memo and node observer, so a kept child can be memoized as an atom edge.
-   */
-  adopt?: (
-    parent: R,
-    value: unknown,
-    key: PropertyKey | undefined,
-    construction: boolean | undefined,
-    references: Map<object, Edge<R>>,
-    observe: (source: object, kind: symbol, prototype?: object | null) => R,
-    kind: symbol | undefined,
-  ) => Edge<R> | undefined
-}
-
 /** Accumulates a graph node before native sealing makes its layout consumable. */
 export interface BuildingNode {
   readonly attributes: undefined
