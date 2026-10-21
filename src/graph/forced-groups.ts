@@ -6,7 +6,7 @@ import type {
   Label,
   SupportGraph,
 } from '../types'
-import { denseArray } from '../standard-prototypes'
+import { denseArray, filledArray } from '../standard-prototypes'
 
 /** Builds mandatory implications using every support in the complete target domain. */
 export function supportGraph(domains: Domains): SupportGraph {
@@ -39,7 +39,7 @@ function depthFirst(
   seen: Uint8Array,
   finish: (vertex: number, root: number) => void,
 ): void {
-  const next = new Array<number>(edges.length).fill(0)
+  const next = filledArray(edges.length, 0)
   const stack: number[] = []
   for (const root of roots) {
     if (seen[root] !== 0) continue

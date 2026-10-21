@@ -88,11 +88,16 @@ export const isDataDescriptor = (descriptor: PropertyDescriptor): boolean =>
  * two read alike.
  * @internal
  */
-export function denseArray<T>(length: number): T[] {
-  // Appending is faster than filling a preallocated array of holes at the sizes the graph
-  // tables have, and leaves no hole either.
-  const array: T[] = []
-  for (let index = 0; index < length; index += 1) array.push(undefined as T)
+export const denseArray = <T>(length: number): T[] => filledArray(length, undefined as T)
+
+/**
+ * An array of `length` own elements equal to `value`, as `new Array(length).fill(value)` makes it.
+ * Assigning each element in a loop is faster than `fill` at every size.
+ * @internal
+ */
+export function filledArray<T>(length: number, value: T): T[] {
+  const array = new Array<T>(length)
+  for (let index = 0; index < length; index += 1) array[index] = value
   return array
 }
 

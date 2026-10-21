@@ -2,7 +2,7 @@ import type { Choice, Domains, IncomingConsensus, Label, Selection } from '../ty
 import { forcedGroups } from './forced-groups'
 import { addIncoming } from './incoming-consensus'
 import { unsupportedChoices } from './supported-choices'
-import { denseArray } from '../standard-prototypes'
+import { denseArray, filledArray } from '../standard-prototypes'
 
 // fallow-ignore-next-line complexity -- checked for every candidate choice; kept inline for speed
 function compatible(
@@ -50,7 +50,7 @@ export function headSelection(domains: Domains, distinctStorages = false): Selec
       owners.add(head.storage)
     }
   }
-  return new Array<number>(domains.length).fill(0)
+  return filledArray(domains.length, 0)
 }
 
 // Whether every requirement of a head choice names the head identity of its target domain.
@@ -87,8 +87,8 @@ export function* selections(
   const size = domains.length
   const incoming = denseArray<IncomingConsensus>(size)
   const trail: IncomingConsensus[] = []
-  const maximum = new Array<number>(size + 1).fill(0)
-  const minimum = new Array<number>(size + 1).fill(0)
+  const maximum = filledArray(size + 1, 0)
+  const minimum = filledArray(size + 1, 0)
   const bounds = (node: number, indices?: readonly number[]): void => {
     const domain = domains[node]
     const count = indices === undefined ? domain.length : indices.length
@@ -122,7 +122,7 @@ export function* selections(
   const groups = forcedGroups(domains)
   const forced = groups === undefined ? undefined : denseArray<number | undefined>(size)
   const selected = denseArray<number>(size)
-  const next = new Array<number>(size + 1).fill(0)
+  const next = filledArray(size + 1, 0)
   const owners = new Set<Label>()
   const freshFirst: number[][] = []
   for (let goal = highest; goal >= lowest; goal -= 1) {

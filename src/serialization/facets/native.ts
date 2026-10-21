@@ -10,7 +10,7 @@ import {
 import type { DecodeContext, Decoder } from '../contracts'
 import { enter } from './slots'
 import { charge, chargeParameters, stringWords } from '../size'
-import { denseArray } from '../../standard-prototypes'
+import { denseArray, filledArray } from '../../standard-prototypes'
 export const date: Decoder = {
   fill: undefined,
   link: undefined,
@@ -157,7 +157,7 @@ export const bigint: Decoder = {
       fail('bigint')
     const negative = text.charCodeAt(0) === 45
     if (context.limited)
-      (context.weights ??= new Array<number>(context.output.length).fill(0))[index] = Math.ceil(
+      (context.weights ??= filledArray(context.output.length, 0))[index] = Math.ceil(
         (text.length - (negative ? 3 : 2)) / 16,
       )
     return negative ? -BigInt(text.slice(1)) : BigInt(text)

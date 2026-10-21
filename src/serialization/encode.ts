@@ -2,6 +2,7 @@ import type { EncodeContext } from './contracts'
 import { advances, closeFrame } from './frames'
 import { frame, layout, node, slot } from './emit'
 import { radixTrie } from './radix'
+import { filledArray } from '../standard-prototypes'
 // Correspondence: DFS.lean recursive_refines_stack / entries_unique, Inline.lean
 // inline_matches_recursive, ShapeRadix.lean radix_matches_signature and Positional.lean
 // decode_encode_document / renumber_first_use.
@@ -76,7 +77,7 @@ function enter(value: unknown, context: EncodeContext): unknown[] | undefined {
 // first-use layout table.
 function renumber(context: EncodeContext): number[][] {
   const { descriptors, layouts: provisional } = context
-  const order = new Array<number>(provisional.length).fill(-1)
+  const order = filledArray(provisional.length, -1)
   const layouts: number[][] = []
   for (let index = 0; index < descriptors.length; index++) {
     const id = descriptors[index]
