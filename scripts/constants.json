@@ -215,7 +215,7 @@
       ],
       "outdir": "lib/neutral",
       "platform": "neutral",
-      "target": ["es2020"]
+      "target": ["es2022"]
     }
   },
   "declaration": {

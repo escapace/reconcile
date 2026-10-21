@@ -415,8 +415,6 @@ saves bytes.
 
 These V8 behaviors constrain code that runs per node or per slot.
 
-- **Class fields.** ES2020 consumers lower fields through a `defineProperty` helper, which adds
-  bytes and time; declared fields assigned in the constructor avoid both.
 - **Per-node allocation.** `Map`s, `Set`s, closures, spreads and iterator destructuring in loops
   over nodes or edges cost time, as do closures passed to array builtins in once-per-call scans.
 - **JSON.** Small integers parse inline; a float in an integer row makes a double array whose

@@ -69,8 +69,7 @@ export function arrayIndex(property: PropertyKey): number | undefined {
  *
  * @internal
  */
-export const hasOwn = (value: object, key: PropertyKey): boolean =>
-  Object.prototype.hasOwnProperty.call(value, key)
+export const hasOwn = (value: object, key: PropertyKey): boolean => Object.hasOwn(value, key)
 
 /**
  * The own string keys of `value` that are not enumerable, or `undefined` when every one is.

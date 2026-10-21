@@ -2,7 +2,7 @@
  * Consumer bundle review (`pnpm bench size`).
  *
  * Bundles every nonempty combination of the six operations, and each other runtime export on
- * its own, from the built ESM entry point with esbuild, minified for a browser ES2020 target,
+ * its own, from the built ESM entry point with esbuild, minified for a browser ES2022 target,
  * then reports minified and gzip (level 9) sizes. It checks
  * that the package's top-level code is removable (an import that uses nothing emits no
  * JavaScript even when the package's `sideEffects: false` is ignored), smoke-tests each bundle,
@@ -77,7 +77,7 @@ const options = {
   metafile: true,
   minify: true,
   platform: 'browser',
-  target: 'es2020',
+  target: 'es2022',
   write: false,
 }
 
