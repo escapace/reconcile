@@ -88,7 +88,13 @@ export const isDataDescriptor = (descriptor: PropertyDescriptor): boolean =>
  * two read alike.
  * @internal
  */
-export const denseArray = <T>(length: number): T[] => new Array<T>(length).fill(undefined as T)
+export function denseArray<T>(length: number): T[] {
+  // Appending is faster than filling a preallocated array of holes at the sizes the graph
+  // tables have, and leaves no hole either.
+  const array: T[] = []
+  for (let index = 0; index < length; index += 1) array.push(undefined as T)
+  return array
+}
 
 /**
  * An empty array detached from `Array.prototype`, for internal tables indexed sparsely: a missing
