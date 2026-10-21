@@ -42,22 +42,22 @@ class AlignedCapture extends Detached {
   // The prototype `classify` read for a plain-object kind, handed to that object's observer.
   declare private classified: object | null | undefined
   // Objects marked by kept-subtree walks; created on the first walk.
+  declare private readonly beginCallback: (layout: Layout) => void
   declare private closure: Set<object> | undefined
   declare readonly currents: Array<object | undefined>
+  declare private readonly edgeCallback: CaptureEdge
   declare readonly nodes: Array<BuildingNode | CapturedNode>
   declare readonly occupants: Array<unknown[] | undefined>
-  declare private readonly onBegin: (layout: Layout) => void
-  declare private readonly onEdge: CaptureEdge
   // Occupant handed from the parent's aligned read to the child's reservation.
+  declare private count: number
+  declare private currentReference: NodeEdge | undefined
+  declare private currentSource: object | undefined
+  declare private readonly nextRoot: unknown
   declare private pending: object | undefined
-  declare private reference: NodeEdge | undefined
   declare private readonly references: Map<object, Edge>
   declare private readonly root: object | undefined
-  declare private size: number
-  declare private source: object | undefined
   declare readonly sources: object[]
   declare private readonly types: PublicationRegistry
-  declare private readonly value: unknown
 
   constructor(types: PublicationRegistry, value: unknown, current: object | undefined) {
     super()
@@ -72,18 +72,18 @@ class AlignedCapture extends Detached {
     }
     const edge: CaptureEdge = (child, key, knownKind, construction) =>
       this.edge(child, key, knownKind, construction)
-    this.onBegin = begin
-    this.onEdge = edge
+    this.beginCallback = begin
+    this.edgeCallback = edge
     this.pending = current
     this.protectedStorage = undefined
-    this.reference = undefined
+    this.currentReference = undefined
     this.references = new Map()
     this.root = current
-    this.size = 0
-    this.source = undefined
+    this.count = 0
+    this.currentSource = undefined
     this.sources = []
     this.types = types
-    this.value = value
+    this.nextRoot = value
   }
 
   // The plain-object fallback reads the prototype once: an atom becomes a value edge, kept by
@@ -101,16 +101,16 @@ class AlignedCapture extends Detached {
   }
 
   private observe(source: object, kind: symbol, prototype?: object | null): NodeEdge {
-    const reference = this.reserve(this.size++)
+    const reference = this.reserve(this.count++)
     this.references.set(source, reference)
     const policy = this.types.policies[kind]
-    const outerSource = this.source
-    const outerReference = this.reference
-    this.source = source
-    this.reference = reference
-    policy.observe(source, this.onBegin, this.onEdge, 'publication', prototype)
-    this.source = outerSource
-    this.reference = outerReference
+    const outerSource = this.currentSource
+    const outerReference = this.currentReference
+    this.currentSource = source
+    this.currentReference = reference
+    policy.observe(source, this.beginCallback, this.edgeCallback, 'publication', prototype)
+    this.currentSource = outerSource
+    this.currentReference = outerReference
     // Native policies supply begin before returning; all graph nodes are sealed.
     this.nodes[reference.node] = policy.seal(this.nodes[reference.node] as CapturedNode)
     return reference
@@ -133,9 +133,9 @@ class AlignedCapture extends Detached {
 
   // The driver calls begin/edge only while this node is under construction.
   private begin(layout: Layout): void {
-    const index = this.reference!.node
+    const index = this.currentReference!.node
     ;(this.nodes[index] as BuildingNode).layout = layout
-    this.sources[index] = this.source!
+    this.sources[index] = this.currentSource!
     const aligned = this.currents[index]
     if (aligned !== undefined && recognize(this.types, aligned) !== layout.kind)
       this.currents[index] = undefined
@@ -147,7 +147,7 @@ class AlignedCapture extends Detached {
     knownKind: symbol | undefined,
     construction: boolean | undefined,
   ): unknown {
-    const reference = this.reference!
+    const reference = this.currentReference!
     const child = this.adopt(reference.node, value, key, construction, knownKind)
     const node = this.nodes[reference.node] as BuildingNode
     node.edges.push(child)
@@ -246,7 +246,7 @@ class AlignedCapture extends Detached {
     }
     while (source !== undefined) {
       if (!closure.has(source)) {
-        if (source === this.value || source === this.root) {
+        if (source === this.nextRoot || source === this.root) {
           visited.forEach((marked) => closure.delete(marked))
           return false
         }
