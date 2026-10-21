@@ -31,6 +31,8 @@ export const diagnosticNames = [
   'diag-deserialize-bigints',
   'diag-deserialize-limited',
   'diag-required-max-bytes',
+  'diag-tiny-produce',
+  'diag-tiny-reconcile',
   'serialize',
   'deserialize',
 ] as const
@@ -488,6 +490,61 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
         assert.deepEqual(Object.keys(output), Object.keys(input))
         assert.equal(output[0], output[size])
         assert.notEqual(output[0], shared)
+      },
+    }
+  },
+  'diag-tiny-produce': ({ api, size }) => {
+    const keys = Array.from({ length: size }, (_, index) => `k${index}`)
+    const input = Object.fromEntries(keys.map((key) => [key, 0])) as Record<string, number>
+    let turn = 0
+    let last: Record<string, number> = input
+    return {
+      state: 'flat object of n keys; recipes rotate: no change, one key, every key',
+      run: () => {
+        const phase = turn++ % 3
+        last = api.produce(input, (draft) => {
+          if (phase === 0) draft.k0 = 0
+          else if (phase === 1) draft.k0 = turn
+          else for (const key of keys) draft[key] = turn
+          return draft
+        })
+      },
+      validate: () => {
+        const phase = (turn - 1) % 3
+        assert.equal(input.k0, 0)
+        if (phase === 0) assert.equal(last, input)
+        else {
+          assert.notEqual(last, input)
+          assert.equal(last.k0, turn)
+          assert.deepEqual(Object.keys(last), keys)
+        }
+      },
+    }
+  },
+  'diag-tiny-reconcile': ({ api, size }) => {
+    const keys = Array.from({ length: size }, (_, index) => `k${index}`)
+    const flat = (value: (key: string) => number) =>
+      Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<string, number>
+    // From the previous value each step changes nothing, one key, one key, every key, every key.
+    const nexts = [
+      flat(() => 0),
+      flat(() => 0),
+      flat((key) => Number(key === 'k0')),
+      flat(() => 0),
+      flat(() => 2),
+    ]
+    const current = flat(() => 2)
+    let turn = 0
+    let last: unknown
+    return {
+      state: 'flat object of n keys updated in place; rotates unchanged, sparse and full nexts',
+      run: () => {
+        last = api.reconcile(current, nexts[turn++ % nexts.length])
+      },
+      validate: () => {
+        assert.equal(last, current)
+        assert.deepEqual(current, nexts[(turn - 1) % nexts.length])
+        assert.deepEqual(Object.keys(current), keys)
       },
     }
   },
