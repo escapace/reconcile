@@ -85,6 +85,13 @@ function replayOccupants(
 // A node visited without an aligned object of its kind; it holds no candidate.
 const VISITED: readonly object[] = /* @__PURE__ */ Object.freeze([])
 
+// Adds an aligned object of the node's kind, replacing the empty `VISITED` marker.
+function align(aligned: Array<object[] | undefined>, index: number, candidate: object): void {
+  const choices = aligned[index]
+  if (choices === undefined || choices === VISITED) aligned[index] = [candidate]
+  else choices.push(candidate)
+}
+
 // Traversal and visitation are graph-owned; native policies only expose aligned slots.
 // Aligned objects per node are few, so a small array replaces a Set per node; a visited node
 // without one holds the shared empty `VISITED`.
@@ -121,10 +128,8 @@ function collect(
     const recorded = first && object !== undefined && object === currents?.[index]
     const candidate =
       recorded || (object !== undefined && kindOf(object) === node.layout.kind) ? object : undefined
-    if (candidate !== undefined) {
-      if (choices === undefined || choices === VISITED) aligned[index] = [candidate]
-      else choices.push(candidate)
-    } else if (!first) return
+    if (candidate !== undefined) align(aligned, index, candidate)
+    else if (!first) return
     else aligned[index] = VISITED as object[]
     const slots = recorded ? occupants![index] : undefined
     if (slots === undefined) types.policies[node.layout.kind].aligned(node, candidate, visit)

@@ -36,12 +36,17 @@ function claimFresh(
   return taken
 }
 
-// Fixed identities are the root and everything its selected choices pin transitively.
-function fixedNodes(choices: readonly Choice[]): Set<number> {
+// Fixed identities are the root and everything its selected choices pin transitively;
+// undefined when the root pins nothing and is the only fixed node.
+function fixedNodes(choices: readonly Choice[]): Set<number> | undefined {
+  if (choices[0].required.length === 0) return undefined
   const fixed = new Set([0])
   for (const node of fixed) for (const edge of choices[node].required) fixed.add(edge.node)
   return fixed
 }
+
+const isFixed = (fixed: ReadonlySet<number> | undefined, index: number): boolean =>
+  fixed === undefined ? index === 0 : fixed.has(index)
 
 // Readback results are only read; one frozen match serves every node, one frozen reject every
 // failure without a rebind.
@@ -96,8 +101,7 @@ export function publishGraph(
   // targets share storage, a fresh target reuses old storage or a construction edge names
   // another target.
   const bind = (choices: readonly Choice[], targets: readonly object[]): Binding[] | undefined => {
-    // When the root pins nothing, it is the only fixed node.
-    const fixed = choices[0].required.length === 0 ? undefined : fixedNodes(choices)
+    const fixed = fixedNodes(choices)
     const bindings: Binding[] = []
     // A retained target observes its choice's memoized storage, and selection admits no two
     // choices with one storage (GraphPolicy feasible), so only a fresh target can collide: with
@@ -124,7 +128,7 @@ export function publishGraph(
         choice: choice.identity,
         construction: read === undefined ? choice.required : [...choice.required, ...read],
         exposed: target,
-        fixed: fixed === undefined ? index === 0 : fixed.has(index),
+        fixed: isFixed(fixed, index),
         mode: observed.mode,
         palette: EXPOSURE_MODES,
         storage: observed.storage,
