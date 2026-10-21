@@ -10,6 +10,7 @@ import type {
   Domains,
   Edge,
   Execution,
+  ExposureObservation,
   PublicationRegistry,
   NativeOwners,
   Readback,
@@ -42,8 +43,10 @@ function fixedNodes(choices: readonly Choice[]): Set<number> {
   return fixed
 }
 
-// Readback results are only read; one frozen match serves every node.
+// Readback results are only read; one frozen match serves every node, one frozen reject every
+// failure without a rebind.
 const MATCH: Readback = /* @__PURE__ */ Object.freeze({ kind: 'match' })
+const REJECT: Readback = /* @__PURE__ */ Object.freeze({ kind: 'reject' })
 
 /** Reads the live object currently exposed at a node of one attempt. */
 const exposed = (state: Execution, index: number): object => state.bindings[index].exposed as object
@@ -59,8 +62,9 @@ export function publishGraph(
 ): boolean {
   const records = graph.nodes
   const size = records.length
-  const policy = (index: number) => types.policies[records[index].layout.kind]
-  const dependencies = records.map((node) => constructionDependencies(types, node))
+  const policies = types.policies
+  // Construction dependencies are sealed facts, listed on the first preparation.
+  let dependencies: Array<readonly number[]> | undefined
   // Storage identity is stable for the duration of one call; probe each object once. While no
   // probe repeats an object or resolves a wrapper, every probed object is its own storage and
   // no two probes share one.
@@ -78,12 +82,22 @@ export function publishGraph(
   // Retained choices take their storage from these probes and fresh ones their own node number,
   // so when discovery shared nothing no two choices share storage.
   const distinctStorages = unshared
-  const exposure = new ExposurePalette((value) => types.exposures[recognize(types, value)], storage)
+  // Created on the first wrapper: an ordinary object is its own storage and its own mode-0
+  // handle, which the palette would answer without recording it.
+  let palette: ExposurePalette | undefined
+  const observe = (value: object, kind: symbol): ExposureObservation | undefined =>
+    storage(value) === value
+      ? { mode: 0, storage: value }
+      : (palette ??= new ExposurePalette(
+          (wrapper) => types.exposures[recognize(types, wrapper)],
+          storage,
+        )).observe(value, types.exposures[kind])
   // Observes each selected target once and binds it to its choice; undefined when two
   // targets share storage, a fresh target reuses old storage or a construction edge names
   // another target.
   const bind = (choices: readonly Choice[], targets: readonly object[]): Binding[] | undefined => {
-    const fixed = fixedNodes(choices)
+    // When the root pins nothing, it is the only fixed node.
+    const fixed = choices[0].required.length === 0 ? undefined : fixedNodes(choices)
     const bindings: Binding[] = []
     // A retained target observes its choice's memoized storage, and selection admits no two
     // choices with one storage (GraphPolicy feasible), so only a fresh target can collide: with
@@ -95,7 +109,7 @@ export function publishGraph(
       const target = targets[index]
       const node = records[index]
       const choice = choices[index]
-      const observed = exposure.observe(target, types.exposures[node.layout.kind])
+      const observed = observe(target, node.layout.kind)
       if (observed === undefined) return undefined
       if (!choice.retained) {
         taken = claimFresh(domains, taken, observed.storage)
@@ -103,14 +117,14 @@ export function publishGraph(
       }
       // A retained choice's requirements already name the selected targets; dependent
       // construction extends a copy of them with edges that must name the selected targets.
-      const construction = policy(index).bindings
+      const construction = policies[node.layout.kind].bindings
       const read = construction.tag === 'dependent' ? construction.read(node, target) : undefined
       if (read?.some((edge) => edge.identity !== targets[edge.node]) === true) return undefined
       bindings.push({
         choice: choice.identity,
         construction: read === undefined ? choice.required : [...choice.required, ...read],
         exposed: target,
-        fixed: fixed.has(index),
+        fixed: fixed === undefined ? index === 0 : fixed.has(index),
         mode: observed.mode,
         palette: EXPOSURE_MODES,
         storage: observed.storage,
@@ -118,6 +132,47 @@ export function publishGraph(
       })
     }
     return bindings
+  }
+  // The attempt being published or read back; the callbacks below read it instead of closing
+  // over each revision.
+  let active: Execution | undefined
+  const resolve = (edge: Edge): unknown => (isNode(edge) ? exposed(active!, edge.node) : edge.value)
+  const writer = (index: number): object => active!.bindings[index].writer as object
+  // Construction bindings already observed native ownership at prepare. URL child
+  // identity is fixed for its owner's lifetime, so this lookup performs no live read.
+  let nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
+  const owner = (child: object, kind: symbol): object | undefined => {
+    let owners = nativeOwners?.get(kind)
+    if (owners === undefined) {
+      owners = new WeakMap<object, object>()
+      ;(nativeOwners ??= new Map()).set(kind, owners)
+      for (let index = 0; index < size; index += 1) {
+        if (records[index].pinned !== undefined || records[index].layout.kind !== kind) continue
+        for (const edge of active!.bindings[index].construction)
+          if (edge.identity === writer(edge.node)) owners.set(edge.identity, writer(index))
+      }
+    }
+    return owners.get(child)
+  }
+  // The rebind the current readback comparison found, if any.
+  let outcome: Readback = REJECT
+  const compare = (actual: unknown, wanted: Edge): boolean => {
+    if (!isNode(wanted)) return Object.is(actual, wanted.value)
+    const state = active!
+    const child = wanted.node
+    if (actual === exposed(state, child)) return true
+    if (isObject(actual) && storage(actual) === state.bindings[child].storage) {
+      const observed = observe(actual, records[child].layout.kind)
+      if (observed !== undefined)
+        outcome = {
+          exposed: actual,
+          kind: 'rebind',
+          mode: observed.mode,
+          node: child,
+          storage: observed.storage,
+        }
+    }
+    return false
   }
   // Candidate discovery already ran the requirement scan on every retained candidate while no
   // write had happened; it is the preflight. The engine repeats it only after this call's own
@@ -127,47 +182,43 @@ export function publishGraph(
     domains,
     {
       prepare(selection) {
-        const choices = selection.map((choice, node) => domains[node][choice])
-        const order = constructionOrder(
-          dependencies,
-          choices.map((choice) => choice.retained),
-        )
-        if (order === undefined) return undefined
-        const targets = choices.map((choice) =>
-          choice.retained ? (choice.identity as object) : undefined,
-        ) as object[]
-        // Native ownership found while allocating; a literal holds the field as its own data.
-        const owners: NativeOwners = { nativeOwners: undefined }
-        const resolve = (edge: Edge): unknown => (isNode(edge) ? targets[edge.node] : edge.value)
-        for (let position = 0; position < order.length; position += 1) {
-          const index = order[position]
-          const target = policy(index).allocate(records[index], resolve, owners)
-          if (target === undefined) return undefined
-          targets[index] = target
+        const choices: Choice[] = []
+        const targets: object[] = []
+        let fresh = false
+        for (let node = 0; node < size; node += 1) {
+          const choice = domains[node][selection[node]]
+          choices.push(choice)
+          targets.push(choice.retained ? (choice.identity as object) : (undefined as never))
+          if (!choice.retained) fresh = true
+        }
+        // With every choice retained the construction order is empty.
+        if (fresh) {
+          dependencies ??= records.map((node) => constructionDependencies(types, node))
+          const order = constructionOrder(
+            dependencies,
+            choices.map((choice) => choice.retained),
+          )
+          if (order === undefined) return undefined
+          // Native ownership found while allocating; a literal holds the field as its own data.
+          const owners: NativeOwners = { nativeOwners: undefined }
+          const resolveTarget = (edge: Edge): unknown =>
+            isNode(edge) ? targets[edge.node] : edge.value
+          for (let position = 0; position < order.length; position += 1) {
+            const index = order[position]
+            const target = policies[records[index].layout.kind].allocate(
+              records[index],
+              resolveTarget,
+              owners,
+            )
+            if (target === undefined) return undefined
+            targets[index] = target
+          }
         }
         return bind(choices, targets)
       },
       publish(state) {
-        const resolve = (edge: Edge): unknown =>
-          isNode(edge) ? exposed(state, edge.node) : edge.value
-        const writer = (index: number): object => state.bindings[index].writer as object
-        // Construction bindings already observed native ownership at prepare. URL child
-        // identity is fixed for its owner's lifetime, so this lookup performs no live read.
-        let nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
-        const owner = (child: object, kind: symbol): object | undefined => {
-          let owners = nativeOwners?.get(kind)
-          if (owners === undefined) {
-            owners = new WeakMap<object, object>()
-            ;(nativeOwners ??= new Map()).set(kind, owners)
-            for (let index = 0; index < size; index += 1) {
-              if (records[index].pinned !== undefined || records[index].layout.kind !== kind)
-                continue
-              for (const edge of state.bindings[index].construction)
-                if (edge.identity === writer(edge.node)) owners.set(edge.identity, writer(index))
-            }
-          }
-          return owners.get(child)
-        }
+        active = state
+        nativeOwners = undefined
         // After this call's own writes, retained replaceable targets rerun the preflight. A fresh
         // choice is labelled by its node index; a retained one by its object.
         for (let index = 0; index < size; index += 1)
@@ -175,16 +226,18 @@ export function publishGraph(
             written &&
             typeof state.bindings[index].choice !== 'number' &&
             records[index].pinned === undefined &&
-            policy(index).requirements(records[index], writer(index)) === undefined
+            policies[records[index].layout.kind].requirements(records[index], writer(index)) ===
+              undefined
           )
             return { rejected: index }
         written = true
         for (let index = 0; index < size; index += 1) {
-          if (records[index].pinned !== undefined) continue
+          const node = records[index]
+          if (node.pinned !== undefined) continue
           // Recover only native publication exceptions on replaceable nodes. A
           // fixed receiver's host exception remains a public failure, without rollback.
           try {
-            if (!policy(index).publish(records[index], writer(index), resolve, owner))
+            if (!policies[node.layout.kind].publish(node, writer(index), resolve, owner))
               return { rejected: index }
           } catch (error) {
             if (state.bindings[index].fixed) throw error
@@ -195,38 +248,27 @@ export function publishGraph(
       },
       readback(state, index) {
         const node = records[index]
-        const target = exposed(state, index)
         // Bind and rebind store the memoized storage of the exposed object, so it always equals
         // the binding's storage here, and no storage check is needed.
         if (node.pinned !== undefined) return MATCH
-        let outcome: Readback = { kind: 'reject' }
+        const target = exposed(state, index)
+        active = state
+        outcome = REJECT
         const matches =
           matchesKind(types, target, node.layout.kind) &&
-          policy(index).matches(node, target, (actual, wanted) => {
-            if (!isNode(wanted)) return Object.is(actual, wanted.value)
-            const child = wanted.node
-            if (actual === exposed(state, child)) return true
-            if (isObject(actual) && storage(actual) === state.bindings[child].storage) {
-              const observed = exposure.observe(actual, types.exposures[records[child].layout.kind])
-              if (observed !== undefined)
-                outcome = {
-                  exposed: actual,
-                  kind: 'rebind',
-                  mode: observed.mode,
-                  node: child,
-                  storage: observed.storage,
-                }
-            }
-            return false
-          })
+          policies[node.layout.kind].matches(node, target, compare)
         return matches ? MATCH : outcome
       },
       retention(state) {
         let score = 0
         for (let index = 0; index < size; index += 1) {
           const target = exposed(state, index)
-          if (domains[index].some((choice) => choice.retained && choice.identity === target))
-            score += 1
+          const domain = domains[index]
+          for (let choice = 0; choice < domain.length; choice += 1)
+            if (domain[choice].retained && domain[choice].identity === target) {
+              score += 1
+              break
+            }
         }
         return score
       },
