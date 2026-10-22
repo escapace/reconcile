@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { scenarioNames } from './bench-workloads'
+import { expandRound, rounds, scenarioNames } from './bench-workloads'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 
@@ -21,6 +21,8 @@ const usage = `Usage:
   pnpm bench size [--compare sizes.json]    How large are the consumer bundles?
 
 Scenarios: ${scenarioNames.join(', ')}.
+\`run\`, \`compare\` and \`ab\` take \`--round default\` (the first six; the default) or
+\`--round small\` (the ten on 1 and 16 keys) in place of \`--scenario\`.
 \`profile\` and \`ab\` also take the diag-* diagnostics that \`pnpm bench profile --help\` lists.`
 
 const tsx = (script: string) => (arguments_: string[]) => [
@@ -31,7 +33,7 @@ const tsx = (script: string) => (arguments_: string[]) => [
   ...arguments_,
 ]
 
-/** The command line of each subcommand; `ab` defaults to every scenario. */
+/** The command line of each subcommand; `ab` defaults to the default round. */
 const commands: Record<string, (arguments_: string[]) => string[]> = {
   compare: tsx('scripts/bench-compare.ts'),
   profile: tsx('scripts/profile.ts'),
@@ -44,7 +46,7 @@ const commands: Record<string, (arguments_: string[]) => string[]> = {
       (argument) => argument === '--scenario' || argument.startsWith('--scenario='),
     )
       ? arguments_
-      : [...arguments_, ...scenarioNames.flatMap((name) => ['--scenario', name])]),
+      : [...arguments_, ...rounds.default.flatMap((name) => ['--scenario', name])]),
   ],
 }
 
@@ -60,7 +62,13 @@ if (command === undefined) {
   console.error(`Unknown command ${name}.\n\n${usage}`)
   process.exit(2)
 }
-const line = command(arguments_)
+let line: string[]
+try {
+  line = command(expandRound(arguments_))
+} catch (error) {
+  console.error((error as Error).message)
+  process.exit(2)
+}
 // Help exits before any measurement, so it runs without a budget or a receipt.
 if (arguments_.includes('--help') || arguments_.includes('-h')) {
   process.exit(spawnSync(line[0], line.slice(1), { cwd: ROOT, stdio: 'inherit' }).status ?? 1)

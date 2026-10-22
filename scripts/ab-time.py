@@ -10,9 +10,10 @@ round, including bundling and descendant shutdown, under one 295-second budget; 
 incomplete evidence, not a pass.
 
 Each scenario reports the median paired change (negative is faster), a bootstrap 90% interval
-from 10 pairs on, the count of faster pairs and a reading. The default round (ten pairs of all
-six scenarios at half a second each) checks for regressions; a deciding round selects one
-scenario, or two frozen ones, and runs ``--pairs 32 --seconds 1``.
+from 10 pairs on, the count of faster pairs and a reading. The default round (ten pairs of the
+six default scenarios at half a second each) and the small round (``--round small``, the ten
+small scenarios alike) check for regressions; a deciding round selects one scenario, or two
+frozen ones, and runs ``--pairs 32 --seconds 1``.
 
 Usage:
   pnpm bench ab --baseline <tree> [--candidate <tree>] [--scenario name]... [--pairs 10]

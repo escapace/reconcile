@@ -19,9 +19,10 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 - Treat a semantic rule or fix as library-wide: check every function and value kind, including
   subclasses, Vue proxies and linked URL and buffer pairs. Decide from what each function's
   users need; fix all consistently or none.
-- Keep the frozen `perf/` workloads unchanged. Freeze a control and the counted-work hypothesis
-  before optimizing. Never overlap a benchmark or profiler with any other work. Report each
-  workload against the control or trunk directly, never as an aggregate or multiplied ratios.
+- Keep the frozen workloads unchanged: those in `perf/` and the small ones in
+  `scripts/bench-workloads.ts`. Freeze a control and the counted-work hypothesis before optimizing.
+  Never overlap a benchmark or profiler with any other work. Report each workload against the
+  control or trunk directly, never as an aggregate or multiplied ratios.
 - Each complete validation or measurement round finishes within 300 seconds, child processes
   included. A timeout is incomplete evidence, not a pass, and is not split into chunks. Reuse a
   pass only after checking that its inputs are unchanged.

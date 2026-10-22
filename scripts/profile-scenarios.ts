@@ -4,7 +4,15 @@ import { ring, type RingNode } from '../src/__tests__/fixtures/ring'
 import type { selections } from '../src/graph/selection'
 import type * as API from '../src/index'
 import type { Domains } from '../src/types'
-import { serializationFixtures, serializationOperation, textCodec } from './bench-workloads'
+import {
+  flatOperation,
+  serializationFixtures,
+  serializationOperation,
+  smallOperation,
+  smallScenarioNames,
+  type SmallScenarioName,
+  textCodec,
+} from './bench-workloads'
 
 export const diagnosticNames = [
   'diag-noop',
@@ -35,6 +43,7 @@ export const diagnosticNames = [
   'diag-tiny-reconcile',
   'serialize',
   'deserialize',
+  ...smallScenarioNames,
 ] as const
 export type DiagnosticName = (typeof diagnosticNames)[number]
 
@@ -115,7 +124,20 @@ function produceAlias({ alias, api, shared }: Context, undo: boolean): Scenario 
 }
 
 /** Fixtures are created when a factory runs, before warmup; `run` and `validate` close over them. */
+/** The small round's workloads, which ignore the diagnostic size. */
+const small =
+  (name: SmallScenarioName) =>
+  ({ api }: Context): Scenario => ({
+    layer: 'small',
+    state: 'a flat object of the named number of keys; see smallOperation in bench-workloads.ts',
+    ...smallOperation(api, name),
+  })
+
 const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
+  ...(Object.fromEntries(smallScenarioNames.map((name) => [name, small(name)])) as Record<
+    SmallScenarioName,
+    (context: Context) => Scenario
+  >),
   'deserialize': ({ api }) => ({
     layer: 'serialization',
     state: 'decodes the six serialization fixture texts in rotation, one per operation',
@@ -493,61 +515,14 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
-  'diag-tiny-produce': ({ api, size }) => {
-    const keys = Array.from({ length: size }, (_, index) => `k${index}`)
-    const input = Object.fromEntries(keys.map((key) => [key, 0])) as Record<string, number>
-    let turn = 0
-    let last: Record<string, number> = input
-    return {
-      state: 'flat object of n keys; recipes rotate: no change, one key, every key',
-      run: () => {
-        const phase = turn++ % 3
-        last = api.produce(input, (draft) => {
-          if (phase === 0) draft.k0 = 0
-          else if (phase === 1) draft.k0 = turn
-          else for (const key of keys) draft[key] = turn
-          return draft
-        })
-      },
-      validate: () => {
-        const phase = (turn - 1) % 3
-        assert.equal(input.k0, 0)
-        if (phase === 0) assert.equal(last, input)
-        else {
-          assert.notEqual(last, input)
-          assert.equal(last.k0, turn)
-          assert.deepEqual(Object.keys(last), keys)
-        }
-      },
-    }
-  },
-  'diag-tiny-reconcile': ({ api, size }) => {
-    const keys = Array.from({ length: size }, (_, index) => `k${index}`)
-    const flat = (value: (key: string) => number) =>
-      Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<string, number>
-    // From the previous value each step changes nothing, one key, one key, every key, every key.
-    const nexts = [
-      flat(() => 0),
-      flat(() => 0),
-      flat((key) => Number(key === 'k0')),
-      flat(() => 0),
-      flat(() => 2),
-    ]
-    const current = flat(() => 2)
-    let turn = 0
-    let last: unknown
-    return {
-      state: 'flat object of n keys updated in place; rotates unchanged, sparse and full nexts',
-      run: () => {
-        last = api.reconcile(current, nexts[turn++ % nexts.length])
-      },
-      validate: () => {
-        assert.equal(last, current)
-        assert.deepEqual(current, nexts[(turn - 1) % nexts.length])
-        assert.deepEqual(Object.keys(current), keys)
-      },
-    }
-  },
+  'diag-tiny-produce': ({ api, size }) => ({
+    state: 'flat object of n keys; recipes rotate: no change, one key, every key',
+    ...flatOperation(api, 'produce', size),
+  }),
+  'diag-tiny-reconcile': ({ api, size }) => ({
+    state: 'flat object of n keys updated in place; rotates unchanged, sparse and full nexts',
+    ...flatOperation(api, 'reconcile', size),
+  }),
   'diag-undo': (context) => produceAlias(context, true),
   'diag-unsupported-cycle': ({ api, size }) => {
     let last: unknown

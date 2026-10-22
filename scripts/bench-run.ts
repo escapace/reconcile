@@ -16,12 +16,16 @@ import {
   createContextRuntimeReconcilePlainObjectBenchmarks,
   createContextRuntimeSnapshotBenchmarks,
 } from '../perf/scenarios'
-import { deserialize, serialize } from '../src/index'
+import { deserialize, produce, reconcile, serialize, snapshot } from '../src/index'
 import {
+  defaultScenarioNames,
   selectScenarios,
   type ScenarioName,
   scenarioNames,
   serializationFixtures,
+  smallOperation,
+  smallScenarioNames,
+  type SmallScenarioName,
 } from './bench-workloads'
 
 function createBenchmark(name: string, tasks: Record<string, () => void>): Bench {
@@ -52,10 +56,29 @@ function jsonReference(fixtures: ReturnType<typeof serializationFixtures>): obje
   return fixtures.find(({ name }) => name === 'json-1000')!.value
 }
 
+/** A small workload's table: one sample is one batch of `BATCH_SIZE` operations. */
+function smallSuite(scenario: SmallScenarioName): () => Bench {
+  return () => {
+    const { run } = smallOperation(
+      { deserialize, produce, reconcile, serialize, snapshot },
+      scenario,
+    )
+    return createBenchmark(scenario, {
+      [scenario]: () => {
+        for (let index = 0; index < BATCH_SIZE; index += 1) run()
+      },
+    })
+  }
+}
+
 function suiteFactories(
   fixtures: () => ReturnType<typeof serializationFixtures>,
 ): Record<ScenarioName, () => Bench> {
   return {
+    ...(Object.fromEntries(smallScenarioNames.map((name) => [name, smallSuite(name)])) as Record<
+      SmallScenarioName,
+      () => Bench
+    >),
     'deserialize': () => {
       const jsonText = JSON.stringify(jsonReference(fixtures()))
       const tasks: Record<string, () => void> = {
@@ -106,7 +129,7 @@ function suiteFactories(
 
 /** Yields each selected scenario in library order, building its fixtures just before it runs. */
 export function* createBenchmarks(
-  selected: readonly ScenarioName[] = scenarioNames,
+  selected: readonly ScenarioName[] = defaultScenarioNames,
 ): Generator<{ bench: Bench; scenario: ScenarioName }, undefined> {
   const factories = suiteFactories(lazyFixtures())
   for (const scenario of scenarioNames)

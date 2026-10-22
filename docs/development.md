@@ -298,17 +298,21 @@ result only while both still match:
 
 - A _screen_ is `pnpm bench compare --baseline <control>`: quick, but it resolves only effects
   larger than a few percent.
-- A _default round_ is `pnpm bench ab --baseline <control> --out <dir>` over all six scenarios.
-  It guards against large regressions only.
+- A _default round_ is `pnpm bench ab --baseline <control> --out <dir>` over the six default
+  scenarios, and a _small round_ adds `--round small` for the ten small ones. Each guards against
+  large regressions only, and a change runs both.
 - A _deciding round_ adds `--scenario <name> --pairs 32 --seconds 1`. Two deciding rounds are two
   separate runs, one after the other, each with its own `--out`.
 - An _A/A round_ runs the control against a copy of itself with deciding settings, to check
   noise.
 
-The six scenarios are `snapshot`, `reconcile`, `reconcile-plain-object` (the `reconcile` workload
-on plain objects), `produce`, `serialize` and `deserialize`. The first four are the frozen
-`perf/` workloads; `serialize` and `deserialize` rotate through six graphs between values and
-JSON text in `scripts/bench-workloads.ts`. The `diag-*` diagnostics that
+The six default scenarios are `snapshot`, `reconcile`, `reconcile-plain-object` (the `reconcile`
+workload on plain objects), `produce`, `serialize` and `deserialize`. The first four are the frozen
+`perf/` workloads; `serialize` and `deserialize` rotate through six graphs between values and JSON
+text in `scripts/bench-workloads.ts`. The ten small scenarios, `snapshot-1` to `deserialize-16`,
+run `snapshot`, `reconcile`, `produce`, `serialize` and `deserialize` on a flat object of 1 and of
+16 keys (`smallOperation` in `scripts/bench-workloads.ts`). They are frozen too, and since they
+live outside `perf/` they run against any control. The `diag-*` diagnostics that
 `pnpm bench profile --help` lists target particular shapes, and most scale with `--size`.
 
 ### Protocol
@@ -339,21 +343,22 @@ JSON text in `scripts/bench-workloads.ts`. The `diag-*` diagnostics that
    proxies, covering getters, null prototypes, frozen objects, holes, collections, buffers, sharing
    and cycles; `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts`
    help. Plant a mutant for each new guard to confirm that a test kills it.
-7. **Time it** with a default round and two deciding rounds on the target, and **measure
-   bundles** against the control's `sizes.json`.
+7. **Time it** with a default round, a small round and two deciding rounds on the target, and
+   **measure bundles** against the control's `sizes.json`.
 8. **Run the checkpoint and report** the outcome alongside the change: each workload's reading
    against the control and the bundle-size change. Keep frozen trees, receipts and one-off
    scripts outside the repository.
 
-**Acceptance.** Report `snapshot`, `reconcile`, `reconcile-plain-object` and `produce`
-separately, plus `serialize` and `deserialize` when serialization changes. Keep an optimization
-only when two deciding rounds both read _faster_ on its target: the 90% interval lies below zero
-and the median gains at least 2%. The default round guards the other workloads: one that reads
-_slower_ or _slightly slower_ there needs a deciding round of its own, and a deciding round that
-reads _slower_ (median beyond the 3% guard) rejects the candidate. A stress-case win does not
-excuse an ordinary loss. Counters stay equal unless the hypothesis says they move. When the
-hypothesis predicts a large gain, write it down as the target before measuring, for example 20%
-with at least 28 of 32 faster pairs; a result below the target rejects the hypothesis.
+**Acceptance.** Report `snapshot`, `reconcile`, `reconcile-plain-object` and `produce` separately,
+plus `serialize` and `deserialize` when serialization changes, and the small scenarios of each
+function a change affects. Keep an optimization only when two deciding rounds both read _faster_ on
+its target: the 90% interval lies below zero and the median gains at least 2%. The default and
+small rounds guard the other workloads: one that reads _slower_ or _slightly slower_ there needs a
+deciding round of its own, and a deciding round that reads _slower_ (median beyond the 3% guard)
+rejects the candidate. A stress-case win does not excuse an ordinary loss. Counters stay equal
+unless the hypothesis says they move. When the hypothesis predicts a large gain, write it down as
+the target before measuring, for example 20% with at least 28 of 32 faster pairs; a result below
+the target rejects the hypothesis.
 
 **Cost screen.** With `f` the time share of the affected region, `s` its speed-up and `h` added
 cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot save more than 3%;

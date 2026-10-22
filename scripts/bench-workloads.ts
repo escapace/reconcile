@@ -1,14 +1,18 @@
 /**
  * The workloads every `pnpm bench` subcommand measures, named once. `snapshot`, `reconcile`,
  * `reconcile-plain-object` and `produce` are the frozen `perf/` workloads; `serialize` and
- * `deserialize` run the six serialization graphs below, from value to JSON text and back. An
- * operation is one call of the function.
+ * `deserialize` run the six serialization graphs below, from value to JSON text and back. These
+ * six make the default round. The small round's ten run each function on a flat object of 1 and
+ * of 16 keys (`smallOperation`); they are frozen as the `perf/` workloads are. An operation is one
+ * call of the function.
  */
 
+import { BATCH_SIZE } from '../perf/config'
 import type * as Frozen from '../perf/scenarios'
-import type { deserialize, serialize } from '../src/index'
+import type { deserialize, produce, reconcile, serialize, snapshot } from '../src/index'
 
-export const scenarioNames = [
+/** The default round's scenarios. */
+export const defaultScenarioNames = [
   'snapshot',
   'reconcile',
   'reconcile-plain-object',
@@ -16,18 +20,44 @@ export const scenarioNames = [
   'serialize',
   'deserialize',
 ] as const
+
+/** The small round's scenarios: each function on a flat object of 1 and of 16 keys. */
+export const smallScenarioNames = [
+  'snapshot-1',
+  'snapshot-16',
+  'reconcile-1',
+  'reconcile-16',
+  'produce-1',
+  'produce-16',
+  'serialize-1',
+  'serialize-16',
+  'deserialize-1',
+  'deserialize-16',
+] as const
+export type SmallScenarioName = (typeof smallScenarioNames)[number]
+
+export const scenarioNames = [...defaultScenarioNames, ...smallScenarioNames] as const
 export type ScenarioName = (typeof scenarioNames)[number]
+
+/** The scenarios of each standard round. */
+export const rounds = {
+  default: defaultScenarioNames,
+  small: smallScenarioNames,
+} as const satisfies Record<string, readonly ScenarioName[]>
 
 function isScenarioName(name: string): name is ScenarioName {
   return (scenarioNames as readonly string[]).includes(name)
 }
 
-/** Validates `--scenario` values and returns them in library order; none selects every one. */
+/** Validates `--scenario` values and returns them in library order; none selects the default
+ * round's. */
 export function selectScenarios(selected: readonly string[] | undefined): ScenarioName[] {
   for (const name of selected ?? [])
     if (!isScenarioName(name))
       throw new Error(`Unknown scenario ${name}; choose from ${scenarioNames.join(', ')}`)
-  return scenarioNames.filter((name) => selected?.includes(name) ?? true)
+  return selected === undefined
+    ? [...defaultScenarioNames]
+    : scenarioNames.filter((name) => selected.includes(name))
 }
 
 /**
@@ -37,6 +67,13 @@ export function selectScenarios(selected: readonly string[] | undefined): Scenar
 export interface SerializationPorts {
   readonly deserialize?: typeof deserialize
   readonly serialize?: typeof serialize
+}
+
+/** The API of a source tree the small workloads call. */
+export interface WorkloadPorts extends SerializationPorts {
+  readonly produce?: typeof produce
+  readonly reconcile?: typeof reconcile
+  readonly snapshot?: typeof snapshot
 }
 
 /**
@@ -164,15 +201,169 @@ export function serializationOperation(
       }
 }
 
+/** A flat object of `size` keys `k0`, `k1`, … holding the given numbers. */
+const flat = (size: number, value: (index: number) => number): Record<string, number> =>
+  Object.fromEntries(Array.from({ length: size }, (_, index) => [`k${index}`, value(index)]))
+
+/** The function a tree exports, or an error naming the scenario that needs it. */
+function port<T>(value: T | undefined, scenario: string): T {
+  if (value === undefined) throw new Error(`This source tree cannot run ${scenario}.`)
+  return value
+}
+
+/** One operation of a workload, and a check of its latest result. */
+export interface Operation {
+  readonly run: () => void
+  readonly validate: () => void
+}
+
+/** The functions the small workloads call. */
+export type FlatFunction = 'deserialize' | 'produce' | 'reconcile' | 'serialize' | 'snapshot'
+
+/** One workload per function, on a flat object of `size` keys. */
+const flatWorkloads: Record<FlatFunction, (ports: WorkloadPorts, size: number) => Operation> = {
+  deserialize: (ports, size) => {
+    const { decode, encode } = textCodec(ports)
+    const text = encode(flat(size, (index) => index))
+    let last: unknown
+    return {
+      run: () => {
+        last = decode(text)
+      },
+      validate: () => {
+        if (encode(last) !== text) throw new Error('deserialize returned a different value')
+      },
+    }
+  },
+  // Rotates recipes that change nothing, one key and every key.
+  produce: (ports, size) => {
+    const produceValue = port(ports.produce, 'produce')
+    const keys = Object.keys(flat(size, () => 0))
+    const input = flat(size, () => 0)
+    let turn = 0
+    let last: Record<string, number> = input
+    return {
+      run: () => {
+        const phase = turn++ % 3
+        last = produceValue(input, (draft) => {
+          if (phase === 0) draft.k0 = 0
+          else if (phase === 1) draft.k0 = turn
+          else for (const key of keys) draft[key] = turn
+          return draft
+        })
+      },
+      validate: () => {
+        const changed = (turn - 1) % 3 !== 0
+        if (
+          input.k0 !== 0 ||
+          (last === input) === changed ||
+          (changed && last.k0 !== turn) ||
+          Object.keys(last).join() !== keys.join()
+        )
+          throw new Error('produce returned an unexpected result')
+      },
+    }
+  },
+  // Updates one object in place, from the previous value: nothing, one key, one key back, every
+  // key, every key back.
+  reconcile: (ports, size) => {
+    const reconcileValue = port(ports.reconcile, 'reconcile')
+    const nexts = [
+      flat(size, () => 0),
+      flat(size, () => 0),
+      flat(size, (index) => Number(index === 0)),
+      flat(size, () => 0),
+      flat(size, () => 2),
+    ]
+    const current = flat(size, () => 2)
+    let turn = 0
+    let last: unknown
+    return {
+      run: () => {
+        last = reconcileValue(current, nexts[turn++ % nexts.length])
+      },
+      validate: () => {
+        const expected = nexts[(turn - 1) % nexts.length]
+        if (last !== current || JSON.stringify(current) !== JSON.stringify(expected))
+          throw new Error('reconcile did not update the object in place')
+      },
+    }
+  },
+  serialize: (ports, size) => {
+    const { encode } = textCodec(ports)
+    const value = flat(size, (index) => index)
+    const text = encode(value)
+    let last: unknown
+    return {
+      run: () => {
+        last = encode(value)
+      },
+      validate: () => {
+        if (last !== text) throw new Error('serialize returned different text')
+      },
+    }
+  },
+  snapshot: (ports, size) => {
+    const snapshotValue = port(ports.snapshot, 'snapshot')
+    const input = flat(size, (index) => index)
+    let last: unknown
+    return {
+      run: () => {
+        last = snapshotValue(input)
+      },
+      validate: () => {
+        if (last === input || JSON.stringify(last) !== JSON.stringify(input))
+          throw new Error('snapshot returned an unexpected copy')
+      },
+    }
+  },
+}
+
+/** One function's workload on a flat object of `size` keys; the `diag-tiny-*` diagnostics scale
+ * it with their size. */
+export function flatOperation(ports: WorkloadPorts, name: FlatFunction, size: number): Operation {
+  return flatWorkloads[name](ports, size)
+}
+
+/** One operation of a small workload, `<function>-<keys>`. */
+export function smallOperation(ports: WorkloadPorts, scenario: SmallScenarioName): Operation {
+  const separator = scenario.lastIndexOf('-')
+  return flatOperation(
+    ports,
+    scenario.slice(0, separator) as FlatFunction,
+    Number(scenario.slice(separator + 1)),
+  )
+}
+
+/** Replaces `--round <name>` with its scenarios as `--scenario` arguments. */
+export function expandRound(arguments_: readonly string[]): string[] {
+  const index = arguments_.indexOf('--round')
+  if (index === -1) return [...arguments_]
+  const name = arguments_[index + 1]
+  if (name !== 'default' && name !== 'small')
+    throw new Error(`Unknown round ${String(name)}; choose default or small.`)
+  return [
+    ...arguments_.slice(0, index),
+    ...arguments_.slice(index + 2),
+    ...rounds[name].flatMap((scenario) => ['--scenario', scenario]),
+  ]
+}
+
 /**
- * Batch factories of one source tree for `pnpm bench compare`: a frozen batch is
+ * Batch factories of one source tree for `pnpm bench compare`: a frozen or small batch is
  * `BATCH_SIZE` operations of its workload, and a serialization batch is one operation on each
  * serialization workload.
  */
 export function createBatches(
   scenarios: typeof Frozen,
-  ports: SerializationPorts,
+  ports: WorkloadPorts,
 ): Record<ScenarioName, () => () => void> {
+  const small = (scenario: SmallScenarioName) => () => {
+    const { run } = smallOperation(ports, scenario)
+    return () => {
+      for (let index = 0; index < BATCH_SIZE; index += 1) run()
+    }
+  }
   const serialization = (scenario: 'deserialize' | 'serialize') => () => {
     const { run } = serializationOperation(ports, scenario)
     return () => {
@@ -181,7 +372,17 @@ export function createBatches(
   }
   return {
     'deserialize': serialization('deserialize'),
+    'deserialize-1': small('deserialize-1'),
+    'deserialize-16': small('deserialize-16'),
+    'produce-1': small('produce-1'),
+    'produce-16': small('produce-16'),
+    'reconcile-1': small('reconcile-1'),
+    'reconcile-16': small('reconcile-16'),
     'serialize': serialization('serialize'),
+    'serialize-1': small('serialize-1'),
+    'serialize-16': small('serialize-16'),
+    'snapshot-1': small('snapshot-1'),
+    'snapshot-16': small('snapshot-16'),
     'produce': () => scenarios.createContextRuntimeProduceImmerBenchmarks().produceBatch,
     'reconcile': () => scenarios.createContextRuntimeReconcileBenchmarks().runtimeReconcileBatch,
     'reconcile-plain-object': () =>

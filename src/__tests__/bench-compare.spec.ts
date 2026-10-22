@@ -4,20 +4,25 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as frozen from '../../perf/scenarios'
 import { compareOptions, measure, workerFiles } from '../../scripts/bench-compare'
-import { createBatches, scenarioNames } from '../../scripts/bench-workloads'
-import { deserialize, serialize } from '../index'
+import {
+  createBatches,
+  defaultScenarioNames,
+  scenarioNames,
+  smallScenarioNames,
+} from '../../scripts/bench-workloads'
+import * as api from '../index'
 
 describe('pnpm bench compare options', () => {
-  it('covers every scenario with the budgeted defaults', () => {
+  it('covers the default round with the budgeted defaults', () => {
     expect(compareOptions(['--baseline', 'control'])).toEqual({
       baseline: path.resolve('control'),
       candidate: path.resolve(import.meta.dirname, '../..'),
       processes: 4,
       rounds: 400,
-      scenarios: [...scenarioNames],
+      scenarios: [...defaultScenarioNames],
       warmup: 40,
     })
-    expect(scenarioNames).toEqual([
+    expect(defaultScenarioNames).toEqual([
       'snapshot',
       'reconcile',
       'reconcile-plain-object',
@@ -25,6 +30,19 @@ describe('pnpm bench compare options', () => {
       'serialize',
       'deserialize',
     ])
+    expect(smallScenarioNames).toEqual([
+      'snapshot-1',
+      'snapshot-16',
+      'reconcile-1',
+      'reconcile-16',
+      'produce-1',
+      'produce-16',
+      'serialize-1',
+      'serialize-16',
+      'deserialize-1',
+      'deserialize-16',
+    ])
+    expect(scenarioNames).toEqual([...defaultScenarioNames, ...smallScenarioNames])
   })
 
   it('selects scenarios and rejects unknown ones or a missing baseline', () => {
@@ -53,7 +71,7 @@ describe('pnpm bench compare options', () => {
   })
 
   it('builds a runnable batch for every scenario', () => {
-    const batches = createBatches(frozen, { deserialize, serialize })
+    const batches = createBatches(frozen, api)
     expect(Object.keys(batches).toSorted()).toEqual([...scenarioNames].toSorted())
     for (const name of scenarioNames) batches[name]()()
     expect(() => createBatches(frozen, {}).deserialize()).toThrow(/no serialization API/)

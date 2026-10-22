@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createBenchmarks, selectedScenarios } from '../../scripts/bench-run'
-import { scenarioNames } from '../../scripts/bench-workloads'
+import {
+  defaultScenarioNames,
+  expandRound,
+  smallScenarioNames,
+} from '../../scripts/bench-workloads'
 
 describe('Tinybench runner', () => {
   it('registers all frozen scenario pairs with the original sampling settings', () => {
@@ -54,9 +58,29 @@ describe('Tinybench runner', () => {
     expect(
       [...createBenchmarks(['deserialize', 'snapshot'])].map(({ scenario }) => scenario),
     ).toEqual(['snapshot', 'deserialize'])
-    expect(selectedScenarios([])).toEqual([...scenarioNames])
+    expect(selectedScenarios([])).toEqual([...defaultScenarioNames])
     expect(selectedScenarios(['--scenario', 'deserialize'])).toEqual(['deserialize'])
     expect(() => selectedScenarios(['--scenario', 'diag-noop'])).toThrow(/Unknown scenario/)
+  })
+
+  it('expands a round into its scenarios', () => {
+    expect(expandRound(['--out', 'x'])).toEqual(['--out', 'x'])
+    expect(expandRound(['--round', 'small', '--out', 'x'])).toEqual([
+      '--out',
+      'x',
+      ...smallScenarioNames.flatMap((name) => ['--scenario', name]),
+    ])
+    expect(expandRound(['--round', 'default'])).toEqual(
+      defaultScenarioNames.flatMap((name) => ['--scenario', name]),
+    )
+    expect(() => expandRound(['--round', 'large'])).toThrow(/Unknown round large/)
+  })
+
+  it('registers one batch task for each small scenario', () => {
+    const benchmarks = [...createBenchmarks(smallScenarioNames)]
+    expect(benchmarks.map(({ scenario }) => scenario)).toEqual([...smallScenarioNames])
+    for (const { bench, scenario } of benchmarks)
+      expect(bench.tasks.map((task) => task.name)).toEqual([scenario])
   })
 
   it('propagates task failures instead of reporting successful measurements', () => {
