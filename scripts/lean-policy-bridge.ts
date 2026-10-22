@@ -39,6 +39,7 @@ import { OBJECT_KIND, type ObjectLayout } from '../src/types/object'
 import { checkPropertyOrderRuntime } from './check-property-order-runtime'
 import { checkAtomsRuntime } from './check-atoms-runtime'
 import { checkRecognitionPlainRuntime } from './check-recognition-plain-runtime'
+import { checkWriteFreeReadbackRuntime } from './check-write-free-readback-runtime'
 import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
 import { checkDraftSurfaceRuntime } from './check-draft-surface-runtime'
 import { checkDraftClassRuntime } from './check-draft-class-runtime'
@@ -799,6 +800,7 @@ export async function checkPolicyRuntime(oracle: Oracle): Promise<void> {
   await checkKeyOrderRuntime(oracle)
   await checkAtomsRuntime(oracle)
   await checkRecognitionPlainRuntime(oracle)
+  await checkWriteFreeReadbackRuntime(oracle)
   await checkDraftSurfaceRuntime(oracle)
   await checkDraftClassRuntime(oracle)
   await checkDraftIterationRuntime(oracle)

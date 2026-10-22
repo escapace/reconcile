@@ -1,7 +1,7 @@
 import { isNode } from '../../graph/edge'
 import { arrayIndex, hasOwn, isObject } from '../../object-property'
-import type { BoundEdge, CapturedNode, Edge } from '../../types'
-import { defineData, Detached, isDataDescriptor } from '../../standard-prototypes'
+import type { BoundEdge, CapturedNode, Edge, PublicationNote } from '../../types'
+import { defineData, denseArray, Detached, isDataDescriptor } from '../../standard-prototypes'
 
 // Property lookup is a derived index over the sealed graph, never a second graph.
 export function propertySlots(node: Pick<CapturedNode, 'edges' | 'keys'>): Map<PropertyKey, Edge> {
@@ -104,6 +104,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   current: object,
   surface: PropertySurface<L>,
   pin: BoundEdge[],
+  note?: PublicationNote,
 ): boolean {
   // The slot index is private; a surface that lists desired keys builds it only on demand.
   let index: ReadonlyMap<PropertyKey, Edge> | undefined
@@ -115,6 +116,9 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   let order: PropertyOrder | undefined
   let position = 0
   let pinned: Map<number, object> | undefined
+  // The descriptor read for each current key, kept for the first publication when it asks.
+  const descriptors =
+    note === undefined ? undefined : denseArray<PropertyDescriptor | undefined>(previous.length)
   // Only private cursor work waits. Native descriptors and reads keep their boundaries.
   const retainThrough = (key?: PropertyKey): boolean | undefined => {
     if (order === undefined) {
@@ -135,8 +139,9 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   // its setter, must keep its place in the desired order and, unless it can still change,
   // already hold its expected value; an object pins its node, and two slots may not pin one node
   // to different objects. A configurable accessor that is not desired is deleted.
-  const holdsFixed = (key: PropertyKey): boolean => {
+  const holdsFixed = (key: PropertyKey, position: number): boolean => {
     const descriptor = Object.getOwnPropertyDescriptor(current, key)!
+    if (descriptors !== undefined) descriptors[position] = descriptor
     const accessor = !isDataDescriptor(descriptor)
     if (descriptor.configurable !== false && !accessor) return true
     const retained = needsOrder ? retainThrough(key) : undefined
@@ -166,6 +171,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     for (let index = 0; index < desiredKeys.length; index += 1)
       if (!hasOwn(current, desiredKeys[index])) return false
   }
+  if (note !== undefined) note.facts = { current, descriptors: descriptors!, keys: previous }
   return true
 }
 
@@ -210,6 +216,13 @@ function accessorFrom(prototype: object | null, key: PropertyKey): boolean {
   return false
 }
 
+/** `publishProperty` failed: a native operation refused the write. */
+export const REFUSED = 0
+/** `publishProperty` wrote. */
+export const WROTE = 1
+/** `publishProperty` wrote nothing: the key was own and read as the value. */
+export const UNCHANGED = 2
+
 /**
  * Writes one requested own value by assignment, so own setters run and accessors are kept.
  *
@@ -219,23 +232,48 @@ function accessorFrom(prototype: object | null, key: PropertyKey): boolean {
  * property. Other writes assign before defining an own property, so a reactive proxy observes
  * them. `PropertyWrite.publish` is this decision.
  *
- * @returns Whether the native operations accepted the write. Contents require separate readback.
+ * @returns `REFUSED` when a native operation refused the write, `UNCHANGED` when nothing was
+ * written and otherwise `WROTE`. Contents require separate readback.
  */
-export function publishProperty(target: object, key: PropertyKey, value: unknown): boolean {
+export function publishProperty(target: object, key: PropertyKey, value: unknown): number {
   // An unchanged own value needs no descriptor: presence and one read decide it.
   const present = hasOwn(target, key)
-  if (present && Object.is(Reflect.get(target, key), value)) return true
+  if (present && Object.is(Reflect.get(target, key), value)) return UNCHANGED
   const descriptor = present ? Object.getOwnPropertyDescriptor(target, key) : undefined
   // A missing key whose assignment would reach an accessor is defined, so no setter runs; for an
   // object `reconcile` keeps, the preflight has already rejected that case.
   if (descriptor === undefined)
-    return key === '__proto__' || accessorFrom(Object.getPrototypeOf(target) as object | null, key)
-      ? defineData(target, key, value)
-      : assignData(target, key, value, undefined)
+    return wrote(
+      key === '__proto__' || accessorFrom(Object.getPrototypeOf(target) as object | null, key)
+        ? defineData(target, key, value)
+        : assignData(target, key, value, undefined),
+    )
   // An own accessor is assigned, so its setter runs; it is never redefined.
-  return isDataDescriptor(descriptor)
-    ? assignData(target, key, value, descriptor)
-    : Reflect.set(target, key, value)
+  return wrote(
+    isDataDescriptor(descriptor)
+      ? assignData(target, key, value, descriptor)
+      : Reflect.set(target, key, value),
+  )
+}
+
+const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
+
+/**
+ * `publishProperty` with the descriptor the preflight read for this key, when it read one:
+ * presence and attributes come from it and the value is still read live, so the decision is
+ * `publishProperty`'s under stable reads (Property.WriteFreeReadback.publishKnown_eq).
+ */
+export function publishKnown(
+  target: object,
+  key: PropertyKey,
+  value: unknown,
+  descriptor: PropertyDescriptor | undefined,
+): number {
+  if (descriptor === undefined || !isDataDescriptor(descriptor))
+    return publishProperty(target, key, value)
+  return Object.is(Reflect.get(target, key), value)
+    ? UNCHANGED
+    : wrote(assignData(target, key, value, descriptor))
 }
 
 // Assignment lets a reactive proxy observe the write; a definition follows only when assignment
@@ -264,7 +302,8 @@ export function propertyRequirements<L extends { readonly kind: symbol }>(
   node: CapturedNode<L>,
   candidate: object,
   surface: PropertySurface<L>,
+  note?: PublicationNote,
 ): readonly BoundEdge[] | undefined {
   const required: BoundEdge[] = []
-  return canPublishProperties(node, candidate, surface, required) ? required : undefined
+  return canPublishProperties(node, candidate, surface, required, note) ? required : undefined
 }

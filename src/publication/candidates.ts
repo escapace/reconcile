@@ -9,6 +9,8 @@ import type {
   Choice,
   Domains,
   Edge,
+  PreflightFacts,
+  PublicationNote,
   PublicationRegistry,
 } from '../types'
 import { denseArray } from '../standard-prototypes'
@@ -23,6 +25,8 @@ export function candidates(
   root: object,
   alignment?: Pick<CapturedGraph, 'currents' | 'occupants' | 'protectedStorage' | 'sources'>,
   storage: (value: object) => object = storageIdentity,
+  note?: PublicationNote,
+  preflight?: Array<PreflightFacts | undefined>,
 ): Domains {
   const aligned = collect(types, root, records, alignment)
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
@@ -57,8 +61,10 @@ export function candidates(
       if (!matchesKind(types, candidate, node.layout.kind) || !policy.compatible(node, candidate))
         continue
       if (index !== 0 && protectedStorage?.has(storage(candidate)) === true) continue
-      const required = policy.requirements(node, candidate)
+      const required = preflightOf(policy, node, candidate, note)
       if (required === undefined) continue
+      // The first passing candidate's facts serve the publication that retains it.
+      if (note?.facts !== undefined) preflight![index] ??= note.facts
       choices.push({
         identity: candidate,
         required,
@@ -70,6 +76,17 @@ export function candidates(
       choices.push({ identity: index, required: EMPTY_FACTS, retained: false, storage: index })
     return choices
   })
+}
+
+// Runs one candidate's preflight; the facts it leaves in `note` belong to this candidate alone.
+function preflightOf(
+  policy: PublicationRegistry['policies'][symbol],
+  node: CapturedNode,
+  candidate: object,
+  note: PublicationNote | undefined,
+): ReturnType<PublicationRegistry['policies'][symbol]['requirements']> {
+  if (note !== undefined) note.facts = undefined
+  return policy.requirements(node, candidate, note)
 }
 
 // Recorded occupants follow the node edges in order; atom edges have no entry.

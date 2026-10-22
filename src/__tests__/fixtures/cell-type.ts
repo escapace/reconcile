@@ -6,6 +6,7 @@ import {
   propertyRequirements,
   propertySlots,
   publishProperty,
+  REFUSED,
 } from '../../types/shared/property-publication'
 
 // Test-only native surface: one own data slot, encoded as an ordinary object
@@ -55,7 +56,8 @@ export function createCellType<K extends symbol>(kind: K) {
       begin({ kind })
       edge((value as Cell).value, 'value')
     },
-    publish: (node, target, resolve) => publishProperty(target, 'value', resolve(node.edges[0])),
+    publish: (node, target, resolve) =>
+      publishProperty(target, 'value', resolve(node.edges[0])) !== REFUSED,
     requirements: (node, current) => propertyRequirements(node, current, surface),
     seal: (node) => node,
     snapshot(layout, resolve, writer) {

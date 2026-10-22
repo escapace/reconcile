@@ -25,7 +25,10 @@ import {
   PropertyOrder,
   propertyRequirements,
   propertySlots,
-  publishProperty,
+  publishKnown,
+  REFUSED,
+  UNCHANGED,
+  WROTE,
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
@@ -109,20 +112,52 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
   }))() satisfies SnapshotPolicy<ObjectLayout>
 
 /** Writes each requested property in order. A property this write adds takes next's
- * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes. */
+ * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes.
+ * `known` holds the preflight's descriptor for each requested key the target already had in
+ * the same position. Returns `REFUSED`, `WROTE`, or `UNCHANGED` when no key was written. */
 function writeProperties(
   node: CapturedNode<ObjectLayout>,
   target: object,
   image: (edge: Edge) => unknown,
-): boolean {
+  known: ReadonlyArray<PropertyDescriptor | undefined> | undefined,
+): number {
   const hidden = node.layout.hidden
+  let result = UNCHANGED
   for (let index = 0; index < node.keys.length; index += 1) {
     const key = node.keys[index]
-    const added = hidden?.has(key) === true && !hasOwn(target, key)
-    if (!publishProperty(target, key, image(node.edges[index]))) return false
-    if (added && !hide(target, key)) return false
+    const descriptor = known !== undefined && index < known.length ? known[index] : undefined
+    const added = descriptor === undefined && hidden?.has(key) === true && !hasOwn(target, key)
+    const written = publishKnown(target, key, image(node.edges[index]), descriptor)
+    if (written === REFUSED) return REFUSED
+    if (written === WROTE) result = WROTE
+    if (added && !hide(target, key)) return REFUSED
   }
-  return true
+  return result
+}
+
+/** Deletes the current keys the requested order does not keep: past the requested count in the
+ * aligned order, otherwise unrequested or configurable and out of order. Returns `REFUSED`,
+ * `WROTE` when it deleted a key, or `UNCHANGED`. */
+function deleteUnrequested(
+  target: object,
+  previous: readonly PropertyKey[],
+  requested: number,
+  properties: ReadonlyMap<PropertyKey, Edge> | undefined,
+): number {
+  const order = properties === undefined ? undefined : new PropertyOrder(properties)
+  let result = UNCHANGED
+  for (let position = 0; position < previous.length; position += 1) {
+    const key = previous[position]
+    const retained = order?.keep(key)
+    if (
+      !(properties === undefined ? position < requested : properties.has(key)) ||
+      (retained === false && Object.getOwnPropertyDescriptor(target, key)?.configurable !== false)
+    ) {
+      if (!Reflect.deleteProperty(target, key)) return REFUSED
+      result = WROTE
+    }
+  }
+  return result
 }
 
 export const objectPublication = /* @__PURE__ */ (() =>
@@ -141,28 +176,31 @@ export const objectPublication = /* @__PURE__ */ (() =>
       }
       return true
     },
-    publish(node, target, image) {
+    publish(node, target, image, _owner, note) {
       const keys = node.keys
-      const previous = ownKeys(target)
+      // The first publication of an ordinary target reuses the preflight's key list.
+      const facts = note?.facts
+      const previous = facts?.keys ?? ownKeys(target)
       // Own keys are duplicate-free, so when they start with the requested order exactly the
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.
       const properties = alignedPrefix(previous, keys) ? undefined : objectSurface.slots(node)
-      const order = properties === undefined ? undefined : new PropertyOrder(properties)
-      for (let position = 0; position < previous.length; position += 1) {
-        const key = previous[position]
-        const retained = order?.keep(key)
-        if (
-          !(properties === undefined ? position < keys.length : properties.has(key)) ||
-          (retained === false &&
-            Object.getOwnPropertyDescriptor(target, key)?.configurable !== false)
-        ) {
-          if (!Reflect.deleteProperty(target, key)) return false
-        }
-      }
-      return writeProperties(node, target, image)
+      const deleted = deleteUnrequested(target, previous, keys.length, properties)
+      if (deleted === REFUSED) return false
+      // In the aligned order, descriptor i belongs to requested key i.
+      const written = writeProperties(
+        node,
+        target,
+        image,
+        properties === undefined ? facts?.descriptors : undefined,
+      )
+      // Aligned, nothing deleted and no key written: readback would accept
+      // (WriteFreeReadback.object_writeFree_matches).
+      if (note !== undefined)
+        note.unchanged = written === UNCHANGED && properties === undefined && deleted === UNCHANGED
+      return written !== REFUSED
     },
-    requirements: (node, current) => propertyRequirements(node, current, objectSurface),
+    requirements: (node, current, note) => propertyRequirements(node, current, objectSurface, note),
     // Object slots are indexed on first demand; see objectSurface.
     seal: (node) => node,
   }))() satisfies PublicationPolicy<ObjectLayout>

@@ -13,12 +13,15 @@ import type {
   ExposureObservation,
   PublicationRegistry,
   NativeOwners,
+  PreflightFacts,
+  PublicationNote,
   Readback,
 } from '../types'
 import { candidates } from './candidates'
 import { constructionOrder } from '../graph/construction'
 import { constructionDependencies } from '../graph/construction-facts'
 import { execute } from '../graph/driver'
+import { denseArray } from '../standard-prototypes'
 
 // Claims a fresh target's storage against every old storage and the earlier fresh ones;
 // undefined on a collision. The set of old storages is built on the first fresh target.
@@ -83,7 +86,11 @@ export function publishGraph(
     } else unshared = false
     return owner
   }
-  const domains = candidates(types, records, root, graph, storage)
+  // The channel between this call's preflights and publications, and the facts a passing
+  // preflight read, by node.
+  const note: PublicationNote = { facts: undefined, unchanged: false }
+  const preflight = denseArray<PreflightFacts | undefined>(size)
+  const domains = candidates(types, records, root, graph, storage, note, preflight)
   // Retained choices take their storage from these probes and fresh ones their own node number,
   // so when discovery shared nothing no two choices share storage.
   const distinctStorages = unshared
@@ -182,6 +189,21 @@ export function publishGraph(
   // write had happened; it is the preflight. The engine repeats it only after this call's own
   // writes, and never on a fresh target, which is private until it is published.
   let written = false
+  // Whether the first publication wrote nothing that a readback would reject: with no write no
+  // setter or write trap ran, so each readback would observe what publication compared and
+  // accept (Property.WriteFreeReadback), and the engine answers it without reading again.
+  let confirmed = false
+  // Recover only native publication exceptions on replaceable nodes. A fixed receiver's host
+  // exception remains a public failure, without rollback.
+  const publishNode = (state: Execution, index: number): boolean => {
+    const node = records[index]
+    try {
+      return policies[node.layout.kind].publish(node, writer(index), resolve, owner, note)
+    } catch (error) {
+      if (state.bindings[index].fixed) throw error
+      return false
+    }
+  }
   const result = execute(
     domains,
     {
@@ -234,27 +256,36 @@ export function publishGraph(
               undefined
           )
             return { rejected: index }
+        // Only the first publication reads the preflight's facts and may confirm itself: its
+        // targets are the ones the preflight read, and each is exposed as it is written.
+        const first = !written
         written = true
+        confirmed = false
+        let unchanged = first
         for (let index = 0; index < size; index += 1) {
-          const node = records[index]
-          if (node.pinned !== undefined) continue
-          // Recover only native publication exceptions on replaceable nodes. A
-          // fixed receiver's host exception remains a public failure, without rollback.
-          try {
-            if (!policies[node.layout.kind].publish(node, writer(index), resolve, owner))
-              return { rejected: index }
-          } catch (error) {
-            if (state.bindings[index].fixed) throw error
-            return { rejected: index }
-          }
+          if (records[index].pinned !== undefined) continue
+          // Facts serve only the object they were read from, exposed as itself; a wrapper's
+          // descriptors hold its raw contents, so it reads its own.
+          const facts = preflight[index]
+          note.facts =
+            first &&
+            facts?.current === state.bindings[index].choice &&
+            state.bindings[index].mode === 0
+              ? facts
+              : undefined
+          note.unchanged = false
+          if (!publishNode(state, index)) return { rejected: index }
+          if (!note.unchanged) unchanged = false
         }
+        note.facts = undefined
+        confirmed = unchanged
         return true
       },
       readback(state, index) {
         const node = records[index]
         // Bind and rebind store the memoized storage of the exposed object, so it always equals
         // the binding's storage here, and no storage check is needed.
-        if (node.pinned !== undefined) return MATCH
+        if (node.pinned !== undefined || confirmed) return MATCH
         const target = exposed(state, index)
         active = state
         outcome = REJECT

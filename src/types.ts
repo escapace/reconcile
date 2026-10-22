@@ -143,16 +143,19 @@ export interface SpecialPolicy {
  * compatibility, publication and readback remain separate native effect boundaries; the
  * requirement scan is the preflight, repeated by the engine only after its own writes.
  * Returning true from publish reports accepted operations, not successful graph correspondence;
- * matches must subsequently verify the selected image. Copy and structural immutable facets are
+ * matches must subsequently verify the selected image, unless the first publication wrote nothing
+ * to any node and every node reported `note.unchanged`. Copy and structural immutable facets are
  * disjoint. Implementations supply closed node references and stable, usable native observations;
  * the finite Lean proofs do not establish these JavaScript premises.
  */
 export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
   readonly aligned: (node: CapturedNode<L>, current: object | undefined, visit: Align) => void
   readonly compatible: (node: CapturedNode<L>, current: object) => boolean
+  /** The preflight; a policy may leave in `note` the facts it read, for the first publication. */
   readonly requirements: (
     node: CapturedNode<L>,
     current: object,
+    note?: PublicationNote,
   ) => readonly BoundEdge[] | undefined
 
   /** Supplies captured storage needed by a construction edge, when this kind provides it. */
@@ -208,11 +211,16 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     resolve: Resolve,
   ) => void
   readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
+  /**
+   * Writes the node's contents; a policy may use the preflight facts in `note` and set
+   * `note.unchanged` when it wrote nothing and its readback would accept.
+   */
   readonly publish: (
     node: CapturedNode<L>,
     current: object,
     resolve: Resolve,
     owner?: (child: object, ownerKind: symbol) => object | undefined,
+    note?: PublicationNote,
   ) => boolean
   /**
    * Initializes the supplied canonical reference before returning.
@@ -222,6 +230,23 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
    * This is the native ownership premise for the finite SnapshotOwner refinement.
    */
   readonly snapshot: (layout: L, resolve: Resolve, writer: SnapshotInitializer<L>) => void
+}
+
+/** The key list and own descriptors one property preflight read of `current`, in key order. */
+export interface PreflightFacts {
+  readonly current: object
+  readonly descriptors: ReadonlyArray<PropertyDescriptor | undefined>
+  readonly keys: readonly PropertyKey[]
+}
+
+/**
+ * One per-call channel between the publication engine and a policy: the preflight leaves its
+ * facts, the first publication of an ordinary target reads them, and a publication reports
+ * whether it wrote nothing that its readback would reject (Property.WriteFreeReadback).
+ */
+export interface PublicationNote {
+  facts: PreflightFacts | undefined
+  unchanged: boolean
 }
 
 /** Native facets retained by each public operation. */

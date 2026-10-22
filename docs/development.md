@@ -76,7 +76,10 @@ can.
    `publication/publication-engine.ts`, `graph/construction.ts`) prepares targets, writes and
    reads each written object back to confirm the write (_readback_). A failed native write or
    readback moves to the next plan; after the first write, the requirement scan reruns on kept
-   targets before each attempt.
+   targets before each attempt. When every node of the first publication is a plain object or
+   an array that wrote nothing and kept its key order, the readback is skipped
+   (`Property.WriteFreeReadback`); that publication also reuses the preflight's key lists and
+   descriptors.
 
 **`produce(current, recipe)`** runs `recipe` against a draft and returns a new graph that reuses
 unchanged objects.

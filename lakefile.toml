@@ -110,6 +110,8 @@ roots = [
   "Oracle.SeededRequirementsOracle",
   "Graph.ClosureHistory",
   "Property.DeferredOrder",
+  "Property.WriteFreeReadback",
+  "Oracle.WriteFreeReadbackOracle",
   "Oracle.DeferredOrderOracle",
   "Graph.FactRenaming",
   "Oracle.FactRenamingOracle",

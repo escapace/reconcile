@@ -21,7 +21,14 @@ import { defineType } from './registry'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { PropertyDraftState, createPropertyHandle, writeDataSlot } from './shared/draft-properties'
 import type { PropertySurface } from './shared/property-publication'
-import { propertyRequirements, propertySlots, publishProperty } from './shared/property-publication'
+import {
+  propertyRequirements,
+  propertySlots,
+  publishProperty,
+  REFUSED,
+  UNCHANGED,
+  WROTE,
+} from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
 import { hasElement, isDataDescriptor } from '../standard-prototypes'
@@ -120,16 +127,25 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       }
       return true
     },
-    publish(node, target, image) {
+    publish(node, target, image, _owner, note) {
       const properties = arraySurface.slots(node)
       const length = node.layout.length
-      if (!publishProperty(target, 'length', length)) return false
+      let written = publishProperty(target, 'length', length)
+      if (written === REFUSED) return false
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         if (properties.has(key)) {
-          if (!publishProperty(target, key, image(properties.get(key)!))) return false
-        } else if (hasOwn(target, index) && !Reflect.deleteProperty(target, key)) return false
+          const element = publishProperty(target, key, image(properties.get(key)!))
+          if (element === REFUSED) return false
+          if (element === WROTE) written = WROTE
+        } else if (hasOwn(target, index)) {
+          if (!Reflect.deleteProperty(target, key)) return false
+          written = WROTE
+        }
       }
+      // The length, every element and every hole already held: readback would accept
+      // (WriteFreeReadback.array_writeFree_matches).
+      if (note !== undefined) note.unchanged = written === UNCHANGED
       return true
     },
     requirements: (node, current) => propertyRequirements(node, current, arraySurface),
