@@ -490,11 +490,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 ### Native types
 
 - **Recognition.** The runtime performs the same live namespace reads, constructor reads and
-  predicate calls in the modelled order, and caches no result across observations. The built-in
-  registries read the prototype once and decide each `instanceof` probe from it; a repeated read
-  answers as that one did, and `instanceof` against the built-in, `URL` and Temporal
-  constructors uses the default `Symbol.hasInstance`, so no probe accepts an object whose
-  prototype is `Object.prototype` or `null`.
+  predicate calls in the modelled order, and caches no result across calls; within a call, capture's
+  result serves discovery (Ingress). The built-in registries read the prototype once and decide each
+  `instanceof` probe from it; a repeated read answers as that one did, and `instanceof` against the
+  built-in, `URL` and Temporal constructors uses the default `Symbol.hasInstance`, so no probe
+  accepts an object whose prototype is `Object.prototype` or `null`.
 - **Atoms.** The listed constructors are the live globals, which callers do not modify during a
   call; `instanceof` against them uses the default `Symbol.hasInstance`. A caller that already read
   an object's prototype, such as `snapshot` and `reconcile` capture, passes it on instead of reading

@@ -20,11 +20,15 @@ and in what order, which getters, setters, proxy traps and iterators run with wh
 and which error is thrown. This guide calls each access an _observation_ and their ordered list
 the _trace_. A phase that observes is an _observation boundary_: capture, discovery (and the
 sealed pass of `produce`), preflight, publication and readback, and source traversal in
-`serialize`. A change preserves behavior only if every operation returns the same result,
-leaves the same trace and throws the same error. Objects created during the call may differ in
-identity, as long as aliasing and storage sharing stay the same; private work can change freely.
-A private summary can replace private work, never an observation, and merging the reads of two
-phases is a contract change.
+`serialize`. A change preserves behavior only if every operation returns the same result and
+throws the same error, and its trace keeps the read discipline: each getter runs once per call,
+a fact about an object (its kind, prototype, key list or a descriptor) read before the first
+write may serve every phase up to readback, and readback reads each written object once. Within
+that discipline the exact trace is internal: a change may drop, merge or reorder reads if the
+new trace is deterministic. A getter or trap that changes what the call already read before the
+first write is unsupported; readback still catches a write that such code undoes. Objects created
+during the call may differ in identity, as long as aliasing and storage sharing stay the same;
+private work can change freely.
 
 ### Type modules and storage
 
@@ -326,12 +330,13 @@ JSON text in `scripts/bench-workloads.ts`. The `diag-*` diagnostics that
    predicted counter does not fall or another counter moves, and screen for losses. If the first
    version misses, one further change justified by the counts or profile is allowed; then keep
    the change, or revert it and reject the hypothesis.
-6. **Check semantics beyond the tests.** Near an observation boundary, compare the full trace
-   with the control's. Write a one-off script outside the repository that imports both trees'
-   `src/index.ts` and runs a few thousand seeded graphs wrapped in logging proxies, covering
-   getters, null prototypes, frozen objects, holes, collections, buffers, sharing and cycles;
-   `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts` help. Plant a
-   mutant for each new guard to confirm that a test kills it.
+6. **Check semantics beyond the tests.** Near an observation boundary, compare results, errors and
+   identities with the control's, and check that each trace difference keeps the read discipline in
+   [What must not change](#what-must-not-change). Write a one-off script outside the repository
+   that imports both trees' `src/index.ts` and runs a few thousand seeded graphs wrapped in logging
+   proxies, covering getters, null prototypes, frozen objects, holes, collections, buffers, sharing
+   and cycles; `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts`
+   help. Plant a mutant for each new guard to confirm that a test kills it.
 7. **Time it** with a default round and two deciding rounds on the target, and **measure
    bundles** against the control's `sizes.json`.
 8. **Run the checkpoint and report** the outcome alongside the change: each workload's reading

@@ -5,8 +5,10 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 
 - Preserve capture, discovery and sealing, preflight, publication, readback and `serialize`
   source-traversal observation boundaries. Getters, proxies and iterators make an added or
-  reordered read visible. A kind or descriptor holds only within the phase that learned it;
-  equal values do not prove separate storage, and one storage can back distinct wrappers.
+  reordered read visible. A getter runs once per call; a kind, prototype, key list or
+  descriptor read before the first write may serve every phase up to readback, which reads each
+  written object once. The exact trace is otherwise internal and must stay deterministic. Equal
+  values do not prove separate storage, and one storage can back distinct wrappers.
 - Prove a changed finite algorithm in Lean before its runtime. Keep theorem statements, bridges
   and counterexamples, and state the runtime's obligations; an axiom audit alone proves nothing.
 - Library code must not read or write through `Object.prototype` or `Array.prototype`. Use
