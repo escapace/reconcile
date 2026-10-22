@@ -53,3 +53,30 @@ it('reads the written key once before the first copy', () => {
   assert.equal(beforeFinalization.get('root.getOwnPropertyDescriptor(b)'), 1)
   assert.equal(beforeFinalization.get('root.get(b)'), 1)
 })
+
+it('copies an object that reaches a change through a cycle back into the walk', () => {
+  // `a` walks `b` first; `b` leans on `a`, still being walked, and `a` then finds its changed
+  // child, so `b` needs a copy too.
+  const b: { back: object | undefined } = { back: undefined }
+  const a = { link: b, mark: { n: 0 } }
+  b.back = a
+  const result = produce({ x: a, y: b }, (draft) => {
+    draft.x.mark.n = 1
+    return draft
+  })
+  assert.notStrictEqual(result.x, a)
+  assert.notStrictEqual(result.y, b)
+  assert.strictEqual(result.y.back, result.x)
+  assert.strictEqual(result.x.link, result.y)
+})
+
+it('reads an unchanged sibling of a change once', () => {
+  const counts = new Map<string, number>()
+  const sibling = counted('sibling', { n: 0 }, counts)
+  produce({ sibling, target: { n: 0 } }, (draft) => {
+    draft.target.n = 1
+    return draft
+  })
+  assert.equal(counts.get('sibling.ownKeys()'), 2, 'one key list')
+  assert.equal(counts.get('sibling.get(n)'), 1)
+})

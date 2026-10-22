@@ -57,12 +57,16 @@ export class Finalization extends Detached {
   declare private forcedOwnedCopies: WeakSet<object> | undefined
   // Created on the first recognition.
   declare private kinds: Map<object, symbol> | undefined
+  // How many times a walk met an object its question visited but has not settled.
+  declare private guards: number
   declare private phase: ObservationPhase
   // The prototype each recognition read, for identity restoration's storage check; it lives
   // as long as `kinds` (Types.Ingress).
   declare private prototypes: Map<object, object | null> | undefined
   declare private readonly read: PrototypeRead
   declare readonly session: DraftSession
+  // The current question's pending negative answers; created on the first.
+  declare private unsettled: object[] | undefined
   // Created at the first forced special copy; until then no value needs one.
   declare private untrackedSpecialsToClone: WeakSet<object> | undefined
 
@@ -72,6 +76,8 @@ export class Finalization extends Detached {
     this.accessorObservations = undefined
     this.walked = undefined
     this.kinds = undefined
+    this.guards = 0
+    this.unsettled = undefined
     this.prototypes = undefined
     this.read = { known: false, prototype: null }
     this.phase = {
@@ -181,8 +187,10 @@ export class Finalization extends Detached {
    * Determines whether reachable draft changes or special values require rebuilding a value.
    *
    * @remarks
-   * Records parent dependencies during planning. Negative results are cached only after a complete
-   * reachable search finds no changes; a cycle-guard hit alone cannot settle an ancestor.
+   * Records parent dependencies during planning. A negative result is cached as soon as its
+   * search ends, unless the search met an object this question visited but has not settled, which
+   * only a cycle back into the walk produces; such a pending result is cached only once the whole
+   * question settles negative (Produce.SettledChildren).
    */
   needsMaterialization(
     value: unknown,
@@ -201,13 +209,20 @@ export class Finalization extends Detached {
     const state = isObject(value) ? this.session.statesByIdentity.get(value) : undefined
     if (state !== undefined && state.base !== value) return true
     const visited = new Set<object>()
+    const outer = this.unsettled
+    this.unsettled = undefined
     const result = this.checkMaterialization(value, knownKind, visited)
-    // A cycle guard remains provisional until the entire reachable check settles.
-    if (!result) for (const node of visited) this.phase.required.set(node, false)
+    // The check may have created the list, which narrowing cannot see.
+    const unsettled = this.unsettled as object[] | undefined
+    this.unsettled = outer
+    // Pending answers settle once the entire reachable check does; every other visited object
+    // settled when its own check ended.
+    if (!result && unsettled !== undefined)
+      for (const node of unsettled) this.phase.required.set(node, false)
     return result
   }
 
-  /** Checks one reachable value while treating a cycle-guard hit as provisional. */
+  /** Checks one reachable value; a cycle-guard hit makes the answers that lean on it pending. */
   private checkMaterialization(
     value: unknown,
     knownKind: symbol | undefined,
@@ -232,33 +247,43 @@ export class Finalization extends Detached {
       return cached
     }
 
-    if (
-      state?.modified === true ||
-      this.untrackedSpecialsToClone?.has(value) === true ||
-      (state === undefined &&
-        (this.session.specialCloneCloneToBase?.has(value) === true ||
-          this.session.specialCloneBaseToClone?.has(value) === true))
-    ) {
+    if (this.changedBefore(value, state)) {
       memo.set(base, true)
       return true
     }
 
     if (visited.has(base)) {
+      // Visited and unsettled: still being walked, or pending.
+      this.guards += 1
       return false
     }
 
     visited.add(base)
+    // A negative answer is pending exactly when its walk met such an object.
+    const guards = this.guards
     // Descendant accessor reads can draft this base and write through it; look its state up again.
     const result =
       this.checkDescendantsForMaterialization(base, state?.kind ?? knownKind, visited) ||
       this.session.statesByIdentity.get(base)?.modified === true ||
       this.accessorObservations?.has(base) === true
 
-    if (result) {
-      memo.set(base, true)
-    }
-
+    if (result) memo.set(base, true)
+    // A negative answer that leaned on no pending object is final at once.
+    else if (this.guards === guards) memo.set(base, false)
+    else (this.unsettled ??= []).push(base)
     return result
+  }
+
+  /** Whether an object needs a copy before its children are read: written, or a special value
+   * with a copy. */
+  private changedBefore(value: object, state: DraftState | undefined): boolean {
+    return (
+      state?.modified === true ||
+      this.untrackedSpecialsToClone?.has(value) === true ||
+      (state === undefined &&
+        (this.session.specialCloneCloneToBase?.has(value) === true ||
+          this.session.specialCloneBaseToClone?.has(value) === true))
+    )
   }
 
   /** Checks type-declared copy dependencies in their native observation order. */
