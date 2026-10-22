@@ -9,7 +9,8 @@ every command from the repository root.
 
 The working rules are in [AGENTS.md](../AGENTS.md); MUST and MUST NOT in this guide carry their RFC
 2119 meaning. The frozen workloads are `perf/scenarios.ts`, `perf/config.ts` and
-`perf/profile-harness.ts`; add a diagnostic scenario for a new shape instead of changing them.
+`perf/profile-harness.ts`, and the small workloads in `scripts/bench-workloads.ts`; add a
+diagnostic scenario for a new shape instead of changing them.
 
 ## How the library works
 

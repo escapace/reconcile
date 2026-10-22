@@ -3,7 +3,7 @@
  * a detached clone, Immer or `JSON`). A frozen-workload sample is one batch of `BATCH_SIZE`
  * operations; a serialization sample is one call on one workload. It orients; it does not decide.
  *
- * Usage: pnpm bench run [--scenario <name>]...
+ * Usage: pnpm bench run [--round default|small | --scenario <name>]...
  */
 
 import path from 'node:path'
@@ -147,7 +147,8 @@ export function selectedScenarios(argv: string[]): ScenarioName[] {
 function run(argv: string[]): void {
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      `Usage: pnpm bench run [--scenario <name>]...\nScenarios: ${scenarioNames.join(', ')}`,
+      'Usage: pnpm bench run [--round default|small | --scenario <name>]...\n' +
+        `Scenarios: ${scenarioNames.join(', ')}`,
     )
     return
   }

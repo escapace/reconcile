@@ -11,7 +11,8 @@
  * effects below about 3% are unresolved. It screens; confirm with `pnpm bench ab` to decide.
  *
  * Usage:
- *   pnpm bench compare --baseline <tree> [--candidate <tree>] [--scenario name]...
+ *   pnpm bench compare --baseline <tree> [--candidate <tree>]
+ *     [--round default|small | --scenario name]...
  *     [--processes 4] [--rounds 400] [--warmup 40]
  */
 
@@ -179,7 +180,8 @@ export function workerFiles(directory: string): Files {
 function compare(argv: string[]): void {
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      'Usage: pnpm bench compare --baseline <tree> [--candidate <tree>] [--scenario name]...\n' +
+      'Usage: pnpm bench compare --baseline <tree> [--candidate <tree>]\n' +
+        '  [--round default|small | --scenario name]...\n' +
         '  [--processes 4] [--rounds 400] [--warmup 40]',
     )
     return

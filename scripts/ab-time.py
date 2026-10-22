@@ -16,7 +16,8 @@ small scenarios alike) check for regressions; a deciding round selects one scena
 frozen ones, and runs ``--pairs 32 --seconds 1``.
 
 Usage:
-  pnpm bench ab --baseline <tree> [--candidate <tree>] [--scenario name]... [--pairs 10]
+  pnpm bench ab --baseline <tree> [--candidate <tree>] [--round default|small | --scenario name]...
+    [--pairs 10]
     [--batches auto] [--seconds 0.5] [--warmup auto] [--size 256] [--gain 2] [--guard 3] --out <dir>
 """
 
@@ -221,6 +222,10 @@ def run_round(arguments):
         "bundles": bundles,
         "estimatedSamplingSeconds": estimate,
         "frozenWorkloadSha256": frozen,
+        # The serialization and small workloads come from this checkout for both trees.
+        "sharedWorkloadSha256": hashlib.sha256(
+            (ROOT / "scripts" / "bench-workloads.ts").read_bytes()
+        ).hexdigest(),
         "gainPercent": arguments.gain,
         "git": {label: git_state(root) for label, root in roots.items()},
         "node": subprocess.run(["node", "--version"], text=True, capture_output=True).stdout.strip(),
