@@ -10,6 +10,7 @@ import type {
   SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
+  DraftObservationContext,
   DraftStrategy,
   Recognition,
 } from '../types'
@@ -214,6 +215,33 @@ const attributeBits = (descriptor: PropertyDescriptor): number =>
   (descriptor.enumerable === true ? 2 : 0) |
   (descriptor.writable === true ? 4 : 0)
 
+// Observes one own key of an object or its draft: its value, its attributes and whether `base`
+// backs it, which reads of `base` itself (`fromBase`) already answer.
+function observeSlot(
+  source: object,
+  key: PropertyKey,
+  observer: DraftObservationContext<ObjectLayout>,
+  fromBase: boolean,
+): void {
+  const { base, properties } = observer
+  const descriptor =
+    properties === undefined
+      ? Object.getOwnPropertyDescriptor(source, key)
+      : properties.ownDescriptor(key)
+  const data = descriptor !== undefined && isDataDescriptor(descriptor)
+  const value: unknown = data
+    ? properties === undefined
+      ? Reflect.get(source, key)
+      : properties.ownValue(key, descriptor)
+    : observer.read(source, key)
+  observer.edge(
+    value,
+    key,
+    (isObject(value) || !data) && (fromBase ? data : backedProperty(base, key, value)),
+    data ? attributeBits(descriptor) : OBSERVED_ACCESSOR,
+  )
+}
+
 export const objectImmutable = /* @__PURE__ */ (() => ({
   ...objectConstruction,
   immutable: /* @__PURE__ */ freeze({
@@ -226,25 +254,11 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
           : properties.sourcePrototype()
       observer.begin({ hidden: undefined, kind: OBJECT_KIND, prototype, slots: undefined })
       const keys = properties === undefined ? ownKeys(source) : properties.keys(source)
-      for (const key of keys) {
-        const descriptor =
-          properties === undefined
-            ? Object.getOwnPropertyDescriptor(source, key)
-            : properties.ownDescriptor(key)
-        const data = descriptor !== undefined && isDataDescriptor(descriptor)
-        const value: unknown = data
-          ? properties === undefined
-            ? Reflect.get(source, key)
-            : properties.read(key)
-          : observer.read(source, key)
-        const attributes = data ? attributeBits(descriptor) : OBSERVED_ACCESSOR
-        observer.edge(
-          value,
-          key,
-          (isObject(value) || !data) && backedProperty(base, key, value),
-          attributes,
-        )
-      }
+      // Reads of the object itself answer whether a slot is backed by it, as reading it again
+      // would.
+      const fromBase =
+        base !== undefined && (properties === undefined ? source === base : properties.readsBase())
+      for (const key of keys) observeSlot(source, key, observer, fromBase)
     },
     reuse(node, current, visit) {
       for (let index = 0; index < node.keys.length; index += 1) {

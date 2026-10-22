@@ -59,6 +59,8 @@ roots = [
   "Oracle.DraftIterationOracle",
   "Produce.DraftRead",
   "Oracle.DraftReadOracle",
+  "Produce.SettledChildren",
+  "Oracle.SettledChildrenOracle",
   "Produce.DraftMembers",
   "Oracle.DraftMembersOracle",
   "Produce.DraftSetMethods",

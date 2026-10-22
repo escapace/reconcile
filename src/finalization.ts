@@ -7,17 +7,21 @@ import { finalizationAccessorUnstable } from './error'
 import { chooseSpecial } from './graph/provenance'
 import { RequirementClosure } from './graph/requirements'
 import { propertyDescriptor } from './object-property'
-import { restoreIdentities } from './restore-identities'
+import { restoreIdentities, type FinalizationFacts } from './restore-identities'
 import type {
   DraftState,
   FinalizedReference,
   Layout,
   MaterializationTraversal,
+  PrototypeRead,
   ReuseNode,
   SpecialFacts,
   SpecialPolicy,
 } from './types'
 import { Detached, isDataDescriptor } from './standard-prototypes'
+
+// The kept child list of an object without object children.
+const NO_CHILDREN: readonly object[] = /* @__PURE__ */ Object.freeze([])
 
 /** Retains observed structural slots for later activation without rereading their source. */
 interface PendingActivation {
@@ -46,11 +50,18 @@ type ObservationPhase = {
 // Failed observations abandon the entire phase; there is no shared state to restore.
 export class Finalization extends Detached {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
+  // The complete object-child list of each object whose walk found no child needing a copy, in
+  // slot order; created on the first. Produce.SettledChildren.
+  declare private walked: Map<object, readonly object[]> | undefined
   // Native kind knowledge for one observation phase; never attached to application objects.
   declare private forcedOwnedCopies: WeakSet<object> | undefined
   // Created on the first recognition.
   declare private kinds: Map<object, symbol> | undefined
   declare private phase: ObservationPhase
+  // The prototype each recognition read, for identity restoration's storage check; it lives
+  // as long as `kinds` (Types.Ingress).
+  declare private prototypes: Map<object, object | null> | undefined
+  declare private readonly read: PrototypeRead
   declare readonly session: DraftSession
   // Created at the first forced special copy; until then no value needs one.
   declare private untrackedSpecialsToClone: WeakSet<object> | undefined
@@ -59,7 +70,10 @@ export class Finalization extends Detached {
     super()
     this.session = session
     this.accessorObservations = undefined
+    this.walked = undefined
     this.kinds = undefined
+    this.prototypes = undefined
+    this.read = { known: false, prototype: null }
     this.phase = {
       kind: 'probe',
       nativeOwners: undefined,
@@ -79,7 +93,13 @@ export class Finalization extends Detached {
     let kind = this.kinds?.get(value)
     if (kind === undefined) {
       // A drafted object's kind was established when its state was created.
-      kind = this.session.statesByIdentity.get(value)?.kind ?? recognize(this.session.types, value)
+      kind = this.session.statesByIdentity.get(value)?.kind
+      if (kind === undefined) {
+        const read = this.read
+        read.known = false
+        kind = recognize(this.session.types, value, read)
+        if (read.known) (this.prototypes ??= new Map()).set(value, read.prototype)
+      }
       ;(this.kinds ??= new Map()).set(value, kind)
     }
     return kind
@@ -147,9 +167,14 @@ export class Finalization extends Detached {
     // Discovery kept unchanged subtrees as fixed leaves. When the kernel cannot keep every
     // settled record, the sealed pass (already current) materializes everything and selects again.
     return (
-      restoreIdentities(types, finalized as FinalizedReference, project, kindOf) ??
-      restoreIdentities(types, sealed() as FinalizedReference, true, kindOf)!
+      restoreIdentities(types, finalized as FinalizedReference, project, kindOf, this.facts()) ??
+      restoreIdentities(types, sealed() as FinalizedReference, true, kindOf, this.facts())!
     )
+  }
+
+  /** What this finalization read that identity restoration would otherwise read again. */
+  private facts(): FinalizationFacts {
+    return { prototypes: this.prototypes, walked: this.walked }
   }
 
   /**
@@ -493,42 +518,59 @@ export class Finalization extends Detached {
    */
   readTraversalProperty(value: object, key: PropertyKey, knownState?: DraftState): unknown {
     const properties = knownState?.properties
+    const own = properties?.ownDescriptor(key)
     const descriptor =
       properties === undefined
         ? propertyDescriptor(value, key)
-        : (properties.ownDescriptor(key) ?? propertyDescriptor(properties.sourcePrototype(), key))
-    if (descriptor !== undefined && !isDataDescriptor(descriptor)) {
-      const receiver = knownState?.handle ?? this.session.materializeChild(value)
-      const state = knownState ?? this.session.statesByIdentity.get(value)!
-      this.accessorObservations ??= new WeakMap()
-      let observations = this.accessorObservations.get(state.base)
-      if (observations === undefined) {
-        observations = new Map()
-        this.accessorObservations.set(state.base, observations)
-      }
-      if (observations.has(key)) return observations.get(key)
-      if (this.phase.kind === 'sealed') throw finalizationAccessorUnstable(key)
-      const observed = state.properties!.read(key, receiver)
-      this.kinds = undefined
-      observations.set(key, observed)
-      if (this.materializationPlan !== undefined)
-        this.materializationPlan.closure.require(state.base)
-      return observed
-    }
-    return properties === undefined ? (Reflect.get(value, key) as unknown) : properties.read(key)
+        : (own ?? propertyDescriptor(properties.sourcePrototype(), key))
+    if (descriptor !== undefined && !isDataDescriptor(descriptor))
+      return this.observeAccessor(value, key, knownState)
+    if (properties === undefined) return Reflect.get(value, key) as unknown
+    // An own data property's descriptor was just read; its value needs no second presence check.
+    return own === undefined ? properties.read(key) : properties.ownValue(key, own)
   }
 
-  /** Visits the kind-specific edge surface until a descendant requires materialization. */
+  /** Runs an accessor once per base and key through the draft receiver, then reuses its result. */
+  private observeAccessor(value: object, key: PropertyKey, knownState?: DraftState): unknown {
+    const receiver = knownState?.handle ?? this.session.materializeChild(value)
+    const state = knownState ?? this.session.statesByIdentity.get(value)!
+    this.accessorObservations ??= new WeakMap()
+    let observations = this.accessorObservations.get(state.base)
+    if (observations === undefined) {
+      observations = new Map()
+      this.accessorObservations.set(state.base, observations)
+    }
+    if (observations.has(key)) return observations.get(key)
+    if (this.phase.kind === 'sealed') throw finalizationAccessorUnstable(key)
+    const observed = state.properties!.read(key, receiver)
+    this.kinds = undefined
+    this.prototypes = undefined
+    observations.set(key, observed)
+    if (this.materializationPlan !== undefined) this.materializationPlan.closure.require(state.base)
+    return observed
+  }
+
+  /**
+   * Visits the kind-specific edge surface until a descendant requires materialization. A walk
+   * that visits every child keeps their objects, so identity restoration need not read them again
+   * (Produce.SettledChildren); one that stops early keeps nothing.
+   */
   private checkDescendantsForMaterialization(
     value: object,
     knownKind: symbol | undefined,
     visited: Set<object>,
   ): boolean {
-    return this.session.types.policies[knownKind ?? this.kindOf(value)].someChild(
+    let children: object[] | undefined
+    const found = this.session.types.policies[knownKind ?? this.kindOf(value)].someChild(
       value,
       (source, key) => this.readTraversalProperty(source, key),
-      (child) => this.needsMaterialization(child, undefined, { parent: value, visited }),
+      (child) => {
+        if (isObject(child)) (children ??= []).push(child)
+        return this.needsMaterialization(child, undefined, { parent: value, visited })
+      },
     )
+    if (!found) (this.walked ??= new Map()).set(value, children ?? NO_CHILDREN)
+    return found
   }
 }
 

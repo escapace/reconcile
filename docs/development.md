@@ -92,11 +92,12 @@ unchanged objects.
 
 1. _Draft_ (observes; `draft-session.ts`, `types/shared/draft-properties.ts`). Proxies read the
    base until the first write, which copies its descriptors into a private store.
-2. _Finalization_ (observes; `finalization.ts`). A first pass, the _probe_, finds changed
-   subtrees and runs each getter once; discovery then keeps each unchanged subtree whole, as a
-   _fixed leaf_, so one change under many unchanged subtrees does not revisit them. A full
-   _sealed_ pass runs instead when a special value (a `Date`, buffer or other kind `produce`
-   copies) needs cloning, an accessor was observed or leaves conflict over storage.
+2. _Finalization_ (observes; `finalization.ts`). A first pass, the _probe_, finds changed subtrees
+   and runs each getter once; discovery then keeps each unchanged subtree whole, as a _fixed leaf_,
+   so one change under many unchanged subtrees does not revisit them, and identity restoration
+   takes each fixed leaf's children from those walks. A full _sealed_ pass runs instead when a
+   special value (a `Date`, buffer or other kind `produce` copies) needs cloning, an accessor was
+   observed or leaves conflict over storage.
 3. _Identity restoration_ (observes for readback; `restore-identities.ts`,
    `graph/immutable-selection.ts`) keeps the largest set of objects, then allocates and writes
    the fresh ones in a fixed order.

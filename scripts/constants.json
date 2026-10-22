@@ -130,6 +130,7 @@
         "origin",
         "ownDescriptor",
         "ownsDependencies",
+        "ownValue",
         "palette",
         "parent",
         "payload",
@@ -150,6 +151,7 @@
         "publish",
         "read",
         "readback",
+        "readsBase",
         "readTraversalProperty",
         "recognition",
         "recognize",
@@ -215,6 +217,7 @@
         "viewBuffer",
         "visit",
         "visited",
+        "walked",
         "width",
         "write",
         "writer"

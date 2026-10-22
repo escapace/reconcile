@@ -98,7 +98,11 @@ export interface PropertyDraftPort {
   /** Returns own strings followed by symbols from the active store. */
   keys: (source: object) => PropertyKey[]
   ownDescriptor: (key: PropertyKey) => PropertyDescriptor | undefined
+  /** The value of an own data property whose descriptor `ownDescriptor` just returned. */
+  ownValue: (key: PropertyKey, descriptor: PropertyDescriptor) => unknown
   read: (key: PropertyKey, receiver?: unknown) => unknown
+  /** Whether reads still go to the object itself, before the first write. */
+  readsBase: () => boolean
   sourcePrototype: () => object | null
 }
 

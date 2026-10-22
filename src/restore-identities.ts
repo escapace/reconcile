@@ -21,11 +21,21 @@ import type {
 
 const NO_SPECIALS: ReadonlyMap<object, NodeEdge> = /* @__PURE__ */ new Map()
 
+/** Facts finalization read in this call, which compilation takes instead of reading again. */
+export interface FinalizationFacts {
+  /** The prototype recognition read for an object (Types.Ingress). */
+  readonly prototypes: ReadonlyMap<object, object | null> | undefined
+  /** The complete object-child list of an object a walk visited to the end
+   * (Produce.SettledChildren). */
+  readonly walked: ReadonlyMap<object, readonly object[]> | undefined
+}
+
 /** Compiles complete immutable ownership and child-binding facts before selection. */
 export function compileImmutable(
   types: ImmutableRegistry,
   result: FinalizedReference,
   kindOf: (value: object) => symbol = (value) => recognize(types, value),
+  facts?: FinalizationFacts,
 ): ImmutableProblem {
   const records: ImmutableRecord[] = []
   // A per-compile mark on the private finalized references replaces two identity tables; a
@@ -144,23 +154,27 @@ export function compileImmutable(
   let conflict = false
   // Structural collection is complete, so the records by target no longer change.
   const collected = byTarget
+  // The fixed node whose children `child` registers.
+  let owner = 0
+  let edges: Edge[] = []
+  const child = (value: unknown): boolean => {
+    if (isObject(value)) {
+      const reference = collected?.get(value) ?? special(value)
+      edges.push(reference)
+      parents[reference.node].push(owner)
+    }
+    return false
+  }
   for (const entry of specials ?? NO_SPECIALS) {
     const target = entry[0]
-    const index = entry[1].node
-    const storage = storageIdentity(target)
-    storages[index] = storage
+    owner = entry[1].node
+    const storage = storageIdentity(target, facts?.prototypes?.get(target))
+    storages[owner] = storage
     if (fixedStorage.has(storage)) conflict = true
     fixedStorage.add(storage)
-    const edges: Edge[] = []
-    types.policies[kindOf(target)].someChild(target, Reflect.get, (child) => {
-      if (isObject(child)) {
-        const reference = collected?.get(child) ?? special(child)
-        edges.push(reference)
-        parents[reference.node].push(index)
-      }
-      return false
-    })
-    records[index] = { edges, payload: undefined, settled: undefined, target }
+    edges = []
+    eachChild(types, kindOf, target, facts?.walked?.get(target), child)
+    records[owner] = { edges, payload: undefined, settled: undefined, target }
   }
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
@@ -168,11 +182,27 @@ export function compileImmutable(
   const unavailable = closeRequirements(seeds, parents)
   for (let index = 0; index < records.length; index += 1)
     if (records[index].payload !== undefined && !unavailable.has(index)) {
-      const storage = storageIdentity(records[index].target)
+      const target = records[index].target
+      const storage = storageIdentity(target, facts?.prototypes?.get(target))
       storages[index] = storage
       if (fixedStorage.has(storage)) conflict = true
     }
   return { conflict, records, root, storages, unavailable }
+}
+
+/**
+ * Visits a fixed target's object children: those a finalization walk that visited all of them
+ * listed (Produce.SettledChildren), otherwise read from the target.
+ */
+function eachChild(
+  types: ImmutableRegistry,
+  kindOf: (value: object) => symbol,
+  target: object,
+  children: readonly object[] | undefined,
+  visit: (value: unknown) => boolean,
+): void {
+  if (children === undefined) types.policies[kindOf(target)].someChild(target, Reflect.get, visit)
+  else for (let index = 0; index < children.length; index += 1) visit(children[index])
 }
 
 /**
@@ -228,8 +258,9 @@ export function restoreIdentities(
   result: FinalizedReference,
   strict: boolean,
   kindOf?: (value: object) => symbol,
+  facts?: FinalizationFacts,
 ): object | undefined {
-  const problem = compileImmutable(types, result, kindOf)
+  const problem = compileImmutable(types, result, kindOf, facts)
   const { records, root } = problem
   // Fixed leaves claim their storage unconditionally. When one shares storage with another
   // node, the kernel could no longer weigh the larger compatible subset, so finalization

@@ -21,17 +21,24 @@ const STORE_PROTOTYPE: object = /* @__PURE__ */ Object.freeze(Object.create(null
  * Preserves prototype capture, key order, wrapper-visible reads, and native array-length effects.
  * The store becomes visible to the state only after capture finishes.
  */
-function preparePropertyCopy(state: PropertyDraftState): Record<PropertyKey, PropertyDescriptor> {
+function preparePropertyCopy(
+  state: PropertyDraftState,
+  known?: PropertyKey,
+  knownDescriptor?: PropertyDescriptor,
+  knownValue?: unknown,
+): Record<PropertyKey, PropertyDescriptor> {
   if (state.copy !== undefined) return state.copy
   const source = state.base as Record<PropertyKey, unknown>
   const prototype = Object.getPrototypeOf(source) as object | null
   const replacement = Object.create(STORE_PROTOTYPE) as Record<PropertyKey, PropertyDescriptor>
   state.rules.initialize(source, replacement)
   for (const key of ownKeys(source)) {
-    const descriptor = Object.getOwnPropertyDescriptor(source, key)
+    // The write that makes this copy already read its key's own data descriptor and value.
+    const reused = key === known && knownDescriptor !== undefined
+    const descriptor = reused ? knownDescriptor : Object.getOwnPropertyDescriptor(source, key)
     if (descriptor === undefined) continue
     // Capture wrapper-exposed values in the same order as the former physical copy.
-    if (isDataDescriptor(descriptor)) descriptor.value = source[key]
+    if (isDataDescriptor(descriptor)) descriptor.value = reused ? knownValue : source[key]
     state.rules.capture(replacement, key, descriptor)
     replacement[key] = descriptor
   }
@@ -65,11 +72,13 @@ function writeProperty(
   value: unknown,
   descriptor: PropertyDescriptor | undefined,
 ): boolean {
+  let current: unknown
   if (descriptor !== undefined) {
     if (!isDataDescriptor(descriptor) || descriptor.writable === false) return false
-    if (state.context.isSameDraftValue(state.read(property), value)) return true
+    current = state.ownValue(property, descriptor)
+    if (state.context.isSameDraftValue(current, value)) return true
   }
-  const copy = preparePropertyCopy(state)
+  const copy = preparePropertyCopy(state, property, descriptor, current)
   const written = state.rules.write(state, copy, property, value)
   if (written) state.modified = true
   return written
@@ -257,6 +266,19 @@ export class PropertyDraftState<K extends symbol = symbol>
   /** Enumerates the current store with native string and symbol ordering. */
   ownKeys(): Array<string | symbol> {
     return Reflect.ownKeys(this.copy ?? this.base)
+  }
+  /**
+   * The value of an own data property whose descriptor the caller just read from this draft's
+   * store, without asking again whether the draft owns it.
+   */
+  ownValue(property: PropertyKey, descriptor: PropertyDescriptor): unknown {
+    return this.copy === undefined
+      ? (Reflect.get(this.base, property) as unknown)
+      : (descriptor.value as unknown)
+  }
+  /** Whether reads still go to the object itself, before the first write. */
+  readsBase(): boolean {
+    return this.copy === undefined
   }
   /** Reads the logical value with the supplied getter receiver, without wrapping children. */
   read(property: PropertyKey, receiver: unknown = this.base): unknown {
