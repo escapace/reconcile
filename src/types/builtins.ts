@@ -13,6 +13,7 @@ import * as url from './url'
 import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
+import { inChain } from '../object-property'
 
 /** Orders native recognition with the plain-object fallback last. */
 export const builtinModules = [
@@ -50,65 +51,62 @@ function table<T>(facets: readonly T[]): Readonly<Record<symbol, T>> {
   return Object.freeze(Object.fromEntries(KINDS.map((kind, index) => [kind, facets[index]])))
 }
 
+// The plain-object fallback's rank, the last in recognition order.
+const FALLBACK_RANK = 10
+
 /**
- * Whether one prototype read decides `value` as a plain object: its prototype is
- * `Object.prototype` or `null` and it holds no view brand, so every later probe fails.
- * Types.RecognitionPlain.recognize_eq_scan proves the result is the ordered scan's.
- */
-function plainObject(value: object): boolean {
-  const first = Object.getPrototypeOf(value) as object | null
-  return (first === Object.prototype || first === null) && !ArrayBuffer.isView(value)
-}
-
-/** Full recognition needs no bounded-prefix checks. */
-function builtinRecognize(value: object): symbol {
-  if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
-  if (plainObject(value)) return object.OBJECT_KIND
-  if (date.dateRecognition.test(value)) return date.DATE_KIND
-  if (map.mapRecognition.test(value)) return map.MAP_KIND
-  if (set.setRecognition.test(value)) return set.SET_KIND
-  if (arrayBuffer.arrayBufferRecognition.test(value)) return arrayBuffer.ARRAY_BUFFER_KIND
-  if (dataView.dataViewRecognition.test(value)) return dataView.DATA_VIEW_KIND
-  if (typedArray.typedArrayRecognition.test(value)) return typedArray.TYPED_ARRAY_KIND
-  if (temporal.temporalRecognition.test(value)) return temporal.TEMPORAL_KIND
-  if (url.urlRecognition.test(value)) return url.URL_KIND
-  if (urlSearchParameters.urlSearchParametersRecognition.test(value))
-    return urlSearchParameters.URL_SEARCH_PARAMS_KIND
-  return object.OBJECT_KIND
-}
-
-/** Static call sites keep the generic recognizer's predicate prefix and exceptions after the
- * plain-object read. Types.Recognition.builtinTrace_eq_scanTrace proves the finite unrolling.
+ * The kind at the first matching rank up to `last`, or undefined; at the fallback rank, the kind.
+ *
+ * @remarks
+ * After the array probe the value's prototype is read once. A value whose prototype is
+ * `Object.prototype` or `null` and that holds no view brand fails every later probe, and the
+ * fallback decides it. Otherwise each `instanceof` probe runs from that prototype, in the generic
+ * recognizer's order, so the value itself is not read again. Types.RecognitionPlain.
+ * recognize_eq_scan proves the result is the ordered scan's.
  */
 function builtinFirstMatch(value: object, last: number): symbol | undefined {
   if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
-  if (last === 0 || plainObject(value)) return undefined
-  if (date.dateRecognition.test(value)) return date.DATE_KIND
+  if (last === 0) return undefined
+  const first = Object.getPrototypeOf(value) as object | null
+  if ((first === Object.prototype || first === null) && !ArrayBuffer.isView(value))
+    return last === FALLBACK_RANK ? object.OBJECT_KIND : undefined
+  if (inChain(first, Date)) return date.DATE_KIND
   if (last === 1) return undefined
-  if (map.mapRecognition.test(value)) return map.MAP_KIND
+  if (inChain(first, Map)) return map.MAP_KIND
   if (last === 2) return undefined
-  if (set.setRecognition.test(value)) return set.SET_KIND
+  if (inChain(first, Set)) return set.SET_KIND
   if (last === 3) return undefined
-  if (arrayBuffer.arrayBufferRecognition.test(value)) return arrayBuffer.ARRAY_BUFFER_KIND
+  if (inChain(first, ArrayBuffer)) return arrayBuffer.ARRAY_BUFFER_KIND
   if (last === 4) return undefined
-  return builtinRemainingMatch(value, last)
+  return builtinRemainingMatch(value, first, last)
 }
 
-/** Continues the same ordered prefix without allocating a per-value continuation. */
-function builtinRemainingMatch(value: object, last: number): symbol | undefined {
-  if (dataView.dataViewRecognition.test(value)) return dataView.DATA_VIEW_KIND
+/** Continues the same ordered prefix without allocating a per-value continuation. A typed array
+ * is the brand check alone here, since the `DataView` probe has failed. */
+function builtinRemainingMatch(
+  value: object,
+  first: object | null,
+  last: number,
+): symbol | undefined {
+  if (inChain(first, DataView)) return dataView.DATA_VIEW_KIND
   if (last === 5) return undefined
-  if (typedArray.typedArrayRecognition.test(value)) return typedArray.TYPED_ARRAY_KIND
+  if (ArrayBuffer.isView(value)) return typedArray.TYPED_ARRAY_KIND
   if (last === 6) return undefined
-  if (temporal.temporalRecognition.test(value)) return temporal.TEMPORAL_KIND
+  if (temporal.temporalInChain(first)) return temporal.TEMPORAL_KIND
   if (last === 7) return undefined
-  if (url.urlRecognition.test(value)) return url.URL_KIND
+  if (typeof URL !== 'undefined' && inChain(first, URL)) return url.URL_KIND
   if (last === 8) return undefined
-  if (urlSearchParameters.urlSearchParametersRecognition.test(value))
+  if (
+    typeof URL !== 'undefined' &&
+    typeof URLSearchParams !== 'undefined' &&
+    inChain(first, URLSearchParams)
+  )
     return urlSearchParameters.URL_SEARCH_PARAMS_KIND
   if (last === 9) return undefined
   return object.OBJECT_KIND
 }
+
+const builtinRecognize = (value: object): symbol => builtinFirstMatch(value, FALLBACK_RANK)!
 
 const recognition = /* @__PURE__ */ (() => {
   const positions = new Map<symbol, number>(KINDS.map((kind, index) => [kind, index]))
@@ -116,11 +114,7 @@ const recognition = /* @__PURE__ */ (() => {
     recognize: builtinRecognize,
     matches(kind: symbol, value: object): boolean {
       const last = positions.get(kind)
-      return (
-        last !== undefined &&
-        (last === KINDS.length - 1 ? builtinRecognize(value) : builtinFirstMatch(value, last)) ===
-          kind
-      )
+      return last !== undefined && builtinFirstMatch(value, last) === kind
     },
   }
 })()

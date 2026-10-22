@@ -34,7 +34,7 @@ export const dataViewImmutable = /* @__PURE__ */ (() => ({
 }))()
 export const dataViewDraft = viewDraft
 export const dataViewExposure = ordinaryExposure
-export const dataViewRecognition = /* @__PURE__ */ freeze({
+const dataViewRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof DataView,
 } as const)

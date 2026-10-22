@@ -96,7 +96,7 @@ export const dateDraft = independentDraft
 
 export const dateExposure = ordinaryExposure
 
-export const dateRecognition = /* @__PURE__ */ freeze({
+const dateRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof Date,
 }) satisfies Recognition

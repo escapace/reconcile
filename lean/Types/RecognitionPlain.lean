@@ -3,13 +3,15 @@ import Types.Recognition
 /-!
 # Plain-object recognition by one prototype read
 
-`builtinRecognize` and `builtinFirstMatch` in `src/types/builtins.ts` read an object's prototype
-once after the array probe. When that prototype is `Object.prototype` or `null` and the object
-holds no view brand, they select the plain-object fallback without running the remaining probes;
-any other object takes the ordered scan of `Types.Recognition`. This module proves that the result
-is the scan's: on such a chain every later probe fails, provided each `instanceof` probe uses the
-default `Symbol.hasInstance`. The order and number of reads differ: a plain object takes one read,
-where the scan made one per `instanceof` probe, and any other object takes one read more.
+`builtinFirstMatch` in `src/types/builtins.ts` reads an object's prototype once after the array
+probe. When that prototype is `Object.prototype` or `null` and the object holds no view brand, it
+selects the plain-object fallback without running the remaining probes; any other object takes
+the ordered scan of `Types.Recognition`, each `instanceof` probe deciding membership in the chain
+from the prototype already read (`inChain` in `src/object-property.ts`). This module proves that
+the result is the scan's: on such a chain every later probe fails, provided each `instanceof`
+probe uses the default `Symbol.hasInstance`. The reads differ: the object itself is read once,
+where the scan read it once per probe, and the walks over its prototypes are the scan's, except
+that the typed-array probe does not walk again for `DataView`, which its own probe decided.
 
 Ranks follow the declared order: 0 array, 1 `Date`, 2 `Map`, 3 `Set`, 4 `ArrayBuffer`,
 5 `DataView`, 6 typed array, 7 Temporal, 8 `URL`, 9 `URLSearchParams` and 10 the plain-object
@@ -80,8 +82,8 @@ def plain (c : Chain) (brand : Bool) : Bool :=
 /-- A rank the runtime selects, or nothing when the probe bound `last` stops before it. -/
 def selectAt (last r : Nat) : ProbeTrace := if r ≤ last then { selected := some r } else {}
 
-/-- The runtime: the array probe, then one prototype read for a plain object, otherwise the
-ordered scan from rank 1. -/
+/-- The runtime: the array probe, then one prototype read, which decides a plain object; any other
+object takes the ordered scan from rank 1, whose probes are membership in the chain. -/
 def recognize (last : Nat) (isArray : ProbeOutcome) (c : Chain) (brand : Bool) (ts : Targets) :
     ProbeTrace :=
   match isArray with

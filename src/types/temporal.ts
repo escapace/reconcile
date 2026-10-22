@@ -21,6 +21,7 @@ import type {
 } from '../types'
 import { defineType } from './registry'
 import { globalTemporal } from '../standard-prototypes'
+import { inChain } from '../object-property'
 
 /** Stable global identity owned by the Temporal module. */
 export const TEMPORAL_KIND = Symbol.for('@escapace/reconcile/temporal')
@@ -57,41 +58,36 @@ type TemporalNamespace = Partial<
   >
 >
 
-/** Static probes preserve native property and instanceof order; Temporal is read live. */
-function temporalClass(value: object) {
+const TEMPORAL_CLASSES = [
+  'Duration',
+  'Instant',
+  'PlainDate',
+  'PlainDateTime',
+  'PlainMonthDay',
+  'PlainTime',
+  'PlainYearMonth',
+  'ZonedDateTime',
+] as const
+
+/** The first live Temporal class that `holds` accepts, in declared order; Temporal is read live. */
+function temporalMatch(holds: (constructor: TemporalConstructor) => boolean) {
   const temporal = globalTemporal() as TemporalNamespace | null | undefined
   if (temporal == null) return undefined
-  let constructor = temporal.Duration
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: true }
-  constructor = temporal.Instant
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  constructor = temporal.PlainDate
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  constructor = temporal.PlainDateTime
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  return temporalRemainingClass(value, temporal)
-}
-
-/** Continues the eight-probe trace without a per-value continuation allocation. */
-function temporalRemainingClass(value: object, temporal: TemporalNamespace) {
-  let constructor = temporal.PlainMonthDay
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  constructor = temporal.PlainTime
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  constructor = temporal.PlainYearMonth
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
-  constructor = temporal.ZonedDateTime
-  if (typeof constructor === 'function' && value instanceof constructor)
-    return { temporalConstructor: constructor, temporalDuration: false }
+  for (let index = 0; index < TEMPORAL_CLASSES.length; index += 1) {
+    const constructor = temporal[TEMPORAL_CLASSES[index]]
+    if (typeof constructor === 'function' && holds(constructor))
+      return { temporalConstructor: constructor, temporalDuration: index === 0 }
+  }
   return undefined
 }
+
+/** The Temporal class of `value`, probing each live class in order with `instanceof`. */
+const temporalClass = (value: object) =>
+  temporalMatch((constructor) => value instanceof constructor)
+
+/** The Temporal probe of built-in recognition from the prototype `first` already read. */
+export const temporalInChain = (first: object | null): boolean =>
+  temporalMatch((constructor) => inChain(first, constructor)) !== undefined
 
 function equivalentValue(
   source: object,
@@ -210,7 +206,7 @@ const temporalPolicy = /* @__PURE__ */ (() => ({
 
 export const temporalDraft = independentDraft
 export const temporalExposure = ordinaryExposure
-export const temporalRecognition = /* @__PURE__ */ freeze({
+const temporalRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => temporalClass(value) !== undefined,
 }) satisfies Recognition

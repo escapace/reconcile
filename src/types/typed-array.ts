@@ -34,7 +34,7 @@ export const typedArrayImmutable = /* @__PURE__ */ (() => ({
 }))()
 export const typedArrayDraft = viewDraft
 export const typedArrayExposure = ordinaryExposure
-export const typedArrayRecognition = /* @__PURE__ */ freeze({
+const typedArrayRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => ArrayBuffer.isView(value) && !(value instanceof DataView),
 } as const)

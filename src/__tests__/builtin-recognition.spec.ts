@@ -53,18 +53,16 @@ function observe(
 }
 
 /**
- * Prototype reads of the built-in registries: the array probe and checks that stop at it, or name
- * no kind, read nothing; past them a plain object takes one read, and any other object one read
- * before the generic scan, which then makes `generic` reads with the same result.
+ * Prototype reads of the object by the built-in registries: the array probe and checks that stop
+ * at it, or name no kind, read nothing, as the generic scan does; any other check reads the object
+ * once, where the generic scan reads it once per `instanceof` probe.
  */
 function expectedReads(value: object, kind: symbol | undefined, generic: number): number {
   if (Array.isArray(value) || kind === ARRAY_KIND) return generic
-  if (kind !== undefined && !builtinModules.some((module) => module.kind === kind)) return generic
-  const first = Object.getPrototypeOf(value) as object | null
-  return first === null || first === Object.prototype ? 1 : generic + 1
+  return kind !== undefined && !builtinModules.some((module) => module.kind === kind) ? generic : 1
 }
 
-it('decides a plain object by one prototype read and keeps the generic scan otherwise', () => {
+it("reads the object once and keeps the generic scan's results and errors", () => {
   const failure = new Error('prototype observation')
   const kinds = [undefined, ...builtinModules.map((module) => module.kind), Symbol('unknown')]
   for (const value of values())
@@ -93,7 +91,7 @@ it('recognizes a typed array by its brand whatever its prototype', () => {
   }
 })
 
-it('preserves live Temporal property and hasInstance calls for objects that are not plain', () => {
+it('decides Temporal classes by their prototypes, reading each live class in order', () => {
   const names = [
     'Duration',
     'Instant',
@@ -105,7 +103,8 @@ it('preserves live Temporal property and hasInstance calls for objects that are 
     'ZonedDateTime',
   ]
   const failure = new Error('native recognition')
-  // The pre-unrolling loop is an independent oracle for native constructor observations.
+  // The pre-unrolling loop is an independent oracle for the generic registry, which still asks
+  // each constructor's `Symbol.hasInstance`.
   const reference = {
     recognize(value: object): symbol {
       const namespace = Reflect.get(globalThis, 'Temporal') as Record<string, unknown>
@@ -121,14 +120,15 @@ it('preserves live Temporal property and hasInstance calls for objects that are 
       const run = (registry: Pick<typeof snapshotTypes, 'recognize'>) => {
         const trace: string[] = []
         const namespace = {}
+        const prototypes: object[] = []
         for (const [index, name] of names.entries()) {
           function Constructor() {
             return index
           }
+          prototypes.push(Constructor.prototype as object)
           Object.defineProperty(Constructor, Symbol.hasInstance, {
             value() {
               trace.push(`${name}:instance`)
-              if (index === stop && throws) throw failure
               return index === stop
             },
           })
@@ -136,10 +136,12 @@ it('preserves live Temporal property and hasInstance calls for objects that are 
             get() {
               assert.strictEqual(this, namespace)
               trace.push(`${name}:get`)
+              if (index === stop && throws) throw failure
               return Constructor
             },
           })
         }
+        const value = stop < 0 ? custom() : (Object.create(prototypes[stop]) as object)
         vi.stubGlobal('Temporal', namespace)
         Object.defineProperty(globalThis, 'Temporal', {
           configurable: true,
@@ -150,15 +152,26 @@ it('preserves live Temporal property and hasInstance calls for objects that are 
           },
         })
         try {
-          return { result: registry.recognize(custom()), trace }
+          return { result: registry.recognize(value), trace }
         } catch (error) {
           return { error, trace }
         } finally {
           vi.unstubAllGlobals()
         }
       }
-      assert.deepEqual(run(snapshotTypes), run(builtinTypes))
-      assert.deepEqual(run(snapshotTypes), run(reference))
+      assert.deepEqual(run(builtinTypes), run(reference))
+      // The built-in registries read the namespace and each class up to the match, and never
+      // call `Symbol.hasInstance`.
+      const reads = [
+        'Temporal:get',
+        ...names.slice(0, stop < 0 ? names.length : stop + 1).map((name) => `${name}:get`),
+      ]
+      assert.deepEqual(
+        run(snapshotTypes),
+        throws && stop >= 0
+          ? { error: failure, trace: reads }
+          : { result: stop < 0 ? OBJECT_KIND : TEMPORAL_KIND, trace: reads },
+      )
     }
   }
 })

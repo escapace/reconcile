@@ -61,7 +61,7 @@ export const urlSearchParametersSnapshot = /* @__PURE__ */ (() =>
     },
   }))() satisfies SnapshotPolicy<URLSearchParametersLayout>
 
-export const urlSearchParametersRecognition = /* @__PURE__ */ freeze({
+const urlSearchParametersRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) =>
     typeof URL !== 'undefined' &&

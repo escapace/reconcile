@@ -174,7 +174,7 @@ export const setDraft = /* @__PURE__ */ freeze({
   }),
 }) satisfies DraftStrategy<SetDraftState>
 
-export const setRecognition = /* @__PURE__ */ freeze({
+const setRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof Set,
 }) satisfies Recognition

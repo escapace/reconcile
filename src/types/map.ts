@@ -196,7 +196,7 @@ export const mapDraft = /* @__PURE__ */ freeze({
   }),
 }) satisfies DraftStrategy<MapDraftState>
 
-export const mapRecognition = /* @__PURE__ */ freeze({
+const mapRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof Map,
 }) satisfies Recognition

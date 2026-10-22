@@ -64,7 +64,7 @@ export const urlSnapshot = /* @__PURE__ */ (() =>
     },
   }))() satisfies SnapshotPolicy<URLLayout>
 
-export const urlRecognition = /* @__PURE__ */ freeze({
+const urlRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => typeof URL !== 'undefined' && value instanceof URL,
 }) satisfies Recognition

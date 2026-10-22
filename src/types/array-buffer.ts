@@ -85,7 +85,7 @@ export const arrayBufferDraft = /* @__PURE__ */ independentDraft
 
 export const arrayBufferExposure = ordinaryExposure
 
-export const arrayBufferRecognition = /* @__PURE__ */ freeze({
+const arrayBufferRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof ArrayBuffer,
 }) satisfies Recognition

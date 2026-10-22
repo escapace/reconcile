@@ -95,6 +95,23 @@ export const isEnumerable = (value: object, key: PropertyKey): boolean =>
   Object.prototype.propertyIsEnumerable.call(value, key)
 
 /**
+ * `value instanceof constructor` with the default `Symbol.hasInstance`, decided from `first`, the
+ * prototype already read from `value`: the walk reads the prototypes after it, never `value`
+ * again.
+ *
+ * @internal
+ */
+export function inChain(
+  first: object | null,
+  constructor: { readonly prototype: unknown },
+): boolean {
+  const prototype = constructor.prototype
+  return (
+    first === prototype || (first !== null && Object.prototype.isPrototypeOf.call(prototype, first))
+  )
+}
+
+/**
  * Whether an object is an atom: `instanceof` one of the listed constructors, read in one walk
  * of the prototype chain.
  *
