@@ -19,7 +19,7 @@ import type {
   ReuseNode,
 } from './types'
 
-const NO_SPECIALS: ReadonlyMap<object, NodeEdge> = /* @__PURE__ */ new Map()
+const NO_FACTS: ReadonlySet<number> = /* @__PURE__ */ new Set()
 
 /** Facts finalization read in this call, which compilation takes instead of reading again. */
 export interface FinalizationFacts {
@@ -161,24 +161,28 @@ export function compileImmutable(
   // structural record elsewhere resolves to that record.
   // Structural collection is complete, so the records by target no longer change.
   const collected = byTarget
-  const fixedStorage = new Set<object>()
-  let conflict = registerFixed(
-    { facts, fold, kindOf, parents, records, storages, types },
-    specials ?? NO_SPECIALS,
-    collected,
-    special,
-    fixedStorage,
-  )
+  // Without fixed nodes no storage is fixed, and without seeds nothing is unavailable
+  // (Requirements.close_no_seeds).
+  const fixedStorage = specials === undefined ? undefined : new Set<object>()
+  let conflict =
+    fixedStorage !== undefined &&
+    registerFixed(
+      { facts, fold, kindOf, parents, records, storages, types },
+      specials!,
+      collected,
+      special,
+      fixedStorage,
+    )
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
     if (!locallyReusable[index]) seeds.push(index)
-  const unavailable = closeRequirements(seeds, parents)
+  const unavailable = seeds.length === 0 ? NO_FACTS : closeRequirements(seeds, parents)
   for (let index = 0; index < records.length; index += 1)
     if (records[index].payload !== undefined && !unavailable.has(index)) {
       const target = records[index].target
       const storage = storageIdentity(target, facts?.prototypes?.get(target))
       storages[index] = storage
-      if (fixedStorage.has(storage)) conflict = true
+      if (fixedStorage?.has(storage) === true) conflict = true
     }
   return { conflict, records, root, storages, unavailable }
 }
@@ -298,6 +302,17 @@ function publishFresh(
   return targets
 }
 
+// Publishes one plan in construction order; undefined when it cannot be constructed or built.
+function publishPlan(
+  types: ImmutableRegistry,
+  records: readonly ImmutableRecord[],
+  dependencies: ReadonlyArray<readonly number[]>,
+  retained: readonly boolean[],
+): object[] | undefined {
+  const order = constructionOrder(dependencies, retained)
+  return order === undefined ? undefined : publishFresh(types, records, retained, order)
+}
+
 /**
  * Retains compatible base identities and publishes fresh nodes for rejected reuse candidates.
  *
@@ -328,13 +343,16 @@ export function restoreIdentities(
   if (!strict && problem.conflict) return undefined
   // Fixed specials contribute the same score to every plan. Only structural
   // retention varies; their private fresh choices cannot claim settled storage.
-  const dependencies = records.map((record) => constructionDependencies(types, record.payload))
   // The stream's first mask is often determined without searching; the search starts only if
   // that mask cannot be built, and its first mask, already tried, is skipped.
   const head = immutableHead(problem)
+  // A head keeping every record allocates nothing: its construction order is empty
+  // (Construction.schedule_all_retained) and publication writes nothing, so the root keeps its
+  // own target.
+  if (head !== undefined && problem.unavailable.size === 0) return records[root].target
+  const dependencies = records.map((record) => constructionDependencies(types, record.payload))
   if (head !== undefined) {
-    const order = constructionOrder(dependencies, head)
-    const targets = order === undefined ? undefined : publishFresh(types, records, head, order)
+    const targets = publishPlan(types, records, dependencies, head)
     if (targets !== undefined) return targets[root]
   }
   let skip = head !== undefined
@@ -343,9 +361,7 @@ export function restoreIdentities(
       skip = false
       continue
     }
-    const order = constructionOrder(dependencies, selection)
-    if (order === undefined) continue
-    const targets = publishFresh(types, records, selection, order)
+    const targets = publishPlan(types, records, dependencies, selection)
     if (targets !== undefined) return targets[root]
   }
   if (!strict) return undefined

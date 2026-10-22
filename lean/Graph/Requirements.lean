@@ -14,6 +14,11 @@ def close (successors : Nat → List Nat) (seeds : List Nat) (domain : Finset Na
 def Closed (successors : Nat → List Nat) (facts : Finset Nat) : Prop :=
   ∀ fact ∈ facts, ∀ next ∈ successors fact, next ∈ facts
 
+/-- With no seeds nothing is required, so the runtime skips the worklist. -/
+theorem close_no_seeds (successors : Nat → List Nat) (domain : Finset Nat) :
+    close successors [] domain = ∅ := by
+  simp [close, reuseSurvivors]
+
 theorem close_domain (successors : Nat → List Nat) (seeds : List Nat) (domain : Finset Nat) :
     close successors seeds domain ⊆ domain := Finset.sdiff_subset
 

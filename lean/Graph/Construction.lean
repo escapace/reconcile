@@ -177,6 +177,14 @@ theorem schedule_shells_only {deps : Dependencies} {retained : Finset Nat} {node
   simp only [pending, all]
   cases nodes.length <;> simp [waves]
 
+/-- A plan retaining every node constructs nothing: its order is empty, so publication allocates
+and writes nothing and each node keeps its own target. -/
+theorem schedule_all_retained {deps : Dependencies} {retained : Finset Nat} {nodes : List Nat}
+    (all : ∀ node ∈ nodes, node ∈ retained) : schedule deps retained nodes = some [] := by
+  rw [schedule_shells_only fun node member fresh => absurd (all node member) fresh]
+  simp only [Option.some.injEq, List.filter_eq_nil_iff, decide_eq_true_eq, not_not]
+  exact all
+
 theorem schedule_safe {deps : Dependencies} {retained : Finset Nat} {nodes order : List Nat}
     (h : schedule deps retained nodes = some order) : Safe deps retained order := by
   obtain ⟨rest, hr, rfl⟩ := Option.map_eq_some_iff.mp h
