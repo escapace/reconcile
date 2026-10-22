@@ -67,8 +67,10 @@ can.
    the same slot of `current`. A child that is the same object in both is walked once and kept,
    unless walking it reaches the root of `current` or `next`.
 2. _Candidate discovery_ (observes; `publication/candidates.ts`) lists the aligned current
-   objects, recognizes their kind and checks, before any write, which of them must stay the
-   same object (_identity requirements_). This is the _preflight_.
+   objects, recognizes the kind of each that capture did not, and checks, before any write,
+   which of them must stay the same object (_identity requirements_). This is the _preflight_.
+   Capture's prototype read of each object serves discovery and the preflight
+   (`Types.Ingress`).
 3. _Selection_ (private; `graph/selection.ts` and its helpers) streams every feasible plan by
    decreasing number of kept objects in a fixed tie order. A different plan with the same score
    is a behavior change.

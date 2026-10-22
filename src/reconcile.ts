@@ -1,5 +1,4 @@
-import { isObject } from './object-property'
-import { isAtomObject } from './object-property'
+import { atomFrom, isObject } from './object-property'
 import { publicationRejected } from './error'
 import { capture } from './publication/capture'
 import { publishGraph } from './publication/publication-engine'
@@ -87,9 +86,13 @@ export function reconcile<T>(current: unknown, next: T): T {
 export function reconcileWith<T>(types: PublicationRegistry, current: unknown, next: T): T {
   if (Object.is(current, next)) return current as T
   // An atom root, like a function, cannot be updated in place: the next value is the result.
-  if (!isObject(current) || !isObject(next) || isAtomObject(next) || isAtomObject(current))
-    return next
-  const graph = capture(types, next, current)
+  if (!isObject(current) || !isObject(next)) return next
+  // Capture reuses each root's prototype read here (Types.Ingress).
+  const nextPrototype = Object.getPrototypeOf(next) as object | null
+  if (atomFrom(nextPrototype)) return next
+  const currentPrototype = Object.getPrototypeOf(current) as object | null
+  if (atomFrom(currentPrototype)) return next
+  const graph = capture(types, next, current, nextPrototype, currentPrototype)
   if (!publishGraph(types, graph, current)) throw publicationRejected()
   return current as T
 }

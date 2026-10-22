@@ -14,7 +14,7 @@ import { URL_SEARCH_PARAMS_KIND } from '../src/types/url-search-parameters'
 import { builtinTypes, publicationTypes } from '../src/types/builtins'
 
 /** Kinds at ranks 1 to 10, in recognition order. */
-const ranked = [
+export const ranked = [
   DATE_KIND,
   MAP_KIND,
   SET_KIND,
@@ -30,7 +30,7 @@ const ranked = [
 /** The real chains of `RecognitionPlainOracle.tails`, from the first prototype to `null`, in its
  * order; the last entry stands for the throwing read. */
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object
-const tails: ReadonlyArray<readonly object[]> = [
+export const tails: ReadonlyArray<readonly object[]> = [
   [],
   [Object.prototype],
   ...[Date, Map, Set, ArrayBuffer, DataView].map((constructor) => [

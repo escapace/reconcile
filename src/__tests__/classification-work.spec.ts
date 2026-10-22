@@ -49,9 +49,9 @@ describe('classification work on repeated aliases', () => {
       }
       expect(calls[1]).toBe(calls[0])
       expect(checks[1]).toBe(checks[0])
-      expect(checks[0]).toBe(operation === 'reconcile' ? 6 : 0)
-      // Desired capture and current discovery classify unknown identities once.
-      // Compiler/readback retain separate live expected-kind validation.
+      expect(checks[0]).toBe(operation === 'reconcile' ? 3 : 0)
+      // Desired capture and current discovery classify unknown identities once. Discovery
+      // validates only the currents capture did not align; readback validates its kind live.
       expect(calls[0]).toBeLessThanOrEqual(operation === 'reconcile' ? 6 : 3)
     },
   )

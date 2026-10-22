@@ -610,7 +610,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L83-L85 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L82-L84 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 

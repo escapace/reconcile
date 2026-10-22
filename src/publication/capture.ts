@@ -1,5 +1,5 @@
 import { isNode } from '../graph/edge'
-import { hasOwn, isObject } from '../object-property'
+import { hasOwn, isObject, prototypeOf } from '../object-property'
 import { ATOM_KIND } from '../constants'
 import { atomPrototype } from '../object-property'
 import { OBJECT_KIND } from '../types/object'
@@ -15,6 +15,7 @@ import type {
   Edge,
   Layout,
   NodeEdge,
+  PrototypeRead,
   PublicationRegistry,
 } from '../types'
 
@@ -48,6 +49,13 @@ class AlignedCapture extends Detached {
   declare private readonly edgeCallback: CaptureEdge
   declare readonly nodes: Array<BuildingNode | CapturedNode>
   declare readonly occupants: Array<unknown[] | undefined>
+  // The prototype capture read of each node's aligned current object; undefined when unread.
+  declare readonly prototypes: Array<object | null | undefined>
+  // The one prototype read shared by recognition and its caller for the object at hand.
+  declare private readonly read: PrototypeRead
+  // The root's prototypes, read by the caller before capture.
+  declare private readonly nextPrototype: object | null | undefined
+  declare private pendingPrototype: object | null | undefined
   // Occupant handed from the parent's aligned read to the child's reservation.
   declare private count: number
   declare private currentReference: NodeEdge | undefined
@@ -59,13 +67,23 @@ class AlignedCapture extends Detached {
   declare readonly sources: object[]
   declare private readonly types: PublicationRegistry
 
-  constructor(types: PublicationRegistry, value: unknown, current: object | undefined) {
+  constructor(
+    types: PublicationRegistry,
+    value: unknown,
+    current: object | undefined,
+    valuePrototype: object | null | undefined,
+    currentPrototype: object | null | undefined,
+  ) {
     super()
     this.classified = undefined
     this.closure = undefined
     this.currents = []
     this.nodes = []
     this.occupants = []
+    this.prototypes = []
+    this.read = { known: false, prototype: null }
+    this.nextPrototype = valuePrototype
+    this.pendingPrototype = currentPrototype
     // One begin/edge pair per capture serves every node: the observed node is a field.
     const begin = (layout: Layout): void => {
       this.begin(layout)
@@ -92,9 +110,11 @@ class AlignedCapture extends Detached {
     if (!isObject(source)) return { node: undefined, value: source }
     const known = this.references.get(source)
     if (known !== undefined) return known
-    const structural = kind ?? recognizeStructure(this.types, source)
+    // The root's prototype was read before capture; any other object's is read once here.
+    const read = this.share(source === this.nextRoot ? this.nextPrototype : undefined)
+    const structural = kind ?? recognizeStructure(this.types, source, read)
     if (structural !== OBJECT_KIND) return this.observe(source, structural)
-    const prototype = Object.getPrototypeOf(source) as object | null
+    const prototype = prototypeOf(source, read)
     return prototype !== Object.prototype && prototype !== null && atomPrototype(prototype)
       ? atom(this.references, source)
       : this.observe(source, structural, prototype)
@@ -126,8 +146,10 @@ class AlignedCapture extends Detached {
       pinned: undefined,
     }
     this.currents[index] = this.pending
+    this.prototypes[index] = this.pendingPrototype
     this.occupants[index] = undefined
     this.pending = undefined
+    this.pendingPrototype = undefined
     return { node: index }
   }
 
@@ -137,8 +159,19 @@ class AlignedCapture extends Detached {
     ;(this.nodes[index] as BuildingNode).layout = layout
     this.sources[index] = this.currentSource!
     const aligned = this.currents[index]
-    if (aligned !== undefined && recognize(this.types, aligned) !== layout.kind)
-      this.currents[index] = undefined
+    if (aligned === undefined) return
+    const read = this.share(this.prototypes[index])
+    if (recognize(this.types, aligned, read) === layout.kind)
+      this.prototypes[index] = read.known ? read.prototype : undefined
+    else this.currents[index] = undefined
+  }
+
+  // Resets the shared prototype read for a new object, holding `prototype` when already known.
+  private share(prototype: object | null | undefined): PrototypeRead {
+    const read = this.read
+    read.known = prototype !== undefined
+    read.prototype = prototype ?? null
+    return read
   }
 
   private edge(
@@ -163,10 +196,11 @@ class AlignedCapture extends Detached {
 
   // A new child is classified as `visit` classifies it.
   private classify(child: object, kind: symbol | undefined): symbol {
-    const structural = kind ?? recognizeStructure(this.types, child)
+    const read = this.share(undefined)
+    const structural = kind ?? recognizeStructure(this.types, child, read)
     this.classified = undefined
     if (structural !== OBJECT_KIND) return structural
-    this.classified = Object.getPrototypeOf(child) as object | null
+    this.classified = prototypeOf(child, read)
     return this.classified !== Object.prototype &&
       this.classified !== null &&
       atomPrototype(this.classified)
@@ -232,10 +266,11 @@ class AlignedCapture extends Detached {
     // Atoms are leaves: the walk passes them by, classifying as `visit` does.
     const pop = (): object | undefined => {
       for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
-        const nextKind = recognizeStructure(types, next)
+        const read = this.share(undefined)
+        const nextKind = recognizeStructure(types, next, read)
         prototype = undefined
         if (nextKind === OBJECT_KIND) {
-          prototype = Object.getPrototypeOf(next) as object | null
+          prototype = prototypeOf(next, read)
           if (prototype !== Object.prototype && prototype !== null && atomPrototype(prototype))
             continue
         }
@@ -279,14 +314,17 @@ export function capture(
   types: PublicationRegistry,
   value: unknown,
   current?: object,
+  valuePrototype?: object | null,
+  currentPrototype?: object | null,
 ): CapturedGraph {
-  const run = new AlignedCapture(types, value, current)
+  const run = new AlignedCapture(types, value, current, valuePrototype, currentPrototype)
   const root = run.visit(value)
   return {
     currents: run.currents,
     nodes: run.nodes as CapturedNode[],
     occupants: run.occupants,
     protectedStorage: run.protectedStorage,
+    prototypes: run.prototypes,
     root,
     sources: run.sources,
   }

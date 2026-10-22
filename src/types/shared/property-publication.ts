@@ -162,7 +162,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   if (
     !surface.compatible(node, current, properties) ||
     !previous.every(holdsFixed) ||
-    reachesInheritedAccessor(current, desiredKeys)
+    reachesInheritedAccessor(current, desiredKeys, note?.prototype)
   )
     return false
   if (!Object.isExtensible(current)) {
@@ -179,8 +179,14 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
  * Whether assigning a desired key that `current` lacks would reach an accessor on its prototype
  * chain. `__proto__` is defined, never assigned.
  */
-function reachesInheritedAccessor(current: object, desiredKeys: readonly PropertyKey[]): boolean {
-  const first = Object.getPrototypeOf(current) as object | null
+function reachesInheritedAccessor(
+  current: object,
+  desiredKeys: readonly PropertyKey[],
+  prototype: object | null | undefined,
+): boolean {
+  // Capture's read of the prototype serves here when it read one.
+  const first =
+    prototype === undefined ? (Object.getPrototypeOf(current) as object | null) : prototype
   if (first === null) return false
   // On a standard prototype only a key it holds can reach an accessor; the prototype is asked
   // first, so `current` is asked only for such a key, which no unmodified prototype makes.

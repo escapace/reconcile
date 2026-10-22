@@ -323,13 +323,16 @@ const objectDraftRules: PropertyDraftRules<typeof OBJECT_KIND> = {
   capture: () => undefined,
   configurable: () => true,
   initialize: () => undefined,
-  target: (base) => Object.create(Object.getPrototypeOf(base) as object | null) as object,
+  target: (base, prototype) =>
+    Object.create(
+      prototype === undefined ? (Object.getPrototypeOf(base) as object | null) : prototype,
+    ) as object,
   write: (_state, copy, key, value) => writeDataSlot(copy, key, value),
 }
 
 export const objectDraft = /* @__PURE__ */ freeze({
   tag: 'structural',
-  handle: (state) => createPropertyHandle(state),
+  handle: (state, prototype) => createPropertyHandle(state, prototype),
   state: (base, context) => new PropertyDraftState(base, context, objectDraftRules),
 }) satisfies DraftStrategy<PropertyDraftState<typeof OBJECT_KIND>>
 

@@ -4,13 +4,19 @@ import type { ExposureFacet, ExposureObservation, KeyedCollection } from '../typ
 import { Detached, isDataDescriptor } from '../standard-prototypes'
 
 /** Reads wrapper markers without invoking an accessor declared as application data. */
-function marker(value: object, key: string): unknown {
+function marker(value: object, key: string, prototype?: object | null): unknown {
   // Ordinary getters using these names are application data, not a wrapper protocol.
   // `Object.prototype` has an immutable prototype, null, so the walk ends there without a read.
+  // The value's own prototype is the one a caller already read, when it passes it.
   for (
     let owner: object | null = value;
     owner !== null;
-    owner = owner === Object.prototype ? null : (Object.getPrototypeOf(owner) as object | null)
+    owner =
+      owner === Object.prototype
+        ? null
+        : owner === value && prototype !== undefined
+          ? prototype
+          : (Object.getPrototypeOf(owner) as object | null)
   ) {
     const descriptor = Object.getOwnPropertyDescriptor(owner, key)
     if (descriptor !== undefined)
@@ -31,15 +37,18 @@ function marker(value: object, key: string): unknown {
  * @returns The unwrapped backing object, or the original object when no valid chain resolves.
  * @internal
  */
-export function storageIdentity(value: object): object {
+export function storageIdentity(value: object, prototype?: object | null): object {
   let current = value
   let seen: Set<object> | undefined
   for (;;) {
-    const raw = marker(current, '__v_raw')
+    // A prototype the caller read belongs to `value`, not to a raw object it leads to.
+    const known = current === value ? prototype : undefined
+    const raw = marker(current, '__v_raw', known)
     if (
       !isObject(raw) ||
       raw === current ||
-      (marker(current, '__v_isReactive') !== true && marker(current, '__v_isReadonly') !== true)
+      (marker(current, '__v_isReactive', known) !== true &&
+        marker(current, '__v_isReadonly', known) !== true)
     )
       break
     seen ??= new Set([value])

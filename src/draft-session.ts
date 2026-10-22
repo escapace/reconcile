@@ -1,7 +1,13 @@
 import { recognize } from './adapters/recognition'
 import { isObject } from './object-property'
 import { ATOM_KIND } from './constants'
-import type { DraftContext, DraftState, DraftStrategy, ImmutableRegistry } from './types'
+import type {
+  DraftContext,
+  DraftState,
+  DraftStrategy,
+  ImmutableRegistry,
+  PrototypeRead,
+} from './types'
 import { Detached } from './standard-prototypes'
 
 // Held handles retain only recipe state. Observation passes and getter caches
@@ -70,7 +76,10 @@ export class DraftSession extends Detached implements DraftContext {
       return current
     }
 
-    const kind = recognize(this.types, current)
+    // Recognition reads the prototype at most once and the handle's target reuses it
+    // (Types.Ingress).
+    const read: PrototypeRead = { known: false, prototype: null }
+    const kind = recognize(this.types, current, read)
     // An atom is not drafted: the recipe reads and changes the value itself.
     if (kind === ATOM_KIND) return current
 
@@ -80,7 +89,7 @@ export class DraftSession extends Detached implements DraftContext {
 
     const state = strategy.state(current, this)
     this.statesByIdentity.set(current, state)
-    const handle = strategy.handle(state)
+    const handle = strategy.handle(state, read.known ? read.prototype : undefined)
     state.handle = handle
     this.statesByIdentity.set(handle, state)
     return handle as T

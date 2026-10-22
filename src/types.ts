@@ -1,4 +1,7 @@
 import type { MODULE_BRAND, RULE_VOCABULARY } from './constants'
+import type { PrototypeRead } from './object-property'
+
+export type { PrototypeRead }
 
 /**
  * The session services that draft strategies use while a recipe runs.
@@ -246,6 +249,8 @@ export interface PreflightFacts {
  */
 export interface PublicationNote {
   facts: PreflightFacts | undefined
+  /** The prototype of the object being preflighted, when capture read it; undefined otherwise. */
+  prototype: object | null | undefined
   unchanged: boolean
 }
 
@@ -302,7 +307,8 @@ export type DraftStrategy<S extends DraftState = DraftState> =
     }
   | {
       readonly tag: 'structural'
-      readonly handle: (state: S) => object
+      /** `prototype` is the base's prototype when ingress read it, else undefined. */
+      readonly handle: (state: S, prototype?: object | null) => object
       readonly state: (base: object, context: DraftContext) => S
     }
 
@@ -388,8 +394,11 @@ export interface TypeRegistry {
   >
   /** Reobserves the recognition prefix through a registered kind; unknown kinds fail. */
   readonly matches: (kind: symbol, value: object) => boolean
-  /** Returns the first matching module identity, with precedence owned by composition. */
-  readonly recognize: (value: object) => symbol | undefined
+  /**
+   * Returns the first matching module identity, with precedence owned by composition. A registry
+   * may take the prototype from `read` when it is known and report there the one it read.
+   */
+  readonly recognize: (value: object, read?: PrototypeRead) => symbol | undefined
 }
 
 /** Represents an opaque atom or a canonical reference into the captured node domain. */
@@ -440,6 +449,8 @@ export interface CapturedGraph {
   readonly sources?: readonly object[]
   /** Storage of every object inside a pinned subtree; no other position may retain one. */
   readonly protectedStorage?: ReadonlySet<unknown>
+  /** The prototype capture read of each node's aligned current object; undefined when unread. */
+  readonly prototypes?: ReadonlyArray<object | null | undefined>
 }
 
 /** Installs native layout state at the observer-defined begin boundary. */

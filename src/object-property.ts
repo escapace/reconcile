@@ -1,4 +1,13 @@
 /**
+ * One object's prototype, shared by every reader in a call that meets the object: `known` once
+ * a reader read it (Types.Ingress).
+ */
+export interface PrototypeRead {
+  known: boolean
+  prototype: object | null
+}
+
+/**
  * Classifies object-like values; functions are opaque atoms throughout the library.
  *
  * @internal
@@ -122,14 +131,31 @@ export function inChain(
  *
  * @internal
  */
-export function isAtomObject(value: object): boolean {
-  const first = Object.getPrototypeOf(value) as object | null
-  return (
-    first !== Object.prototype &&
-    first !== null &&
-    first !== Array.prototype &&
-    atomPrototype(first)
-  )
+export const isAtomObject = (value: object): boolean =>
+  atomFrom(Object.getPrototypeOf(value) as object | null)
+
+/**
+ * `isAtomObject` from the prototype a caller already read (Types.Ingress).
+ *
+ * @internal
+ */
+export const atomFrom = (first: object | null): boolean =>
+  first !== Object.prototype && first !== null && first !== Array.prototype && atomPrototype(first)
+
+/**
+ * An object's prototype: the one `read` holds when a reader in this call already read it,
+ * otherwise read now and kept in `read`.
+ *
+ * @internal
+ */
+export function prototypeOf(value: object, read: PrototypeRead | undefined): object | null {
+  if (read?.known === true) return read.prototype
+  const prototype = Object.getPrototypeOf(value) as object | null
+  if (read !== undefined) {
+    read.known = true
+    read.prototype = prototype
+  }
+  return prototype
 }
 
 /**

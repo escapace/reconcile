@@ -10,6 +10,7 @@ import Oracle.PropertyPlacementOracle
 import Oracle.KeyOrderOracle
 import Oracle.AtomsOracle
 import Oracle.RecognitionPlainOracle
+import Oracle.IngressOracle
 import Oracle.WriteFreeReadbackOracle
 import Oracle.DraftSurfaceOracle
 import Oracle.DraftClassOracle
@@ -56,6 +57,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "KeyOrder" => KeyOrderOracle.run
   | "Atoms" => AtomsOracle.run
   | "RecognitionPlain" => RecognitionPlainOracle.run
+  | "Ingress" => IngressOracle.run
   | "WriteFreeReadback" => WriteFreeReadbackOracle.run
   | "DraftSurface" => DraftSurfaceOracle.run
   | "DraftClass" => DraftClassOracle.run

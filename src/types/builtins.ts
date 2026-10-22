@@ -1,5 +1,10 @@
 import { freeze } from './shared/empty'
-import type { SnapshotRegistry, PublicationRegistry, ImmutableRegistry } from '../types'
+import type {
+  ImmutableRegistry,
+  PrototypeRead,
+  PublicationRegistry,
+  SnapshotRegistry,
+} from '../types'
 import { registerTypes } from './registry'
 import * as array from './array'
 import * as date from './date'
@@ -13,7 +18,7 @@ import * as url from './url'
 import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
-import { inChain } from '../object-property'
+import { inChain, prototypeOf } from '../object-property'
 
 /** Orders native recognition with the plain-object fallback last. */
 export const builtinModules = [
@@ -64,10 +69,10 @@ const FALLBACK_RANK = 10
  * recognizer's order, so the value itself is not read again. Types.RecognitionPlain.
  * recognize_eq_scan proves the result is the ordered scan's.
  */
-function builtinFirstMatch(value: object, last: number): symbol | undefined {
+function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): symbol | undefined {
   if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
   if (last === 0) return undefined
-  const first = Object.getPrototypeOf(value) as object | null
+  const first = prototypeOf(value, read)
   if ((first === Object.prototype || first === null) && !ArrayBuffer.isView(value))
     return last === FALLBACK_RANK ? object.OBJECT_KIND : undefined
   if (inChain(first, Date)) return date.DATE_KIND
@@ -106,7 +111,8 @@ function builtinRemainingMatch(
   return object.OBJECT_KIND
 }
 
-const builtinRecognize = (value: object): symbol => builtinFirstMatch(value, FALLBACK_RANK)!
+const builtinRecognize = (value: object, read?: PrototypeRead): symbol =>
+  builtinFirstMatch(value, FALLBACK_RANK, read)!
 
 const recognition = /* @__PURE__ */ (() => {
   const positions = new Map<symbol, number>(KINDS.map((kind, index) => [kind, index]))

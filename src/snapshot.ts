@@ -3,8 +3,8 @@ import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
 import { recognize, recognizeStructure } from './adapters/recognition'
 import { ATOM_KIND } from './constants'
-import { atomPrototype, hiddenNames, isEnumerable } from './object-property'
-import type { Edge, Layout, SnapshotWrite, SnapshotRegistry } from './types'
+import { atomPrototype, hiddenNames, isEnumerable, prototypeOf } from './object-property'
+import type { Edge, Layout, PrototypeRead, SnapshotWrite, SnapshotRegistry } from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
 import { eachOpenedEntry } from './types/shared/collection'
@@ -148,6 +148,8 @@ class SnapshotWalk extends Detached {
   declare currentReference: SnapshotReference | undefined
   declare currentSource: object | undefined
   declare edgeCallback: Deliver | undefined
+  /** The prototype recognition read for the object `observe` is on, before it recurses. */
+  declare readonly read: PrototypeRead
   declare readonly references: Map<object, SnapshotReference>
   declare readonly types: SnapshotRegistry
 
@@ -156,6 +158,7 @@ class SnapshotWalk extends Detached {
     this.types = types
     this.callerMemo = seen
     this.builtin = types === snapshotTypes
+    this.read = { known: false, prototype: null }
     this.references = new Map()
     this.constructed = undefined
     this.count = 0
@@ -246,7 +249,7 @@ class SnapshotWalk extends Detached {
   // registry: the same native reads in the same order as their `observe`, then the target their
   // writer would create, the memo write, and each slot as their writer would store it.
   observeObject(reference: SnapshotReference, source: object): void {
-    const prototype = Object.getPrototypeOf(source) as object | null
+    const prototype = prototypeOf(source, this.read)
     // The structural scan ends here for atoms too; one more step of the same walk keeps them.
     if (prototype !== Object.prototype && prototype !== null && atomPrototype(prototype)) {
       reference.target = source
@@ -306,7 +309,7 @@ class SnapshotWalk extends Detached {
     const method = (source as { entries?: unknown }).entries
     const entries: unknown = Reflect.apply(method as () => unknown, source, [])
     const target = new Map<unknown, unknown>()
-    adoptPrototype(target, Object.getPrototypeOf(source) as object | null, Map.prototype)
+    adoptPrototype(target, prototypeOf(source, this.read), Map.prototype)
     reference.target = target
     this.callerMemo?.set(source, target)
     eachOpenedEntry(entries, method, (key, child) => {
@@ -319,7 +322,7 @@ class SnapshotWalk extends Detached {
   observeSet(reference: SnapshotReference, source: object): void {
     const values = (source as Set<unknown>).values()
     const target = new Set<unknown>()
-    adoptPrototype(target, Object.getPrototypeOf(source) as object | null, Set.prototype)
+    adoptPrototype(target, prototypeOf(source, this.read), Set.prototype)
     reference.target = target
     this.callerMemo?.set(source, target)
     for (const child of values) target.add(this.slot(child))
@@ -328,7 +331,7 @@ class SnapshotWalk extends Detached {
   // The Date, ArrayBuffer, typed-array and DataView facets, observed inline in the same way.
   observeDate(reference: SnapshotReference, value: object): void {
     const target = new Date((value as Date).getTime())
-    adoptPrototype(target, Object.getPrototypeOf(value) as object | null, Date.prototype)
+    adoptPrototype(target, prototypeOf(value, this.read), Date.prototype)
     reference.target = target
     this.callerMemo?.set(value, target)
   }
@@ -372,10 +375,15 @@ class SnapshotWalk extends Detached {
   observe(source: object, kind?: symbol): SnapshotReference {
     const reference = new SnapshotReference(this.count++)
     this.references.set(source, reference)
-    // The built-in object observer splits atoms itself, with the prototype it reads anyway.
+    // The built-in object observer splits atoms itself, with the prototype recognition read. The
+    // built-in observers take that read before they recurse into children (Types.Ingress).
+    const read = this.read
+    read.known = false
     const known =
       kind ??
-      (this.builtin ? recognizeStructure(this.types, source) : recognize(this.types, source))
+      (this.builtin
+        ? recognizeStructure(this.types, source, read)
+        : recognize(this.types, source, read))
     if (known === ATOM_KIND) {
       // An atom is kept by reference, as a function is.
       reference.target = source

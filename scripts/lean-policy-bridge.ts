@@ -38,6 +38,7 @@ import { builtinModules, builtinTypes } from '../src/types/builtins'
 import { OBJECT_KIND, type ObjectLayout } from '../src/types/object'
 import { checkPropertyOrderRuntime } from './check-property-order-runtime'
 import { checkAtomsRuntime } from './check-atoms-runtime'
+import { checkIngressRuntime } from './check-ingress-runtime'
 import { checkRecognitionPlainRuntime } from './check-recognition-plain-runtime'
 import { checkWriteFreeReadbackRuntime } from './check-write-free-readback-runtime'
 import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
@@ -800,6 +801,7 @@ export async function checkPolicyRuntime(oracle: Oracle): Promise<void> {
   await checkKeyOrderRuntime(oracle)
   await checkAtomsRuntime(oracle)
   await checkRecognitionPlainRuntime(oracle)
+  await checkIngressRuntime(oracle)
   await checkWriteFreeReadbackRuntime(oracle)
   await checkDraftSurfaceRuntime(oracle)
   await checkDraftClassRuntime(oracle)

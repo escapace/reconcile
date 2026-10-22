@@ -78,17 +78,17 @@ export function publishGraph(
   // no two probes share one.
   const storages = new Map<object, object>()
   let unshared = true
-  const storage = (value: object): object => {
+  const storage = (value: object, prototype?: object | null): object => {
     let owner = storages.get(value)
     if (owner === undefined) {
-      storages.set(value, (owner = storageIdentity(value)))
+      storages.set(value, (owner = storageIdentity(value, prototype)))
       if (owner !== value) unshared = false
     } else unshared = false
     return owner
   }
   // The channel between this call's preflights and publications, and the facts a passing
   // preflight read, by node.
-  const note: PublicationNote = { facts: undefined, unchanged: false }
+  const note: PublicationNote = { facts: undefined, prototype: undefined, unchanged: false }
   const preflight = denseArray<PreflightFacts | undefined>(size)
   const domains = candidates(types, records, root, graph, storage, note, preflight)
   // Retained choices take their storage from these probes and fresh ones their own node number,

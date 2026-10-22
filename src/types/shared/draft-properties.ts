@@ -318,8 +318,8 @@ export class PropertyDraftState<K extends symbol = symbol>
  * The draft session installs and registers the returned identity after construction.
  * @internal
  */
-export function createPropertyHandle(state: PropertyDraftState): object {
-  const target = state.rules.target(state.base)
+export function createPropertyHandle(state: PropertyDraftState, prototype?: object | null): object {
+  const target = state.rules.target(state.base, prototype)
 
   return new Proxy(target, state)
 }
@@ -343,7 +343,8 @@ export interface PropertyDraftRules<K extends symbol = symbol> {
   ) => void
   readonly configurable: (key: PropertyKey) => boolean
   readonly initialize: (source: Record<PropertyKey, unknown>, copy: DescriptorStore) => void
-  readonly target: (base: object) => object
+  /** The proxy target; `prototype` is the base's prototype when ingress read it. */
+  readonly target: (base: object, prototype: object | null | undefined) => object
   readonly write: (
     state: PropertyDraftState,
     copy: DescriptorStore,

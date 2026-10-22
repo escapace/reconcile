@@ -23,8 +23,11 @@ export function candidates(
   types: PublicationRegistry,
   records: readonly CapturedNode[],
   root: object,
-  alignment?: Pick<CapturedGraph, 'currents' | 'occupants' | 'protectedStorage' | 'sources'>,
-  storage: (value: object) => object = storageIdentity,
+  alignment?: Pick<
+    CapturedGraph,
+    'currents' | 'occupants' | 'protectedStorage' | 'prototypes' | 'sources'
+  >,
+  storage: (value: object, prototype?: object | null) => object = storageIdentity,
   note?: PublicationNote,
   preflight?: Array<PreflightFacts | undefined>,
 ): Domains {
@@ -58,10 +61,10 @@ export function candidates(
     const policy = types.policies[node.layout.kind]
     const choices: Choice[] = []
     for (const candidate of index === 0 ? [root] : (aligned[index] ?? [])) {
-      if (!matchesKind(types, candidate, node.layout.kind) || !policy.compatible(node, candidate))
-        continue
-      if (index !== 0 && protectedStorage?.has(storage(candidate)) === true) continue
-      const required = preflightOf(policy, node, candidate, note)
+      const prototype = ingressOf(types, node, index, candidate, alignment)
+      if (prototype === MISMATCH || !policy.compatible(node, candidate)) continue
+      if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true) continue
+      const required = preflightOf(policy, node, candidate, note, prototype)
       if (required === undefined) continue
       // The first passing candidate's facts serve the publication that retains it.
       if (note?.facts !== undefined) preflight![index] ??= note.facts
@@ -69,7 +72,7 @@ export function candidates(
         identity: candidate,
         required,
         retained: true,
-        storage: storage(candidate),
+        storage: storage(candidate, prototype),
       })
     }
     if (index !== 0)
@@ -78,14 +81,34 @@ export function candidates(
   })
 }
 
+// A candidate of another kind than its node's.
+const MISMATCH: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)
+
+// Capture recognized the object it aligned with a node as the node's kind and kept the prototype it
+// read, or undefined; any other candidate's kind is checked here (Types.Ingress).
+function ingressOf(
+  types: PublicationRegistry,
+  node: CapturedNode,
+  index: number,
+  candidate: object,
+  alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
+): object | null | undefined {
+  if (candidate === alignment?.currents?.[index]) return alignment.prototypes?.[index]
+  return matchesKind(types, candidate, node.layout.kind) ? undefined : MISMATCH
+}
+
 // Runs one candidate's preflight; the facts it leaves in `note` belong to this candidate alone.
 function preflightOf(
   policy: PublicationRegistry['policies'][symbol],
   node: CapturedNode,
   candidate: object,
   note: PublicationNote | undefined,
+  prototype: object | null | undefined,
 ): ReturnType<PublicationRegistry['policies'][symbol]['requirements']> {
-  if (note !== undefined) note.facts = undefined
+  if (note !== undefined) {
+    note.facts = undefined
+    note.prototype = prototype
+  }
   return policy.requirements(node, candidate, note)
 }
 
