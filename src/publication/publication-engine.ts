@@ -298,6 +298,12 @@ export function publishGraph(
         let score = 0
         for (let index = 0; index < size; index += 1) {
           const target = exposed(state, index)
+          // A retained choice is labelled by its own identity, so exposing it scores without
+          // searching its domain.
+          if (state.bindings[index].choice === target) {
+            score += 1
+            continue
+          }
           const domain = domains[index]
           for (let choice = 0; choice < domain.length; choice += 1)
             if (domain[choice].retained && domain[choice].identity === target) {

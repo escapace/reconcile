@@ -1,6 +1,14 @@
-import type { Adapter, Domains, Execution, Result, ScoredSelection, Selection } from '../types'
+import type {
+  Adapter,
+  Domains,
+  Execution,
+  Readback,
+  Result,
+  ScoredSelection,
+  Selection,
+} from '../types'
 import { Detached } from '../standard-prototypes'
-import { advanceExecution, startExecution } from './execution'
+import { advanceExecution, completeExecution, startExecution } from './execution'
 import { headSelection, selections } from './selection'
 
 // The top tier's preference before any attempt: no node prefers a fresh choice.
@@ -35,33 +43,37 @@ class Run extends Detached {
       if (publication !== false) this.failed(publication.rejected)
       return undefined
     }
+    // Readback ignores the phase, so every node is read back first; when all match, the
+    // checking state's events are only replayed in effect (completeExecution).
+    const size = this.domains.length
+    let node = 0
+    let result: Readback | undefined
+    for (; node < size; node += 1) {
+      result = adapter.readback(state, node)
+      if (result.kind !== 'match') break
+    }
+    if (result === undefined || result.kind === 'match') return completeExecution(state)
     // Every event of one revision carries that revision's receipt.
     const id = state.id
     const revision = state.revision
     state = advanceExecution(state, { id, revision, tag: 'published' })
-    for (let node = 0; node < this.domains.length; node += 1) {
-      const result = adapter.readback(state, node)
-      if (result.kind === 'match') {
-        state = advanceExecution(state, { id, node, revision, tag: 'checked' })
-        continue
-      }
-      state = advanceExecution(
-        state,
-        result.kind === 'reject'
-          ? { id, revision, tag: 'reject' }
-          : {
-              exposed: result.exposed,
-              id,
-              mode: result.mode,
-              node: result.node,
-              revision,
-              storage: result.storage,
-              tag: 'rebind',
-            },
-      )
-      if (state.phase === 'rejected') this.failed(result.node ?? node)
-      break
-    }
+    for (let checked = 0; checked < node; checked += 1)
+      state = advanceExecution(state, { id, node: checked, revision, tag: 'checked' })
+    state = advanceExecution(
+      state,
+      result.kind === 'reject'
+        ? { id, revision, tag: 'reject' }
+        : {
+            exposed: result.exposed,
+            id,
+            mode: result.mode,
+            node: result.node,
+            revision,
+            storage: result.storage,
+            tag: 'rebind',
+          },
+    )
+    if (state.phase === 'rejected') this.failed(result.node ?? node)
     return advanceExecution(state, { id, revision, tag: 'finish' })
   }
 

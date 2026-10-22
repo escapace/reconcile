@@ -1,6 +1,7 @@
 import { assert, describe, expect, it } from 'vitest'
 import { claimModes } from '../graph/claims'
 import { execute } from '../graph/driver'
+import { initialClaims } from '../graph/execution'
 import type { Binding, Domains } from '../types'
 import { retainedCapacityDomains } from './fixtures/retained-capacity'
 
@@ -77,7 +78,7 @@ describe('graph publication driver', () => {
         starts.push([
           state.bindings[0].choice as number,
           state.revision,
-          ...claimModes(state.claims[0]),
+          ...claimModes((state.claims ?? initialClaims(state.bindings))[0]),
         ])
         return true
       },

@@ -19,7 +19,12 @@ import { capture } from '../src/publication/capture'
 import { claimModes, hasClaim, withClaim } from '../src/graph/claims'
 import { constructionOrder } from '../src/graph/construction'
 import { execute } from '../src/graph/driver'
-import { advanceExecution, startExecution } from '../src/graph/execution'
+import {
+  advanceExecution,
+  incomingConsensus,
+  initialClaims,
+  startExecution,
+} from '../src/graph/execution'
 import { chooseSpecial } from '../src/graph/provenance'
 import { closeRequirements, RequirementClosure } from '../src/graph/requirements'
 import { selections } from '../src/graph/selection'
@@ -551,7 +556,7 @@ function consensusObservation(fixture: { labels: number[]; name: string; queries
       writer: node,
     }),
   )
-  const summary = startExecution(7, bindings).incoming[0]
+  const summary = incomingConsensus(bindings)[0]
   return {
     answers: fixture.queries.map((exposed) => rebindAccepted(bindings, exposed, fixture.labels)),
     label: summary ?? null,
@@ -576,7 +581,9 @@ function observeExecution(state: Execution) {
   return {
     bindings: state.bindings.map((b) => [b.choice, b.writer, b.exposed, b.storage, b.mode]),
     checked: state.phase === 'checking' ? [...state.checked].sort((a, b) => a - b) : [],
-    claims: state.claims.map((claims) => [...claimModes(claims)].sort((a, b) => a - b)),
+    claims: (state.claims ?? initialClaims(state.bindings)).map((claims) =>
+      [...claimModes(claims)].sort((a, b) => a - b),
+    ),
     id: state.id,
     phase: state.phase,
     revision: state.revision,

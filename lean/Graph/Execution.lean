@@ -227,4 +227,54 @@ theorem publication_round_bound {s t : State} {count : Nat} (h : RebindPath s t 
   have hb := rebind_path_bound h options (rebind_path_within h options hc hp)
   omega
 
+/-! The runtime completes an attempt whose every readback matched without building the checking
+state, and derives the claims and incoming consensus at the first rebind. Checking each node of
+the domain and finishing reaches `done` with the plan unchanged, and no event before a rebind
+changes the bindings or the claims. -/
+
+-- Checking the listed nodes adds the domain's ones and changes nothing else.
+theorem verify_fold (t : State) (r : Receipt) (nodes : List Nat) (hc : current t r)
+    (hp : t.phase = .checking) :
+    nodes.foldl (fun u n => verify u r n) t =
+      { t with checked := t.checked ∪ (nodes.filter (· ∈ t.domain)).toFinset } := by
+  induction nodes generalizing t with
+  | nil => simp
+  | cons n rest ih =>
+    simp only [List.foldl_cons]
+    by_cases hn : n ∈ t.domain
+    · have hv : verify t r n = { t with checked := insert n t.checked } := by
+        simp [verify, hc, hp, hn]
+      rw [hv, ih { t with checked := insert n t.checked } hc hp]
+      simp [hn, Finset.union_insert, Finset.insert_union]
+    · have hv : verify t r n = t := by simp [verify, hn]
+      rw [hv, ih t hc hp]
+      simp [hn]
+
+theorem check_all_done (s : State) (r : Receipt) (nodes : List Nat) (hc : current s r)
+    (hp : s.phase = .publishing) (hcover : ∀ n, n ∈ nodes ↔ n ∈ s.domain) :
+    finish (nodes.foldl (fun u n => verify u r n) (published s r)) r =
+      { s with phase := .done, checked := s.domain } := by
+  have hpub : published s r = { s with phase := .checking, checked := ∅ } := by
+    simp [published, hc, hp]
+  have hc' : current { s with phase := .checking, checked := ∅ } r := hc
+  rw [hpub, verify_fold _ r nodes hc' rfl]
+  have hset : (nodes.filter (· ∈ s.domain)).toFinset = s.domain := by
+    ext n
+    simp [hcover]
+  simp only [Finset.empty_union, hset]
+  have hdone : current { s with phase := .checking, checked := s.domain } r := hc
+  simp [finish, hdone]
+
+theorem published_plan (s : State) (r : Receipt) :
+    (published s r).bindings = s.bindings ∧ (published s r).claims = s.claims := by
+  unfold published; split <;> simp
+
+theorem verify_plan (s : State) (r : Receipt) (node : Nat) :
+    (verify s r node).bindings = s.bindings ∧ (verify s r node).claims = s.claims := by
+  unfold verify; split <;> simp
+
+theorem finish_plan (s : State) (r : Receipt) :
+    (finish s r).bindings = s.bindings ∧ (finish s r).claims = s.claims := by
+  unfold finish; split <;> simp
+
 end Reconcile.Execution

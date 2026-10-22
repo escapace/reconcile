@@ -73,7 +73,7 @@ it('consumes finite exposure options without changing the selected write receive
   assert.equal(state.phase, 'checking')
   assert.equal(state.bindings[1].writer, 1)
   assert.equal(state.bindings[1].exposed, 22)
-  assert.equal([...claimModes(state.claims[1])].length, 3)
+  assert.equal([...claimModes(state.claims![1])].length, 3)
   assert.equal(rebind(state, 1).phase, 'rejected')
   assert.equal(rebind(state, 3).phase, 'rejected')
 })
@@ -86,7 +86,7 @@ it('keeps out-of-mask exposure labels distinct and rejects their repeated use', 
     assert.equal(state.phase, 'checking')
     assert.equal(state.bindings[1].mode, mode)
   }
-  assert.equal([...claimModes(state.claims[1])].length, 5)
+  assert.equal([...claimModes(state.claims![1])].length, 5)
   assert.equal(rebind(state, 31).phase, 'rejected')
 })
 

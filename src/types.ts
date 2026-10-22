@@ -585,10 +585,12 @@ export type IncomingConsensus = Label | null | undefined
 /** Carries one publication attempt and its revision-scoped binding facts. */
 export interface PlanState {
   readonly bindings: readonly Binding[]
-  /** Persistent mode histories; earlier revisions keep their own claims. */
-  readonly claims: readonly Claims[]
+  /** Persistent mode histories; earlier revisions keep their own claims. Undefined until the
+   * first rebind, before which each node claims its bound mode. */
+  readonly claims: readonly Claims[] | undefined
   readonly id: number | object
-  readonly incoming: readonly IncomingConsensus[]
+  /** Undefined until the first rebind, which derives it from the bindings. */
+  readonly incoming: readonly IncomingConsensus[] | undefined
   readonly revision: number
 }
 
