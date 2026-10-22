@@ -227,6 +227,7 @@ the whole domain; `Driver` separates earlier observations from fresh certificati
 | `SettledChildren`                                                                                                                                                                                                        | `check_step`, `needs_settled`, `needs_unchanged`, `settled_reach_recorded`, `recorded_getD`                                 | `checkDescendantsForMaterialization` in `src/finalization.ts`; `compileImmutable` in `src/restore-identities.ts`                                                   | SettledChildren                                                                 | Finalization reads         |
 | `ProduceFinalizeCoherence`, `ProduceFinalizeCoherenceSoundness`                                                                                                                                                          | `draft_shared_finalized_image_coherence`, `draft_moved_reference_final_location_correctness`                                | `src/finalization.ts`                                                                                                                                              | proof-only                                                                      | Drafts                     |
 | `ReuseClosure`, `Immutable`, `ImmutableLabels`                                                                                                                                                                           | `reuseSurvivors_greatest`, `selected_published`, `selected_storage_distinct`, `fresh_below_native`                          | `src/restore-identities.ts`                                                                                                                                        | Contract (`Immutable`); `ImmutableLabels` proof-only                            | Identity and storage       |
+| `FoldedLeaves`                                                                                                                                                                                                           | `feasible_iff`, `dead_iff`, `record_iff`, `score_extend`                                                                    | folding in `compileImmutable`, `src/restore-identities.ts`                                                                                                         | proof-only                                                                      | Folded leaves              |
 | `ImmutableAssembly`                                                                                                                                                                                                      | `append_keeps_target`, `completion_agreement`                                                                               | record assembly in `src/restore-identities.ts`                                                                                                                     | proof-only                                                                      | Immutable assembly         |
 | `CompactImmutable`, `CompactOwners`                                                                                                                                                                                      | `feasible_iff`, `ranked_decode`, `ranked_head`, `separated_of_distinct`                                                     | `src/graph/immutable-selection.ts` `immutableSelections`                                                                                                           | CompactImmutable                                                                | Preferred attempts         |
 | `KeyOrder`                                                                                                                                                                                                               | `build_nodup`, `ownKeys_ownKeys`, `rebuild_preserves`, `produce_key_order`                                                  | `preparePropertyCopy` in `src/types/shared/draft-properties.ts`; finalization                                                                                      | KeyOrder                                                                        | Key order                  |
@@ -264,6 +265,15 @@ settled object has its list kept and settled children (`check_step`, `needs_sett
 restoration's walk of an unchanged subtree the result keeps reads no list again
 (`settled_reach_recorded`), and with the changed objects fixed a settled object reaches none of them
 (`needs_unchanged`).
+
+`FoldedLeaves` lets identity restoration fold the objects inside the unchanged subtrees the result
+keeps whole: they are registered after every other node and always kept, so folding them away and
+moving their edges to registered nodes onto a fixed node that reaches them leaves the selector the
+same choices. When no folded object's storage equals that of a node the result could keep, the
+folded problem's masks are exactly the original's with every folded object kept (`feasible_iff`),
+scored `m` lower (`score_extend`). The two problems agree on whether some fixed node is unavailable
+(`dead_iff`) and otherwise on each record (`record_iff`); a counterexample shows why a clashing
+storage must reject the folded problem.
 
 `Requirements` specifies the least closure. `SeededRequirements` proves that dropping implications
 into seed facts keeps the closure and its trace, which `compileImmutable` relies on. `FactRenaming`
@@ -456,6 +466,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   finalization keeps that recognition. A draft write keeps the descriptor and value it read for its
   key in the first copy, and a draft observation that reads the object itself counts each data slot
   it read there as backed by the object.
+- **Folded leaves.** A non-strict compile folds the objects a fixed node's walk meets first and
+  registers none of them, so they follow every registered node as `FoldedLeaves` orders them; their
+  storages join the fixed storages, their edges to registered nodes become the edges of the fixed
+  node whose walk met them, and no record points at one. A storage conflict rejects the folded
+  problem, and the strict sealed pass compiles without folding.
 - **Immutable assembly.** Recursive comparisons read only the pending record's target; edges,
   payload and settled state are consumed after completion. `immutable-assembly.spec.ts` checks these
   boundaries with a cycle and accessor-backed records.

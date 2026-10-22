@@ -30,12 +30,21 @@ export interface FinalizationFacts {
   readonly walked: ReadonlyMap<object, readonly object[]> | undefined
 }
 
-/** Compiles complete immutable ownership and child-binding facts before selection. */
+/**
+ * Compiles complete immutable ownership and child-binding facts before selection.
+ *
+ * @remarks
+ * With `fold`, an object first met inside a fixed node's subtree gets no node of its own: its
+ * storage still joins the fixed storages, and its edges to registered nodes become the edges of
+ * the fixed node whose walk met it. Produce.FoldedLeaves proves the selector then has the same
+ * choices whenever no storage conflicts, which a caller that folds must treat as a rejection.
+ */
 export function compileImmutable(
   types: ImmutableRegistry,
   result: FinalizedReference,
   kindOf: (value: object) => symbol = (value) => recognize(types, value),
   facts?: FinalizationFacts,
+  fold = false,
 ): ImmutableProblem {
   const records: ImmutableRecord[] = []
   // A per-compile mark on the private finalized references replaces two identity tables; a
@@ -150,32 +159,16 @@ export function compileImmutable(
   // construction dependencies, unchanged leaves their whole subtree, so storage ownership
   // and identity implications cover every object the result keeps. A child captured as a
   // structural record elsewhere resolves to that record.
-  const fixedStorage = new Set<object>()
-  let conflict = false
   // Structural collection is complete, so the records by target no longer change.
   const collected = byTarget
-  // The fixed node whose children `child` registers.
-  let owner = 0
-  let edges: Edge[] = []
-  const child = (value: unknown): boolean => {
-    if (isObject(value)) {
-      const reference = collected?.get(value) ?? special(value)
-      edges.push(reference)
-      parents[reference.node].push(owner)
-    }
-    return false
-  }
-  for (const entry of specials ?? NO_SPECIALS) {
-    const target = entry[0]
-    owner = entry[1].node
-    const storage = storageIdentity(target, facts?.prototypes?.get(target))
-    storages[owner] = storage
-    if (fixedStorage.has(storage)) conflict = true
-    fixedStorage.add(storage)
-    edges = []
-    eachChild(types, kindOf, target, facts?.walked?.get(target), child)
-    records[owner] = { edges, payload: undefined, settled: undefined, target }
-  }
+  const fixedStorage = new Set<object>()
+  let conflict = registerFixed(
+    { facts, fold, kindOf, parents, records, storages, types },
+    specials ?? NO_SPECIALS,
+    collected,
+    special,
+    fixedStorage,
+  )
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
     if (!locallyReusable[index]) seeds.push(index)
@@ -188,6 +181,72 @@ export function compileImmutable(
       if (fixedStorage.has(storage)) conflict = true
     }
   return { conflict, records, root, storages, unavailable }
+}
+
+/** The compilation state fixed-node registration reads and fills. */
+interface FixedState {
+  readonly facts: FinalizationFacts | undefined
+  readonly fold: boolean
+  readonly parents: number[][]
+  readonly records: ImmutableRecord[]
+  readonly storages: object[]
+  readonly types: ImmutableRegistry
+  readonly kindOf: (value: object) => symbol
+}
+
+/**
+ * Registers each fixed node's storage and object children, in `specials` order, and reports
+ * whether a storage was claimed twice. A child already registered, or any child without `fold`,
+ * becomes an edge; with `fold`, an object first met inside a fixed subtree gets no node: its
+ * storage joins the fixed storages and its children become the fixed node's
+ * (Produce.FoldedLeaves).
+ */
+function registerFixed(
+  state: FixedState,
+  specials: ReadonlyMap<object, NodeEdge>,
+  collected: ReadonlyMap<object, NodeEdge> | undefined,
+  special: (value: object) => NodeEdge,
+  fixedStorage: Set<object>,
+): boolean {
+  const { facts, fold, kindOf, parents, types } = state
+  let conflict = false
+  const claim = (target: object): object => {
+    const storage = storageIdentity(target, facts?.prototypes?.get(target))
+    if (fixedStorage.has(storage)) conflict = true
+    fixedStorage.add(storage)
+    return storage
+  }
+  // The fixed node whose children `child` registers, and its edges.
+  let owner = 0
+  let edges: Edge[] = []
+  // Folded objects, and those whose children are still to be visited.
+  let folded: Set<object> | undefined
+  const unvisited: object[] = []
+  const child = (value: unknown): boolean => {
+    if (!isObject(value)) return false
+    const known = collected?.get(value) ?? specials.get(value)
+    if (known !== undefined || !fold) {
+      const reference = known ?? special(value)
+      edges.push(reference)
+      parents[reference.node].push(owner)
+    } else if (!(folded ??= new Set()).has(value)) {
+      folded.add(value)
+      claim(value)
+      unvisited.push(value)
+    }
+    return false
+  }
+  for (const entry of specials) {
+    const target = entry[0]
+    owner = entry[1].node
+    state.storages[owner] = claim(target)
+    edges = []
+    eachChild(types, kindOf, target, facts?.walked?.get(target), child)
+    for (let next = unvisited.pop(); next !== undefined; next = unvisited.pop())
+      eachChild(types, kindOf, next, facts?.walked?.get(next), child)
+    state.records[owner] = { edges, payload: undefined, settled: undefined, target }
+  }
+  return conflict
 }
 
 /**
@@ -260,7 +319,8 @@ export function restoreIdentities(
   kindOf?: (value: object) => symbol,
   facts?: FinalizationFacts,
 ): object | undefined {
-  const problem = compileImmutable(types, result, kindOf, facts)
+  // The first, non-strict attempt folds the objects inside fixed subtrees; a conflict rejects it.
+  const problem = compileImmutable(types, result, kindOf, facts, !strict)
   const { records, root } = problem
   // Fixed leaves claim their storage unconditionally. When one shares storage with another
   // node, the kernel could no longer weigh the larger compatible subset, so finalization

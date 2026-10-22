@@ -100,8 +100,8 @@ unchanged objects.
    value (a `Date`, buffer or other kind `produce` copies) needs cloning, an accessor was observed
    or leaves conflict over storage.
 3. _Identity restoration_ (observes for readback; `restore-identities.ts`,
-   `graph/immutable-selection.ts`) keeps the largest set of objects, then allocates and writes
-   the fresh ones in a fixed order.
+   `graph/immutable-selection.ts`) keeps the largest set of objects, treating each unchanged
+   subtree it keeps whole as one choice, then allocates and writes the fresh ones in a fixed order.
 
 ### The serialization pipeline
 
