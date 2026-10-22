@@ -35,7 +35,9 @@ with `defineType`, supplies one _facet_ per concern: recognition, capture, snaps
 immutable reuse, draft rules and exposure. `types/builtins.ts` builds one registry per graph
 operation (`snapshotTypes`, `publicationTypes`, `produceTypes`), so each bundle contains only its
 own facets; `types/registry.ts` builds the full table that `createEngine` in `src/engine.ts`
-uses. Recognition tries kinds in order; the plain object is the fallback.
+uses. Recognition tries kinds in order; the plain object is the fallback, which the built-in
+registries reach after one prototype read for an object whose prototype is `Object.prototype` or
+`null`.
 
 `src/adapters/vue.ts` maps Vue reactive wrappers to the raw object holding their data, their
 _storage_. Selection never lets two kept objects claim one storage, and typed-array views
@@ -141,7 +143,8 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
 A new kind changes every operation's contract and bundle.
 
 1. **Prove first.** Recognition is proved for a fixed sequence of probes
-   (`Types.Recognition`), so a new kind needs a theorem for the longer sequence. A kind that is
+   (`Types.Recognition`), so a new kind needs a theorem for the longer sequence, and one that can
+   accept a plain or `null`-prototype object also changes `Types.RecognitionPlain`. A kind that is
    kept by reference today also changes `Types.Atoms` and `scripts/check-atoms-runtime.ts`.
    Extend the fixtures of the native-value and copy-prototype bridges.
 2. **Write the module** in `src/types/<kind>.ts` with `defineType`, supplying each facet in

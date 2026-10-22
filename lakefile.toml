@@ -98,6 +98,8 @@ roots = [
   "Types.NativeValueEncoding",
   "Oracle.NativeValueOracle",
   "Types.Recognition",
+  "Types.RecognitionPlain",
+  "Oracle.RecognitionPlainOracle",
   "Types.Atoms",
   "Oracle.AtomsOracle",
   "Graph.Driver",

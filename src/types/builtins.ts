@@ -50,9 +50,20 @@ function table<T>(facets: readonly T[]): Readonly<Record<symbol, T>> {
   return Object.freeze(Object.fromEntries(KINDS.map((kind, index) => [kind, facets[index]])))
 }
 
-/** Full recognition needs no bounded-prefix checks; it retains the same native trace. */
+/**
+ * Whether one prototype read decides `value` as a plain object: its prototype is
+ * `Object.prototype` or `null` and it holds no view brand, so every later probe fails.
+ * Types.RecognitionPlain.recognize_eq_scan proves the result is the ordered scan's.
+ */
+function plainObject(value: object): boolean {
+  const first = Object.getPrototypeOf(value) as object | null
+  return (first === Object.prototype || first === null) && !ArrayBuffer.isView(value)
+}
+
+/** Full recognition needs no bounded-prefix checks. */
 function builtinRecognize(value: object): symbol {
   if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
+  if (plainObject(value)) return object.OBJECT_KIND
   if (date.dateRecognition.test(value)) return date.DATE_KIND
   if (map.mapRecognition.test(value)) return map.MAP_KIND
   if (set.setRecognition.test(value)) return set.SET_KIND
@@ -66,12 +77,12 @@ function builtinRecognize(value: object): symbol {
   return object.OBJECT_KIND
 }
 
-/** Static call sites preserve the generic recognizer's exact predicate prefix and exceptions.
- * Types.Recognition.builtinTrace_eq_scanTrace proves the finite unrolling.
+/** Static call sites keep the generic recognizer's predicate prefix and exceptions after the
+ * plain-object read. Types.Recognition.builtinTrace_eq_scanTrace proves the finite unrolling.
  */
 function builtinFirstMatch(value: object, last: number): symbol | undefined {
   if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
-  if (last === 0) return undefined
+  if (last === 0 || plainObject(value)) return undefined
   if (date.dateRecognition.test(value)) return date.DATE_KIND
   if (last === 1) return undefined
   if (map.mapRecognition.test(value)) return map.MAP_KIND

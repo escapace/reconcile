@@ -37,7 +37,7 @@ const tails: ReadonlyArray<readonly object[]> = [
 ]
 
 /** Checks that each tail is the real chain of its first prototype. */
-function checkTails(): void {
+export function checkRealChains(tails: ReadonlyArray<readonly object[]>): void {
   for (const tail of tails) {
     const chain: object[] = []
     let prototype: object | null = tail[0] ?? null
@@ -101,7 +101,7 @@ function checkRow(row: Record<string, unknown>): boolean {
 
 /** Compares the atom classifier with Lean's `Types.Atoms.classify`. */
 export async function checkAtomsRuntime(oracle: Oracle): Promise<void> {
-  checkTails()
+  checkRealChains(tails)
   // 23 real chains behind zero to three custom prototypes.
   const rows = await oracleCorpus(oracle, 'Atoms', 92, 64 * 1024)
   let atoms = 0
