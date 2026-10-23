@@ -90,6 +90,30 @@ describe('reconcile and accessors', () => {
     assert.notOk(Object.hasOwn(current, 'rounded'))
   })
 
+  it('writes data over own keys that shadow a prototype accessor, in or out of order', () => {
+    // In order, the own key list answers which desired keys are own; out of order, each is asked.
+    for (const next of [
+      { celsius: 1, rounded: 5 },
+      Object.fromEntries([
+        ['rounded', 5],
+        ['celsius', 1],
+      ]) as { celsius: number; rounded: number },
+    ]) {
+      const current = new Temperature()
+      Object.defineProperty(current, 'rounded', {
+        configurable: true,
+        enumerable: true,
+        value: 0,
+        writable: true,
+      })
+      const state = { current }
+      reconcile(state, { current: next })
+      assert.strictEqual(state.current, current)
+      assert.deepEqual(Object.getOwnPropertyDescriptor(current, 'rounded')?.value, 5)
+      assert.equal(current.celsius, 1)
+    }
+  })
+
   it('replaces such an object at a nested position, as other incompatible objects', () => {
     const temperature = new Temperature()
     const state = { temperature }

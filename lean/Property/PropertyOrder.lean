@@ -214,4 +214,78 @@ example : ([Key.name 0, .name 1, .name 2].filter
 example : ([Key.name 0].filter (fun key => [Key.name 0, .name 1].contains key)) = [.name 0] := by
   decide
 
+/-- Dual of `aligned_mem`: when the current own keys begin with the requested order, requested key
+`i` is a current own key exactly when `i` is below the current key count. -/
+theorem aligned_desired_mem {α : Type} (previous desired : List α) (unique : desired.Nodup)
+    (aligned : Aligned previous desired) (i : Nat) (hi : i < desired.length) :
+    desired[i] ∈ previous ↔ i < previous.length := by
+  constructor
+  · intro member
+    by_contra outside
+    obtain ⟨j, hj, same⟩ := List.getElem_of_mem member
+    have hjd : j < desired.length := by omega
+    have equal : desired[j] = desired[i] := (aligned j hj hjd).symm.trans same
+    have := (List.Nodup.getElem_inj_iff unique).mp equal
+    omega
+  · intro inside
+    rw [← aligned i inside hi]
+    exact List.getElem_mem inside
+
+/-- The reference decision: some requested key the object does not own reaches an inherited
+accessor (`inherited` folds in the `__proto__` exclusion and the prototype walk). -/
+def reaches {α : Type} (own inherited : α → Bool) (desired : List α) : Bool :=
+  desired.any (fun key => !own key && inherited key)
+
+/-- The runtime decision with `owned` known from the key list: only requested keys at or past
+`owned` are asked, and none of them is asked whether it is own. -/
+def reachesFrom {α : Type} (inherited : α → Bool) (owned : Nat) (desired : List α) : Bool :=
+  (desired.drop owned).any inherited
+
+theorem any_iff_index {α : Type} (p : α → Bool) (l : List α) :
+    l.any p = true ↔ ∃ i, ∃ h : i < l.length, p l[i] = true := by
+  rw [List.any_eq_true]
+  constructor
+  · rintro ⟨x, hx, px⟩
+    obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hx
+    exact ⟨i, hi, px⟩
+  · rintro ⟨i, hi, pi⟩
+    exact ⟨l[i], List.getElem_mem hi, pi⟩
+
+/-- With ownership read from an aligned current key list, the runtime decision is the reference
+one. The runtime obligation is that `own` is membership in the key list preflight listed before
+any write, which the rule that a key list read before the first write serves every phase grants. -/
+theorem reaches_aligned {α : Type} [DecidableEq α] (previous desired : List α)
+    (unique : desired.Nodup) (aligned : Aligned previous desired) (inherited : α → Bool) :
+    reaches (fun key => decide (key ∈ previous)) inherited desired =
+      reachesFrom inherited previous.length desired := by
+  unfold reaches reachesFrom
+  apply Bool.eq_iff_iff.mpr
+  rw [any_iff_index, any_iff_index]
+  constructor
+  · rintro ⟨i, hi, h⟩
+    simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not] at h
+    have hpi : previous.length ≤ i := by
+      by_contra lt
+      exact h.1 ((aligned_desired_mem previous desired unique aligned i hi).mpr (by omega))
+    refine ⟨i - previous.length, ?_, ?_⟩
+    · simp only [List.length_drop]; omega
+    · simp only [List.getElem_drop]
+      have : previous.length + (i - previous.length) = i := by omega
+      simp only [this]; exact h.2
+  · rintro ⟨j, hj, h⟩
+    simp only [List.length_drop] at hj
+    simp only [List.getElem_drop] at h
+    refine ⟨previous.length + j, by omega, ?_⟩
+    simp only [Bool.and_eq_true, Bool.not_eq_true', decide_eq_false_iff_not]
+    refine ⟨?_, h⟩
+    intro member
+    have := (aligned_desired_mem previous desired unique aligned _ (by omega)).mp member
+    omega
+
+/-- When the current keys cover the whole requested prefix, nothing is read. -/
+theorem reachesFrom_covered {α : Type} (inherited : α → Bool) (owned : Nat) (desired : List α)
+    (covered : desired.length ≤ owned) : reachesFrom inherited owned desired = false := by
+  simp [reachesFrom, List.drop_eq_nil_of_le covered]
+
+
 end Reconcile.PropertyOrder

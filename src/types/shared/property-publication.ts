@@ -162,7 +162,12 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   if (
     !surface.compatible(node, current, properties) ||
     !previous.every(holdsFixed) ||
-    reachesInheritedAccessor(current, desiredKeys, note?.prototype)
+    reachesInheritedAccessor(
+      current,
+      desiredKeys,
+      note?.prototype,
+      ownedPrefix(previous, desiredKeys),
+    )
   )
     return false
   if (!Object.isExtensible(current)) {
@@ -175,33 +180,52 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   return true
 }
 
+// The count of current own keys when they begin with the desired order, otherwise -1.
+const ownedPrefix = (
+  previous: readonly PropertyKey[],
+  desiredKeys: readonly PropertyKey[],
+): number => (alignedPrefix(previous, desiredKeys) ? previous.length : -1)
+
 /**
  * Whether assigning a desired key that `current` lacks would reach an accessor on its prototype
  * chain. `__proto__` is defined, never assigned.
+ *
+ * @remarks
+ * When the current own keys, listed before any write, begin with the desired order, `owned` is
+ * their count: desired key `i` is own exactly when `i < owned` (PropertyOrder.reaches_aligned),
+ * so only the later keys are asked, and never whether they are own. Otherwise it is -1.
  */
 function reachesInheritedAccessor(
   current: object,
   desiredKeys: readonly PropertyKey[],
   prototype: object | null | undefined,
+  owned: number,
 ): boolean {
+  if (owned >= desiredKeys.length) return false
   // Capture's read of the prototype serves here when it read one.
   const first =
     prototype === undefined ? (Object.getPrototypeOf(current) as object | null) : prototype
   if (first === null) return false
-  // On a standard prototype only a key it holds can reach an accessor; the prototype is asked
-  // first, so `current` is asked only for such a key, which no unmodified prototype makes.
-  if (first === Object.prototype || first === Array.prototype) {
-    for (let index = 0; index < desiredKeys.length; index += 1) {
-      const key = desiredKeys[index]
-      if (key !== '__proto__' && accessorFrom(first, key) && !hasOwn(current, key)) return true
-    }
-    return false
-  }
-  for (let index = 0; index < desiredKeys.length; index += 1) {
+  for (let index = owned < 0 ? 0 : owned; index < desiredKeys.length; index += 1) {
     const key = desiredKeys[index]
-    if (key !== '__proto__' && !hasOwn(current, key) && accessorFrom(first, key)) return true
+    if (
+      key !== '__proto__' &&
+      (owned >= 0 ? accessorFrom(first, key) : lacksAccessor(current, first, key))
+    )
+      return true
   }
   return false
+}
+
+/**
+ * Whether `current` lacks `key` and `first` reaches an accessor for it. On a standard prototype
+ * only a key it holds can reach an accessor; the prototype is asked first, so `current` is asked
+ * only for such a key, which no unmodified prototype makes. Elsewhere `current` is asked first.
+ */
+function lacksAccessor(current: object, first: object, key: PropertyKey): boolean {
+  return first === Object.prototype || first === Array.prototype
+    ? accessorFrom(first, key) && !hasOwn(current, key)
+    : !hasOwn(current, key) && accessorFrom(first, key)
 }
 
 /**
