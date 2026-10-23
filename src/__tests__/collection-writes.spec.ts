@@ -1,8 +1,9 @@
 import { assert, it } from 'vitest'
-import { reactive, watch } from 'vue'
+import { reactive, toRaw, watch } from 'vue'
 import { reconcile } from '../index'
 
-// A Map that counts its writes; reconcile writes through the object's own methods.
+// A Map that counts its writes. reconcile writes a Map with the built-ins, which nothing observes,
+// but a Vue reactive Map through Vue's methods, which call the raw Map's own methods.
 class Logged extends Map<string, number> {
   writes = 0
 
@@ -35,9 +36,10 @@ it('reaches the next entries writing only changed values and the entries from th
     }
     const before = entries()
     const after = entries()
-    const map = new Logged(before)
+    const state = reactive({ map: new Logged(before) })
+    const map = toRaw(state.map)
     map.writes = 0
-    reconcile({ map }, { map: new Map(after) })
+    reconcile(state, { map: new Map(after) })
     assert.deepEqual([...map], after, `seed ${seed}`)
     let position = 0
     while (

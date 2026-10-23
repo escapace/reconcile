@@ -89,11 +89,12 @@ export function nativeKind(
 }
 export function readBuffer(value: object): { buffer: ArrayBuffer; byteLength: number } {
   const byteLength = bufferByteLength(value)
-  if (bufferResizable?.call(value) === true) encodeFail('resizable buffer')
+  if (bufferResizable !== undefined && Reflect.apply(bufferResizable, value, []) === true)
+    encodeFail('resizable buffer')
   return { buffer: value as ArrayBuffer, byteLength }
 }
 export function readDate(value: object): number {
-  return dateTime.call(value)
+  return Reflect.apply(dateTime, value, [])
 }
 export function readParameters(value: object): string {
   return nativeParametersText(value as URLSearchParams)
@@ -126,14 +127,14 @@ export function readView(
 ): { buffer: ArrayBuffer; byteOffset: number; length: number } {
   if (kind === dataViewKind)
     return {
-      buffer: dataBuffer.call(value) as ArrayBuffer,
-      byteOffset: dataOffset.call(value) as number,
-      length: dataLength.call(value) as number,
+      buffer: Reflect.apply(dataBuffer, value, []) as ArrayBuffer,
+      byteOffset: Reflect.apply(dataOffset, value, []) as number,
+      length: Reflect.apply(dataLength, value, []) as number,
     }
   return {
-    buffer: typedBuffer.call(value) as ArrayBuffer,
-    byteOffset: typedOffset.call(value) as number,
-    length: typedLength.call(value) as number,
+    buffer: Reflect.apply(typedBuffer, value, []) as ArrayBuffer,
+    byteOffset: Reflect.apply(typedOffset, value, []) as number,
+    length: Reflect.apply(typedLength, value, []) as number,
   }
 }
 function decodeReferenceDate(

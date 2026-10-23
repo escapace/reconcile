@@ -38,12 +38,41 @@ function marker(value: object, key: string, prototype?: object | null): unknown 
  * @internal
  */
 export function storageIdentity(value: object, prototype?: object | null): object {
+  return resolveStorage(value, prototype, marker(value, '__v_raw', prototype))
+}
+
+/**
+ * {@link storageIdentity} of a `Map` or `Set`, with fewer reads.
+ *
+ * @remarks
+ * When no object on the collection's chain has `__v_raw`, which `in` asks without running a getter
+ * and which Vue's collection proxies, trapping only reads, answer from their raw object, the marker
+ * walk would end by reading `__v_raw`; that one read stands for the walk. Both are written as
+ * operators, which the engine caches per receiver shape, not as `Reflect` calls, which it does not.
+ * @internal
+ */
+export function collectionIdentity(value: object, prototype?: object | null): object {
+  return resolveStorage(
+    value,
+    prototype,
+    '__v_raw' in value
+      ? marker(value, '__v_raw', prototype)
+      : (value as { readonly __v_raw?: unknown }).__v_raw,
+  )
+}
+
+// Follows raw markers from `value`, whose own `__v_raw` marker is `first`.
+function resolveStorage(
+  value: object,
+  prototype: object | null | undefined,
+  first: unknown,
+): object {
   let current = value
+  let raw = first
   let seen: Set<object> | undefined
   for (;;) {
     // A prototype the caller read belongs to `value`, not to a raw object it leads to.
     const known = current === value ? prototype : undefined
-    const raw = marker(current, '__v_raw', known)
     if (
       !isObject(raw) ||
       raw === current ||
@@ -55,6 +84,7 @@ export function storageIdentity(value: object, prototype?: object | null): objec
     if (seen.has(raw)) return value
     seen.add(raw)
     current = raw
+    raw = marker(current, '__v_raw')
   }
   return current
 }

@@ -1,4 +1,5 @@
 import { assert, it } from 'vitest'
+import { reactive } from 'vue'
 
 import { produce, reconcile, ReconcileError } from '../index'
 
@@ -136,8 +137,10 @@ it('propagates a nested setter, trap or method exception unchanged instead of re
       ),
       { s: 1 },
     ],
+    // A Map is written with the built-ins; through a Vue reactive proxy, Vue's `set` calls the
+    // raw object's own one.
     [
-      new Strict([['a', 1]]),
+      reactive(new Strict([['a', 1]])),
       new Map([
         ['a', 1],
         ['b', 2],

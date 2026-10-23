@@ -1,5 +1,12 @@
 import { decodeFail } from './common'
 import { builtinValue } from '../standard-prototypes'
+import {
+  bufferByteLength,
+  bufferOfView,
+  sliceBytes,
+  viewByteLength,
+  viewOffset,
+} from '../types/shared/binary-native'
 // Base64 decoding through the stable same-realm native decoder or atob, validated together.
 // decodedSize is only a prediction on those paths; decodeBytes or checkBytes MUST follow, even
 // for length zero. The caller checks structural bounds before native allocation. No Node Buffer
@@ -27,7 +34,7 @@ export function decodeBytes(text: string, length: number): ArrayBuffer {
   const binary = decodeAtob(text, length)
   const bytes = new Uint8Array(length)
   for (let index = 0; index < length; index++) bytes[index] = binary.charCodeAt(index)
-  return bytes.buffer
+  return bufferOfView(bytes)
 }
 // For measuring, which reads only the byte length: the same checks as decodeBytes, without
 // copying the bytes atob returns.
@@ -56,15 +63,16 @@ export function decodedSize(text: unknown): number {
 }
 export function encodeBytes(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
-  if (nativeEncoder !== undefined) return nativeEncoder.call(bytes)
-  if (bytes.length >= tableBytes && typeof TextDecoder === 'function') return encodeTable(bytes)
+  if (nativeEncoder !== undefined) return Reflect.apply(nativeEncoder, bytes, [])
+  const length = bufferByteLength(buffer)
+  if (length >= tableBytes && typeof TextDecoder === 'function') return encodeTable(bytes, length)
   let binary = ''
   // apply reads the chunk by index rather than through the iterator protocol; fixed-size
   // chunks keep each call within argument limits and preserve the byte order.
-  for (let index = 0; index < bytes.length; index += 0x80_00)
+  for (let index = 0; index < length; index += 0x80_00)
     binary += String.fromCharCode.apply(
       null,
-      bytes.subarray(index, index + 0x80_00) as unknown as number[],
+      new Uint8Array(buffer, index, Math.min(0x80_00, length - index)) as unknown as number[],
     )
   return btoa(binary)
 }
@@ -72,7 +80,7 @@ function decodeAtob(text: string, length: number): string {
   let binary
   // Always decode, including predicted zero: exact length rules out whitespace.
   try {
-    binary = atobDecoder!.call(globalThis, text)
+    binary = Reflect.apply(atobDecoder!, globalThis, [text])
   } catch (error) {
     if (
       typeof DOMException === 'function' &&
@@ -88,24 +96,24 @@ function decodeAtob(text: string, length: number): string {
 function decodeNativeBytes(text: string, length: number): ArrayBuffer {
   let bytes
   try {
-    bytes = nativeDecoder!.call(Uint8Array, text, {
-      alphabet: 'base64',
-      lastChunkHandling: 'loose',
-    })
+    bytes = Reflect.apply(nativeDecoder!, Uint8Array, [
+      text,
+      { alphabet: 'base64', lastChunkHandling: 'loose' },
+    ])
   } catch (error) {
     if (error instanceof SyntaxError) decodeFail('base64')
     throw error
   }
   return dedicatedBuffer(bytes, length)
 }
+// The decoder's bytes, read with the built-in accessors: their own buffer when they fill it,
+// otherwise a copy of them.
 function dedicatedBuffer(bytes: Uint8Array<ArrayBuffer>, length: number): ArrayBuffer {
-  if (bytes.byteLength !== length) decodeFail('base64 size')
-  if (length !== 0 && hasDedicatedStorage(bytes)) return bytes.buffer
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
-}
-
-function hasDedicatedStorage(bytes: Uint8Array): boolean {
-  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+  if (viewByteLength(bytes) !== length) decodeFail('base64 size')
+  const buffer = bufferOfView(bytes)
+  const offset = viewOffset(bytes)
+  if (length !== 0 && offset === 0 && length === bufferByteLength(buffer)) return buffer
+  return sliceBytes(buffer, offset, length)
 }
 // Below this many bytes, building the binary string for btoa costs less than one TextDecoder
 // call; above it, the table encoder avoids the argument copies of String.fromCharCode.apply.
@@ -119,8 +127,7 @@ const alphabet = /* @__PURE__ */ (() => {
 })()
 // Base64.lean encode_spec: each group of three bytes is one 24-bit word whose four 6-bit fields
 // index the alphabet; a final group of two or one bytes keeps three or two fields, then pads.
-function encodeTable(bytes: Uint8Array): string {
-  const length = bytes.length
+function encodeTable(bytes: Uint8Array, length: number): string {
   const ascii = new Uint8Array(Math.ceil(length / 3) * 4)
   let out = 0
   let index = 0

@@ -1,9 +1,10 @@
 import { decodeFail as fail, int } from '../common'
 import { checkBytes, decodedSize, decodeBytes } from '../binary'
 import { dataViewKind, decodeTemporal, constructView, temporalNames } from '../native'
-import { viewConstructors } from '../../types/shared/binary-native'
+import { bufferByteLength, viewConstructors } from '../../types/shared/binary-native'
 import type { DecodeContext, Decoder } from '../contracts'
 import { enter } from './slots'
+import { nativeURLHref, nativeURLSearchParameters } from '../../types/shared/url-carrier'
 import { charge, chargeParameters, stringWords } from '../size'
 import { denseArray, filledArray } from '../../standard-prototypes'
 export const date: Decoder = {
@@ -56,10 +57,11 @@ export const view: Decoder = {
     const offset = payload[1] as number
     const length = payload[2] as number
     const unit = viewUnit(kind)
+    const byteLength = bufferByteLength(storage)
     if (
       offset % unit !== 0 ||
-      offset > storage.byteLength ||
-      length > Math.floor((storage.byteLength - offset) / unit)
+      offset > byteLength ||
+      length > Math.floor((byteLength - offset) / unit)
     )
       fail('view bounds')
     return constructView(kind, storage, offset, length)
@@ -72,7 +74,7 @@ export const url: Decoder = {
     context.urls++
     const value = new URL(payload[0])
     // Charged by the text it holds, which parsing can lengthen.
-    if (context.limited) charge(context, 1 + stringWords(value.href.length))
+    if (context.limited) charge(context, 1 + stringWords(nativeURLHref(value).length))
     return value
   },
   fill(_payload, _value, _layout, context, index) {
@@ -103,8 +105,9 @@ export const ownedParameters: Decoder = {
     if (parameters[payload[0] as number] !== undefined) fail('params owner')
     parameters[payload[0] as number] = index
     context.owned++
-    if (context.limited) chargeParameters(context, owner.searchParams)
-    return owner.searchParams
+    const searchParameters = nativeURLSearchParameters(owner)
+    if (context.limited) chargeParameters(context, searchParameters)
+    return searchParameters
   },
 }
 export const temporal: Decoder = {

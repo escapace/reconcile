@@ -14,7 +14,12 @@ import type {
 } from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
-import { eachOpenedEntry } from './types/shared/collection'
+import {
+  forEachMapEntry,
+  forEachSetMember,
+  wrappedCollection,
+} from './types/shared/draft-collection'
+import { builtinMapSet, builtinSetAdd } from './standard-prototypes'
 import { adoptPrototype } from './types/shared/prototype'
 import { OBJECT_KIND } from './types/object'
 import { ARRAY_KIND } from './types/array'
@@ -81,12 +86,14 @@ class SnapshotReference extends Detached {
  * installing a polyfill. Other objects, such as class instances, are copied like plain objects. The
  * copy has the same prototype and own properties, as writable, configurable data properties that
  * keep their enumerability. It has no private fields, so a getter or method that uses one throws on
- * the copy. Building the copy runs no setter on its prototype and no override, such as a `Map`
- * subclass's `set`: the copy is filled with the built-in methods. A `Map` or `Set` is read through
- * its own `entries` or `values`. A copy of an array, `Map`, `Set`, `Date`, buffer, view, URL,
- * `URLSearchParams` or Temporal value also keeps its source's prototype, so an instance of a
- * subclass stays one, but it holds only the elements, entries, time, bytes or text, without other
- * own properties such as fields that a subclass declares.
+ * the copy. The entries, time, bytes or text of a `Map`, `Set`, `Date`, buffer, view, URL or
+ * `URLSearchParams` are read, and its copy filled, with the built-in methods, so no override on a
+ * subclass or on the instance runs, such as a `Map` subclass's `set` or `entries`; a Vue reactive
+ * `Map` or `Set` is read through Vue's methods. A copy of an
+ * array, `Map`, `Set`, `Date`, buffer, view, URL, `URLSearchParams` or Temporal value also keeps
+ * its source's prototype, so an instance of a subclass stays one, but it holds only the elements,
+ * entries, time, bytes or text, without other own properties such as fields that a subclass
+ * declares.
  *
  * A copied object that relies on functions, such as a Vue ref, can still run code that belongs to
  * the original. A `__proto__` key is copied as an own data property. Built-in values from another
@@ -324,31 +331,36 @@ class SnapshotWalk extends Detached {
     adoptPrototype(target, prototype, Array.prototype)
   }
 
+  // A Map or Set is read, and its copy filled, with the built-ins, so no override runs; a wrapper,
+  // such as a Vue reactive proxy, is read through its own iterator.
   observeMap(reference: SnapshotReference, source: object): void {
-    const method = (source as { entries?: unknown }).entries
-    const entries: unknown = Reflect.apply(method as () => unknown, source, [])
     const target = new Map<unknown, unknown>()
     const prototype = prototypeOf(source, this.read)
     reference.target = target
     this.callerMemo?.set(source, target)
-    // The copy is filled while its methods are the built-in ones and takes its prototype after,
-    // so a subclass's `set` does not run on it.
-    eachOpenedEntry(entries, method, (key, child) => {
-      const copiedKey = this.slot(key)
-      target.set(copiedKey, this.slot(child))
-      return false
-    })
+    forEachMapEntry(
+      source,
+      (child, key) => {
+        const copiedKey = this.slot(key)
+        builtinMapSet(target, copiedKey, this.slot(child))
+      },
+      wrappedCollection(source, prototype),
+    )
     adoptPrototype(target, prototype, Map.prototype)
   }
 
   observeSet(reference: SnapshotReference, source: object): void {
-    const values = (source as Set<unknown>).values()
     const target = new Set<unknown>()
     const prototype = prototypeOf(source, this.read)
     reference.target = target
     this.callerMemo?.set(source, target)
-    // Filled before it takes its prototype, as a Map copy is.
-    for (const child of values) target.add(this.slot(child))
+    forEachSetMember(
+      source,
+      (child) => {
+        builtinSetAdd(target, this.slot(child))
+      },
+      wrappedCollection(source, prototype),
+    )
     adoptPrototype(target, prototype, Set.prototype)
   }
 

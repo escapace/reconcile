@@ -1,33 +1,97 @@
-import { Detached } from '../../standard-prototypes'
+import { builtinValue, Detached, uncurried } from '../../standard-prototypes'
 /** Stable global identity shared by native URL ownership facets. */
 export const URL_KIND = Symbol.for('@escapace/reconcile/url')
 
-/** Reads native URL state without consulting application overrides or expandos. */
+/** A built-in method as a function of its receiver, then its arguments. */
+type Call<Arguments extends unknown[], Result> = (
+  target: unknown,
+  ...parameters: Arguments
+) => Result
+
+/**
+ * The getter or setter of a built-in accessor of `URL`, read when the module loads; undefined where
+ * `URL` is missing.
+ */
+const urlAccessor = <Arguments extends unknown[], Result>(
+  key: string,
+  part: 'get' | 'set',
+): Call<Arguments, Result> =>
+  (typeof URL === 'function'
+    ? uncurried<Arguments, Result>(
+        (
+          Object.getOwnPropertyDescriptor(URL.prototype, key) as Partial<
+            Record<typeof part, unknown>
+          >
+        )[part],
+      )
+    : undefined)!
+/** A built-in method of `URLSearchParams`, read when the module loads. */
+const parametersMethod = <Arguments extends unknown[], Result>(
+  key: PropertyKey,
+): Call<Arguments, Result> =>
+  (typeof URLSearchParams === 'function'
+    ? uncurried<Arguments, Result>(builtinValue(URLSearchParams.prototype, key))
+    : undefined)!
+
+const hrefGet = /* @__PURE__ */ (() => urlAccessor<[], string>('href', 'get'))()
+const hrefSet = /* @__PURE__ */ (() => urlAccessor<[text: string], unknown>('href', 'set'))()
+const searchGet = /* @__PURE__ */ (() => urlAccessor<[], string>('search', 'get'))()
+const searchSet = /* @__PURE__ */ (() => urlAccessor<[text: string], unknown>('search', 'set'))()
+const parametersGet = /* @__PURE__ */ (() =>
+  urlAccessor<[], URLSearchParams>('searchParams', 'get'))()
+const parametersText = /* @__PURE__ */ (() => parametersMethod<[], string>('toString'))()
+const parametersKeys = /* @__PURE__ */ (() => parametersMethod<[], object>('keys'))()
+const parametersEntries = /* @__PURE__ */ (() => parametersMethod<[], object>('entries'))()
+const parametersDelete = /* @__PURE__ */ (() =>
+  parametersMethod<[name: string], unknown>('delete'))()
+const parametersAppend = /* @__PURE__ */ (() =>
+  parametersMethod<[name: string, value: string], unknown>('append'))()
+const parametersStep = /* @__PURE__ */ (() =>
+  (typeof URLSearchParams === 'function'
+    ? uncurried<[], IteratorResult<unknown>>(
+        builtinValue(Object.getPrototypeOf(new URLSearchParams().keys()) as object, 'next'),
+      )
+    : undefined)!)()
+
+/** Reads native URL state without consulting application overrides or expandos: every built-in
+ * is read when the module loads. */
 export function nativeURLHref(value: URL): string {
-  return Object.getOwnPropertyDescriptor(URL.prototype, 'href')!.get!.call(value) as string
+  return hrefGet(value)
 }
 
 export function nativeURLSearchParameters(value: URL): URLSearchParams {
-  return Object.getOwnPropertyDescriptor(URL.prototype, 'searchParams')!.get!.call(
-    value,
-  ) as URLSearchParams
+  return parametersGet(value)
 }
 
 export function nativeParametersText(value: URLSearchParams): string {
-  return URLSearchParams.prototype.toString.call(value)
+  return parametersText(value)
 }
 
-export function setNativeURLHref(value: URL, href: string): void {
-  Object.getOwnPropertyDescriptor(URL.prototype, 'href')!.set!.call(value, href)
+export function setNativeURLHref(value: URL, text: string): void {
+  hrefSet(value, text)
 }
 
 function nativeURLSearch(value: URL): string {
-  return Object.getOwnPropertyDescriptor(URL.prototype, 'search')!.get!.call(value) as string
+  return searchGet(value)
 }
 
 function setNativeURLSearch(value: URL, text: string): void {
-  Object.getOwnPropertyDescriptor(URL.prototype, 'search')!.set!.call(value, text)
+  searchSet(value, text)
 }
+
+/** The values a built-in `URLSearchParams` iterator yields, stepped by the built-in `next`. */
+function stepAll(iterator: object): unknown[] {
+  const values: unknown[] = []
+  for (;;) {
+    const step = parametersStep(iterator)
+    if (step.done === true) return values
+    values.push(step.value)
+  }
+}
+
+/** The `[name, value]` entries of a `URLSearchParams`, in order, read with the built-ins. */
+export const nativeParameterEntries = (value: URLSearchParams): unknown[] =>
+  stepAll(parametersEntries(value))
 
 /** Replaces native ordered entries, avoiding normalization when no change is needed. */
 export function replaceNativeParameters(
@@ -45,10 +109,14 @@ export function replaceNativeParameters(
     if (text !== '') setNativeURLSearch(url, text)
     return
   }
-  const keys = Array.from(URLSearchParams.prototype.keys.call(target))
-  for (const key of keys) URLSearchParams.prototype.delete.call(target, key)
-  for (const entry of new URLSearchParams(text))
-    URLSearchParams.prototype.append.call(target, entry[0], entry[1])
+  const keys = stepAll(parametersKeys(target))
+  for (let index = 0; index < keys.length; index += 1)
+    parametersDelete(target, keys[index] as string)
+  const entries = stepAll(parametersEntries(new URLSearchParams(text)))
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index] as readonly [string, string]
+    parametersAppend(target, entry[0], entry[1])
+  }
 }
 
 /** Private construction metadata, distinct from every caller-supplied native memo value. */
@@ -85,7 +153,7 @@ export function adoptURLCarrier(carrier: URL, href: string): URL {
   if (preserve) {
     setNativeURLSearch(carrier, text)
     // Replay the native empty-list update, including native opaque-path normalization.
-    if (text === '') URLSearchParams.prototype.delete.call(parameters, '')
+    if (text === '') parametersDelete(parameters, '')
   }
   return carrier
 }

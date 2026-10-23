@@ -1450,6 +1450,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(sets, 0)
     })
 
+    // The instance's own `set` and `clear` are never called: reconcile writes with the built-ins.
     it('reconcile grows a Map by appending only the added entry', () => {
       const shared = { count: 0 }
       const map = new Map<string, number | { count: number }>([['shared', shared]])
@@ -1491,7 +1492,7 @@ describe('context runtime direct contracts', () => {
       )
       assert.deepEqual(shared, { count: 1 })
       assert.equal(clears, 0)
-      assert.equal(sets, 1)
+      assert.equal(sets, 0)
     })
 
     it('reconcile shrinks a Map by deleting only the removed entry', () => {
@@ -1582,6 +1583,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(adds, 0)
     })
 
+    // The instance's own `add` and `clear` are never called: reconcile writes with the built-ins.
     it('reconcile grows a Set by adding only the added member', () => {
       const shared = { count: 0 }
       const set = new Set<number | { count: number }>([shared])
@@ -1611,7 +1613,7 @@ describe('context runtime direct contracts', () => {
       assert.deepEqual([...result.set.values()], [shared, 2])
       assert.deepEqual(shared, { count: 1 })
       assert.equal(clears, 0)
-      assert.equal(adds, 1)
+      assert.equal(adds, 0)
     })
 
     it('reconcile shrinks a Set by deleting only the removed member', () => {

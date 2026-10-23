@@ -9,7 +9,9 @@ import { leafCaptures } from './leaf'
 import { lengths } from './layout'
 import { node, slot } from './emit'
 import { intern } from './radix'
+import { wrappedCollection } from '../types/shared/draft-collection'
 import {
+  openBuiltin,
   closeIteratorAfterThrow,
   entryPair,
   hasElement,
@@ -64,6 +66,15 @@ function iterator(frame: Frame, iterable: Iterable<unknown>) {
   if (!object(current)) throw new TypeError('iterator is not an object')
   frame.iterator = current as Frame['iterator']
   frame.next = current.next as Frame['next'] // GetIterator caches next once, without testing callability.
+  frame.step = undefined
+  frame.active = false
+}
+// Opens the built-in iterator of a `Map`'s entries or a `Set`'s members, stepped by the built-in
+// `next`; its steps are fresh native results, which nothing can observe.
+function builtinIterator(frame: Frame, collection: object, map: boolean) {
+  const opened = openBuiltin(collection, map, map ? 'entries' : 'values')
+  frame.iterator = opened.iterator as Frame['iterator']
+  frame.step = opened.step
   frame.active = false
 }
 function leaf(frame: Frame, context: EncodeContext) {
@@ -73,10 +84,16 @@ function leaf(frame: Frame, context: EncodeContext) {
 function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
-    // `for...of` over `entries()`; the built-in method's iterator is fresh and native.
-    const method = (frame.value as { entries?: unknown }).entries
-    frame.native = method === nativeMapEntries
-    iterator(frame, Reflect.apply(method as () => Iterable<unknown>, frame.value, []))
+    // The built-in iterator, fresh and native; a wrapper, such as a Vue reactive proxy, is walked
+    // as `for...of` over its `entries()` walks it.
+    if (wrappedCollection(frame.value)) {
+      const method = (frame.value as { entries?: unknown }).entries
+      frame.native = method === nativeMapEntries
+      iterator(frame, Reflect.apply(method as () => Iterable<unknown>, frame.value, []))
+    } else {
+      builtinIterator(frame, frame.value, true)
+      frame.native = true
+    }
     frame.phase = 1
   } else if (frame.phase === 2) {
     frame.phase = 1
@@ -110,7 +127,10 @@ function map(frame: Frame, context: EncodeContext) {
 }
 function next(frame: Frame) {
   frame.active = false // step/done/value failures do not close this iterator.
-  const result: unknown = Reflect.apply(frame.next, frame.iterator, [])
+  const result: unknown =
+    frame.step === undefined
+      ? Reflect.apply(frame.next, frame.iterator, [])
+      : frame.step(frame.iterator)
   if (!object(result)) throw new TypeError('iterator result is not an object')
   const done = Boolean(result.done)
   if (done) return false
@@ -140,7 +160,8 @@ function record(frame: Frame, context: EncodeContext) {
 function set(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
-    iterator(frame, (frame.value as Set<unknown>).values())
+    if (wrappedCollection(frame.value)) iterator(frame, (frame.value as Set<unknown>).values())
+    else builtinIterator(frame, frame.value, false)
     frame.phase = 1
   }
   while (next(frame)) {

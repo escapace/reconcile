@@ -1,3 +1,5 @@
+import { builtinValue, uncurried } from './standard-prototypes'
+
 /**
  * One object's prototype, shared by every reader in a call that meets the object: `known` once
  * a reader read it (Types.Ingress).
@@ -100,8 +102,14 @@ export function hiddenNames(value: object, names: readonly string[]): Set<Proper
  *
  * @internal
  */
-export const isEnumerable = (value: object, key: PropertyKey): boolean =>
-  Object.prototype.propertyIsEnumerable.call(value, key)
+export const isEnumerable = /* @__PURE__ */ (() =>
+  uncurried<[key: PropertyKey], boolean>(
+    builtinValue(Object.prototype, 'propertyIsEnumerable'),
+  ))() as (value: object, key: PropertyKey) => boolean
+
+// Read when the module loads, so a later change to `Object.prototype` is never called.
+const isPrototypeOf = /* @__PURE__ */ (() =>
+  uncurried<[value: unknown], boolean>(builtinValue(Object.prototype, 'isPrototypeOf')))()
 
 /**
  * `value instanceof constructor` with the default `Symbol.hasInstance`, decided from `first`, the
@@ -115,9 +123,7 @@ export function inChain(
   constructor: { readonly prototype: unknown },
 ): boolean {
   const prototype = constructor.prototype
-  return (
-    first === prototype || (first !== null && Object.prototype.isPrototypeOf.call(prototype, first))
-  )
+  return first === prototype || (first !== null && isPrototypeOf(prototype, first))
 }
 
 /**

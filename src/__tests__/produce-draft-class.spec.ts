@@ -50,7 +50,10 @@ describe('Map and Set drafts are instances of their source class', () => {
     assert.isTrue(result.tags.hasAll('x', 'y'))
   })
 
-  it('calls a subclass override on the original and on the working copy alike', () => {
+  // A draft's collection methods read the original, and then its working copy, with the
+  // built-ins: a subclass's override of them never runs, as for every collection the library
+  // reads. The result keeps the class, whose override then runs as usual.
+  it('never calls a subclass override of a collection method on the original or the copy', () => {
     let calls = 0
     class Defaults extends Map<string, number> {
       override get(key: string): number | undefined {
@@ -60,13 +63,13 @@ describe('Map and Set drafts are instances of their source class', () => {
     }
     const current = { value: new Defaults([['a', 1]]) }
     const result = produce(current, (draft) => {
-      assert.equal(draft.value.get('missing'), 0)
+      assert.equal(draft.value.get('missing'), undefined)
       draft.value.set('b', 2)
-      assert.equal(draft.value.get('missing'), 0)
+      assert.equal(draft.value.get('missing'), undefined)
       assert.equal(draft.value.get('b'), 2)
       return draft
     })
-    assert.isAtLeast(calls, 3)
+    assert.equal(calls, 0)
     assert.instanceOf(result.value, Defaults)
     assert.equal(result.value.get('missing'), 0)
     assert.isFalse(current.value.has('b'))

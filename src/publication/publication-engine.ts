@@ -1,6 +1,12 @@
 import { atomValue, isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
-import { ExposurePalette, REACTIVE_MODE, storageIdentity, unwrappedKey } from '../adapters/vue'
+import {
+  collectionIdentity,
+  ExposurePalette,
+  REACTIVE_MODE,
+  storageIdentity,
+  unwrappedKey,
+} from '../adapters/vue'
 import { EXPOSURE_MODES } from '../constants'
 import { isObject } from '../object-property'
 import type {
@@ -25,7 +31,7 @@ import { constructionDependencies } from '../graph/construction-facts'
 import { continueExecution, execute, scoreOf, type HeadOutcome } from '../graph/driver'
 import { completeExecution, startExecution } from '../graph/execution'
 import { headSelection } from '../graph/selection'
-import { denseArray } from '../standard-prototypes'
+import { denseArray, indexIn } from '../standard-prototypes'
 
 // Claims a fresh target's storage against every old storage and the earlier fresh ones;
 // undefined on a collision. The set of old storages is built on the first fresh target.
@@ -100,8 +106,22 @@ function publishFreshFirst(
   return -1
 }
 
+/** The object that holds a binding's contents: its storage, or for a fresh choice, which its
+ * node number labels, the object the call allocated. */
+const rawOf = (binding: Binding): object =>
+  typeof binding.storage === 'number' ? (binding.writer as object) : binding.storage
+
 /** Reads the live object currently exposed at a node of one attempt. */
 const exposed = (state: Execution, index: number): object => state.bindings[index].exposed as object
+
+// Removes `value` from `pending` and returns true when it is there.
+function consumed(pending: object[], value: object): boolean {
+  const index = indexIn(pending, value)
+  if (index === -1) return false
+  pending[index] = pending[pending.length - 1]
+  pending.length -= 1
+  return true
+}
 
 // The finite driver owns all selection/revision/retry decisions. This adapter
 // translates native observations to outcomes without changing an active image.
@@ -122,13 +142,25 @@ export function publishGraph(
   // no two probes share one.
   const storages = new Map<object, object>()
   let unshared = true
+  // Objects a collection's aligned walk probed, to ask whether each is a wrapper, before
+  // discovery's own probe of it: that probe takes the kept result and is not a repeat.
+  let early: object[] | undefined
   const storage = (value: object, prototype?: object | null): object => {
     let owner = storages.get(value)
     if (owner === undefined) {
       storages.set(value, (owner = storageIdentity(value, prototype)))
       if (owner !== value) unshared = false
-    } else unshared = false
+    } else if (early === undefined || !consumed(early, value)) unshared = false
     return owner
+  }
+  const wrapper = (value: object, prototype?: object | null): boolean => {
+    let owner = storages.get(value)
+    if (owner === undefined) {
+      storages.set(value, (owner = collectionIdentity(value, prototype)))
+      if (owner !== value) unshared = false
+      ;(early ??= []).push(value)
+    }
+    return owner !== value
   }
   // The channel between this call's preflights and publications, and the facts a passing
   // preflight read, by node.
@@ -137,9 +169,10 @@ export function publishGraph(
     fresh: false,
     prototype: undefined,
     unchanged: false,
+    wrapped: false,
   }
   const preflight = denseArray<PreflightFacts | undefined>(size)
-  const domains = candidates(types, records, root, graph, storage, note, preflight)
+  const domains = candidates(types, records, root, graph, storage, note, preflight, wrapper)
   // Retained choices take their storage from these probes and fresh ones their own node number,
   // so when discovery shared nothing no two choices share storage.
   const distinctStorages = unshared
@@ -268,6 +301,7 @@ export function publishGraph(
       first && facts?.current === binding.choice && binding.mode === 0 ? facts : undefined
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
+    note.wrapped = binding.writer !== rawOf(binding)
     unwrapsReactive = note.fresh && binding.mode === REACTIVE_MODE
     const node = records[index]
     const accepted = policies[node.layout.kind].publish(
@@ -329,6 +363,7 @@ export function publishGraph(
     const refused = publishFreshFirst(state, records, publishNode)
     note.facts = undefined
     note.fresh = false
+    note.wrapped = false
     if (refused !== -1) return { rejected: refused }
     confirmed = unchanged
     return true
@@ -347,8 +382,9 @@ export function publishGraph(
         node,
         target,
         compare,
-        // A fresh target exposed through a wrapper, such as Vue's, is read through the wrapper.
         typeof state.bindings[index].choice === 'number' && target === writer(index),
+        // A target exposed through a wrapper, such as Vue's, is read through the wrapper.
+        target !== rawOf(state.bindings[index]),
       )
     return matches ? MATCH : outcome
   }

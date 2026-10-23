@@ -19,21 +19,25 @@ describe('native child visitor', () => {
     expect(seen).toEqual([1, 2, 3])
   })
 
+  // An override of the iterator, on the instance or a subclass, is never called: the walk reads
+  // the built-in contents, stops at a match and lets an exception through.
   for (const kind of ['map', 'set'] as const) {
     for (const outcome of ['match', 'throw', 'exhaust'] as const) {
-      it(`${kind} closes its iterator on ${outcome}`, () => {
-        let closed = 0
+      it(`${kind} walks its built-in contents on ${outcome}`, () => {
+        let overridden = 0
         const failure = new Error('predicate')
         const seen: unknown[] = []
-        const source = kind === 'map' ? new Map() : new Set()
+        const source =
+          kind === 'map'
+            ? new Map([
+                [1, 2],
+                [3, 4],
+              ])
+            : new Set([1, 3])
         Object.defineProperty(source, Symbol.iterator, {
           *value() {
-            try {
-              yield kind === 'map' ? [1, 2] : 1
-              yield kind === 'map' ? [3, 4] : 3
-            } finally {
-              closed += 1
-            }
+            overridden += 1
+            yield* []
           },
         })
         const visit = () =>
@@ -49,7 +53,7 @@ describe('native child visitor', () => {
           result = error
         }
         expect(result).toBe(outcome === 'throw' ? failure : outcome === 'match')
-        expect(closed).toBe(1)
+        expect(overridden).toBe(0)
         expect(seen).toEqual(outcome === 'exhaust' ? (kind === 'map' ? [1, 2, 3, 4] : [1, 3]) : [1])
       })
     }

@@ -70,8 +70,8 @@ describe('copies of subclass instances', () => {
   it('are built by snapshot without set, add or prototype setters', () => {
     const source = sources()
     const copy = snapshot(source) as typeof source
-    // Contents are read through the source's own iteration methods.
-    expect(calls).toEqual(['entries', 'values'])
+    // Contents are read with the built-ins, never through the source's own methods.
+    expect(calls).toEqual([])
     expect(copy.map).toBeInstanceOf(IndexedMap)
     expect(entries(copy.map)).toEqual([['a', { v: 1 }]])
     expect(members(copy.set)).toEqual([{ v: 1 }])
@@ -110,14 +110,14 @@ describe('copies of subclass instances', () => {
     expect(Object.hasOwn(current.array!, 0)).toBe(true)
   })
 
-  it('leave writes into a kept collection to its own methods', () => {
+  it('write a kept collection with the built-ins, never through its own methods', () => {
     const map = new IndexedMap<string, number>()
     map.set('a', 0)
     calls.length = 0
     const current = { map }
     reconcile(current, { map: new Map([['a', 1]]) })
     expect(current.map).toBe(map)
-    expect(calls).toContain('set')
+    expect(calls).toEqual([])
     expect(entries(map)).toEqual([['a', 1]])
   })
 })

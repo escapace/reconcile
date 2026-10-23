@@ -160,7 +160,16 @@ export interface SpecialPolicy {
  * the finite Lean proofs do not establish these JavaScript premises.
  */
 export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
-  readonly aligned: (node: CapturedNode<L>, current: object | undefined, visit: Align) => void
+  /** Visits the current object's children aligned with the node's edges. A collection asks
+   * `wrapped`, with `prototype` when capture read it, whether the object is a wrapper, such as a
+   * Vue reactive proxy, read through its own methods. */
+  readonly aligned: (
+    node: CapturedNode<L>,
+    current: object | undefined,
+    visit: Align,
+    wrapped?: (value: object, prototype?: object | null) => boolean,
+    prototype?: object | null,
+  ) => void
   readonly compatible: (node: CapturedNode<L>, current: object) => boolean
   /** The preflight; a policy may leave in `note` the facts it read, for the first publication. */
   readonly requirements: (
@@ -221,12 +230,14 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     index: number,
     resolve: Resolve,
   ) => void
-  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`. */
+  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`, and
+   * `wrapped` when `current` is a wrapper, such as a Vue reactive proxy. */
   readonly matches: (
     node: CapturedNode<L>,
     current: object,
     visit: Compare,
     fresh?: boolean,
+    wrapped?: boolean,
   ) => boolean
   /**
    * Writes the node's contents; a policy may use the preflight facts in `note` and set
@@ -264,11 +275,14 @@ export interface PreflightFacts {
 export interface PublicationNote {
   facts: PreflightFacts | undefined
   /** Whether the object being published is a new one the call allocated, which no one else has
-   * seen, so its contents are written with the built-in operations. */
+   * seen. */
   fresh: boolean
   /** The prototype of the object being preflighted, when capture read it; undefined otherwise. */
   prototype: object | null | undefined
   unchanged: boolean
+  /** Whether the object being published is a wrapper, such as a Vue reactive proxy, written
+   * through its own methods; every other object's contents are written with the built-ins. */
+  wrapped: boolean
 }
 
 /** Native facets retained by each public operation. */

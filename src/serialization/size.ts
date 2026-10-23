@@ -1,4 +1,5 @@
 import type { Budget, DecodeContext } from './contracts'
+import { nativeParameterEntries } from '../types/shared/url-carrier'
 import { deserializeLimitExceeded, deserializeLimitInvalid } from '../error'
 import { decodeFail as fail } from './common'
 // Size.lean: a value's size in 64-bit words, with every object stored once and every primitive
@@ -63,6 +64,9 @@ function chargeObject(context: Budget, value: object, pending: object[]): void {
 // Each entry is two slots and its name's and value's payloads.
 export function chargeParameters(context: DecodeContext, parameters: URLSearchParams): void {
   charge(context, 1)
-  for (const entry of parameters)
+  const entries = nativeParameterEntries(parameters)
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index] as readonly [string, string]
     charge(context, 2 + stringWords(entry[0].length) + stringWords(entry[1].length))
+  }
 }

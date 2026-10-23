@@ -15,7 +15,7 @@ import { isObject } from '../object-property'
 import { resolveWrappedCollectionMember, storageIdentity, type WrappedIndex } from '../adapters/vue'
 import type { BaseDraftState, Edge, ExposureFacet, NativePolicy } from '../types'
 import { defineType } from './registry'
-import { collectionSurface, eachMember, normalize } from './shared/collection'
+import { collectionSurface, normalize } from './shared/collection'
 import {
   insertedCollectionValue,
   draftState,
@@ -24,54 +24,62 @@ import {
   draftChild,
   draftCollectionBase,
   draftWalk,
-  builtinWalk,
+  eachSetMember,
+  forEachSetMember,
+  wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
 import {
-  builtinValue,
+  closeIterator,
   Detached,
-  builtinSetDelete,
-  builtinSetSize,
   builtinSetAdd,
-  nativeSetValues,
+  builtinSetClear,
+  builtinSetDelete,
+  builtinSetHas,
+  builtinSetSize,
+  eachBuiltinMember,
+  openBuiltin,
+  openSetValues,
+  setStep,
 } from '../standard-prototypes'
 
 /** Stable global identity owned by the set module. */
 export const SET_KIND = Symbol.for('@escapace/reconcile/set')
 
-/** Walks a `Set` as the built-in iterator does. */
-const setIterator: unknown = /* @__PURE__ */ (() => builtinValue(Set.prototype, Symbol.iterator))()
-const setWalk = (set: object) =>
-  builtinWalk(set as Set<unknown>, Set.prototype, setIterator, (collection) =>
-    Set.prototype.values.call(collection as Set<unknown>),
-  )
+/** The members of a `Set`, in order. */
+function setMembers(set: object): unknown[] {
+  const members: unknown[] = []
+  eachSetMember(set, (member) => members.push(member) < 0)
+  return members
+}
 
-/** Whether the draft's object is an instance of a subclass of `Set`. */
-const subclassed = (state: SetDraftState): boolean =>
-  Object.getPrototypeOf(state.base) !== Set.prototype
-
-/** The members as the draft holds them now, in a collection whose `has` is the built-in one, as
- * the built-in methods decide membership: a subclass's `has` does not. */
-const liveMembers = (state: SetDraftState): Set<unknown> =>
-  !subclassed(state) || state.copy !== undefined || vueState(state)
-    ? draftValue<Set<unknown>>(state)
-    : prepareSetCopy(state)
+/** The members as the draft holds them now: its working copy, or its object until it has one. */
+const liveMembers = (state: SetDraftState): Set<unknown> => draftValue<Set<unknown>>(state)
 
 /** Whether the draft's object is Vue reactive state, read once per draft. */
 function vueState(state: SetDraftState): boolean {
-  return (state.members.vue ??= storageIdentity(state.base) !== state.base)
+  return (state.members.vue ??= wrappedCollection(state.base))
 }
+
+/** Whether `members` is the draft's object and that is a wrapper, such as a Vue reactive proxy,
+ * read through its own methods; every other `Set` is read with the built-ins. */
+const throughOwn = (state: SetDraftState, members: Set<unknown>): boolean =>
+  members === state.base && vueState(state)
+
+/** Whether `set` holds `value`: through its own `has` when `own`, otherwise with the built-in. */
+const holds = (set: object, own: boolean, value: unknown): boolean =>
+  own ? (set as Set<unknown>).has(value) : builtinSetHas(set, value)
 
 const setPolicySurface = /* @__PURE__ */ collectionSurface({
   builtin: {
+    open: openSetValues,
     put: builtinSetAdd,
     remove: builtinSetDelete,
     size: builtinSetSize,
-    iterator: (current) =>
-      Reflect.apply(nativeSetValues as () => unknown, current, []) as Iterator<unknown>,
+    step: setStep,
   },
   own: {
-    iterator: (current) => (current as Set<unknown>).values(),
+    open: (current) => (current as Set<unknown>).values(),
     put: (current, key) => {
       ;(current as Set<unknown>).add(key)
     },
@@ -79,6 +87,7 @@ const setPolicySurface = /* @__PURE__ */ collectionSurface({
       ;(current as Set<unknown>).delete(key)
     },
     size: (current) => (current as Set<unknown>).size,
+    step: (iterator) => (iterator as Iterator<unknown>).next(),
   },
   width: 1,
   read: (entry) => entry,
@@ -88,11 +97,17 @@ const setPolicyWrite: NativePolicy<SetLayout>['freshWrite'] = (node, target, ind
 }
 const setCapture = {
   construction: noValue,
-  observe(value, begin, edge, mode) {
-    const set = value as Set<unknown>
-    const members = mode === 'snapshot' ? set.values() : set[Symbol.iterator]()
-    begin({ kind: SET_KIND, prototype: Object.getPrototypeOf(set) as object | null })
-    for (const child of members) edge(child)
+  observe(value, begin, edge) {
+    const prototype = Object.getPrototypeOf(value) as object | null
+    const wrapped = wrappedCollection(value, prototype)
+    begin({ kind: SET_KIND, prototype })
+    forEachSetMember(
+      value,
+      (child) => {
+        edge(child)
+      },
+      wrapped,
+    )
   },
 } satisfies CapturePolicy<SetLayout>
 
@@ -138,22 +153,34 @@ export const setImmutable = /* @__PURE__ */ (() => ({
       // The prototype is the base's, which a working copy keeps.
       const prototype = Object.getPrototypeOf(base ?? source) as object | null
       observer.begin({ kind: SET_KIND, prototype })
-      for (const value of setWalk(source))
-        observer.edge(
-          value,
-          undefined,
-          isObject(value) && (base as Set<unknown> | undefined)?.has(value) === true,
-        )
+      const set = base as Set<unknown> | undefined
+      // The source is the base or, when it differs, the draft's working copy, a built-in `Set`;
+      // only an object from `current` or the recipe can be a wrapper.
+      const wrapped = wrappedCollection(base ?? source, prototype)
+      forEachSetMember(
+        source,
+        (value) => {
+          observer.edge(
+            value,
+            undefined,
+            isObject(value) &&
+              set !== undefined &&
+              (wrapped ? set.has(value) : builtinSetHas(set, value)),
+          )
+        },
+        source === (base ?? source) && wrapped,
+      )
     },
     reuse(node, current, visit) {
-      const set = current as Set<unknown>
-      if (set.size !== node.edges.length) return false
+      const wrapped = wrappedCollection(current)
+      const size = wrapped ? (current as Set<unknown>).size : builtinSetSize(current)
+      if (size !== node.edges.length) return false
       let index = 0
-      return !eachMember(setWalk(set), (value) => !visit(value, edgeAt(node.edges, index++)))
+      return !eachSetMember(current, (value) => !visit(value, edgeAt(node.edges, index++)), wrapped)
     },
   } satisfies ImmutablePolicy<SetLayout>['immutable']),
   someChild(source, _read, test) {
-    return eachMember(setWalk(source), test)
+    return eachSetMember(source, test)
   },
 }))() satisfies ImmutablePolicy<SetLayout>
 
@@ -213,13 +240,18 @@ function prepareSetCopy(state: SetDraftState): Set<unknown> {
     return state.copy as Set<unknown>
   }
 
-  // The working copy keeps the source's class, so a subclass's methods act on it as on the base.
+  // The working copy keeps the source's class, so methods a subclass adds act on it as on the base;
+  // it is filled, and later read and written, with the built-ins.
   const base = state.base as Set<unknown>
-  state.copy = adoptPrototype(
-    new Set(setWalk(base)),
-    Object.getPrototypeOf(base) as object,
-    Set.prototype,
+  const copy = new Set<unknown>()
+  forEachSetMember(
+    base,
+    (member) => {
+      builtinSetAdd(copy, member)
+    },
+    vueState(state),
   )
+  state.copy = adoptPrototype(copy, Object.getPrototypeOf(base) as object, Set.prototype)
   return state.copy as Set<unknown>
 }
 
@@ -235,14 +267,14 @@ function resolveSetMember(
   source: Set<unknown>,
   value: unknown,
   index: WrappedIndex = state.members,
-  // `has` resolves through the source's own `has`, as `has` on the draft does; the built-in methods
-  // use the built-in one on the working copy.
-  contains?: (value: unknown) => boolean,
+  // Membership is asked of `lookup`, through its own `has` when `own`, as `has` on the draft asks
+  // Vue reactive state; the built-in methods ask the raw object with the built-in `has`.
+  lookup: object = source,
+  own: boolean = throughOwn(state, source),
 ): unknown {
-  const holds = contains ?? ((form: unknown) => source.has(form))
-  if (holds(value)) return value
+  if (holds(lookup, own, value)) return value
   if (!isObject(value)) return LOOKUP_MISS
-  const form = otherForm(state.context, value, holds)
+  const form = otherForm(state.context, value, lookup, own)
   if (form !== LOOKUP_MISS) return form
   return (
     resolveWrappedCollectionMember(
@@ -250,62 +282,53 @@ function resolveSetMember(
       state.context.statesByIdentity.get(value)?.base ?? value,
       state.base,
       index,
-      setWalk,
+      setMembers,
     ) ?? LOOKUP_MISS
   )
 }
 
 /**
- * The form of `value` that `holds` finds, or `LOOKUP_MISS`: the object a draft drafts or its
- * handle, or the original or the copy of a special value, which a read of a `Date`, buffer, view
- * or URL makes and which counts as its original, as a draft does.
+ * The form of `value` that `set` holds, asked as `holds` asks, or `LOOKUP_MISS`: the object a
+ * draft drafts or its handle, or the original or the copy of a special value, which a read of a
+ * `Date`, buffer, view or URL makes and which counts as its original, as a draft does.
  */
 function otherForm(
   context: BaseDraftState['context'],
   value: object,
-  holds: (value: unknown) => boolean,
+  set: object,
+  own: boolean,
 ): unknown {
   const drafted = context.statesByIdentity.get(value)
   if (drafted !== undefined) {
     const { base, handle } = drafted
-    if (base !== value && holds(base)) return base
-    if (handle !== undefined && holds(handle)) return handle
+    if (base !== value && holds(set, own, base)) return base
+    if (handle !== undefined && holds(set, own, handle)) return handle
   }
-  return copyForm(context, value, holds)
+  return copyForm(context, value, set, own)
 }
 
-/** The original or the copy of a special value that `holds` finds, or `LOOKUP_MISS`. */
+/** The original or the copy of a special value that `set` holds, or `LOOKUP_MISS`. */
 function copyForm(
   context: BaseDraftState['context'],
   value: object,
-  holds: (value: unknown) => boolean,
+  set: object,
+  own: boolean,
 ): unknown {
   const form = context.copyBase(value) ?? context.copyOf(value)
-  return form !== undefined && holds(form) ? form : LOOKUP_MISS
+  return form !== undefined && holds(set, own, form) ? form : LOOKUP_MISS
 }
 
-/** Resolves a member as the built-in methods do, with the built-in `has` on `members`. */
-/** Resolves a member with the built-in `has` on `raw`, the raw object of `members`. */
-const builtinHas = (
-  state: SetDraftState,
-  members: Set<unknown>,
-  value: unknown,
-  index: WrappedIndex | undefined,
-  raw: object,
-): unknown =>
-  resolveSetMember(state, members, value, index, (member) => Set.prototype.has.call(raw, member))
-
+/** Resolves a member as the built-in methods do: with the built-in `has`, on the raw object of
+ * Vue reactive state, which holds the members without making a copy. */
 const builtinMember = (
   state: SetDraftState,
   members: Set<unknown>,
   value: unknown,
   index?: WrappedIndex,
-): unknown =>
-  // Only a subclass instance has another `has`; `liveMembers` gives its working copy or, in Vue
-  // reactive state, its proxy, whose raw object holds the members without making a copy.
-  Object.getPrototypeOf(members) === Set.prototype
-    ? resolveSetMember(state, members, value, index)
-    : builtinHas(state, members, value, index, storageIdentity(members))
+): unknown => {
+  const raw = throughOwn(state, members) ? storageIdentity(members) : members
+  return resolveSetMember(state, members, value, index, raw, false)
+}
 
 type SetMethod =
   | 'difference'
@@ -345,19 +368,26 @@ function setRecord(other: unknown): SetRecord {
   return { has: has as SetRecord['has'], keys: keys as SetRecord['keys'], set: other, size }
 }
 
-const setSize = /* @__PURE__ */ (() =>
-  Reflect.getOwnPropertyDescriptor(Set.prototype, 'size')!.get as (this: Set<unknown>) => number)()
+/** The number of members now. */
+const sizeOf = (state: SetDraftState): number => {
+  const members = liveMembers(state)
+  return throughOwn(state, members) ? members.size : builtinSetSize(members)
+}
 
-/** The number of members, read as the native methods read it: not through a subclass's `size`. */
-const sizeOf = (state: SetDraftState): number =>
-  subclassed(state) ? setSize.call(prepareSetCopy(state)) : draftValue<Set<unknown>>(state).size
-
-/** The members as they are now, read as the native methods read them: not through a subclass's
- * iterator. */
-const membersOf = (state: SetDraftState): Set<unknown> =>
-  subclassed(state)
-    ? new Set(Set.prototype.values.call(prepareSetCopy(state)))
-    : new Set(draftValue<Set<unknown>>(state))
+/** A copy of the members as they are now, in order. */
+const membersOf = (state: SetDraftState): Set<unknown> => {
+  const members = new Set<unknown>()
+  const live = liveMembers(state)
+  eachSetMember(
+    live,
+    (member) => {
+      builtinSetAdd(members, member)
+      return false
+    },
+    throughOwn(state, live),
+  )
+  return members
+}
 
 /**
  * One `Set` method call on a draft: its operand and the lookups it builds at most once.
@@ -407,23 +437,25 @@ class SetCall extends Detached {
   /** Whether the operand holds `member`. */
   inOperand(member: unknown): boolean {
     const { record, state } = this
-    if (!isObject(member)) return Boolean(record.has.call(record.set, member))
+    if (!isObject(member)) return Boolean(Reflect.apply(record.has, record.set, [member]))
     const vue = this.wrapped() || this.vue
     const { operand } = this
     if (operand === undefined)
-      return Boolean(record.has.call(record.set, draftChild(state, member)))
+      return Boolean(Reflect.apply(record.has, record.set, [draftChild(state, member)]))
     // The member, the object it drafts, its draft and, in Vue reactive state, its raw object.
     const drafted = state.context.statesByIdentity.get(member)
     const base = drafted?.base ?? member
-    if (operand.has.call(operand.set, member) || operand.has.call(operand.set, base)) return true
-    const handle = drafted?.handle
-    if (handle !== undefined && operand.has.call(operand.set, handle)) return true
     if (
-      copyForm(state.context, member, (form) => Boolean(operand.has.call(operand.set, form))) !==
-      LOOKUP_MISS
+      Reflect.apply(operand.has, operand.set, [member]) ||
+      Reflect.apply(operand.has, operand.set, [base])
     )
       return true
-    return vue && operand.has.call(operand.set, storageIdentity(base))
+    const handle = drafted?.handle
+    if (handle !== undefined && Reflect.apply(operand.has, operand.set, [handle])) return true
+    // The original or the copy of a special value counts as the value, as `copyForm` finds it.
+    const form = state.context.copyBase(member) ?? state.context.copyOf(member)
+    if (form !== undefined && Reflect.apply(operand.has, operand.set, [form])) return true
+    return vue && Reflect.apply(operand.has, operand.set, [storageIdentity(base)])
   }
 
   /** The member of `members`, this draft's live members or a `snapshot` of them, that `value` is a
@@ -438,7 +470,7 @@ class SetCall extends Detached {
 
 /** The operand's key iterator (`GetIteratorFromMethod`). */
 function openKeys(record: SetRecord): { iterator: object; next: unknown } {
-  const iterator = record.keys.call(record.set)
+  const iterator: unknown = Reflect.apply(record.keys, record.set, [])
   if (!isObjectLike(iterator))
     throw new TypeError('The Set method operand keys are not an iterator')
   return { iterator, next: (iterator as { next: unknown }).next }
@@ -448,39 +480,30 @@ function openKeys(record: SetRecord): { iterator: object; next: unknown } {
  * as the native methods do. Returns whether every key was visited. */
 function everyKey(keys: { iterator: object; next: unknown }, visit: (key: unknown) => boolean) {
   for (;;) {
-    const step = (keys.next as () => unknown).call(keys.iterator)
+    const step: unknown = Reflect.apply(keys.next as () => unknown, keys.iterator, [])
     if (!isObjectLike(step)) throw new TypeError('The Set method operand key step is not an object')
     // eslint-disable-next-line typescript/strict-boolean-expressions -- ToBoolean, as a native step reads done
     if ((step as { done: unknown }).done) return true
     const key = (step as { value: unknown }).value
     if (!visit(key === 0 ? 0 : key)) {
-      closeKeys(keys.iterator)
+      closeIterator(keys.iterator)
       return false
     }
   }
 }
 
-/** Closes the operand's key iterator early, as `IteratorClose` does. */
-function closeKeys(iterator: object): void {
-  const close = (iterator as { return?: unknown }).return
-  if (close === undefined || close === null) return
-  if (typeof close !== 'function') throw new TypeError('The iterator return is not a method')
-  if (!isObjectLike(close.call(iterator)))
-    throw new TypeError('The iterator return result is not an object')
-}
-
 /** Walks this draft's members live, as the native methods do, until `visit` returns false. */
 function everyMember(state: SetDraftState, visit: (member: unknown) => boolean): boolean {
-  const members = Set.prototype.values.call(prepareSetCopy(state))
-  for (let step = members.next(); step.done !== true; step = members.next())
-    if (!visit(step.value)) return false
-  return true
+  return !eachBuiltinMember(prepareSetCopy(state), (member) => !visit(member))
 }
 
 /** Each of `members` as this draft gives it. */
 const drafted = (state: SetDraftState, members: Set<unknown>): Set<unknown> => {
   const result = new Set<unknown>()
-  for (const member of Set.prototype.values.call(members)) result.add(draftChild(state, member))
+  eachBuiltinMember(members, (member) => {
+    builtinSetAdd(result, draftChild(state, member))
+    return false
+  })
   return result
 }
 
@@ -501,12 +524,14 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
     // The spec walks its copy of the members, not the live set, so members the operand adds or
     // removes do not change which ones it asks about.
     if (sizeOf(state) <= record.size) {
-      for (const member of members)
-        if (call.inOperand(member)) result.delete(draftChild(state, member))
+      eachBuiltinMember(members, (member) => {
+        if (call.inOperand(member)) builtinSetDelete(result, draftChild(state, member))
+        return false
+      })
     } else
       everyKey(openKeys(record), (key) => {
         const member = call.memberOf(members, key, true)
-        if (member !== LOOKUP_MISS) result.delete(draftChild(state, member))
+        if (member !== LOOKUP_MISS) builtinSetDelete(result, draftChild(state, member))
         return true
       })
     return result
@@ -516,13 +541,13 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
     const result = new Set<unknown>()
     if (sizeOf(state) <= record.size)
       everyMember(state, (member) => {
-        if (call.inOperand(member)) result.add(draftChild(state, member))
+        if (call.inOperand(member)) builtinSetAdd(result, draftChild(state, member))
         return true
       })
     else
       everyKey(openKeys(record), (key) => {
         const member = call.memberOf(liveMembers(state), key, false)
-        if (member !== LOOKUP_MISS) result.add(draftChild(state, member))
+        if (member !== LOOKUP_MISS) builtinSetAdd(result, draftChild(state, member))
         return true
       })
     return result
@@ -554,15 +579,15 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
     return withEveryKey(call, (key, members, result) => {
       const member = call.memberOf(members, key, true)
       const value = member === LOOKUP_MISS ? key : draftChild(state, member)
-      const present = result.has(value)
+      const present = builtinSetHas(result, value)
       if (call.memberOf(liveMembers(state), key, false) !== LOOKUP_MISS) {
-        if (present) result.delete(value)
-      } else if (!present) result.add(key)
+        if (present) builtinSetDelete(result, value)
+      } else if (!present) builtinSetAdd(result, key)
     })
   },
   union(call) {
     return withEveryKey(call, (key, members, result) => {
-      if (call.memberOf(members, key, true) === LOOKUP_MISS) result.add(key)
+      if (call.memberOf(members, key, true) === LOOKUP_MISS) builtinSetAdd(result, key)
     })
   },
 }
@@ -587,48 +612,11 @@ function withEveryKey(
 }
 
 /**
- * Runs a `Set` method: a subclass's own version on the working copy, as it runs on a native `Set`
- * of its class, otherwise the draft's.
- *
- * @remarks
- * A subclass's version can change the copy through `this`, so the draft counts as written, and
- * finalization keeps the original when the members end up equal. Returning the copy returns the
- * draft, and a plain `Set` it builds that holds members of this draft as stored objects is given as
- * a new `Set` that holds them as drafts.
+ * Runs a `Set` method of the draft: the native algorithm over the draft's members, even when the
+ * draft's class overrides the method, as for every other collection method.
  */
-function setMethod(state: SetDraftState, method: SetMethod, other: unknown): unknown {
-  const prototype = Object.getPrototypeOf(state.base) as object
-  const own = prototype === Set.prototype ? undefined : (Reflect.get(prototype, method) as unknown)
-  if (own === undefined || own === Set.prototype[method])
-    return setMethods[method](new SetCall(state, setRecord(other)))
-  const copy = prepareSetCopy(state)
-  const result = (own as (other: unknown) => unknown).call(copy, other)
-  state.members.revision += 1
-  state.modified = true
-  if (result === copy) return state.handle
-  // A draft, a Vue reactive set or any other wrapper already gives what it holds as it holds it.
-  if (
-    !(result instanceof Set) ||
-    storageIdentity(result) !== result ||
-    state.context.statesByIdentity.get(result)?.handle === result
-  )
-    return result
-  // Only a plain `Set` the override built, as `super.union` builds one, is given as drafts; a set of
-  // its own class can hold state its constructor made, and the operand is returned as it is.
-  if (Object.getPrototypeOf(result) !== Set.prototype || result === other) return result
-  let changed = false
-  const values: unknown[] = []
-  const returned = setWalk(result as Set<unknown>)
-  for (const value of returned) {
-    const member = isObject(value) ? builtinMember(state, copy, value) : LOOKUP_MISS
-    const given = member === LOOKUP_MISS ? value : draftChild(state, member)
-    changed ||= given !== value
-    values.push(given)
-  }
-  // The returned set is never changed: one that holds members of this draft as stored objects is
-  // given as a new `Set` that holds them as drafts.
-  return changed ? new Set(values) : result
-}
+const setMethod = (state: SetDraftState, method: SetMethod, other: unknown): unknown =>
+  setMethods[method](new SetCall(state, setRecord(other)))
 
 /**
  * Provides copy-on-write Set operations with draft-aware membership resolution.
@@ -654,16 +642,17 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** Reads the current collection size without allocating a copy. */
     get size(): number {
-      const state = draftState<SetDraftState>(this)
-      return draftValue<Set<unknown>>(state).size
+      return sizeOf(draftState<SetDraftState>(this))
     }
 
-    /** Walks the members, as the working copy's own iterator gives them, each object as its
-     * draft. */
+    /** Walks the members of the working copy, each object as its draft. */
     [Symbol.iterator](): IterableIterator<unknown> {
       const state = draftState<SetDraftState>(this)
-      return draftWalk(prepareSetCopy(state)[Symbol.iterator](), (member) =>
-        draftChild(state, member),
+      const opened = openBuiltin(prepareSetCopy(state), false, 'values')
+      return draftWalk(
+        opened.iterator as Iterator<unknown>,
+        (member) => draftChild(state, member),
+        opened.step,
       )
     }
 
@@ -717,7 +706,7 @@ const DraftSet = /* @__PURE__ */ (() => {
       }
 
       const insertedValue = insertedCollectionValue(state, value, setExposure, false)
-      prepareSetCopy(state).add(insertedValue)
+      builtinSetAdd(prepareSetCopy(state), insertedValue)
       state.members.revision += 1
       state.modified = true
       return this
@@ -726,14 +715,13 @@ const DraftSet = /* @__PURE__ */ (() => {
     /** Clears a nonempty working collection and records an effective change. */
     clear(): void {
       const state = draftState<SetDraftState>(this)
-      const source = draftValue<Set<unknown>>(state)
 
-      if (source.size === 0) {
+      if (sizeOf(state) === 0) {
         // Clearing an already-empty set is a true no-op and does not mark the draft modified.
         return
       }
 
-      prepareSetCopy(state).clear()
+      builtinSetClear(prepareSetCopy(state))
       state.members.revision += 1
       state.modified = true
     }
@@ -750,9 +738,8 @@ const DraftSet = /* @__PURE__ */ (() => {
       }
 
       const copy = prepareSetCopy(state)
-      const removed = copy.delete(resolveSetMember(state, copy, target))
-      // A subclass's `delete` can change the copy whatever it returns.
-      if (removed || subclassed(state)) {
+      const removed = builtinSetDelete(copy, resolveSetMember(state, copy, target))
+      if (removed) {
         state.members.revision += 1
         state.modified = true
       }

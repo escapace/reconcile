@@ -41,22 +41,26 @@ describe('shared native graph capture', () => {
     expect(graph.nodes[0].edges[1]).toEqual({ node: 3 })
   })
 
-  it('normalizes repeated observable collection keys without merging distinct objects', () => {
+  it('captures a Map from its built-in entries, never an own entries method or iterator', () => {
     const first = {}
     const second = {}
-    const source = new Map<unknown, unknown>()
+    const source = new Map<unknown, unknown>([
+      [first, 1],
+      [second, 2],
+      // eslint-disable-next-line perfectionist/sort-maps -- the order is the case
+      ['key', 5],
+    ])
+    let overridden = 0
     source.entries = function* (): Generator<[unknown, unknown], undefined> {
-      yield [first, 1]
-      yield [second, 2]
+      overridden += 1
       yield [first, 3]
-      yield ['key', 4]
-      yield ['key', 5]
       return undefined
     }
     source[Symbol.iterator] = source.entries.bind(source)
     const graph = capture(builtinTypes, source)
-    expect(graph.nodes[0].edges).toEqual([{ node: 1 }, 3, { node: 2 }, 2, 'key', 5])
+    expect(graph.nodes[0].edges).toEqual([{ node: 1 }, 1, { node: 2 }, 2, 'key', 5])
     expect(graph.nodes).toHaveLength(3)
+    expect(overridden).toBe(0)
   })
 
   it('trusts an existing snapshot memo entry without observing its source', () => {
@@ -201,43 +205,40 @@ describe('shared native graph capture', () => {
     }
   })
   it.each(['snapshot', 'publication'])(
-    'closes native collection iterators after a child throws (%s)',
+    "lets a child's exception through a Map's built-in walk (%s)",
     (mode) => {
       const failure = new Error('child observation failed')
-      let closed = 0
-      const source = new Map<unknown, unknown>()
-      source.entries = function* (): Generator<[unknown, unknown], undefined> {
-        try {
-          yield [
-            0,
-            {
-              get bad() {
-                throw failure
-              },
+      let overridden = 0
+      const source = new Map<unknown, unknown>([
+        [
+          0,
+          {
+            get bad() {
+              throw failure
             },
-          ]
-        } finally {
-          closed += 1
-        }
+          },
+        ],
+      ])
+      source.entries = function* (): Generator<[unknown, unknown], undefined> {
+        overridden += 1
         return undefined
       }
       source[Symbol.iterator] = source.entries.bind(source)
       expect(() =>
         mode === 'snapshot' ? snapshot(source) : capture(builtinTypes, source),
       ).toThrow(failure)
-      expect(closed).toBe(1)
+      expect(overridden).toBe(0)
     },
   )
-  it('canonicalizes signed-zero keys in the captured collection payload', () => {
-    const map = new Map<unknown, unknown>()
+  it('captures the canonical +0 a Map or Set holds for -0, never an own iterator', () => {
+    const map = new Map<unknown, unknown>([[-0, 2]])
     map[Symbol.iterator] = function* (): Generator<[unknown, unknown], undefined> {
-      yield [0, 1]
-      yield [-0, 2]
+      yield [-0, 9]
       return undefined
     }
-    const set = new Set<unknown>()
+    const set = new Set<unknown>([-0])
     set[Symbol.iterator] = function* (): Generator<unknown, undefined> {
-      yield -0
+      yield 9
       return undefined
     }
     const mapEdges = capture(builtinTypes, map).nodes[0].edges
@@ -246,22 +247,21 @@ describe('shared native graph capture', () => {
     expect(setEdges).toEqual([0])
     expect(Object.is(mapEdges[0], 0) && Object.is(setEdges[0], 0)).toBe(true)
   })
-  it('normalizes snapshot collections through native writes, including repeated observed keys', () => {
+  it('copies Map and Set contents in snapshot with the built-ins, never through own methods', () => {
     const key = { id: 1 }
-    const map = new Map<unknown, unknown>()
+    const map = new Map<unknown, unknown>([
+      [key, 2],
+      // eslint-disable-next-line perfectionist/sort-maps -- the order is the case
+      [0, 4],
+    ])
     map.entries = function* () {
       yield [key, 1]
-      yield [key, 2]
-      yield [-0, 3]
-      yield [0, 4]
       return undefined
     }
-    const set = new Set<unknown>()
+    // eslint-disable-next-line perfectionist/sort-sets -- the order is the case
+    const set = new Set<unknown>([key, 0])
     set.values = function* () {
-      yield key
-      yield key
-      yield -0
-      yield 0
+      yield 9
       return undefined
     }
     const result = snapshot({ key, map, set }) as {

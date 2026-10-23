@@ -30,8 +30,10 @@ export function candidates(
   storage: (value: object, prototype?: object | null) => object = storageIdentity,
   note?: PublicationNote,
   preflight?: Array<PreflightFacts | undefined>,
+  wrapper: (value: object, prototype?: object | null) => boolean = (value, prototype) =>
+    storageIdentity(value, prototype) !== value,
 ): Domains {
-  const aligned = collect(types, root, records, alignment)
+  const aligned = collect(types, root, records, wrapper, alignment)
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
   // a captured node whose own object lies inside one is already published: it is pinned to
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
@@ -97,6 +99,16 @@ export function candidates(
   })
 }
 
+// The prototype capture read of the object aligned with node `index`, when `candidate` is it.
+const capturedPrototype = (
+  alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
+  index: number,
+  candidate: object | undefined,
+): object | null | undefined =>
+  candidate !== undefined && candidate === alignment?.currents?.[index]
+    ? alignment.prototypes?.[index]
+    : undefined
+
 // A candidate of another kind than its node's.
 const MISMATCH: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)
 
@@ -157,7 +169,8 @@ function collect(
   types: PublicationRegistry,
   old: unknown,
   records: readonly CapturedNode[],
-  alignment?: Pick<CapturedGraph, 'currents' | 'occupants'>,
+  wrapper: (value: object, prototype?: object | null) => boolean,
+  alignment?: Pick<CapturedGraph, 'currents' | 'occupants' | 'prototypes'>,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
@@ -188,7 +201,16 @@ function collect(
     else if (!first) return
     else aligned[index] = VISITED as object[]
     const slots = recorded ? occupants![index] : undefined
-    if (slots === undefined) types.policies[node.layout.kind].aligned(node, candidate, visit)
+    // A collection asks whether its object is a wrapper, with the prototype capture read, as
+    // discovery's later probe of the same object passes it.
+    if (slots === undefined)
+      types.policies[node.layout.kind].aligned(
+        node,
+        candidate,
+        visit,
+        wrapper,
+        capturedPrototype(alignment, index, candidate),
+      )
     else replayOccupants(node, slots, visit)
   }
   visit(old, { node: 0 })

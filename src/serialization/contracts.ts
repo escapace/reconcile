@@ -92,6 +92,8 @@ export interface Frame {
   value: object
   detail?: number
   next: (...arguments_: unknown[]) => unknown
+  // The built-in step of a fresh native iterator, called with the iterator; undefined otherwise.
+  step: ((iterator: object) => unknown) | undefined
 }
 export type Leaf = (value: object, context: EncodeContext, kind?: number) => Row
 export type Row = unknown[]

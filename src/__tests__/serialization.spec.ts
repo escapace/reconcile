@@ -216,11 +216,11 @@ describe('serialization', () => {
       'ownKeys root',
     ])
 
+    // A Map is walked by the built-in iterator, never an own `entries`; a key's exception stops
+    // the walk.
     log.length = 0
     const failure = new Error('key')
-    const map = new Map()
-    let step = 0
-    const entries = [
+    const map = new Map<unknown, unknown>([
       [
         {
           get k() {
@@ -244,23 +244,13 @@ describe('serialization', () => {
         },
         3,
       ],
-    ]
-    map.entries = () =>
-      ({
-        next() {
-          log.push('next')
-          return step < entries.length ? { done: false, value: entries[step++] } : { done: true }
-        },
-        return() {
-          log.push('return')
-          return {}
-        },
-        [Symbol.iterator]() {
-          return this
-        },
-      }) as unknown as MapIterator<[unknown, unknown]>
+    ])
+    map.entries = () => {
+      log.push('entries')
+      return new Map().entries()
+    }
     expect(() => encodeText(map)).toThrow(failure)
-    expect(log).toEqual(['next', 'key getter', 'value getter', 'next', 'throwing key', 'return'])
+    expect(log).toEqual(['key getter', 'value getter', 'throwing key'])
 
     log.length = 0
     const list: unknown[] = [1]

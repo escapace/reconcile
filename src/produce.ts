@@ -91,16 +91,20 @@ import { produceTypes } from './types/builtins'
  * enumerability. Inside the getter, `this` is a draft of its object: writes through `this` become
  * part of the result, and changes to other objects take effect immediately and are not undone.
  *
- * A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag`,
- * `constructor` and methods a subclass adds work as on the source. Its methods act on the original
- * until the first change and on a working copy of the same class afterwards, through that object's
- * own methods, so a subclass's overrides still run. The working copy is not constructed, so an
- * override that uses a field its class sets in the constructor throws on it. Array, `Map` and `Set`
- * drafts iterate like native collections, including `for...of`, spreading and callback methods:
- * object values come back as drafts, a write during a walk shows up in it, and a walk that changes
- * nothing keeps the original. `Map` keys are not drafts: a walk gives the keys as the `Map` gives
- * them, which in Vue reactive state is Vue's proxy of the stored key. Changing a key object changes
- * `current`. To change a key, delete its entry and set a new one.
+ * A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag`
+ * and `constructor` work as on the source. Its methods read the original until the first change and
+ * then read and write a working copy of the same class, always with the built-in methods, so an
+ * override on a subclass or on the instance never runs; a Vue reactive original is read through
+ * Vue's methods. A method a subclass adds runs with the draft as `this`: it can call the draft's
+ * methods, but the subclass's constructor never initializes the draft, so `super` calls to the
+ * built-in methods and private fields throw on it, and fields the constructor sets are missing from
+ * it. Array, `Map` and `Set` drafts
+ * iterate like native collections,
+ * including `for...of`, spreading and callback methods: object values come back as drafts, a write
+ * during a walk shows up in it, and a walk that changes nothing keeps the original. `Map` keys are
+ * not drafts: a walk gives the keys as the `Map` gives them, which in Vue reactive state is Vue's
+ * proxy of the stored key. Changing a key object changes `current`. To change a key, delete its
+ * entry and set a new one.
  *
  * Draft searches count an object and its draft as the same value: `includes`, `indexOf` and
  * `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as
@@ -112,12 +116,8 @@ import { produceTypes } from './types/builtins'
  * gives them. An operand whose `has` is the built-in `Set` or `Map` method, or a Vue reactive `Set`
  * or `Map` of such an operand, finds a member whether it holds the object or its draft. Any other
  * operand's `has`, including a subclass override, receives drafts and must recognize them itself. A
- * subclass's own version of a `Set` method, such as an overridden `union`, runs with the working
- * copy as `this`, and its changes to `this` become part of the result. If that method returns a
- * plain `Set` holding members of this draft, such as the result of `super.union`, the draft returns
- * a new `Set` holding them as drafts and leaves the returned set unchanged; any other return value
- * is passed through as it is. A draft has the `Set` methods that the runtime's `Set` has when this
- * library is imported; install a polyfill for them before importing it.
+ * draft has the `Set` methods that the runtime's `Set` has when this library is imported; install a
+ * polyfill for them before importing it.
  *
  * @example
  * ```ts

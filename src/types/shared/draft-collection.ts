@@ -1,7 +1,15 @@
 import { hasOwn, isObject } from '../../object-property'
-import { normalizeCollectionInsertion, storageIdentity } from '../../adapters/vue'
+import { collectionIdentity, normalizeCollectionInsertion } from '../../adapters/vue'
 import type { BaseDraftState, ExposureFacet } from '../../types'
-import { defineData, isDataDescriptor } from '../../standard-prototypes'
+import {
+  defineData,
+  eachBuiltinEntry,
+  eachBuiltinMember,
+  forEachBuiltinEntry,
+  forEachBuiltinMember,
+  openBuiltin,
+} from '../../standard-prototypes'
+import { eachEntry, eachMember } from './collection'
 
 /**
  * Reads a collection's current working value, using its base until a copy exists.
@@ -68,20 +76,31 @@ export interface DraftCollectionWalks {
  * @remarks
  * Its prototype chain continues at the built-in's prototype, so a draft is an instance of the
  * built-in and inherits its `Symbol.toStringTag` (DraftClass.draft_instanceOf). `values`, `keys`,
- * `entries` and `forEach` call the same method of the working copy that `prepareCopy` returns, so a
- * subclass override runs where it runs natively, and give each value as `draftChild` does and each
- * key as `key` does.
+ * `entries` and `forEach` walk the working copy that `prepareCopy` returns with the built-in
+ * iterator, so no override runs, and give each value as `draftChild` does and each key as `key`
+ * does.
  */
 export function draftCollectionBase(
   builtin: object,
   prepareCopy: (state: BaseDraftState) => Map<unknown, unknown> | Set<unknown>,
   key: (state: BaseDraftState, key: unknown) => unknown,
 ): abstract new (state: BaseDraftState) => DraftCollectionWalks {
+  const map = builtin === Map.prototype
+  const open = (state: BaseDraftState, walk: 'entries' | 'keys' | 'values') =>
+    openBuiltin(prepareCopy(state), map, walk)
+  const walked = <R>(
+    state: BaseDraftState,
+    walk: 'entries' | 'keys' | 'values',
+    project: (value: never) => R,
+  ): IterableIterator<R> => {
+    const opened = open(state, walk)
+    return draftWalk(opened.iterator as Iterator<never>, project, opened.step)
+  }
   abstract class DraftCollection extends DraftStateHolder {
     /** Walks the entries, each value as its draft. */
     entries(): IterableIterator<[unknown, unknown]> {
       const state = draftState(this)
-      return draftWalk(prepareCopy(state).entries(), (entry: [unknown, unknown]) => [
+      return walked(state, 'entries', (entry: [unknown, unknown]) => [
         key(state, entry[0]),
         draftChild(state, entry[1]),
       ])
@@ -95,21 +114,28 @@ export function draftCollectionBase(
       if (typeof callback !== 'function')
         throw new TypeError('The forEach callback is not a function')
       const state = draftState(this)
-      prepareCopy(state).forEach((value: unknown, entryKey: unknown) => {
-        callback.call(thisArgument, draftChild(state, value), key(state, entryKey), this)
-      })
+      const opened = open(state, 'entries')
+      for (;;) {
+        const step = opened.step(opened.iterator) as IteratorResult<[unknown, unknown]>
+        if (step.done === true) return
+        Reflect.apply(callback, thisArgument, [
+          draftChild(state, step.value[1]),
+          key(state, step.value[0]),
+          this,
+        ])
+      }
     }
 
     /** Walks the keys. */
     keys(): IterableIterator<unknown> {
       const state = draftState(this)
-      return draftWalk(prepareCopy(state).keys(), (entryKey) => key(state, entryKey))
+      return walked(state, 'keys', (entryKey: unknown) => key(state, entryKey))
     }
 
     /** Walks the values, each object as its draft. */
     values(): IterableIterator<unknown> {
       const state = draftState(this)
-      return draftWalk(prepareCopy(state).values(), (value) => draftChild(state, value))
+      return walked(state, 'values', (value: unknown) => draftChild(state, value))
     }
   }
   Object.setPrototypeOf(DraftCollection.prototype, builtin)
@@ -117,45 +143,61 @@ export function draftCollectionBase(
   return DraftCollection
 }
 
-/** The value `key` holds on `value` or on `prototype`, its prototype, or that one's chain, read
- * without calling a getter. */
-function inherited(value: object, prototype: object | null, key: PropertyKey): unknown {
-  const own = Reflect.getOwnPropertyDescriptor(value, key)
-  if (own !== undefined) return isDataDescriptor(own) ? own.value : undefined
-  for (
-    let owner = prototype;
-    owner !== null;
-    owner = Object.getPrototypeOf(owner) as object | null
-  ) {
-    const descriptor = Reflect.getOwnPropertyDescriptor(owner, key)
-    if (descriptor !== undefined) return isDataDescriptor(descriptor) ? descriptor.value : undefined
-  }
-  return undefined
+/**
+ * Whether a `Map` or `Set` is a wrapper, such as a Vue reactive proxy, which holds no contents of
+ * its own: it is read and written through its own methods. Every other collection, including an
+ * instance of a subclass, is read and written with the built-ins, so no override runs.
+ */
+export const wrappedCollection = (collection: object, prototype?: object | null): boolean =>
+  collectionIdentity(collection, prototype) !== collection
+
+/**
+ * Calls `each` with the value and key of every entry of a `Map`, in order: through its own
+ * iterator when it is a wrapper, otherwise with the built-in `forEach`.
+ */
+export function forEachMapEntry(
+  map: object,
+  each: (value: unknown, key: unknown) => void,
+  wrapped: boolean,
+): void {
+  if (!wrapped) forEachBuiltinEntry(map, each)
+  else
+    eachEntry(map as Iterable<unknown>, (key, value) => {
+      each(value, key)
+      return false
+    })
 }
 
 /**
- * Walks a `Map` or `Set` as the built-in constructors and methods walk it: with the built-in
- * iterator, `walk`, past a subclass's override of `Symbol.iterator`.
- *
- * @remarks
- * A built-in instance is walked as itself. So is a subclass instance whose iterator is the built-in
- * `iterator`, so a wrapper such as a proxy keeps working, and a Vue reactive proxy, whose iterator
- * forwards to its raw object.
+ * Calls `each` with every member of a `Set`, in order: through its own iterator when it is a
+ * wrapper, otherwise with the built-in `forEach`.
  */
-export function builtinWalk<T>(
-  collection: Iterable<T>,
-  builtin: object,
-  iterator: unknown,
-  walk: (collection: Iterable<T>) => Iterable<T>,
-): Iterable<T> {
-  const prototype = Object.getPrototypeOf(collection) as object | null
-  // A built-in instance walks as itself, through its own iterator if it has one.
-  if (prototype === builtin) return collection
-  return inherited(collection, prototype, Symbol.iterator) === iterator ||
-    storageIdentity(collection as object) !== collection
-    ? collection
-    : walk(collection)
+export function forEachSetMember(
+  set: object,
+  each: (member: unknown) => void,
+  wrapped: boolean,
+): void {
+  if (!wrapped) forEachBuiltinMember(set, each)
+  else
+    eachMember(set as Iterable<unknown>, (member) => {
+      each(member)
+      return false
+    })
 }
+
+/** Calls `each` with each entry of a `Map` until it returns true; returns whether it did. */
+export const eachMapEntry = (
+  map: object,
+  each: (key: unknown, value: unknown) => boolean,
+  wrapped: boolean = wrappedCollection(map),
+): boolean => (wrapped ? eachEntry(map as Iterable<unknown>, each) : eachBuiltinEntry(map, each))
+
+/** Calls `each` with each member of a `Set` until it returns true; returns whether it did. */
+export const eachSetMember = (
+  set: object,
+  each: (member: unknown) => boolean,
+  wrapped: boolean = wrappedCollection(set),
+): boolean => (wrapped ? eachMember(set as Iterable<unknown>, each) : eachBuiltinMember(set, each))
 
 /** A value a draft yields: an object as its draft, as a read returns it. */
 export const draftChild = (state: BaseDraftState, value: unknown): unknown =>
@@ -180,26 +222,38 @@ const iteratorPrototype = /* @__PURE__ */ (() =>
  * iterator it has that iterator's prototype and, like it, no `return`, so leaving a loop early
  * does not end it; over a subclass's iterator it forwards `return`.
  */
-export function draftWalk<T, R>(steps: Iterator<T>, project: (value: T) => R): IterableIterator<R> {
-  const next = Reflect.get(steps, 'next') as (this: Iterator<T>) => IteratorResult<T>
+export function draftWalk<T, R>(
+  steps: Iterator<T>,
+  project: (value: T) => R,
+  // The built-in step of a native iterator, read when the module loads, called with the iterator.
+  builtinStep?: (iterator: object) => IteratorResult<unknown>,
+): IterableIterator<R> {
+  const next = (builtinStep === undefined ? Reflect.get(steps, 'next') : undefined) as (
+    this: Iterator<T>,
+  ) => IteratorResult<T>
   const prototype = Object.getPrototypeOf(steps) as object
   const native = nativeIterators.has(prototype)
-  const walk = Object.create(native ? prototype : iteratorPrototype) as IterableIterator<R>
+  const result = Object.create(native ? prototype : iteratorPrototype) as IterableIterator<R>
   const methods = {
     next: (): IteratorResult<R> => {
-      const step = next.call(steps)
+      const step =
+        builtinStep === undefined
+          ? Reflect.apply(next, steps, [])
+          : (builtinStep(steps) as IteratorResult<T>)
       // eslint-disable-next-line typescript/strict-boolean-expressions -- ToBoolean, as for...of reads done
       if (step.done) return step
       // eslint-disable-next-line perfectionist/sort-objects -- a native iterator result's key order
       return { value: project(step.value), done: false }
     },
     return: (value?: unknown): IteratorResult<R> =>
-      (Reflect.get(steps, 'return') as (value?: unknown) => IteratorResult<R>).call(steps, value),
+      Reflect.apply(Reflect.get(steps, 'return') as (value?: unknown) => IteratorResult<R>, steps, [
+        value,
+      ]),
   }
-  defineData(walk, 'next', methods.next, false)
+  defineData(result, 'next', methods.next, false)
   if (!native && Reflect.get(steps, 'return') !== undefined)
-    defineData(walk, 'return', methods.return, false)
-  return walk
+    defineData(result, 'return', methods.return, false)
+  return result
 }
 
 /**
@@ -210,7 +264,7 @@ export function draftWalk<T, R>(steps: Iterator<T>, project: (value: T) => R): I
  * layer that holds the draft's collection methods over the subclass's prototype, so methods the
  * subclass adds and `instanceof` resolve as on the source, and collection methods resolve to the
  * draft's (DraftClass.lookup_other, DraftClass.lookup_method); they act on the original, then on a
- * working copy of the same class, through its own methods, so a subclass override still runs. The
+ * working copy of the same class, with the built-in methods, so an override never runs. The
  * class's own `constructor` is removed, so `constructor` also resolves as on the source.
  */
 export function adoptDraftClass(

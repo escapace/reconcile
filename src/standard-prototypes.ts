@@ -191,50 +191,105 @@ export const nativeMapEntries: unknown = /* @__PURE__ */ (() =>
 export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
   builtinValue(Set.prototype, 'values'))()
 
-const arrayIndexOf = /* @__PURE__ */ (() => Array.prototype.indexOf)()
+const functionCall = /* @__PURE__ */ (() => builtinValue(Function.prototype, 'call'))() as (
+  ...parameters: unknown[]
+) => unknown
+const functionBind = /* @__PURE__ */ (() => builtinValue(Function.prototype, 'bind'))() as (
+  ...parameters: unknown[]
+) => unknown
+
+/**
+ * `method` as a function that takes its receiver first: calling the result with `target` and
+ * further arguments calls `method` with `target` as `this` and those arguments, as
+ * `Reflect.apply` would, without building an argument list. Built with the built-in `call` and
+ * `bind` read when the module loads; nothing it does is observable.
+ * @internal
+ */
+export const uncurried = <Arguments extends unknown[], Result>(
+  method: unknown,
+): ((target: unknown, ...parameters: Arguments) => Result) =>
+  Reflect.apply(functionBind, functionCall, [method]) as (
+    target: unknown,
+    ...parameters: Arguments
+  ) => Result
 
 /**
  * The first index of `value` in `array` by strict equality, or -1, through the built-in `indexOf`.
  * @internal
  */
-export const indexIn = (array: readonly unknown[], value: unknown): number =>
-  Reflect.apply(arrayIndexOf, array, [value])
+export const indexIn = /* @__PURE__ */ (() =>
+  uncurried<[value: unknown], number>(Array.prototype.indexOf))() as (
+  array: readonly unknown[],
+  value: unknown,
+) => number
 
 /**
- * A built-in getter, read when the module loads and called with an explicit receiver.
+ * A built-in getter, read when the module loads, as a function of its receiver.
  * @internal
  */
-function builtinGetter(prototype: object, key: PropertyKey): (target: object) => unknown {
+const builtinGetter = (prototype: object, key: PropertyKey): ((target: object) => unknown) =>
   // eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
-  const get = Object.getOwnPropertyDescriptor(prototype, key)!.get!
-  return (target) => Reflect.apply(get, target, []) as unknown
-}
+  uncurried<[], unknown>(Object.getOwnPropertyDescriptor(prototype, key)!.get)
 
-/** A built-in method of `Map` or `Set`, read when the module loads. */
-const collectionMethod = (prototype: object, key: string) =>
+/** A built-in method of `Map`, `Set` or their iterators, read when the module loads. */
+const collectionMethod = (prototype: object, key: PropertyKey) =>
   builtinValue(prototype, key) as (...parameters: unknown[]) => unknown
-const mapSet = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'set'))()
-const mapDelete = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'delete'))()
-const setAdd = /* @__PURE__ */ (() => collectionMethod(Set.prototype, 'add'))()
-const setDelete = /* @__PURE__ */ (() => collectionMethod(Set.prototype, 'delete'))()
 
 /**
- * The built-in `set`, `add` and `delete` of `Map` and `Set`, called with an explicit receiver, so
- * a subclass's override or an own property of the receiver is not called. A copy that the library
- * builds is filled with them.
+ * The built-in operations on the contents of a `Map` or `Set`, read when the module loads and
+ * called with an explicit receiver, so an override that a subclass, the instance or a patched
+ * prototype holds is never called. Every function reads and writes collection contents with them,
+ * except through a wrapper such as a Vue reactive proxy, which holds no contents of its own.
  * @internal
  */
-export const builtinMapSet = (target: object, key: unknown, value: unknown): void => {
-  Reflect.apply(mapSet, target, [key, value])
-}
+export const builtinMapGet = /* @__PURE__ */ (() =>
+  uncurried<[key: unknown], unknown>(collectionMethod(Map.prototype, 'get')))() as (
+  target: object,
+  key: unknown,
+) => unknown
 /** @internal */
-export const builtinMapDelete = (target: object, key: unknown): void => {
-  Reflect.apply(mapDelete, target, [key])
-}
+export const builtinMapHas = /* @__PURE__ */ (() =>
+  uncurried<[key: unknown], boolean>(collectionMethod(Map.prototype, 'has')))() as (
+  target: object,
+  key: unknown,
+) => boolean
 /** @internal */
-export const builtinSetAdd = (target: object, value: unknown): void => {
-  Reflect.apply(setAdd, target, [value])
-}
+export const builtinMapSet = /* @__PURE__ */ (() =>
+  uncurried<[key: unknown, value: unknown], unknown>(collectionMethod(Map.prototype, 'set')))() as (
+  target: object,
+  key: unknown,
+  value: unknown,
+) => unknown
+/** @internal */
+export const builtinMapDelete = /* @__PURE__ */ (() =>
+  uncurried<[key: unknown], boolean>(collectionMethod(Map.prototype, 'delete')))() as (
+  target: object,
+  key: unknown,
+) => boolean
+/** @internal */
+export const builtinMapClear = /* @__PURE__ */ (() =>
+  uncurried<[], unknown>(collectionMethod(Map.prototype, 'clear')))() as (target: object) => unknown
+/** @internal */
+export const builtinSetHas = /* @__PURE__ */ (() =>
+  uncurried<[value: unknown], boolean>(collectionMethod(Set.prototype, 'has')))() as (
+  target: object,
+  value: unknown,
+) => boolean
+/** @internal */
+export const builtinSetAdd = /* @__PURE__ */ (() =>
+  uncurried<[value: unknown], unknown>(collectionMethod(Set.prototype, 'add')))() as (
+  target: object,
+  value: unknown,
+) => unknown
+/** @internal */
+export const builtinSetDelete = /* @__PURE__ */ (() =>
+  uncurried<[value: unknown], boolean>(collectionMethod(Set.prototype, 'delete')))() as (
+  target: object,
+  value: unknown,
+) => boolean
+/** @internal */
+export const builtinSetClear = /* @__PURE__ */ (() =>
+  uncurried<[], unknown>(collectionMethod(Set.prototype, 'clear')))() as (target: object) => unknown
 /** The built-in `size` getters of `Map` and `Set`. @internal */
 export const builtinMapSize = /* @__PURE__ */ (() => builtinGetter(Map.prototype, 'size'))() as (
   target: object,
@@ -243,9 +298,124 @@ export const builtinMapSize = /* @__PURE__ */ (() => builtinGetter(Map.prototype
 export const builtinSetSize = /* @__PURE__ */ (() => builtinGetter(Set.prototype, 'size'))() as (
   target: object,
 ) => number
+
+/** The built-in openers of `Map` and `Set` iterators and the built-in `next` of each. */
+type Opener = (collection: object) => object
+/** The built-in `next` of a native iterator, as a function of the iterator. */
+export type Step = (iterator: object) => IteratorResult<unknown>
+const opener = (prototype: object, key: string): Opener =>
+  uncurried<[], object>(collectionMethod(prototype, key))
+/**
+ * Opens the built-in iterator of a `Map`'s entries or a `Set`'s members; the matching step
+ * advances it.
+ * @internal
+ */
+export const openMapEntries = /* @__PURE__ */ (() => uncurried<[], object>(nativeMapEntries))()
 /** @internal */
-export const builtinSetDelete = (target: object, value: unknown): void => {
-  Reflect.apply(setDelete, target, [value])
+export const openSetValues = /* @__PURE__ */ (() => uncurried<[], object>(nativeSetValues))()
+/** @internal */
+export const mapStep = /* @__PURE__ */ (() =>
+  uncurried<[], IteratorResult<unknown>>(
+    collectionMethod(Object.getPrototypeOf(new Map().entries()) as object, 'next'),
+  ))() as Step
+/** @internal */
+export const setStep = /* @__PURE__ */ (() =>
+  uncurried<[], IteratorResult<unknown>>(
+    collectionMethod(Object.getPrototypeOf(new Set().values()) as object, 'next'),
+  ))() as Step
+
+const mapForEach = /* @__PURE__ */ (() =>
+  uncurried<[each: (value: unknown, key: unknown) => void], undefined>(
+    collectionMethod(Map.prototype, 'forEach'),
+  ))()
+const setForEach = /* @__PURE__ */ (() =>
+  uncurried<[each: (member: unknown) => void], undefined>(
+    collectionMethod(Set.prototype, 'forEach'),
+  ))()
+
+/**
+ * Calls `each` with the value and key of every entry of a `Map`, in order, as the built-in
+ * `forEach` calls it: a walk of the whole `Map` that makes no iterator.
+ * @internal
+ */
+export const forEachBuiltinEntry = (
+  map: object,
+  each: (value: unknown, key: unknown) => void,
+): void => {
+  mapForEach(map, each)
+}
+
+/**
+ * Calls `each` with every member of a `Set`, in order, with the built-in `forEach`.
+ * @internal
+ */
+export const forEachBuiltinMember = (set: object, each: (member: unknown) => void): void => {
+  setForEach(set, each)
+}
+
+/**
+ * Calls `each` with the key and value of each entry of a `Map`, walked by the built-in iterator,
+ * until `each` returns true; returns whether it did. The iterator is fresh and native: its steps
+ * and `[key, value]` pairs are read by the built-ins, which nothing can observe, and it has no
+ * `return` to close.
+ * @internal
+ */
+export function eachBuiltinEntry(
+  map: object,
+  each: (key: unknown, value: unknown) => boolean,
+): boolean {
+  const iterator = openMapEntries(map)
+  for (;;) {
+    const step = mapStep(iterator) as IteratorResult<readonly [unknown, unknown]>
+    if (step.done === true) return false
+    if (each(step.value[0], step.value[1])) return true
+  }
+}
+
+/**
+ * Calls `each` with each member of a `Set`, walked by the built-in iterator, until `each` returns
+ * true; returns whether it did.
+ * @internal
+ */
+export function eachBuiltinMember(set: object, each: (member: unknown) => boolean): boolean {
+  const iterator = openSetValues(set)
+  for (;;) {
+    const step = setStep(iterator)
+    if (step.done === true) return false
+    if (each(step.value)) return true
+  }
+}
+
+const openMapKeys = /* @__PURE__ */ (() => opener(Map.prototype, 'keys'))()
+const openMapValues = /* @__PURE__ */ (() => opener(Map.prototype, 'values'))()
+const openSetEntries = /* @__PURE__ */ (() => opener(Set.prototype, 'entries'))()
+
+/** A fresh native iterator over a `Map` or `Set` and the built-in `next` that steps it. */
+export interface BuiltinIterator {
+  readonly iterator: object
+  readonly step: Step
+}
+
+/**
+ * Opens the built-in `entries`, `keys` or `values` iterator of a `Map` (`map`) or a `Set`. A
+ * `Set`'s keys are its values.
+ * @internal
+ */
+export function openBuiltin(
+  collection: object,
+  map: boolean,
+  walk: 'entries' | 'keys' | 'values',
+): BuiltinIterator {
+  const open = map
+    ? walk === 'entries'
+      ? openMapEntries
+      : walk === 'keys'
+        ? openMapKeys
+        : openMapValues
+    : walk === 'entries'
+      ? openSetEntries
+      : openSetValues
+  return { iterator: open(collection), step: map ? mapStep : setStep }
 }
 
 /** Marks the end of an iteration in {@link stepIterator}; no iterator can yield it. */

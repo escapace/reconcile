@@ -1,6 +1,6 @@
 import { assert, it } from 'vitest'
 
-import { isReconcileError, isReconcileErrorOfType, produce, reconcile } from '../index'
+import { isReconcileError, isReconcileErrorOfType, produce, reconcile, snapshot } from '../index'
 
 it.each(['__v_raw', '__v_isReactive', '__v_isReadonly'] as const)(
   'does not invoke an inherited application getter for %s while resolving storage',
@@ -95,3 +95,39 @@ it('rejects two fresh targets whose wrapper markers resolve to one storage', () 
   }
   rejected(() => reconcile({ a: { n: 9 } }, next))
 })
+
+// A Map or Set is asked whether it is a Vue wrapper with fewer reads than an ordinary object, and
+// still never through an application getter of a marker.
+it.each(['map', 'set'] as const)(
+  'does not invoke an inherited marker getter of a %s in any function',
+  (kind) => {
+    let reads = 0
+    const define = (prototype: object) =>
+      Object.defineProperty(prototype, '__v_raw', {
+        get() {
+          reads += 1
+          throw new Error('Application marker getter was invoked')
+        },
+      })
+    class Marked extends Map<unknown, unknown> {}
+    class Members extends Set<unknown> {}
+    define(Marked.prototype)
+    define(Members.prototype)
+    const make = (value: number) =>
+      kind === 'map' ? new Marked([['a', { value }]]) : new Members([value, { value }])
+    const current = { collection: make(1) }
+    const kept = current.collection
+    const copy = snapshot(current) as typeof current
+    reconcile(current, { collection: make(2) })
+    const result = produce(current, (draft) => {
+      const collection = draft.collection as Map<unknown, unknown> & Set<unknown>
+      if (kind === 'map') collection.set('b', 3)
+      else collection.add(3)
+      return draft
+    })
+    assert.equal(reads, 0)
+    assert.equal(current.collection, kept)
+    assert.notEqual(copy.collection, kept)
+    assert.equal(result.collection.size, kind === 'map' ? 2 : 3)
+  },
+)

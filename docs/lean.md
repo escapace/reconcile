@@ -178,10 +178,12 @@ read-only; on an ordinary object that is the modelled assignment (`assignStrict_
 proxy whose `set` trap refuses a write is not overridden.
 
 `CollectionPlan` models a `Map` or `Set` as its entries in insertion order, with the built-in
-`set` keeping an existing key in place. Publication keeps each entry up to the first position whose
-key differs, setting only changed values, then deletes the current entries from there and appends
-the next ones; with duplicate-free keys this reaches exactly the next entries (`plan_eq`), and a put
-of an entry's own value changes nothing (`put_same`), so the runtime skips it.
+`set` keeping an existing key in place; `reconcile` uses the built-in methods, and for a Vue
+collection proxy the premise is assumed (see _Built-in contents_ below). Publication keeps each
+entry up to the first position whose key differs, setting only changed values, then deletes the
+current entries from there and appends the next ones; with duplicate-free keys this reaches exactly
+the next entries (`plan_eq`), and a put of an entry's own value changes nothing (`put_same`), so the
+runtime skips it.
 
 `PropertyPlacement` shows that publication's key order is best effort and never rejects early: a
 placement keeping every fixed key exists exactly when greedy matching keeps them (`feasible_iff`),
@@ -515,9 +517,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   between its observation and a later read of the kept object. The DraftSurface bridge checks
   admission and reuse.
 - **Draft class.** `Map.prototype`, `Set.prototype` and a subclass's prototype are not modified
-  during a call, and the layer the runtime builds holds exactly the draft class's methods; a
-  subclass override of a collection method behaves on a native collection of its class. The
-  DraftClass bridge checks resolution and `instanceof`.
+  during a call, and the layer the runtime builds holds exactly the draft class's methods, which
+  read the original and read and write the working copy with the built-ins, so an override on a
+  subclass or the instance never runs; Vue reactive state is read through Vue's methods (see
+  _Built-in contents_). The DraftClass bridge checks resolution and `instanceof`.
 - **Draft iteration.** The working copy is a native collection whose iterator follows the
   collection's own insertion order and changes; Lean models entries as an ordered list. The
   DraftIteration bridge checks walks and results on a `Map`.
@@ -532,9 +535,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   the key iterator where the specification does; native tests compare the calls, errors and results
   with native `Set` methods on operands that change the set. A native `Set` or `Map` operand is
   asked for each form of a member, which its `has` cannot observe; any other operand's `has`
-  receives the draft. The draft's members and size are read as the native methods read them, past
-  a subclass's iterator and `size`. The DraftSetMethods bridge checks results, and that a result
-  holds this draft's object members as drafts.
+  receives the draft. The draft's members and size are read with the built-ins, past a subclass's
+  iterator and `size`, and the draft runs the built-in algorithm even when the class overrides the
+  method. The DraftSetMethods bridge checks results, and that a result holds this draft's object
+  members as drafts.
 - **Copy prototypes.** A copy takes the source's prototype as read once at capture, and
   `Object.setPrototypeOf` on the fresh copy succeeds. Each kind's standard prototype is its live
   constructor's `prototype`, which does not change during a call. The CopyPrototype bridge checks
@@ -547,15 +551,36 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   [AGENTS.md](../AGENTS.md) and `src/standard-prototypes.ts`. The `Uint8Array` base64 methods and
   the global `Temporal` are read as own properties. Built-in methods captured when the module
   loads are read through `builtinValue`, which calls the getter a hardened runtime puts in place
-  of a method; `standard-prototypes.spec.ts` runs every function on every value kind under
-  `node --frozen-intrinsics` and requires the outcomes of an ordinary runtime. A user collection is walked with the
-  `for...of` and destructuring protocol (`stepIterator`, `entryPair`, `closeIterator`), except that
-  a `return` only `Object.prototype` holds is neither read nor called; a fresh iterator from a
-  built-in `Map` or `Set` method is stepped directly. A user array's hole is asked of the array
-  itself (`hasElement`) when a standard prototype holds that index; otherwise `in` is the only
-  observation. `standard-prototypes.spec.ts` plants each internal and protocol name on both
-  prototypes in a child process. An index accessor or read-only index on a standard prototype, and
-  a replaced built-in method, are outside this obligation.
+  of a method, and are called with an explicit receiver; `standard-prototypes.spec.ts` runs every
+  function on every value kind under `node --frozen-intrinsics` and requires the outcomes of an
+  ordinary runtime. A Vue collection proxy, whose contents are not read with the built-ins, is
+  walked with the `for...of` and destructuring protocol (`stepIterator`, `entryPair`,
+  `closeIterator`), except that a `return` only `Object.prototype` holds is neither read nor
+  called; a `Set` method operand's keys are stepped as the specification steps them and closed in
+  the same way. A user
+  array's hole is
+  asked of the array itself (`hasElement`) when a standard prototype holds that index; otherwise
+  `in` is the only observation. `standard-prototypes.spec.ts` plants each internal and protocol
+  name on both prototypes in a child process. An index accessor or read-only index on a standard
+  prototype, a built-in method replaced before the module loads, and a replacement, at any time,
+  of a built-in method the runtime calls on its own tables are outside this obligation.
+- **Built-in contents.** The runtime reads and writes the contents of a `Map`, `Set`, `Date`,
+  buffer, view, `URL` or `URLSearchParams` only with the functions captured when the module loads,
+  which are assumed to be the built-ins (see _Intrinsic independence_ for one replaced earlier);
+  this establishes the built-in insertion premise of `CollectionPlan` and the serialization
+  `Collection` model. A `Map` or `Set` is walked with the built-in `forEach`, or with a fresh
+  built-in iterator stepped by the built-in `next`. `builtin-contents.spec.ts` checks that no
+  override runs, whether a subclass, the instance or a change to a standard prototype after the
+  module loads supplies it. Exception: a Vue collection proxy, recognized by `collectionIdentity`
+  through its raw marker, is used through Vue's methods, which call the raw object's methods; the
+  premise then assumes that the raw object's methods, overrides included, behave as the built-ins
+  do. `reconcile`'s readback, which reads through the same methods, rejects a result whose reported
+  entries differ from the plan; `produce` throws when, as a draft adds an entry, a Vue collection
+  reports another raw object or does not return the key just added (`draftWrapperIdentityChanged`,
+  `draftWrapperIteratorMismatched`); `snapshot` and `serialize` check nothing. The runtime reads
+  the global `Temporal` and its `from` in each call that needs them, so a polyfill installed after
+  import works; a `Duration` is compared field by field and any other Temporal value with `equals`
+  on the copy that `from` returns.
 
 ### Native types
 

@@ -262,7 +262,9 @@ describe('Set draft methods follow the native algorithms', () => {
       })
   })
 
-  it("runs a subclass's override and an operand's own has", () => {
+  // The draft runs the native algorithm, not a subclass's override of it, while an operand is read
+  // as the native methods read it, through its own `has`.
+  it("runs the native algorithm past a subclass's override and an operand's own has", () => {
     class Tags extends Set<unknown> {
       override union<U>(other: ReadonlySetLike<U>): Set<unknown> {
         return new Set(['override', ...super.union(other)])
@@ -274,7 +276,7 @@ describe('Set draft methods follow the native algorithms', () => {
       }
     }
     produce({ plain: new Set(['A']), tags: new Tags(['a']) }, (draft) => {
-      assert.deepEqual([...draft.tags.union(new Set())], ['override', 'a'])
+      assert.deepEqual([...draft.tags.union(new Set())], ['a'])
       assert.isTrue(draft.plain.isSubsetOf(new Folded(['a'])))
       return draft
     })
@@ -322,7 +324,9 @@ describe('Map and Set draft iterators behave like native iterators', () => {
     )
   })
 
-  it('run a subclass override where it runs natively', () => {
+  // A draft walks its working copy with the built-in iterator, so a subclass's override of a walk
+  // never runs, whereas it runs natively on the subclass.
+  it('never run a subclass override of a walk', () => {
     const calls: string[] = []
     class Tags extends Set<number> {
       override forEach(...parameters: Parameters<Set<number>['forEach']>): void {
@@ -352,12 +356,11 @@ describe('Map and Set draft iterators behave like native iterators', () => {
       void [...tags.keys(), ...entries.entries()]
       return [...calls]
     }
-    const native = run(new Tags([1]), new Entries([[1, 1]]))
     produce({ entries: new Entries([[1, 1]]), tags: new Tags([1]) }, (draft) => {
-      assert.deepEqual(run(draft.tags, draft.entries), native)
+      assert.deepEqual(run(draft.tags, draft.entries), [])
       return draft
     })
-    assert.deepEqual(native, ['forEach', 'keys', 'entries'])
+    assert.deepEqual(run(new Tags([1]), new Entries([[1, 1]])), ['forEach', 'keys', 'entries'])
   })
 
   it('check the forEach callback before walking, as natively', () => {
@@ -402,7 +405,7 @@ describe('Set draft methods keep native results in corner cases', () => {
     })
   })
 
-  it("give a subclass override's result members as drafts and keep its writes", () => {
+  it("give the native result's members as drafts, past a subclass's override", () => {
     class Tagged extends Set<unknown> {
       override union<U>(other: ReadonlySetLike<U>): Set<unknown> {
         this.add('side')
@@ -417,7 +420,7 @@ describe('Set draft methods keep native results in corner cases', () => {
       return draft
     })
     assert.equal(member.n, 1)
-    assert.deepEqual([...Set.prototype.values.call(result.tags)], [{ n: 2 }, 'side'])
+    assert.deepEqual([...Set.prototype.values.call(result.tags)], [{ n: 2 }])
   })
 
   it('find a member added in Vue reactive state after a walk', () => {
@@ -485,43 +488,22 @@ describe('draft iterators end as for...of ends them', () => {
 
 /* eslint-disable baseline-js/use-baseline -- the draft's own Set methods, compared with native ones */
 describe("a subclass's own Set method", () => {
-  it('never changes the set it returns', () => {
-    class Passing extends Set<unknown> {
+  it('never runs: the draft runs the native algorithm', () => {
+    class Labelled extends Set<unknown> {
       override union<U>(other: ReadonlySetLike<U>): Set<unknown> {
         return other as unknown as Set<unknown>
       }
     }
     const member = { n: 1 }
     const outside = new Set([member])
-    const current = { other: new Set([member]), tags: new Passing([member]) }
-    produce(current, (draft) => {
-      assert.equal(draft.tags.union(outside), outside)
-      assert.equal(draft.tags.union(current.other), current.other)
-      assert.equal(draft.tags.union(draft.other), draft.other)
+    produce({ tags: new Labelled([member]) }, (draft) => {
+      const union = draft.tags.union(outside)
+      assert.notEqual(union, outside)
+      assert.equal(Object.getPrototypeOf(union), Set.prototype)
+      assert.equal(union.size, 1)
       return draft
     })
     assert.deepEqual([...outside], [member])
-    assert.deepEqual([...current.other], [member])
-  })
-
-  it('keeps a set of its own class as the override built it', () => {
-    class Labelled extends Set<unknown> {
-      readonly #label: string
-      constructor(members?: Iterable<unknown>, label = 'none') {
-        super(members)
-        this.#label = label
-      }
-      label(): string {
-        return this.#label
-      }
-      override union<U>(other: ReadonlySetLike<U>): Set<unknown> {
-        return new Labelled(super.union(other), 'union')
-      }
-    }
-    produce({ tags: new Labelled([{ n: 1 }]) }, (draft) => {
-      assert.equal((draft.tags.union(new Set([1])) as Labelled).label(), 'union')
-      return draft
-    })
   })
 
   it('walk a subclass instance with an own iterator as the built-in methods do', () => {
@@ -558,26 +540,27 @@ const bind = <T extends object>(target: T): T =>
   })
 
 describe('Map and Set subclass drafts', () => {
-  it('keep a proxy that binds methods to its Set or Map working', () => {
+  // A proxy of a Map or Set, other than Vue's, holds no entries of its own, so the built-in
+  // methods that read and write collections reject it, even when the proxy binds its methods.
+  it("reject a proxy of a Set or Map with the built-ins' native TypeError", () => {
     class Tags extends Set<unknown> {}
     class Index extends Map<unknown, unknown> {}
-    const result = produce(
-      { index: bind(new Index([[1, 1]])), other: { n: 1 }, tags: bind(new Tags([1])) },
-      (draft) => {
-        draft.other.n = 2
-        draft.index.set(2, 2)
-        draft.tags.add(2)
-        return draft
-      },
+    assert.throws(
+      () =>
+        produce({ index: bind(new Index([[1, 1]])) }, (draft) => {
+          draft.index.set(2, 2)
+          return draft
+        }),
+      TypeError,
     )
-    assert.deepEqual(
-      [...result.index],
-      [
-        [1, 1],
-        [2, 2],
-      ],
+    assert.throws(
+      () =>
+        produce({ tags: bind(new Tags([1])) }, (draft) => {
+          draft.tags.add(2)
+          return draft
+        }),
+      TypeError,
     )
-    assert.deepEqual([...result.tags], [1, 2])
   })
 
   it("decide membership with the built-in has, as the built-in methods do, past a subclass's", () => {
@@ -594,7 +577,7 @@ describe('Map and Set subclass drafts', () => {
     assert.deepEqual([...result.letters], ['a', 'A'])
   })
 
-  it("keep a subclass's writes whatever its delete returns", () => {
+  it("delete a member with the built-in delete, past a subclass's override", () => {
     class Quiet extends Set<number> {
       override delete(value: number): boolean {
         super.delete(value)
@@ -610,7 +593,8 @@ describe('Map and Set subclass drafts', () => {
     assert.deepEqual([...result.numbers], [2])
   })
 
-  it("find keys a subclass's set adds in Vue reactive state", () => {
+  // A draft writes its working copy with the built-ins, so a subclass's `set` never runs on it.
+  it("never run a subclass's set on the working copy in Vue reactive state", () => {
     const first = { n: 1 }
     const derived = { n: 2 }
     class Linked extends Map<object, unknown> {
@@ -622,7 +606,8 @@ describe('Map and Set subclass drafts', () => {
     produce(reactive({ links: new Linked([[first, 1]]) }), (draft) => {
       for (const _ of draft.links);
       draft.links.set(first, 2)
-      assert.equal(draft.links.get(reactive(derived)), 'derived')
+      assert.equal(draft.links.get(reactive(derived)), undefined)
+      assert.equal(draft.links.get(first), 2)
       return draft
     })
   })

@@ -63,7 +63,7 @@ describe('native candidate constraint compiler', () => {
     expect(domains[2][selected[2]].identity).toBe(child)
     expect(child.n).toBe(0)
   })
-  it('observes only object-aligned Map tuple slots during candidate discovery', () => {
+  it('aligns Map entries from the built-in contents, never through an own entries method', () => {
     const child = { n: 0 }
     const events: string[] = []
     const entry: [string, object] = ['key', child]
@@ -87,12 +87,12 @@ describe('native candidate constraint compiler', () => {
       return undefined
     }
     const { domains } = problem(current, new Map([['key', { n: 1 }]]))
-    expect(events).toEqual(['value'])
+    expect(events).toEqual([])
     const selected = selections(domains).next().value
     assert(selected !== undefined)
     expect(domains[1][selected[1]].identity).toBe(child)
   })
-  it('does not coerce collection sizes into a successful native readback', () => {
+  it('reads collection sizes with the built-in getter, never an own size', () => {
     for (const current of [new Map([['key', 1]]), new Set(['key'])]) {
       const node = capture(builtinTypes, current).nodes[0]
       let coercions = 0
@@ -110,7 +110,7 @@ describe('native candidate constraint compiler', () => {
           current,
           (actual, edge) => !isNode(edge) && Object.is(actual, atomValue(edge)),
         ),
-      ).toBe(false)
+      ).toBe(true)
       expect(coercions).toBe(0)
     }
   })

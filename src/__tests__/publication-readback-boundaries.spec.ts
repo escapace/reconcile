@@ -133,20 +133,38 @@ it('repairs an object whose setter introduces an unwanted own property', () => {
   assert.deepEqual(next, { child: { n: 1 } })
 })
 
+// reconcile writes a Map or Set with the built-ins, so an own `set` or `add` that misbehaves is
+// never called and the kept object takes the next entries.
+it('updates a kept Map or Set with the built-ins, never through a misbehaving own method', () => {
+  const map = new Map([['old', 0]])
+  const set = new Set([0])
+  let calls = 0
+  Object.defineProperty(map, 'set', { value: () => (calls += 1) })
+  Object.defineProperty(set, 'add', { value: () => (calls += 1) })
+  const current = { map, set }
+  assert.equal(reconcile(current, { map: new Map([['wanted', 1]]), set: new Set([1]) }), current)
+  assert.equal(current.map, map)
+  assert.equal(current.set, set)
+  assert.deepEqual([...map], [['wanted', 1]])
+  assert.deepEqual([...set], [1])
+  assert.equal(calls, 0)
+})
+
+// Through a Vue reactive proxy, which Vue's methods forward to the raw object's own `set` or
+// `add`, a write that misbehaves is caught by readback and the position gets a new copy.
 it.each(['missing entry', 'wrong key', 'wrong value'] as const)(
-  'repairs a Map whose set operation leaves a %s',
+  'repairs a Vue reactive Map whose set operation leaves a %s',
   (failure) => {
-    const blocked = new Map([['old', 0]])
-    Object.defineProperty(blocked, 'set', {
-      value(key: string, value: number) {
-        if (failure === 'missing entry') return blocked
-        return Map.prototype.set.call(
-          blocked,
+    class Blocked extends Map<string, number> {
+      override set(key: string, value: number): this {
+        if (failure === 'missing entry') return this
+        return super.set(
           failure === 'wrong key' ? 'wrong' : key,
           failure === 'wrong value' ? 9 : value,
         )
-      },
-    })
+      }
+    }
+    const blocked = reactive(new Blocked([['old', 0]]))
     const current = { left: blocked, right: blocked }
     const next = new Map([['wanted', 1]])
     assert.equal(reconcile(current, { left: next, right: next }), current)
@@ -158,14 +176,14 @@ it.each(['missing entry', 'wrong key', 'wrong value'] as const)(
 )
 
 it.each(['missing member', 'wrong member'] as const)(
-  'repairs a Set whose add operation leaves a %s',
+  'repairs a Vue reactive Set whose add operation leaves a %s',
   (failure) => {
-    const blocked = new Set([0])
-    Object.defineProperty(blocked, 'add', {
-      value() {
-        return failure === 'missing member' ? blocked : Set.prototype.add.call(blocked, 9)
-      },
-    })
+    class Blocked extends Set<number> {
+      override add(value: number): this {
+        return failure === 'missing member' ? this : super.add(value === 1 ? 9 : value)
+      }
+    }
+    const blocked = reactive(new Blocked([0]))
     const current = { left: blocked, right: blocked }
     const next = new Set([1])
     assert.equal(reconcile(current, { left: next, right: next }), current)
@@ -214,11 +232,16 @@ it('repairs a buffer after a later publication changes its bytes', () => {
 })
 
 it('throws rather than reporting success when a root Map cannot publish its entries', () => {
-  const current = new Map([['old', 0]])
-  Object.defineProperty(current, 'set', { value: () => current })
+  class Blocked extends Map<string, number> {
+    override set(): this {
+      return this
+    }
+  }
+  const raw = new Blocked([['old', 0]])
+  const current = reactive(raw)
   const next = new Map([['wanted', 1]])
   assert.throws(() => reconcile(current, next), ReconcileError)
-  assert.equal(current.size, 0)
+  assert.equal(raw.size, 0)
   assert.deepEqual([...next], [['wanted', 1]])
 })
 

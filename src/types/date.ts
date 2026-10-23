@@ -1,3 +1,4 @@
+import { builtinValue, uncurried } from '../standard-prototypes'
 import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings, same, yes } from './shared/empty'
 import type { SpecialPolicy } from '../types'
@@ -16,13 +17,12 @@ import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 // The built-in time accessors: a subclass override or a patched prototype is never called, as
 // for buffers and URLs.
-// eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
-const dateGetTime = /* @__PURE__ */ (() => Date.prototype.getTime)()
-// eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
-const dateSetTime = /* @__PURE__ */ (() => Date.prototype.setTime)()
+const dateSetTime = /* @__PURE__ */ (() =>
+  uncurried<[time: number], number>(builtinValue(Date.prototype, 'setTime')))()
 
 /** A date's time, read with the built-in method. */
-export const timeOf = (value: object): number => Reflect.apply(dateGetTime, value, [])
+export const timeOf = /* @__PURE__ */ (() =>
+  uncurried<[], number>(builtinValue(Date.prototype, 'getTime')))() as (value: object) => number
 
 /** Stable global identity owned by the date module. */
 export const DATE_KIND = Symbol.for('@escapace/reconcile/date')
@@ -64,8 +64,7 @@ export const datePublication = /* @__PURE__ */ (() =>
     matches: (node, current) => Object.is(timeOf(current), node.layout.time),
     // Only a changed time is written.
     publish(node, current) {
-      if (!Object.is(timeOf(current), node.layout.time))
-        Reflect.apply(dateSetTime, current, [node.layout.time])
+      if (!Object.is(timeOf(current), node.layout.time)) dateSetTime(current, node.layout.time)
       return true
     },
   }))() satisfies PublicationPolicy<DateLayout>

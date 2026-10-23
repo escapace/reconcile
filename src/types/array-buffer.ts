@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import { defineType } from './registry'
 import { bufferEquivalent } from './shared/bytes'
-import { bufferByteLength, copyBuffer } from './shared/binary-native'
+import { bufferByteLength, copyBuffer, copyBytes } from './shared/binary-native'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 /** Stable global identity owned by the array-buffer module. */
@@ -49,7 +49,7 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
       bufferByteLength(current) === bufferByteLength(node.layout.bytes),
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
     publish(node, current) {
-      new Uint8Array(current as ArrayBuffer).set(new Uint8Array(node.layout.bytes))
+      copyBytes(current as ArrayBuffer, node.layout.bytes)
       return true
     },
   }))() satisfies PublicationPolicy<ArrayBufferLayout>

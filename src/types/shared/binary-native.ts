@@ -1,5 +1,6 @@
 import { adoptPrototype } from './prototype'
 import { inChain } from '../../object-property'
+import { builtinValue, uncurried } from '../../standard-prototypes'
 
 /**
  * Buffers and views read and built through the built-in accessors and constructors: a getter or
@@ -67,6 +68,25 @@ export const isShared = (buffer: object): boolean =>
 export const bufferByteLength = (buffer: object): number =>
   Reflect.apply(isShared(buffer) ? sharedLength! : bufferLength, buffer, []) as number
 
+// The built-in `set` of typed arrays, read when the module loads.
+const typedSet = /* @__PURE__ */ (() =>
+  uncurried<[source: ArrayBufferView, offset?: number], undefined>(
+    builtinValue(typedPrototype, 'set'),
+  ))()
+
+/** Copies the bytes of `source` to the start of `target`, which holds at least as many, with the
+ * built-in `set`. */
+export const copyBytes = (target: ArrayBufferLike, source: ArrayBufferLike): void => {
+  typedSet(new Uint8Array(target), new Uint8Array(source))
+}
+
+/** A new buffer holding the `length` bytes of `buffer` from `offset`. */
+export function sliceBytes(buffer: ArrayBuffer, offset: number, length: number): ArrayBuffer {
+  const copy = new ArrayBuffer(length)
+  typedSet(new Uint8Array(copy), new Uint8Array(buffer, offset, length))
+  return copy
+}
+
 /**
  * A copy of a buffer's bytes on the buffer's prototype, made without calling its constructor, as
  * `slice` would through `Symbol.species`. A resizable buffer's copy is resizable to the same
@@ -75,7 +95,7 @@ export const bufferByteLength = (buffer: object): number =>
 export function copyBuffer(buffer: object): ArrayBuffer {
   if (isShared(buffer)) return buffer as ArrayBuffer
   const copy = emptyBuffer(buffer, bufferByteLength(buffer))
-  new Uint8Array(copy).set(new Uint8Array(buffer as ArrayBuffer))
+  copyBytes(copy, buffer as ArrayBuffer)
   return adoptPrototype(copy, Object.getPrototypeOf(buffer) as object | null, ArrayBuffer.prototype)
 }
 

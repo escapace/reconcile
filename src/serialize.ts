@@ -16,7 +16,8 @@ import { encodeGraph as encode } from './serialization/encode'
  * `serialize` calls each getter once, in depth-first order, with the object being encoded as
  * `this`. An array, `Map` or `Set` is encoded from its elements or entries; its other own
  * properties, whatever their key or enumerability, are not encoded, and their getters are not
- * called. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its
+ * called. A `Map` or `Set` is read with the built-in methods, never an override on the instance, or
+ * through Vue's methods when it is Vue reactive. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its
  * built-in value; its own and overriding properties are not read and are not encoded. Callers must
  * not modify standard built-ins or prototypes during the call, including inside getters.
  *

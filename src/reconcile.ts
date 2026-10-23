@@ -25,12 +25,13 @@ import { publicationTypes } from './types/builtins'
  * Dates, buffers and views at matched positions take the next value's time or bytes, and buffer
  * sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's
  * text, including parameter order and duplicate names, and a URL keeps its own `searchParams`
- * object. An equal Temporal value is kept, and a changed one at a nested position is replaced. A
- * `Map` or `Set` is read, and a kept one updated, through its own methods, so a subclass's
- * overrides run; a new copy is filled with the built-in methods. Arrays, `Map`, `Set`, dates,
- * binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text:
- * their other own properties, such as fields that a subclass declares, are not updated on a kept
- * object and are not copied to a new one.
+ * object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The
+ * contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written
+ * with the built-in methods, so an override on a subclass or on the instance never runs; a Vue
+ * reactive `Map` or `Set` is used through Vue's methods. Arrays, `Map`, `Set`, dates, binary data,
+ * URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own
+ * properties, such as fields that a subclass declares, are not updated on a kept object and are not
+ * copied to a new one.
  *
  * A changed own property is written by assignment, as application code writes it, so an own setter
  * runs and an own getter or setter is kept; a configurable read-only property is redefined with the

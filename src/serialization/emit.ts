@@ -139,6 +139,7 @@ export function frame(id: number, tag: number, detail: number | undefined, value
     row: undefined,
     runs: -1,
     state: undefined,
+    step: undefined,
     tag,
     value,
   } as unknown as Frame

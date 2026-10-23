@@ -58,15 +58,18 @@ describe('serialization collection iteration', () => {
     expect([...result]).toEqual([{ value: 1 }, 'middle'])
   })
 
-  it('uses SameValueZero for repeated keys from an overridden iterator', () => {
-    const source = new Map<unknown, unknown>()
+  // serialize reads a Map's entries and a Set's members with the built-ins, so an override of
+  // `entries` or `values` is never called.
+  it("encodes a Map's built-in entries, never an overridden entries method", () => {
+    const source = new Map<unknown, unknown>([
+      [NaN, 4],
+      // eslint-disable-next-line perfectionist/sort-maps -- the order is the case
+      [-0, 5],
+      ['middle', 3],
+    ])
     Object.defineProperty(source, 'entries', {
       *value() {
-        yield [NaN, 1]
-        yield [-0, 2]
-        yield ['middle', 3]
-        yield [NaN, 4]
-        yield [0, 5]
+        yield ['junk', 0]
       },
     })
     const result = decodeText(encodeText(source)) as Map<unknown, unknown>
@@ -77,41 +80,25 @@ describe('serialization collection iteration', () => {
     ])
   })
 
-  it('uses SameValueZero for repeated members from an overridden iterator', () => {
-    const source = new Set<unknown>()
+  it("encodes a Set's built-in members, never an overridden values method", () => {
+    // eslint-disable-next-line perfectionist/sort-sets -- the order is the case
+    const source = new Set<unknown>([NaN, -0, 'middle'])
     Object.defineProperty(source, 'values', {
       *value() {
-        yield NaN
-        yield -0
-        yield 'middle'
-        yield NaN
-        yield 0
+        yield 'junk'
       },
     })
     const result = decodeText(encodeText(source)) as Set<unknown>
     expect([...result]).toEqual([NaN, 0, 'middle'])
   })
 
-  it('preserves aliases, cycles and distinct equal objects across repeated entries', () => {
+  it('preserves aliases, cycles and distinct equal objects across entries', () => {
     const shared = { value: 1 }
     const equal = { value: 1 }
     const map = new Map<unknown, unknown>()
-    Object.defineProperty(map, 'entries', {
-      *value() {
-        yield [shared, shared]
-        yield [equal, map]
-        yield [shared, map]
-      },
-    })
+    map.set(shared, map).set(equal, map)
     const set = new Set<unknown>()
-    Object.defineProperty(set, 'values', {
-      *value() {
-        yield shared
-        yield set
-        yield equal
-        yield shared
-      },
-    })
+    set.add(shared).add(set).add(equal)
     const source = { equal, map, set, shared }
     const result = decodeText(encodeText(source)) as typeof source
     expect(result.shared).not.toBe(result.equal)
@@ -121,29 +108,21 @@ describe('serialization collection iteration', () => {
     expect([...result.set]).toEqual([result.shared, result.set, result.equal])
   })
 
-  it('traverses repeated values and preserves abrupt completion cleanup', () => {
+  it("lets a value's exception through the built-in walk of a Map", () => {
     const trace: string[] = []
-    const failure = new Error('repeated value getter')
-    const source = new Map<unknown, unknown>()
-    Object.defineProperty(source, 'entries', {
-      *value() {
-        try {
-          yield ['key', 1]
-          yield [
-            'key',
-            {
-              get value() {
-                trace.push('repeated')
-                throw failure
-              },
-            },
-          ]
-          trace.push('unreachable')
-        } finally {
-          trace.push('close')
-        }
-      },
-    })
+    const failure = new Error('value getter')
+    const source = new Map<unknown, unknown>([
+      ['first', 1],
+      [
+        'key',
+        {
+          get value() {
+            trace.push('value')
+            throw failure
+          },
+        },
+      ],
+    ])
     let thrown: unknown
     try {
       encodeText(source)
@@ -151,7 +130,7 @@ describe('serialization collection iteration', () => {
       thrown = error
     }
     expect(thrown).toBe(failure)
-    expect(trace).toEqual(['repeated', 'close'])
+    expect(trace).toEqual(['value'])
   })
 
   it('validates every repeated Map value and Set member before insertion', () => {
