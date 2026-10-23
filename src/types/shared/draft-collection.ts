@@ -224,13 +224,23 @@ export function adoptDraftClass(
   const layers = (state.context.draftLayers ??= new Map<object, object>())
   let subclassLayer: object | undefined = layers.get(prototype)
   if (subclassLayer === undefined) {
-    const descriptors: PropertyDescriptorMap = {}
-    for (let owner = layer; owner !== builtin; owner = Object.getPrototypeOf(owner) as object)
-      for (const key of Reflect.ownKeys(owner))
-        if (!hasOwn(descriptors, key))
-          (descriptors as Record<PropertyKey, PropertyDescriptor>)[key] =
-            Object.getOwnPropertyDescriptor(owner, key)!
-    subclassLayer = Object.create(prototype, descriptors) as object
+    const copy = Object.create(prototype) as object
+    // Each descriptor inherits nothing, so what `Object.prototype` holds under a descriptor field
+    // such as `get` or `value` is not read as part of it; the nearest layer defines each key.
+    for (let owner = layer; owner !== builtin; owner = Object.getPrototypeOf(owner) as object) {
+      const keys = Reflect.ownKeys(owner)
+      for (let index = 0; index < keys.length; index += 1)
+        if (!hasOwn(copy, keys[index]))
+          Reflect.defineProperty(
+            copy,
+            keys[index],
+            Object.setPrototypeOf(
+              Object.getOwnPropertyDescriptor(owner, keys[index])!,
+              null,
+            ) as PropertyDescriptor,
+          )
+    }
+    subclassLayer = copy
     layers.set(prototype, subclassLayer)
   }
   Object.setPrototypeOf(draft, subclassLayer)

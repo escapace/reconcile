@@ -278,6 +278,13 @@ const operations: Array<[string, () => unknown]> = [
   ['snapshot', () => snapshot(plain())],
   ['snapshot/rich', () => snapshot(rich())],
   [
+    'produce/subclass',
+    () =>
+      produce(rich(), (draft: any) => {
+        draft[K(46)].get(K(47))[K(48)] = 2
+      }),
+  ],
+  [
     'produce/set',
     () =>
       produce(plain(), (draft: any) => {
