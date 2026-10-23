@@ -1,5 +1,5 @@
 import { atomValue, isNode } from '../../graph/edge'
-import { arrayIndex, hasOwn, isObject } from '../../object-property'
+import { arrayIndex, hasOwn, isObject, propertyDescriptor } from '../../object-property'
 import type { BoundEdge, CapturedNode, Edge, NodeEdge, PublicationNote } from '../../types'
 import { defineData, denseArray, Detached, isDataDescriptor } from '../../standard-prototypes'
 
@@ -398,15 +398,22 @@ export function publishKnown(
     : wrote(assignData(target, key, value, descriptor))
 }
 
-// Assignment lets a reactive proxy observe the write; a definition follows only when assignment
-// left no own property.
+// Assignment lets a reactive proxy observe the write; a definition follows when assignment left
+// no own property, or when it refused a key the object holds read-only. Any other refusal, such as
+// a proxy's `set` trap rejecting the value, stands (PropertyWrite.assignStrict_eq).
 function assignData(
   target: object,
   key: PropertyKey,
   value: unknown,
   descriptor: PropertyDescriptor | undefined,
 ): boolean {
-  if (Reflect.set(target, key, value) && hasOwn(target, key)) return true
+  if (Reflect.set(target, key, value)) {
+    if (hasOwn(target, key)) return true
+  } else if (
+    (descriptor ?? propertyDescriptor(Object.getPrototypeOf(target) as object | null, key))
+      ?.writable !== false
+  )
+    return false
   return descriptor === undefined
     ? defineData(target, key, value)
     : defineData(

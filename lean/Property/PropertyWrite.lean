@@ -125,6 +125,44 @@ def inheritedAccessor : Inherited → Bool
   | .accessor _ => true
   | _ => false
 
+/-- Whether ordinary assignment refuses the key because the object holds it read-only: an own
+read-only data property, or a missing key that inherits one. A definition overrides exactly these
+refusals. -/
+def readOnly (s : Slot V) : Bool :=
+  match s.own with
+  | some (.data _ a) => !a.writable
+  | some (.accessor ..) => false
+  | none => s.inherited == .data false
+
+/-- The runtime's assignment (`assignData`): a definition follows when assignment left no own
+property, or when assignment refused a read-only key; any other refusal stands. On an exotic
+object, such as a proxy whose `set` trap refuses a write, a definition would bypass that refusal. -/
+def assignStrict (env : Env V) (s : Slot V) (v : V) (a : Attrs) : Outcome V :=
+  let o := set env s v
+  if o.ok && o.slot.own.isSome then o
+  else if o.ok || readOnly s then
+    let d := define o.slot v a; { d with events := o.events ++ d.events }
+  else o
+
+/-- On an ordinary object, for every key `publish` assigns, the runtime's assignment is
+`assign`: ordinary assignment refuses a writable or missing key only when the object is not
+extensible, and a definition is refused then too. -/
+theorem assignStrict_eq (env : Env V) (s : Slot V) (v : V) (a : Attrs)
+    (hs : (∃ x b, s.own = some (.data x b)) ∨
+      (s.own = none ∧ inheritedAccessor s.inherited = false)) :
+    assignStrict env s v a = assign env s v a := by
+  rcases s with ⟨own, inherited, extensible⟩
+  rcases hs with ⟨x, b, hown⟩ | ⟨hown, hinh⟩
+  · simp only at hown; subst hown
+    by_cases hw : b.writable
+    · simp [assignStrict, assign, set, hw]
+    · simp [assignStrict, assign, set, readOnly, hw]
+  · simp only at hown hinh; subst hown
+    cases inherited with
+    | none => cases extensible <;> simp [assignStrict, assign, set, readOnly, define]
+    | data w => cases w <;> cases extensible <;> simp [assignStrict, assign, set, readOnly, define]
+    | accessor h => simp [inheritedAccessor] at hinh
+
 /-- The per-key check before any write. `proto` marks the key `__proto__`. -/
 def admissible (s : Slot V) (v : V) (proto : Bool) : Bool :=
   match s.own with

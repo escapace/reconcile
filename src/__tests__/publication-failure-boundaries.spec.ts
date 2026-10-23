@@ -77,18 +77,6 @@ it('uses a fixed accessor setter when the requested value changes', () => {
   assert.include(Object.getOwnPropertyDescriptor(current, 'n'), { set: setter })
 })
 
-it('falls back to defining an existing property when assignment is rejected', () => {
-  const target = { n: 0 }
-  const current = new Proxy(target, { set: () => false })
-  assert.equal(reconcile(current, { n: 3 }), current)
-  assert.deepEqual(Object.getOwnPropertyDescriptor(target, 'n'), {
-    configurable: true,
-    enumerable: true,
-    value: 3,
-    writable: true,
-  })
-})
-
 it('retries another aligned candidate after both assignment and definition fail', () => {
   const blocked = new Proxy({ n: 0 }, { defineProperty: () => false, set: () => false })
   const usable = { n: 0 }
@@ -223,4 +211,39 @@ it('caller publication propagates publication failure without exposing isolated 
     ReconcileError,
   )
   assert.deepEqual(current, { n: 0 })
+})
+
+// A proxy that refuses to store a value above 10.
+const guarded = () =>
+  new Proxy<{ a: number }>(
+    { a: 1 },
+    {
+      set: (target, key, value: number) => value <= 10 && Reflect.set(target, key, value),
+    },
+  )
+
+it("respects a proxy's refused assignment instead of defining the value past it", () => {
+  const nested = guarded()
+  const current = { nested }
+  reconcile(current, { nested: { a: 20 } })
+  // The proxy blocks the change, so it is replaced, as an object with a setter that does not
+  // store its value is.
+  assert.notEqual(current.nested, nested)
+  assert.equal(nested.a, 1)
+  assert.equal(current.nested.a, 20)
+  const root = guarded()
+  assert.throws(() => reconcile(root, { a: 20 }), ReconcileError)
+  assert.equal(root.a, 1)
+})
+
+it('redefines a read-only configurable property, keeping its attributes', () => {
+  const current = {}
+  Object.defineProperty(current, 'a', { configurable: true, enumerable: true, value: 1 })
+  reconcile(current, { a: 2 })
+  assert.deepEqual(Object.getOwnPropertyDescriptor(current, 'a'), {
+    configurable: true,
+    enumerable: true,
+    value: 2,
+    writable: false,
+  })
 })
