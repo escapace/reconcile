@@ -76,3 +76,38 @@ describe('Vue proxies of drafts', () => {
     assert.equal(current.x.n, 1)
   })
 })
+
+describe('getters of Vue reactive state', () => {
+  it('finish when a getter returns its object', () => {
+    const state = reactive({
+      a: 1,
+      get self(): unknown {
+        return this
+      },
+    })
+    const result = produce(state, (draft) => draft) as { a: number; self: unknown }
+    assert.equal(result.self, result)
+    const changed = produce(state, (draft) => {
+      draft.a = 2
+      return draft
+    }) as { a: number; self: unknown }
+    assert.equal(changed.self, changed)
+    assert.equal(changed.a, 2)
+  })
+
+  it('give a getter that returns a child the result child, not a proxy of its draft', () => {
+    const state = reactive({
+      items: [{ id: 1 }],
+      other: { z: 1 },
+      get first(): { id: number } {
+        return this.items[0]
+      },
+    })
+    const result = produce(state, (draft) => {
+      draft.other.z = 2
+      return draft
+    })
+    assert.equal(result.first, result.items[0])
+    assert.equal(toRaw(result.first), toRaw(state).items[0])
+  })
+})

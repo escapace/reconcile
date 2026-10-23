@@ -95,9 +95,8 @@ export class DraftSession extends Detached implements DraftContext {
     // draft: drafting it again would wrap the draft in a new draft, and Vue that one in a new
     // proxy, at every read. Before the first draft exists no value can wrap one.
     if (this.drafted) {
-      const storage = storageIdentity(current, read.known ? read.prototype : undefined)
-      if (storage !== current && this.statesByIdentity.get(storage)?.handle === storage)
-        return storage as T
+      const wrapped = this.wrappedDraft(current, read.known ? read.prototype : undefined)
+      if (wrapped !== undefined) return wrapped as T
     }
     this.drafted = true
 
@@ -122,6 +121,14 @@ export class DraftSession extends Detached implements DraftContext {
     }
 
     return this.createDraft(value)
+  }
+
+  /** The draft that `value`, a Vue proxy of a draft such as `reactive(draft)`, wraps, if any. */
+  wrappedDraft(value: object, prototype?: object | null): object | undefined {
+    const storage = storageIdentity(value, prototype)
+    return storage !== value && this.statesByIdentity.get(storage)?.handle === storage
+      ? storage
+      : undefined
   }
 
   copyBase(value: object): object | undefined {

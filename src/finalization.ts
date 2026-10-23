@@ -559,7 +559,8 @@ export class Finalization extends Detached {
   /** Runs an accessor once per base and key through the draft receiver, then reuses its result. */
   private observeAccessor(value: object, key: PropertyKey, knownState?: DraftState): unknown {
     const receiver = knownState?.handle ?? this.session.materializeChild(value)
-    const state = knownState ?? this.session.statesByIdentity.get(value)!
+    // A Vue proxy of a draft, such as `reactive(draft)`, stands for that draft.
+    const state = knownState ?? this.session.statesByIdentity.get(receiver)!
     this.accessorObservations ??= new WeakMap()
     let observations = this.accessorObservations.get(state.base)
     if (observations === undefined) {
@@ -568,7 +569,10 @@ export class Finalization extends Detached {
     }
     if (observations.has(key)) return observations.get(key)
     if (this.phase.kind === 'sealed') throw finalizationAccessorUnstable(key)
-    const observed = state.properties!.read(key, receiver)
+    // A getter read through a Vue proxy returns a draft wrapped in a Vue proxy; it stands for the
+    // draft, as a recipe read gives it.
+    let observed = state.properties!.read(key, receiver)
+    if (isObject(observed)) observed = this.session.wrappedDraft(observed) ?? observed
     this.kinds = undefined
     this.prototypes = undefined
     observations.set(key, observed)
