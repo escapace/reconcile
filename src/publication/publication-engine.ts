@@ -198,16 +198,11 @@ export function publishGraph(
   // setter or write trap ran, so each readback would observe what publication compared and
   // accept (Property.WriteFreeReadback), and the engine answers it without reading again.
   let confirmed = false
-  // Recover only native publication exceptions on replaceable nodes. A fixed receiver's host
-  // exception remains a public failure, without rollback.
-  const publishNode = (state: Execution, index: number): boolean => {
+  // An exception from a setter, trap or method propagates unchanged at any depth, without
+  // rollback; only a refusal the publication detects makes the driver try another plan.
+  const publishNode = (index: number): boolean => {
     const node = records[index]
-    try {
-      return policies[node.layout.kind].publish(node, writer(index), resolve, owner, note)
-    } catch (error) {
-      if (state.bindings[index].fixed) throw error
-      return false
-    }
+    return policies[node.layout.kind].publish(node, writer(index), resolve, owner, note)
   }
   const prepare = (selection: Selection): Binding[] | undefined => {
     const choices = denseArray<Choice>(size)
@@ -274,7 +269,7 @@ export function publishGraph(
           ? facts
           : undefined
       note.unchanged = false
-      if (!publishNode(state, index)) return { rejected: index }
+      if (!publishNode(index)) return { rejected: index }
       if (!note.unchanged) unchanged = false
     }
     note.facts = undefined

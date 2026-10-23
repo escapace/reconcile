@@ -117,6 +117,52 @@ it('propagates a root publication exception without rolling back earlier writes'
   assert.deepEqual(next, { first: 1, second: 2 })
 })
 
+it('propagates a nested setter, trap or method exception unchanged instead of replacing', () => {
+  const failure = new Error('refused')
+  class Strict extends Map<string, number> {
+    override set(key: string, value: number): this {
+      if (key === 'b') throw failure
+      return super.set(key, value)
+    }
+  }
+  const cases: Array<[object, object]> = [
+    [
+      {
+        get s() {
+          return 0
+        },
+        set s(_value: number) {
+          throw failure
+        },
+      },
+      { s: 1 },
+    ],
+    [
+      new Proxy(
+        { s: 0 },
+        {
+          set() {
+            throw failure
+          },
+        },
+      ),
+      { s: 1 },
+    ],
+    [
+      new Strict([['a', 1]]),
+      new Map([
+        ['a', 1],
+        ['b', 2],
+      ]),
+    ],
+  ]
+  for (const [inner, desired] of cases) {
+    const current = { inner }
+    assert.throws(() => reconcile(current, { inner: desired }), failure)
+    assert.strictEqual(current.inner, inner)
+  }
+})
+
 it.each(['object', 'array'] as const)('replaces a nested %s that refuses deletion', (kind) => {
   const target = kind === 'array' ? [1] : { obsolete: 1 }
   const blocked = new Proxy(target, { deleteProperty: () => false })
