@@ -1,5 +1,5 @@
-import { assert, it, vi } from 'vitest'
-import { isReactive, isRef, reactive, readonly, ref, shallowRef, toRaw, watch } from 'vue'
+import { assert, describe, it, vi } from 'vitest'
+import { isReactive, isRef, markRaw, reactive, readonly, ref, shallowRef, toRaw, watch } from 'vue'
 
 import { isReconcileError, produce, reconcile } from '../index'
 import { encodeText } from './fixtures/text-codec'
@@ -93,4 +93,22 @@ it('rejects a ref object in stringify, as a class instance', () => {
     errorType(() => encodeText(ref({ a: 1 }))),
     'SerializeValueUnsupported',
   )
+})
+
+describe('markRaw objects', () => {
+  it('stay in place and raw when next lacks the marker', () => {
+    const raw = markRaw({ n: 1 })
+    const state = reactive({ raw })
+    reconcile(state, { raw: { n: 2 } })
+    assert.equal(state.raw, raw)
+    assert.isFalse(isReactive(state.raw))
+    assert.equal(raw.n, 2)
+    assert.equal(Object.getOwnPropertyDescriptor(raw, '__v_skip')?.value, true)
+  })
+
+  it('lose an enumerable __v_skip that next lacks, as any other data', () => {
+    const current: Record<string, unknown> = { __v_skip: true, n: 1 }
+    reconcile(current, { n: 2 })
+    assert.deepEqual(current, { n: 2 })
+  })
 })

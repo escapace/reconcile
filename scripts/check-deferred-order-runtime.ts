@@ -24,8 +24,8 @@ export async function checkDeferredOrderRuntime(oracle: Oracle): Promise<void> {
       replace("'../../types'", moduleUrl('src/types.ts'))
       replace("'../../standard-prototypes'", moduleUrl('src/standard-prototypes.ts'))
       replace(
-        '  const previous = surface.keys(current)',
-        '  const previous = surface.keys(current);globalThis.__cursor.start(previous,desiredKeys,surface.ordered)',
+        '  const previous = surface.keys(current, node)',
+        '  const previous = surface.keys(current, node);globalThis.__cursor.start(previous,desiredKeys,surface.ordered)',
       )
       const checkpoint = '    const retained = order?.through(previous, key)'
       replace(checkpoint, `${checkpoint};globalThis.__cursor.fixed(order,retained,key)`)

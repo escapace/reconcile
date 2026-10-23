@@ -98,7 +98,8 @@ export interface PropertySurface<L extends { readonly kind: symbol }> {
   ) => boolean
   /** The requested keys in order, equal to the slot index's keys; defaults to listing them. */
   readonly desired: ((node: CapturedNode<L>) => readonly PropertyKey[]) | undefined
-  readonly keys: (current: object) => PropertyKey[]
+  /** The own keys of `current` that publication manages for `node`. */
+  readonly keys: (current: object, node: CapturedNode<L>) => PropertyKey[]
   readonly slots: (node: CapturedNode<L>) => ReadonlyMap<PropertyKey, Edge>
 }
 
@@ -125,7 +126,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   const properties = (): ReadonlyMap<PropertyKey, Edge> => (index ??= surface.slots(node))
   // Desired keys are buffered eagerly; DeferredOrder's cursor model and bridge rely on it.
   const desiredKeys = surface.desired?.(node) ?? [...properties().keys()]
-  const previous = surface.keys(current)
+  const previous = surface.keys(current, node)
   // The descriptor read for each current key, kept for the first publication when it asks.
   const descriptors =
     note === undefined ? undefined : denseArray<PropertyDescriptor | undefined>(previous.length)

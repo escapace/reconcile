@@ -39,9 +39,32 @@ import { defineData, hide, isDataDescriptor } from '../standard-prototypes'
 /** Stable global identity owned by the object module. */
 export { OBJECT_KIND }
 
+/** The key of Vue's `markRaw` marker, a non-enumerable own `true`. */
+const RAW_MARKER = '__v_skip'
+
+/**
+ * The own keys of `current` that publication manages: all of them, except Vue's `markRaw` marker
+ * when `next`'s object lacks the key, so the object stays out of reactivity and in place.
+ */
+function managedKeys(current: object, node: CapturedNode<ObjectLayout>): PropertyKey[] {
+  const keys = ownKeys(current)
+  for (let index = 0; index < keys.length; index += 1)
+    if (
+      keys[index] === RAW_MARKER &&
+      !isEnumerable(current, RAW_MARKER) &&
+      !objectSurface.slots(node).has(RAW_MARKER)
+    ) {
+      const managed: PropertyKey[] = []
+      for (let other = 0; other < keys.length; other += 1)
+        if (other !== index) managed.push(keys[other])
+      return managed
+    }
+  return keys
+}
+
 const objectSurface: PropertySurface<ObjectLayout> = {
   compatible: yes,
-  keys: ownKeys,
+  keys: managedKeys,
   ordered: true,
   desired: (node) => node.keys,
   // The layout is private to this call's capture; the index is built on first demand.
@@ -168,7 +191,7 @@ export const objectPublication = /* @__PURE__ */ (() =>
     aligned: alignedProperties,
     compatible: yes,
     matches(node, current, visit) {
-      const keys = ownKeys(current)
+      const keys = managedKeys(current, node)
       if (keys.length !== node.keys.length) return false
       for (let index = 0; index < keys.length; index += 1) {
         const key = node.keys[index]
@@ -181,7 +204,7 @@ export const objectPublication = /* @__PURE__ */ (() =>
       const keys = node.keys
       // The first publication of an ordinary target reuses the preflight's key list.
       const facts = note?.facts
-      const previous = facts?.keys ?? ownKeys(target)
+      const previous = facts?.keys ?? managedKeys(target, node)
       // Own keys are duplicate-free, so when they start with the requested order exactly the
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.
