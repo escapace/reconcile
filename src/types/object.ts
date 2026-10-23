@@ -43,17 +43,14 @@ export { OBJECT_KIND }
 const RAW_MARKER = '__v_skip'
 
 /**
- * The own keys of `current` that publication manages: all of them, except Vue's `markRaw` marker
- * when `next`'s object lacks the key, so the object stays out of reactivity and in place.
+ * The own keys of a kept object that publication manages: all of them except Vue's `markRaw`
+ * marker, which `reconcile` neither deletes from nor adds to a kept object, so the object stays
+ * reactive or raw as it was.
  */
-function managedKeys(current: object, node: CapturedNode<ObjectLayout>): PropertyKey[] {
+function managedKeys(current: object): PropertyKey[] {
   const keys = ownKeys(current)
   for (let index = 0; index < keys.length; index += 1)
-    if (
-      keys[index] === RAW_MARKER &&
-      !isEnumerable(current, RAW_MARKER) &&
-      !objectSurface.slots(node).has(RAW_MARKER)
-    ) {
+    if (keys[index] === RAW_MARKER && !isEnumerable(current, RAW_MARKER)) {
       const managed: PropertyKey[] = []
       for (let other = 0; other < keys.length; other += 1)
         if (other !== index) managed.push(keys[other])
@@ -62,11 +59,29 @@ function managedKeys(current: object, node: CapturedNode<ObjectLayout>): Propert
   return keys
 }
 
+/**
+ * The node as it is published into a kept object: without `next`'s `markRaw` marker, which a new
+ * copy carries but a kept object does not gain. A node without the marker is itself.
+ */
+function keptNode(node: CapturedNode<ObjectLayout>): CapturedNode<ObjectLayout> {
+  if (node.layout.hidden?.has(RAW_MARKER) !== true) return node
+  const keys: PropertyKey[] = []
+  const edges: Edge[] = []
+  const attributes: number[] | undefined = node.attributes === undefined ? undefined : []
+  for (let index = 0; index < node.keys.length; index += 1)
+    if (node.keys[index] !== RAW_MARKER) {
+      keys.push(node.keys[index])
+      edges.push(node.edges[index])
+      attributes?.push(node.attributes![index])
+    }
+  return { ...node, attributes, edges, keys }
+}
+
 const objectSurface: PropertySurface<ObjectLayout> = {
   compatible: yes,
   keys: managedKeys,
   ordered: true,
-  desired: (node) => node.keys,
+  desired: (node) => keptNode(node).keys,
   // The layout is private to this call's capture; the index is built on first demand.
   slots: (node) =>
     node.layout.slots ??
@@ -190,8 +205,10 @@ export const objectPublication = /* @__PURE__ */ (() =>
     ...objectConstruction,
     aligned: alignedProperties,
     compatible: yes,
-    matches(node, current, visit) {
-      const keys = managedKeys(current, node)
+    matches(captured, current, visit, fresh) {
+      // A new copy holds every key; a kept object is read as publication manages it.
+      const node = fresh === true ? captured : keptNode(captured)
+      const keys = fresh === true ? ownKeys(current) : managedKeys(current)
       if (keys.length !== node.keys.length) return false
       for (let index = 0; index < keys.length; index += 1) {
         const key = node.keys[index]
@@ -200,11 +217,12 @@ export const objectPublication = /* @__PURE__ */ (() =>
       }
       return true
     },
-    publish(node, target, image, _owner, note) {
+    publish(captured, target, image, _owner, note) {
+      const node = note?.fresh === true ? captured : keptNode(captured)
       const keys = node.keys
       // The first publication of an ordinary target reuses the preflight's key list.
       const facts = note?.facts
-      const previous = facts?.keys ?? managedKeys(target, node)
+      const previous = facts?.keys ?? (note?.fresh === true ? ownKeys(target) : managedKeys(target))
       // Own keys are duplicate-free, so when they start with the requested order exactly the
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.

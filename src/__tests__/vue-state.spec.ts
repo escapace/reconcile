@@ -106,6 +106,16 @@ describe('markRaw objects', () => {
     assert.equal(Object.getOwnPropertyDescriptor(raw, '__v_skip')?.value, true)
   })
 
+  it('are not created from a kept object when next is marked, and stay marked when added', () => {
+    const state = reactive({ added: [] as Array<{ v: number }>, kept: { v: 1 } })
+    const kept = state.kept
+    reconcile(state, { added: [markRaw({ v: 3 })], kept: markRaw({ v: 2 }) })
+    assert.equal(state.kept, kept)
+    assert.isTrue(isReactive(state.kept))
+    assert.equal(state.kept.v, 2)
+    assert.isFalse(isReactive(state.added[0]))
+  })
+
   it('lose an enumerable __v_skip that next lacks, as any other data', () => {
     const current: Record<string, unknown> = { __v_skip: true, n: 1 }
     reconcile(current, { n: 2 })
