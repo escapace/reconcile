@@ -1,5 +1,6 @@
 import { recognize } from './adapters/recognition'
 import { isObject } from './object-property'
+import { storageIdentity } from './adapters/vue'
 import { ATOM_KIND } from './constants'
 import type {
   DraftContext,
@@ -18,6 +19,8 @@ export class DraftSession extends Detached implements DraftContext {
   declare specialCloneBaseToClone: WeakMap<object, object> | undefined
   declare specialCloneCloneToBase: WeakMap<object, object> | undefined
   declare readonly statesByIdentity: WeakMap<object, DraftState>
+  // Whether a structural draft exists yet; until then no value can wrap one.
+  declare private drafted: boolean
   declare readonly types: ImmutableRegistry
   declare draftLayers?: Map<object, object>
   constructor(types: ImmutableRegistry) {
@@ -27,6 +30,7 @@ export class DraftSession extends Detached implements DraftContext {
     this.specialCloneBaseToClone = undefined
     this.specialCloneCloneToBase = undefined
     this.statesByIdentity = new WeakMap()
+    this.drafted = false
   }
   /**
    * Creates a writable special-value copy and registers indirectly cloned dependencies.
@@ -86,6 +90,16 @@ export class DraftSession extends Detached implements DraftContext {
     const strategy = this.types.drafts[kind]
     if (strategy.tag === 'copy')
       return this.cloneSpecialValueAfterMiss(current, kind, strategy) as T
+
+    // A Vue proxy of a draft, such as `reactive(draft)` that a recipe stored, stands for that
+    // draft: drafting it again would wrap the draft in a new draft, and Vue that one in a new
+    // proxy, at every read. Before the first draft exists no value can wrap one.
+    if (this.drafted) {
+      const storage = storageIdentity(current, read.known ? read.prototype : undefined)
+      if (storage !== current && this.statesByIdentity.get(storage)?.handle === storage)
+        return storage as T
+    }
+    this.drafted = true
 
     const state = strategy.state(current, this)
     this.statesByIdentity.set(current, state)

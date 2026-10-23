@@ -64,6 +64,7 @@
         "discoveredBy",
         "domains",
         "dormant",
+        "drafted",
         "drafts",
         "edge",
         "edgeCallback",

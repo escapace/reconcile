@@ -1,3 +1,4 @@
+import { storageIdentity } from '../../adapters/vue'
 import { hasOwn, isObject, ownKeys } from '../../object-property'
 import { draftDefinePropertyUnsupported } from '../../error'
 import { propertyDescriptor } from '../../object-property'
@@ -315,7 +316,11 @@ export class PropertyDraftState<K extends symbol = symbol>
     if (descriptor !== undefined && !isDataDescriptor(descriptor))
       return this.setThrough(descriptor, property, value, receiver, ownDescriptor === undefined)
     if (descriptor?.writable === false) return false
-    if (receiver !== this.handle) {
+    // A Vue proxy of this draft, such as `reactive(draft)`, passes itself as the receiver.
+    if (
+      receiver !== this.handle &&
+      (!isObject(receiver) || storageIdentity(receiver) !== this.handle)
+    ) {
       const receiverState = isObject(receiver)
         ? this.context.statesByIdentity.get(receiver)
         : undefined

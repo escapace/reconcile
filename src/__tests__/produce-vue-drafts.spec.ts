@@ -54,3 +54,25 @@ describe('drafts of Vue state are not Vue state', () => {
     assert.equal(runs, 1)
   })
 })
+
+describe('Vue proxies of drafts', () => {
+  it('finishes when the recipe stores reactive(draft) in the draft', () => {
+    const state = reactive({ x: { n: 1 } })
+    const result = produce(state, (draft) => {
+      ;(draft as Record<string, unknown>).y = reactive(draft)
+      return draft
+    }) as Record<string, unknown>
+    assert.deepEqual(Object.keys(result), ['x', 'y'])
+  })
+
+  it('writes through reactive(draft) into the draft', () => {
+    const current = { x: { n: 1 } }
+    const result = produce(current, (draft) => {
+      reactive(draft.x).n = 2
+      assert.equal(draft.x.n, 2)
+      return draft
+    })
+    assert.deepEqual(result.x, { n: 2 })
+    assert.equal(current.x.n, 1)
+  })
+})
