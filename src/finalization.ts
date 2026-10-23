@@ -590,7 +590,9 @@ export class Finalization extends Detached {
       value,
       (source, key) => this.readTraversalProperty(source, key),
       (child) => {
-        if (isObject(child)) (children ??= []).push(child)
+        // A primitive needs nothing and implies nothing (checkMaterialization's first answer).
+        if (!isObject(child)) return false
+        ;(children ??= []).push(child)
         return this.needsMaterialization(child, undefined, { parent: value, visited })
       },
     )
