@@ -1,5 +1,6 @@
-import { isNode } from '../../graph/edge'
-import type { Compare, Edge, NativePolicy, Resolve } from '../../types'
+import { atomValue, isNode } from '../../graph/edge'
+import { isObject } from '../../object-property'
+import type { Compare, Edge, NativePolicy, Primitive, Resolve } from '../../types'
 import {
   closeIterator,
   closeIteratorAfterThrow,
@@ -11,7 +12,7 @@ import {
   stepIterator,
 } from '../../standard-prototypes'
 
-const identity = (edge: Edge): unknown => (isNode(edge) ? edge : edge.value)
+const identity = (edge: Edge): unknown => (isNode(edge) ? edge : atomValue(edge))
 
 /**
  * Steps an iterator as `for...of` steps it, calling `each` with each value until it returns true,
@@ -137,7 +138,8 @@ export const normalize = (edges: readonly Edge[], width: number): Edge[] => {
     const key = entry[0]
     const index = entry[1]
     const first = edges[index]
-    result.push(isNode(first) ? first : { node: undefined, value: key })
+    // A primitive key is the Map's canonical one (+0 for -0); an object atom is its own key.
+    result.push(isNode(first) || isObject(first) ? first : (key as Primitive))
     for (let slot = 1; slot < width && index + slot < edges.length; slot += 1)
       result.push(edges[index + slot])
   }

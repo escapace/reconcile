@@ -63,7 +63,7 @@ const arraySurface: PropertySurface<ArrayLayout> = {
   slots(node) {
     if (node.layout.slots !== undefined) return node.layout.slots
     const slots = propertySlots(node)
-    slots.set('length', { node: undefined, value: node.layout.length })
+    slots.set('length', node.layout.length)
     return slots
   },
 }
@@ -123,7 +123,7 @@ export const arrayPublication = /* @__PURE__ */ (() =>
         const key = String(index)
         const present = properties.has(key)
         if (hasOwn(array, index) !== present || hasElement(array, index) !== present) return false
-        if (present && !visit(array[index], properties.get(key)!)) return false
+        if (present && !visit(array[index], properties.get(key))) return false
       }
       return true
     },
@@ -135,7 +135,7 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         if (properties.has(key)) {
-          const element = publishProperty(target, key, image(properties.get(key)!))
+          const element = publishProperty(target, key, image(properties.get(key)))
           if (element === REFUSED) return false
           if (element === WROTE) written = WROTE
         } else if (hasOwn(target, index)) {
@@ -154,7 +154,7 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       let length = node.layout.length
       for (const key of node.keys) length = Math.max(length, Number(key) + 1)
       const slots = propertySlots(node)
-      slots.set('length', { node: undefined, value: length })
+      slots.set('length', length)
       const layout = node.layout as { length: number; slots?: ReadonlyMap<PropertyKey, Edge> }
       layout.length = length
       layout.slots = slots

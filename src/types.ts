@@ -405,11 +405,16 @@ export interface TypeRegistry {
   readonly recognize: (value: object, read?: PrototypeRead) => symbol | undefined
 }
 
-/** Represents an opaque atom or a canonical reference into the captured node domain. */
-export type Edge<R extends { readonly node: number } = { readonly node: number }> = Atom | R
+/** Represents an opaque atom or a canonical reference into the captured node domain. A
+ * primitive is its own atom edge; an object atom is wrapped. */
+export type Edge<R extends { readonly node: number } = { readonly node: number }> =
+  Atom | Primitive | R
 
-/** An atom edge. `node` is present and undefined, so telling the two kinds apart never reads a
- * property through `Object.prototype`. */
+/** A value that is not an object, held as its own edge. */
+export type Primitive = bigint | boolean | number | string | symbol | null | undefined
+
+/** An object atom edge. `node` is present and undefined, so telling the two kinds apart never
+ * reads a property through `Object.prototype`. */
 export interface Atom {
   readonly node: undefined
   readonly value: unknown

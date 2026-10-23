@@ -55,14 +55,7 @@ describe('shared native graph capture', () => {
     }
     source[Symbol.iterator] = source.entries.bind(source)
     const graph = capture(builtinTypes, source)
-    expect(graph.nodes[0].edges).toEqual([
-      { node: 1 },
-      { value: 3 },
-      { node: 2 },
-      { value: 2 },
-      { value: 'key' },
-      { value: 5 },
-    ])
+    expect(graph.nodes[0].edges).toEqual([{ node: 1 }, 3, { node: 2 }, 2, 'key', 5])
     expect(graph.nodes).toHaveLength(3)
   })
 
@@ -246,8 +239,11 @@ describe('shared native graph capture', () => {
       yield -0
       return undefined
     }
-    expect(capture(builtinTypes, map).nodes[0].edges).toEqual([{ value: 0 }, { value: 2 }])
-    expect(capture(builtinTypes, set).nodes[0].edges).toEqual([{ value: 0 }])
+    const mapEdges = capture(builtinTypes, map).nodes[0].edges
+    const setEdges = capture(builtinTypes, set).nodes[0].edges
+    expect(mapEdges).toEqual([0, 2])
+    expect(setEdges).toEqual([0])
+    expect(Object.is(mapEdges[0], 0) && Object.is(setEdges[0], 0)).toBe(true)
   })
   it('normalizes snapshot collections through native writes, including repeated observed keys', () => {
     const key = { id: 1 }

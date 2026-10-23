@@ -1,10 +1,17 @@
-import { isNode, snapshotValue } from './graph/edge'
+import { atomValue, isNode, snapshotValue } from './graph/edge'
 import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
 import { recognize, recognizeStructure } from './adapters/recognition'
 import { ATOM_KIND } from './constants'
 import { atomPrototype, hiddenNames, isEnumerable, prototypeOf } from './object-property'
-import type { Edge, Layout, PrototypeRead, SnapshotWrite, SnapshotRegistry } from './types'
+import type {
+  Edge,
+  Layout,
+  Primitive,
+  PrototypeRead,
+  SnapshotWrite,
+  SnapshotRegistry,
+} from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
 import { eachOpenedEntry } from './types/shared/collection'
@@ -169,7 +176,7 @@ class SnapshotWalk extends Detached {
   }
 
   edgeOf(source: unknown, kind?: symbol): Edge {
-    if (!isObject(source)) return { node: undefined, value: source }
+    if (!isObject(source)) return source as Primitive
     const seen = this.callerMemo
     if (seen !== undefined) {
       const external = seen.get(source)
@@ -205,7 +212,7 @@ class SnapshotWalk extends Detached {
         const layout = (child as SnapshotReference).layout
         if (layout !== undefined) return this.types.policies[layout.kind].construction(layout)
       } else {
-        const target = child.value
+        const target = atomValue(child)
         return (isObject(target) ? this.constructed?.get(target) : undefined) ?? target
       }
     }

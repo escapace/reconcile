@@ -1,4 +1,4 @@
-import { isNode } from './graph/edge'
+import { atomValue, isNode } from './graph/edge'
 import { recognize } from './adapters/recognition'
 import { finalizationConstructionImpossible } from './error'
 import { storageIdentity } from './adapters/vue'
@@ -14,8 +14,9 @@ import type {
   ImmutableProblem,
   ImmutableRecord,
   ImmutableRegistry,
-  NodeEdge,
   NativeOwners,
+  NodeEdge,
+  Primitive,
   ReuseNode,
 } from './types'
 
@@ -93,7 +94,7 @@ export function compileImmutable(
   }
   const leaves = discover()
   const edge = (value: unknown): Edge => {
-    if (!isObject(value)) return { node: undefined, value }
+    if (!isObject(value)) return value as Primitive
     const reference = value as FinalizedReference
     return reference.layout === undefined
       ? specials!.get(reference.target)!
@@ -144,7 +145,7 @@ export function compileImmutable(
       childrenReusable &&
       (record.settled === true ||
         types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) =>
-          Object.is(actual, isNode(expected) ? records[expected.node].target : expected.value),
+          Object.is(actual, isNode(expected) ? records[expected.node].target : atomValue(expected)),
         ))
     locallyReusable[index] = reusable
     // A failed parent is already a closure seed; only omit implications into it.
@@ -281,7 +282,7 @@ function publishFresh(
   const targets: object[] = []
   // Native ownership found while allocating; a literal holds the field as its own data.
   const owners: NativeOwners = { nativeOwners: undefined }
-  const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : value.value)
+  const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : atomValue(value))
   for (let index = 0; index < records.length; index += 1)
     if (retained[index]) targets[index] = records[index].target
   for (let position = 0; position < order.length; position += 1) {

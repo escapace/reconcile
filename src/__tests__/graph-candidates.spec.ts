@@ -1,4 +1,5 @@
 import { builtinTypes } from '../types/builtins'
+import { atomValue, isNode } from '../graph/edge'
 import { assert, describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { candidates } from '../publication/candidates'
@@ -107,7 +108,7 @@ describe('native candidate constraint compiler', () => {
         builtinTypes.policies[node.layout.kind].matches(
           node,
           current,
-          (actual, edge) => edge.node === undefined && Object.is(actual, edge.value),
+          (actual, edge) => !isNode(edge) && Object.is(actual, atomValue(edge)),
         ),
       ).toBe(false)
       expect(coercions).toBe(0)
@@ -124,7 +125,7 @@ describe('native candidate constraint compiler', () => {
     const root = capture(builtinTypes, { first: 1, second: 2 }).nodes[0]
     expect(
       builtinTypes.policies[root.layout.kind].publish(root, current, (edge) =>
-        edge.node === undefined ? edge.value : undefined,
+        isNode(edge) ? undefined : atomValue(edge),
       ),
     ).toBe(false)
     expect(target).toEqual({ first: 1, second: 0 })

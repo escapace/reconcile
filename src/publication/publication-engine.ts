@@ -1,4 +1,4 @@
-import { isNode } from '../graph/edge'
+import { atomValue, isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
 import { ExposurePalette, storageIdentity } from '../adapters/vue'
 import { EXPOSURE_MODES } from '../constants'
@@ -147,7 +147,8 @@ export function publishGraph(
   // The attempt being published or read back; the callbacks below read it instead of closing
   // over each revision.
   let active: Execution | undefined
-  const resolve = (edge: Edge): unknown => (isNode(edge) ? exposed(active!, edge.node) : edge.value)
+  const resolve = (edge: Edge): unknown =>
+    isNode(edge) ? exposed(active!, edge.node) : atomValue(edge)
   const writer = (index: number): object => active!.bindings[index].writer as object
   // Construction bindings already observed native ownership at prepare. URL child
   // identity is fixed for its owner's lifetime, so this lookup performs no live read.
@@ -168,7 +169,7 @@ export function publishGraph(
   // The rebind the current readback comparison found, if any.
   let outcome: Readback = REJECT
   const compare = (actual: unknown, wanted: Edge): boolean => {
-    if (!isNode(wanted)) return Object.is(actual, wanted.value)
+    if (!isNode(wanted)) return Object.is(actual, atomValue(wanted))
     const state = active!
     const child = wanted.node
     if (actual === exposed(state, child)) return true
@@ -228,7 +229,7 @@ export function publishGraph(
           // Native ownership found while allocating; a literal holds the field as its own data.
           const owners: NativeOwners = { nativeOwners: undefined }
           const resolveTarget = (edge: Edge): unknown =>
-            isNode(edge) ? targets[edge.node] : edge.value
+            isNode(edge) ? targets[edge.node] : atomValue(edge)
           for (let position = 0; position < order.length; position += 1) {
             const index = order[position]
             const target = policies[records[index].layout.kind].allocate(

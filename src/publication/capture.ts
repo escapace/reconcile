@@ -1,4 +1,4 @@
-import { isNode } from '../graph/edge'
+import { atomValue, isNode } from '../graph/edge'
 import { hasOwn, isObject, prototypeOf } from '../object-property'
 import { ATOM_KIND } from '../constants'
 import { atomPrototype } from '../object-property'
@@ -9,12 +9,13 @@ import { noValue } from '../types/shared/empty'
 import { Detached } from '../standard-prototypes'
 import type {
   BuildingNode,
-  CaptureEdge,
   CapturedGraph,
   CapturedNode,
+  CaptureEdge,
   Edge,
   Layout,
   NodeEdge,
+  Primitive,
   PrototypeRead,
   PublicationRegistry,
 } from '../types'
@@ -107,7 +108,7 @@ class AlignedCapture extends Detached {
   // The plain-object fallback reads the prototype once: an atom becomes a value edge, kept by
   // reference like a function, and an object's observer receives the prototype read here.
   visit(source: unknown, kind?: symbol): Edge {
-    if (!isObject(source)) return { node: undefined, value: source }
+    if (!isObject(source)) return source as Primitive
     const known = this.references.get(source)
     if (known !== undefined) return known
     // The root's prototype was read before capture; any other object's is read once here.
@@ -189,7 +190,7 @@ class AlignedCapture extends Detached {
       if (isNode(child)) {
         const layout = this.nodes[child.node]?.layout
         if (layout !== undefined) return this.types.policies[layout.kind].construction(layout)
-      } else return child.value
+      } else return atomValue(child)
     }
     return undefined
   }

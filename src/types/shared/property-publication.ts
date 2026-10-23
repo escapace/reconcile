@@ -1,4 +1,4 @@
-import { isNode } from '../../graph/edge'
+import { atomValue, isNode } from '../../graph/edge'
 import { arrayIndex, hasOwn, isObject } from '../../object-property'
 import type { BoundEdge, CapturedNode, Edge, PublicationNote } from '../../types'
 import { defineData, denseArray, Detached, isDataDescriptor } from '../../standard-prototypes'
@@ -152,7 +152,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
       return true
     const actual = Reflect.get(current, key) as unknown
     if (!isNode(expected) || !isObject(actual))
-      return !isNode(expected) && Object.is(expected.value, actual)
+      return !isNode(expected) && Object.is(atomValue(expected), actual)
     pin.push({ identity: actual, node: expected.node })
     pinned ??= new Map()
     if (pinned.has(expected.node) && pinned.get(expected.node) !== actual) return false

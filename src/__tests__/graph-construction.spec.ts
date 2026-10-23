@@ -1,4 +1,5 @@
 import { createEngine } from '../engine'
+import { isNode } from '../graph/edge'
 import { builtinModules } from '../types/builtins'
 import { defineType } from '../types/registry'
 import { Cell, cellType } from './fixtures/cell-type'
@@ -39,13 +40,10 @@ it('constructs a registered three-layer native chain through the unchanged core'
 
       bindings: {
         tag: 'dependent' as const,
-        dependencies: (node) =>
-          node.edges.flatMap((edge) => (edge.node !== undefined ? [edge.node] : [])),
+        dependencies: (node) => node.edges.flatMap((edge) => (isNode(edge) ? [edge.node] : [])),
         read: (node, target) =>
           node.edges.flatMap((edge) =>
-            edge.node !== undefined
-              ? [{ identity: (target as Cell).value as object, node: edge.node }]
-              : [],
+            isNode(edge) ? [{ identity: (target as Cell).value as object, node: edge.node }] : [],
           ),
       },
       allocate: (node, resolve) => {

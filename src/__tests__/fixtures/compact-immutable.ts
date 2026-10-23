@@ -1,4 +1,5 @@
 import type { Choice, Domains, ImmutableProblem } from '../../types'
+import { isNode } from '../../graph/edge'
 
 export interface CompactImmutableInput {
   readonly dependencies: number[][]
@@ -58,7 +59,7 @@ export function immutableDomains({ records, storages, unavailable }: ImmutablePr
       domain.push({
         identity: record.target,
         required: record.edges.flatMap((edge) =>
-          edge.node !== undefined ? [{ identity: records[edge.node].target, node: edge.node }] : [],
+          isNode(edge) ? [{ identity: records[edge.node].target, node: edge.node }] : [],
         ),
         retained: true,
         storage: storages[node],

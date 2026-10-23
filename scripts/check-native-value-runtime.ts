@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { capture } from '../src/publication/capture'
-import { isNode } from '../src/graph/edge'
+import { atomValue, isNode } from '../src/graph/edge'
 import type { Edge } from '../src/types'
 import { builtinTypes, publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
@@ -97,7 +97,7 @@ function evaluateFacets(current: object, desired: object, kind: symbol, name: st
   const compatible = publicationTypes.matches(kind, current) && policy.compatible(node, current)
   const reusable = special.equivalent(current, desired)
   const resolve = (edge: Edge): unknown => {
-    if (!isNode(edge)) return edge.value
+    if (!isNode(edge)) return atomValue(edge)
     assert.equal(name, 'URL')
     assert.equal(edge, node.edges[0])
     return (current as URL).searchParams
