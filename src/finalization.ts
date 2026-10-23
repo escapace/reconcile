@@ -238,7 +238,7 @@ export class Finalization extends Detached {
     const base = state?.base ?? value
     if (base !== value) return true
     const memo = this.phase.required
-    if (this.materializationPlan?.closure.facts.has(base) === true) {
+    if (this.materializationPlan?.closure.holds(base) === true) {
       return true
     }
     const cached = memo.get(base)

@@ -51,7 +51,8 @@ function admit<Fact>(closed: Set<Fact>, pending: Fact[], facts: Iterable<Fact>):
  * No native observation or application callback runs during propagation.
  */
 export class RequirementClosure<Fact = number> extends Detached {
-  declare readonly facts: Set<Fact>
+  // The closed facts in insertion order; created on the first requirement or read.
+  declare private known: Set<Fact> | undefined
   // Successor lists may repeat a consequence; admission already skips closed facts, so
   // the closure and its insertion order equal the deduplicated rule set. Created on the first
   // implication.
@@ -59,8 +60,17 @@ export class RequirementClosure<Fact = number> extends Detached {
 
   constructor() {
     super()
-    this.facts = new Set()
+    this.known = undefined
     this.implications = undefined
+  }
+
+  /** The closed facts in insertion order: a live set that later requirements extend. */
+  get facts(): Set<Fact> {
+    return (this.known ??= new Set())
+  }
+
+  holds(fact: Fact): boolean {
+    return this.known?.has(fact) === true
   }
 
   imply(antecedent: Fact, consequence: Fact): void {
@@ -68,7 +78,7 @@ export class RequirementClosure<Fact = number> extends Detached {
     const successors = implications.get(antecedent)
     if (successors === undefined) implications.set(antecedent, [consequence])
     else successors.push(consequence)
-    if (this.facts.has(antecedent)) this.require(consequence)
+    if (this.holds(antecedent)) this.require(consequence)
   }
 
   // Admits the fact, then propagates from its successors. ClosureHistory's expandUnfolded_eq

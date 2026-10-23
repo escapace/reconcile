@@ -1,6 +1,7 @@
 import { isNode } from './edge'
 import { finalizationChildInvalid, finalizationStorageMissing } from '../error'
 import type { Edge, ImmutableProblem } from '../types'
+import { smallAdd, smallHas, smallSet } from './small-set'
 import { denseArray } from '../standard-prototypes'
 
 /**
@@ -17,15 +18,15 @@ export function immutableHead({
   const size = records.length
   const keep = denseArray<boolean>(size)
   for (let node = 0; node < size; node += 1) keep[node] = !unavailable.has(node)
-  const owners = new Set<object>()
+  const owners = smallSet<object>()
   for (let node = 0; node < size; node += 1) {
     if (!keep[node]) {
       if (records[node].payload === undefined) return undefined
       continue
     }
     const storage = storages[node] as object | undefined
-    if (storage === undefined || owners.has(storage)) return undefined
-    owners.add(storage)
+    if (storage === undefined || smallHas(owners, storage)) return undefined
+    smallAdd(owners, storage)
     if (!childrenKept(records[node].edges, keep)) return undefined
   }
   return keep

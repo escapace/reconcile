@@ -1,5 +1,6 @@
 import { atomValue, isNode } from './graph/edge'
 import { recognize } from './adapters/recognition'
+import { smallAdd, smallHas, smallSet, type SmallSet } from './graph/small-set'
 import { finalizationConstructionImpossible } from './error'
 import { storageIdentity } from './adapters/vue'
 import { constructionOrder } from './graph/construction'
@@ -164,7 +165,7 @@ export function compileImmutable(
   const collected = byTarget
   // Without fixed nodes no storage is fixed, and without seeds nothing is unavailable
   // (Requirements.close_no_seeds).
-  const fixedStorage = specials === undefined ? undefined : new Set<object>()
+  const fixedStorage = specials === undefined ? undefined : smallSet<object>()
   let conflict =
     fixedStorage !== undefined &&
     registerFixed(
@@ -183,7 +184,7 @@ export function compileImmutable(
       const target = records[index].target
       const storage = storageIdentity(target, facts?.prototypes?.get(target))
       storages[index] = storage
-      if (fixedStorage?.has(storage) === true) conflict = true
+      if (fixedStorage !== undefined && smallHas(fixedStorage, storage)) conflict = true
     }
   return { conflict, records, root, storages, unavailable }
 }
@@ -211,14 +212,14 @@ function registerFixed(
   specials: ReadonlyMap<object, NodeEdge>,
   collected: ReadonlyMap<object, NodeEdge> | undefined,
   special: (value: object) => NodeEdge,
-  fixedStorage: Set<object>,
+  fixedStorage: SmallSet<object>,
 ): boolean {
   const { facts, fold, kindOf, parents, types } = state
   let conflict = false
   const claim = (target: object): object => {
     const storage = storageIdentity(target, facts?.prototypes?.get(target))
-    if (fixedStorage.has(storage)) conflict = true
-    fixedStorage.add(storage)
+    if (smallHas(fixedStorage, storage)) conflict = true
+    smallAdd(fixedStorage, storage)
     return storage
   }
   // The fixed node whose children `child` registers, and its edges.
