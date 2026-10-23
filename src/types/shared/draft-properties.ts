@@ -78,6 +78,8 @@ function writeProperty(
     current = state.ownValue(property, descriptor)
     if (state.context.isSameDraftValue(current, value)) return true
   }
+  // A non-extensible object, such as a frozen or sealed one, refuses a new property.
+  else if (!Object.isExtensible(state.base)) return false
   const copy = preparePropertyCopy(state, property, descriptor, current)
   const written = state.rules.write(state, copy, property, value)
   if (written) state.modified = true
@@ -247,6 +249,14 @@ export class PropertyDraftState<K extends symbol = symbol>
   /** Exposes the base prototype independently of the captured copy prototype. */
   getPrototypeOf(): object | null {
     return Object.getPrototypeOf(this.base) as object | null
+  }
+  /** Refuses to make the draft non-extensible, as `Object.freeze` and `Object.seal` would. */
+  preventExtensions(): boolean {
+    return false
+  }
+  /** Refuses a prototype change; setting the prototype the draft reports is a no-op. */
+  setPrototypeOf(_target: object, prototype: object | null): boolean {
+    return prototype === this.getPrototypeOf()
   }
   /** Exposes the same presence rules as ordinary draft reads. */
   has(_target: object, property: PropertyKey): boolean {

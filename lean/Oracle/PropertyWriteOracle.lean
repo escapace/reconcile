@@ -155,9 +155,9 @@ def runThroughSetter : IO Unit := do
   IO.println cases.length
   for (d, extensible) in cases do
     let slot : Slot Nat := ⟨none, .accessor true, extensible⟩
-    -- A draft accepts a new key by assignment whatever its object's extensibility, since its
-    -- result is a new object, so its slot is extensible.
-    let draft := draftThroughSetter { slot with extensible := true } d
+    -- A draft follows its object's extensibility, so a non-extensible object's draft refuses a
+    -- new key as the object does (`draftSet_eq`).
+    let draft := draftThroughSetter slot d
     let object := throughSetter slot d
     let (name, value, a) := match d with
       | .nothing => ("nothing", 0, plain)

@@ -585,4 +585,60 @@ example : (draftThroughSetterOld (fresh true (.accessor true) : Slot Nat) (.data
     (throughSetter (fresh true (.accessor true) : Slot Nat) (.data 1 plain)).ok = true :=
   ⟨rfl, rfl⟩
 
+/-! ## Assignment on a draft
+
+A `produce` draft's `set` trap, with the draft as receiver, decides in its own order: an own
+accessor, else the first one on the prototype chain, goes to its setter; a read-only own or
+inherited data property refuses; an own data property takes the value, and writes nothing when
+the value is already there; a lacking key is added only while the object is extensible. The
+runtime's obligations are those of `set`, with the draft's own descriptors standing for the
+object's and `Object.isExtensible` read from the object itself. -/
+
+/-- The draft's assignment, in the runtime's order (`PropertyDraftState.set`, `writeProperty`). -/
+def draftSet (env : Env V) (s : Slot V) (v : V) : Outcome V :=
+  match s.own with
+  | some (.accessor _ true _ _) => ⟨true, env.ownSetter s v, [.ownSetter]⟩
+  | some (.accessor _ false _ _) => ⟨false, s, []⟩
+  | some (.data current a) =>
+    if !a.writable then ⟨false, s, []⟩
+    else if current = v then ⟨true, s, []⟩
+    else ⟨true, { s with own := some (.data v a) }, []⟩
+  | none =>
+    match s.inherited with
+    | .accessor true => ⟨true, env.inheritedSetter s v, [.inheritedSetter]⟩
+    | .accessor false => ⟨false, s, []⟩
+    | .data false => ⟨false, s, []⟩
+    | .data true | .none =>
+      if !s.extensible then ⟨false, s, []⟩
+      else ⟨true, { s with own := some (.data v plain) }, []⟩
+
+/-- An assignment to a draft has the outcome it has on the object: the same success, slot and
+setter calls. -/
+theorem draftSet_eq (env : Env V) (s : Slot V) (v : V) : draftSet env s v = set env s v := by
+  rcases s with ⟨own, inherited, extensible⟩
+  rcases own with _ | ⟨current, a⟩ | ⟨stored, setter, e, c⟩
+  · cases inherited with
+    | none => cases extensible <;> rfl
+    | data w => cases w <;> cases extensible <;> rfl
+    | accessor h => cases h <;> rfl
+  · by_cases hw : a.writable
+    · by_cases hv : current = v
+      · subst hv; simp [draftSet, set, hw]
+      · simp [draftSet, set, hw, hv]
+    · simp [draftSet, set, hw]
+  · cases setter <;> rfl
+
+/-- The previous draft rule added a lacking key whatever the object's extensibility. -/
+def draftSetOld (env : Env V) (s : Slot V) (v : V) : Outcome V :=
+  match s.own, s.inherited with
+  | none, .data true | none, .none => ⟨true, { s with own := some (.data v plain) }, []⟩
+  | _, _ => draftSet env s v
+
+/-- On a frozen, sealed or otherwise non-extensible object, the previous rule accepted a new key
+that assignment on the object refuses. -/
+example (env : Env Nat) :
+    (draftSetOld env ⟨none, .none, false⟩ 1).ok = true ∧
+      (set env ⟨none, .none, false⟩ 1).ok = false :=
+  ⟨rfl, rfl⟩
+
 end Reconcile.PropertyWrite
