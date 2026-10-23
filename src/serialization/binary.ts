@@ -1,4 +1,5 @@
 import { decodeFail } from './common'
+import { builtinValue } from '../standard-prototypes'
 // Base64 decoding through the stable same-realm native decoder or atob, validated together.
 // decodedSize is only a prediction on those paths; decodeBytes or checkBytes MUST follow, even
 // for length zero. The caller checks structural bounds before native allocation. No Node Buffer
@@ -7,7 +8,7 @@ import { decodeFail } from './common'
 // Both native codecs are read as own properties when the module loads, so a method that
 // Object.prototype holds is never taken for one the engine lacks.
 const nativeDecoder = /* @__PURE__ */ (() => {
-  const decoder = Object.getOwnPropertyDescriptor(Uint8Array, 'fromBase64')?.value as unknown
+  const decoder = builtinValue(Uint8Array, 'fromBase64')
   return typeof decoder === 'function'
     ? (decoder as (
         text: string,
@@ -16,8 +17,7 @@ const nativeDecoder = /* @__PURE__ */ (() => {
     : undefined
 })()
 const nativeEncoder = /* @__PURE__ */ (() => {
-  const encoder = Object.getOwnPropertyDescriptor(Uint8Array.prototype, 'toBase64')
-    ?.value as unknown
+  const encoder = builtinValue(Uint8Array.prototype, 'toBase64')
   return typeof encoder === 'function' ? (encoder as (this: Uint8Array) => string) : undefined
 })()
 const atobDecoder = /* @__PURE__ */ (() =>

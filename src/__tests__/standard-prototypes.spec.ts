@@ -10,7 +10,7 @@ import { loadEsbuild } from '../../scripts/esbuild'
 async function runDriver(
   fixture: string,
   flags: readonly string[],
-): Promise<{ cases: number; failures: string[] }> {
+): Promise<{ cases: number; failures: string[]; outcomes?: string[] }> {
   const directory = mkdtempSync(path.join(tmpdir(), 'reconcile-prototypes-'))
   try {
     const result = await loadEsbuild().build({
@@ -31,7 +31,7 @@ async function runDriver(
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 60_000,
       }),
-    ) as { cases: number; failures: string[] }
+    ) as { cases: number; failures: string[]; outcomes?: string[] }
   } finally {
     rmSync(directory, { force: true, recursive: true })
   }
@@ -52,4 +52,14 @@ it('behaves as plain assignment under node --frozen-intrinsics', async () => {
   const output = await runDriver('frozen-intrinsics.ts', ['--frozen-intrinsics'])
   expect(output.cases).toBe(7)
   expect(output.failures).toEqual([])
+}, 90_000)
+
+// Every function on every value kind behaves the same when standard methods are accessors, as
+// `node --frozen-intrinsics` makes them, as in an ordinary runtime.
+it('behaves the same for every value kind under node --frozen-intrinsics', async () => {
+  const plain = await runDriver('hardened-kinds.ts', [])
+  const frozen = await runDriver('hardened-kinds.ts', ['--frozen-intrinsics'])
+  expect(plain.failures).toEqual([])
+  expect(plain.cases).toBeGreaterThan(80)
+  expect(frozen.outcomes).toEqual(plain.outcomes)
 }, 90_000)

@@ -536,7 +536,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Intrinsic independence.** The models have no prototypes, so the runtime's own records, tables,
   descriptors, errors and loops must not reach `Object.prototype` or `Array.prototype`; see
   [AGENTS.md](../AGENTS.md) and `src/standard-prototypes.ts`. The `Uint8Array` base64 methods and
-  the global `Temporal` are read as own properties. A user collection is walked with the
+  the global `Temporal` are read as own properties. Built-in methods captured when the module
+  loads are read through `builtinValue`, which calls the getter a hardened runtime puts in place
+  of a method; `standard-prototypes.spec.ts` runs every function on every value kind under
+  `node --frozen-intrinsics` and requires the outcomes of an ordinary runtime. A user collection is walked with the
   `for...of` and destructuring protocol (`stepIterator`, `entryPair`, `closeIterator`), except that
   a `return` only `Object.prototype` holds is neither read nor called; a fresh iterator from a
   built-in `Map` or `Set` method is stepped directly. A user array's hole is asked of the array

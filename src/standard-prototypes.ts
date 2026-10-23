@@ -163,6 +163,22 @@ const objectLike = (value: unknown): value is object =>
   (typeof value === 'object' && value !== null) || typeof value === 'function'
 
 /**
+ * The value of a built-in's own property, read when the module loads. A hardened runtime, such as
+ * SES `lockdown()` or `node --frozen-intrinsics`, turns a method into an accessor whose getter
+ * returns the method; that getter is called with `owner` as the receiver. Undefined when `owner`
+ * lacks the property.
+ * @internal
+ */
+export function builtinValue(owner: object, key: PropertyKey): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+  if (descriptor === undefined) return undefined
+  if (isDataDescriptor(descriptor)) return descriptor.value as unknown
+  // eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
+  const get = descriptor.get
+  return get === undefined ? undefined : (Reflect.apply(get, owner, []) as unknown)
+}
+
+/**
  * The built-in iterator methods of `Map` and `Set`, read as own properties when the module loads.
  * Called on an instance of its kind, each returns a fresh native iterator whose steps no other
  * code observes; any other call fails as the built-in fails. They are compared and applied, never
@@ -170,10 +186,10 @@ const objectLike = (value: unknown): value is object =>
  * @internal
  */
 export const nativeMapEntries: unknown = /* @__PURE__ */ (() =>
-  Object.getOwnPropertyDescriptor(Map.prototype, 'entries')?.value as unknown)()
+  builtinValue(Map.prototype, 'entries'))()
 /** @internal */
 export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
-  Object.getOwnPropertyDescriptor(Set.prototype, 'values')?.value as unknown)()
+  builtinValue(Set.prototype, 'values'))()
 
 const arrayIndexOf = /* @__PURE__ */ (() => Array.prototype.indexOf)()
 
@@ -196,7 +212,7 @@ function builtinGetter(prototype: object, key: PropertyKey): (target: object) =>
 
 /** A built-in method of `Map` or `Set`, read when the module loads. */
 const collectionMethod = (prototype: object, key: string) =>
-  Object.getOwnPropertyDescriptor(prototype, key)!.value as (...parameters: unknown[]) => unknown
+  builtinValue(prototype, key) as (...parameters: unknown[]) => unknown
 const mapSet = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'set'))()
 const mapDelete = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'delete'))()
 const setAdd = /* @__PURE__ */ (() => collectionMethod(Set.prototype, 'add'))()

@@ -28,6 +28,7 @@ import {
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
 import {
+  builtinValue,
   builtinMapSet,
   builtinMapSize,
   builtinMapDelete,
@@ -38,8 +39,7 @@ import {
 export const MAP_KIND = Symbol.for('@escapace/reconcile/map')
 
 /** Walks a `Map` as the built-in iterator does. */
-const mapIterator: unknown = /* @__PURE__ */ (() =>
-  Reflect.getOwnPropertyDescriptor(Map.prototype, Symbol.iterator)?.value)()
+const mapIterator: unknown = /* @__PURE__ */ (() => builtinValue(Map.prototype, Symbol.iterator))()
 const mapWalk = (map: Map<unknown, unknown>) =>
   builtinWalk(map, Map.prototype, mapIterator, (collection) =>
     Map.prototype.entries.call(collection as Map<unknown, unknown>),

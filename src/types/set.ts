@@ -28,6 +28,7 @@ import {
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
 import {
+  builtinValue,
   Detached,
   builtinSetDelete,
   builtinSetSize,
@@ -39,8 +40,7 @@ import {
 export const SET_KIND = Symbol.for('@escapace/reconcile/set')
 
 /** Walks a `Set` as the built-in iterator does. */
-const setIterator: unknown = /* @__PURE__ */ (() =>
-  Reflect.getOwnPropertyDescriptor(Set.prototype, Symbol.iterator)?.value)()
+const setIterator: unknown = /* @__PURE__ */ (() => builtinValue(Set.prototype, Symbol.iterator))()
 const setWalk = (set: object) =>
   builtinWalk(set as Set<unknown>, Set.prototype, setIterator, (collection) =>
     Set.prototype.values.call(collection as Set<unknown>),
