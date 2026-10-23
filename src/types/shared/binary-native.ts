@@ -48,6 +48,7 @@ const sharedLength = /* @__PURE__ */ (() =>
     ? getter(SharedArrayBuffer.prototype as object, 'byteLength')
     : undefined)()
 export const bufferResizable = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'resizable'))()
+const bufferMaxLength = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'maxByteLength'))()
 const typedName = /* @__PURE__ */ (() => getter(typedPrototype, Symbol.toStringTag)!)()
 export const typedBuffer = /* @__PURE__ */ (() => getter(typedPrototype, 'buffer')!)()
 export const typedOffset = /* @__PURE__ */ (() => getter(typedPrototype, 'byteOffset')!)()
@@ -67,15 +68,24 @@ export const bufferByteLength = (buffer: object): number =>
   Reflect.apply(isShared(buffer) ? sharedLength! : bufferLength, buffer, []) as number
 
 /**
- * A fixed-length copy of a buffer's bytes on the buffer's prototype, made without calling its
- * constructor, as `slice` would through `Symbol.species`. A `SharedArrayBuffer` is its own copy,
- * so a view copied over it shares its memory.
+ * A copy of a buffer's bytes on the buffer's prototype, made without calling its constructor, as
+ * `slice` would through `Symbol.species`. A resizable buffer's copy is resizable to the same
+ * maximum. A `SharedArrayBuffer` is its own copy, so a view copied over it shares its memory.
  */
 export function copyBuffer(buffer: object): ArrayBuffer {
   if (isShared(buffer)) return buffer as ArrayBuffer
-  const copy = new ArrayBuffer(bufferByteLength(buffer))
+  const copy = emptyBuffer(buffer, bufferByteLength(buffer))
   new Uint8Array(copy).set(new Uint8Array(buffer as ArrayBuffer))
   return adoptPrototype(copy, Object.getPrototypeOf(buffer) as object | null, ArrayBuffer.prototype)
+}
+
+/** A new zero-filled buffer of `length` bytes, resizable to the same maximum as `buffer` is. */
+function emptyBuffer(buffer: object, length: number): ArrayBuffer {
+  if (bufferResizable === undefined || Reflect.apply(bufferResizable, buffer, []) !== true)
+    return new ArrayBuffer(length)
+  const maxByteLength = Reflect.apply(bufferMaxLength!, buffer, []) as number
+  // eslint-disable-next-line baseline-js/use-baseline -- reached only where the engine has resizable buffers
+  return new ArrayBuffer(length, { maxByteLength })
 }
 
 /** A typed array's element type, such as `'Uint8Array'`, or `undefined` for a `DataView`. */

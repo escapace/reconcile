@@ -126,3 +126,30 @@ describe('SharedArrayBuffer', () => {
     expect(Array.from(current.view)).toEqual([4, 5])
   })
 })
+
+/* eslint-disable baseline-js/use-baseline -- resizable buffers, on engines that have them */
+describe('resizable buffers', () => {
+  it('are copied as resizable buffers with the same maximum', () => {
+    const buffer = new ArrayBuffer(2, { maxByteLength: 8 })
+    new Uint8Array(buffer)[1] = 5
+    const copy = snapshot({ buffer }) as { buffer: ArrayBuffer }
+    const result = produce({ buffer, view: new Uint8Array(buffer) }, (draft) => {
+      draft.view[0] = 9
+      return draft
+    })
+    const current: { buffer?: ArrayBuffer } = {}
+    reconcile(current, { buffer })
+    for (const [value, bytes] of [
+      [copy.buffer, [0, 5]],
+      [result.buffer, [9, 5]],
+      [current.buffer!, [0, 5]],
+    ] as const) {
+      expect(value).not.toBe(buffer)
+      expect([value.resizable, value.maxByteLength]).toEqual([true, 8])
+      expect(Array.from(new Uint8Array(value))).toEqual(bytes)
+    }
+    expect(result.view.buffer).toBe(result.buffer)
+    expect((snapshot(new ArrayBuffer(1)) as ArrayBuffer).resizable).toBe(false)
+  })
+})
+/* eslint-enable baseline-js/use-baseline */
