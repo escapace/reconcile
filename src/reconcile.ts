@@ -24,25 +24,28 @@ import { publicationTypes } from './types/builtins'
  * Dates, buffers and views at matched positions take the next value's time or bytes, and buffer
  * sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's
  * text, including parameter order and duplicate names, and a URL keeps its own `searchParams`
- * object. An equal Temporal value is kept, and a changed one at a nested position is replaced.
- * Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values carry only their elements,
- * entries, time, bytes or text: their other own properties, such as fields that a subclass
- * declares, are not updated on a kept object and are not copied to a new one.
+ * object. An equal Temporal value is kept, and a changed one at a nested position is replaced. A
+ * `Map` or `Set` is read, and a kept one updated, through its own methods, so a subclass's
+ * overrides run; a new copy is filled with the built-in methods. Arrays, `Map`, `Set`, dates,
+ * binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text:
+ * their other own properties, such as fields that a subclass declares, are not updated on a kept
+ * object and are not copied to a new one.
  *
  * A changed own property is written by assignment, as application code writes it, so an own setter
- * runs and an own getter or setter is kept. An own getter or setter keeps its place in the key
- * order, and a getter without a setter must already hold its value. `reconcile` never writes or
- * overrides an inherited getter or setter, such as a class getter or setter. When `next` has an own
- * key that an object lacks, and assigning it would reach such a getter or setter, that object
- * cannot be updated in place: inside `current`, it is replaced by a new object; if it is `current`
- * itself, the call throws before any write. A `__proto__` key is always defined as an own data
- * property, so data never replaces a prototype. A property that `reconcile` adds is writable and
- * configurable and takes the enumerability of the property in `next`, so a non-enumerable one stays
- * hidden from key listing, spread and JSON; a property it keeps has its own attributes.
+ * runs and an own getter or setter is kept; a configurable read-only property is redefined with the
+ * next value and keeps its attributes. An own getter or setter keeps its place in the key order,
+ * and a getter without a setter must already hold its value. `reconcile` never writes or overrides
+ * an inherited getter or setter, such as a class getter or setter. When `next` has an own key that
+ * an object lacks, and assigning it would reach such a getter or setter, that object cannot be
+ * updated in place: inside `current`, it is replaced by a new object; if it is `current` itself,
+ * the call throws before any write. A `__proto__` key is always defined as an own data property, so
+ * data never replaces a prototype. A property that `reconcile` adds is writable and configurable
+ * and takes the enumerability of the property in `next`, so a non-enumerable one stays hidden from
+ * key listing, spread and JSON; a property it keeps has its own attributes.
  *
- * `next` is read completely before `current` changes. When both arguments are objects, a successful
- * call returns `current`. When either is not an object, the call returns `next` and changes
- * nothing.
+ * `next` is read completely before `current` changes. When both arguments are objects that are not
+ * kept by reference, a successful call returns `current`. When either is a primitive, a function or
+ * another object kept by reference, the call returns `next` and changes nothing.
  *
  * An object in `next` that is already the object at the same property of the matched current object
  * stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them
@@ -63,19 +66,21 @@ import { publicationTypes } from './types/builtins'
  * ```
  *
  * @param current - The value to update.
- * @param next - The value `current` should match. It is not modified.
- * @returns `current` when both arguments are objects, otherwise `next`.
+ * @param next - The value `current` should match. `reconcile` does not write to `next` itself, but
+ * an object that `next` shares with `current` can change as part of `current`.
+ * @returns `current` when both arguments are objects that are not kept by reference, otherwise
+ * `next`.
  * @throws {@link ReconcileError} with type `PublicationRejected` when `current` cannot be made to
  * match `next`. Causes include `current` and `next` having different types, such as an object and
  * an array; `current` itself being a changed Temporal value, which is immutable and cannot be
  * updated in place; and `current` itself blocking a change by being non-extensible or by having a
  * read-only non-configurable property, a non-configurable property that `next` lacks, a getter
- * without a setter, a setter that does not store its value, an inherited getter or setter for a
- * key it lacks, or an own getter or setter that would have to move to reach the key order of
- * `next`. Inside `current`, such an object is replaced by a new one instead. At any depth, the
- * call also throws when a new object it creates would inherit, from its prototype, Vue's reactive
- * markers for the same raw object as another kept or new object. Writes made before the failure are
- * not rolled back.
+ * without a setter, a setter that does not store its value, a proxy trap that refuses the
+ * assignment, an inherited getter or setter for a key it lacks, or an own getter or setter that
+ * would have to move to reach the key order of `next`. Inside `current`, such an object is replaced
+ * by a new one instead. At any depth, the call also throws when a new object it creates would
+ * inherit, from its prototype, Vue's reactive markers for the same raw object as another kept or
+ * new object. Writes made before the failure are not rolled back.
  * @throws Errors thrown by getters, setters or proxy traps propagate unchanged, also without
  * rollback.
  */

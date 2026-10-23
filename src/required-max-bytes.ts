@@ -23,7 +23,7 @@ import { maxBytesOf } from './serialization/size'
  * bounds that work as it bounds `deserialize`. Use `maxBytes: Infinity` only for trusted data, such
  * as the output of `serialize`: measuring data that does not come from `JSON.parse` or `serialize`
  * can fail to finish when it contains a cycle. Unlike `deserialize`, `requiredMaxBytes` rejects a
- * value that `JSON.parse` cannot produce, such as `undefined`, even under `Infinity`.
+ * value of a type that `JSON.parse` cannot produce, such as `undefined`, even under `Infinity`.
  *
  * @example
  * ```ts

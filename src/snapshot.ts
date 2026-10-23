@@ -81,10 +81,12 @@ class SnapshotReference extends Detached {
  * installing a polyfill. Other objects, such as class instances, are copied like plain objects. The
  * copy has the same prototype and own properties, as writable, configurable data properties that
  * keep their enumerability. It has no private fields, so a getter or method that uses one throws on
- * the copy. Building the copy runs no setter on its prototype. A copy of an array, `Map`, `Set`,
- * `Date`, buffer, view, URL, `URLSearchParams` or Temporal value also keeps its source's prototype,
- * so an instance of a subclass stays one, but it holds only the elements, entries, time, bytes or
- * text, without other own properties such as fields that a subclass declares.
+ * the copy. Building the copy runs no setter on its prototype and no override, such as a `Map`
+ * subclass's `set`: the copy is filled with the built-in methods. A `Map` or `Set` is read through
+ * its own `entries` or `values`. A copy of an array, `Map`, `Set`, `Date`, buffer, view, URL,
+ * `URLSearchParams` or Temporal value also keeps its source's prototype, so an instance of a
+ * subclass stays one, but it holds only the elements, entries, time, bytes or text, without other
+ * own properties such as fields that a subclass declares.
  *
  * A copied object that relies on functions, such as a Vue ref, can still run code that belongs to
  * the original. A `__proto__` key is copied as an own data property. Built-in values from another
