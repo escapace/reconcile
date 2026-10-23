@@ -28,8 +28,8 @@ import {
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
 import {
-  builtinGetter,
   builtinMapSet,
+  builtinMapSize,
   builtinMapDelete,
   nativeMapEntries,
 } from '../standard-prototypes'
@@ -56,7 +56,7 @@ const mapPolicySurface = /* @__PURE__ */ collectionSurface({
   builtin: {
     put: builtinMapSet,
     remove: builtinMapDelete,
-    size: /* @__PURE__ */ builtinGetter(Map.prototype, 'size') as (current: object) => number,
+    size: builtinMapSize,
     iterator: (current) =>
       Reflect.apply(nativeMapEntries as () => unknown, current, []) as Iterator<unknown>,
   },

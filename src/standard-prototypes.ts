@@ -179,7 +179,7 @@ export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
  * A built-in getter, read when the module loads and called with an explicit receiver.
  * @internal
  */
-export function builtinGetter(prototype: object, key: PropertyKey): (target: object) => unknown {
+function builtinGetter(prototype: object, key: PropertyKey): (target: object) => unknown {
   // eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
   const get = Object.getOwnPropertyDescriptor(prototype, key)!.get!
   return (target) => Reflect.apply(get, target, []) as unknown
@@ -188,10 +188,10 @@ export function builtinGetter(prototype: object, key: PropertyKey): (target: obj
 /** A built-in method of `Map` or `Set`, read when the module loads. */
 const collectionMethod = (prototype: object, key: string) =>
   Object.getOwnPropertyDescriptor(prototype, key)!.value as (...parameters: unknown[]) => unknown
-const mapSet = /* @__PURE__ */ collectionMethod(Map.prototype, 'set')
-const mapDelete = /* @__PURE__ */ collectionMethod(Map.prototype, 'delete')
-const setAdd = /* @__PURE__ */ collectionMethod(Set.prototype, 'add')
-const setDelete = /* @__PURE__ */ collectionMethod(Set.prototype, 'delete')
+const mapSet = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'set'))()
+const mapDelete = /* @__PURE__ */ (() => collectionMethod(Map.prototype, 'delete'))()
+const setAdd = /* @__PURE__ */ (() => collectionMethod(Set.prototype, 'add'))()
+const setDelete = /* @__PURE__ */ (() => collectionMethod(Set.prototype, 'delete'))()
 
 /**
  * The built-in `set`, `add` and `delete` of `Map` and `Set`, called with an explicit receiver, so
@@ -210,6 +210,14 @@ export const builtinMapDelete = (target: object, key: unknown): void => {
 export const builtinSetAdd = (target: object, value: unknown): void => {
   Reflect.apply(setAdd, target, [value])
 }
+/** The built-in `size` getters of `Map` and `Set`. @internal */
+export const builtinMapSize = /* @__PURE__ */ (() => builtinGetter(Map.prototype, 'size'))() as (
+  target: object,
+) => number
+/** @internal */
+export const builtinSetSize = /* @__PURE__ */ (() => builtinGetter(Set.prototype, 'size'))() as (
+  target: object,
+) => number
 /** @internal */
 export const builtinSetDelete = (target: object, value: unknown): void => {
   Reflect.apply(setDelete, target, [value])

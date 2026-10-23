@@ -29,8 +29,8 @@ import {
 import { emptyEdges } from './shared/empty'
 import {
   Detached,
-  builtinGetter,
   builtinSetDelete,
+  builtinSetSize,
   builtinSetAdd,
   nativeSetValues,
 } from '../standard-prototypes'
@@ -66,7 +66,7 @@ const setPolicySurface = /* @__PURE__ */ collectionSurface({
   builtin: {
     put: builtinSetAdd,
     remove: builtinSetDelete,
-    size: /* @__PURE__ */ builtinGetter(Set.prototype, 'size') as (current: object) => number,
+    size: builtinSetSize,
     iterator: (current) =>
       Reflect.apply(nativeSetValues as () => unknown, current, []) as Iterator<unknown>,
   },
