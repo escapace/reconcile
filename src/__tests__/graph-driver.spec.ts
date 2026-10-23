@@ -1,8 +1,9 @@
 import { assert, describe, expect, it } from 'vitest'
 import { claimModes } from '../graph/claims'
-import { execute } from '../graph/driver'
-import { initialClaims } from '../graph/execution'
-import type { Binding, Domains } from '../types'
+import { continueExecution, execute } from '../graph/driver'
+import { completeExecution, initialClaims, startExecution } from '../graph/execution'
+import { headSelection } from '../graph/selection'
+import type { Adapter, Binding, Domains, Result } from '../types'
 import { retainedCapacityDomains } from './fixtures/retained-capacity'
 
 const domains: Domains = [
@@ -241,4 +242,77 @@ describe('graph publication driver', () => {
       [0, 1],
     ])
   })
+})
+
+describe('continuing after a caller-run head revision', () => {
+  // Two nodes, each with a retained and a fresh choice. The script decides each call's answer
+  // from the call count, and every call is logged.
+  const problem: Domains = [0, 1].map((node) => [
+    { identity: 10 + node, required: [], retained: true, storage: 10 + node },
+    { identity: 20 + node, required: [], retained: false, storage: 20 + node },
+  ])
+  type Script = 'done' | 'low' | 'rebind' | 'refused' | 'reject' | 'unprepared'
+  const adapterFor = (script: Script, log: string[]): Adapter => {
+    let calls = 0
+    return {
+      prepare: (selection) => {
+        calls += 1
+        log.push(`prepare ${selection.join()}`)
+        if (script === 'unprepared' && calls === 1) return undefined
+        return selection.map((choice, node) => binding(problem[node][choice].identity as number))
+      },
+      publish: (state) => {
+        log.push(`publish ${state.revision}`)
+        return script === 'refused' && calls === 1 ? { rejected: 1 } : true
+      },
+      readback: (state, node) => {
+        log.push(`readback ${state.revision} ${node}`)
+        if (calls !== 1 || state.revision !== 0 || node !== 1) return { kind: 'match' }
+        if (script === 'reject') return { kind: 'reject', node: 1 }
+        if (script === 'rebind')
+          return { exposed: 99, kind: 'rebind', mode: 1, node: 1, storage: 11 }
+        return { kind: 'match' }
+      },
+      retention: (state) => {
+        log.push(`retention ${state.revision}`)
+        return script === 'low' && calls === 1 ? 1 : state.bindings.length
+      },
+    }
+  }
+  // The caller's part of `publishGraph`: prepare, publish and read back the head, then hand over.
+  const byCaller = (adapter: Adapter): Result => {
+    const head = headSelection(problem)!
+    const bindings = adapter.prepare(head)
+    if (bindings === undefined)
+      return continueExecution(problem, adapter, head, { tag: 'unprepared' })
+    const state = startExecution(0, bindings)
+    const publication = adapter.publish(state)
+    if (publication !== true)
+      return continueExecution(problem, adapter, head, { publication, tag: 'refused' })
+    for (let node = 0; node < problem.length; node += 1) {
+      const result = adapter.readback(state, node)
+      if (result.kind !== 'match')
+        return continueExecution(problem, adapter, head, { node, result, state, tag: 'mismatch' })
+    }
+    return continueExecution(problem, adapter, head, {
+      state: completeExecution(state),
+      tag: 'done',
+    })
+  }
+  it.each(['done', 'refused', 'rebind', 'reject', 'unprepared', 'low'] as const)(
+    'makes the calls execute makes and reaches its result after %s',
+    (script) => {
+      const direct: string[] = []
+      const continued: string[] = []
+      const expected = execute(problem, adapterFor(script, direct))
+      const actual = byCaller(adapterFor(script, continued))
+      assert.deepEqual(continued, direct)
+      assert.equal(actual.kind, expected.kind)
+      if (actual.kind === 'accepted' && expected.kind === 'accepted')
+        assert.deepEqual(
+          actual.state.bindings.map((entry) => entry.exposed),
+          expected.state.bindings.map((entry) => entry.exposed),
+        )
+    },
+  )
 })
