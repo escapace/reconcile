@@ -49,13 +49,13 @@ function mapKeys(map: object): unknown[] {
 const mapPolicySurface = /* @__PURE__ */ collectionSurface({
   width: 2,
   iterator: (current) => (current as Map<unknown, unknown>).entries(),
+  put: (current, key, value) => {
+    ;(current as Map<unknown, unknown>).set(key, value)
+  },
   read: (entry, slot, strict) =>
     strict ? (entry as unknown[])[slot] : (entry as unknown[] | undefined)?.[slot],
-  replace(edges, current, resolve) {
-    const map = current as Map<unknown, unknown>
-    map.clear()
-    for (let index = 0; index < edges.length; index += 2)
-      map.set(resolve(edges[index]), resolve(edges[index + 1]))
+  remove: (current, key) => {
+    ;(current as Map<unknown, unknown>).delete(key)
   },
   size: (current) => (current as Map<unknown, unknown>).size,
 })

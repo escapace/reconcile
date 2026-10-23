@@ -59,11 +59,12 @@ function vueState(state: SetDraftState): boolean {
 const setPolicySurface = /* @__PURE__ */ collectionSurface({
   width: 1,
   iterator: (current) => (current as Set<unknown>).values(),
+  put: (current, key) => {
+    ;(current as Set<unknown>).add(key)
+  },
   read: (entry) => entry,
-  replace(edges, current, resolve) {
-    const set = current as Set<unknown>
-    set.clear()
-    for (const edge of edges) set.add(resolve(edge))
+  remove: (current, key) => {
+    ;(current as Set<unknown>).delete(key)
   },
   size: (current) => (current as Set<unknown>).size,
 })

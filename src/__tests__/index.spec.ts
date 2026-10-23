@@ -1450,7 +1450,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(sets, 0)
     })
 
-    it('reconcile rebuilds a growing Map while preserving an unchanged reconciled prefix', () => {
+    it('reconcile grows a Map by appending only the added entry', () => {
       const shared = { count: 0 }
       const map = new Map<string, number | { count: number }>([['shared', shared]])
       const clear = map.clear.bind(map)
@@ -1490,11 +1490,11 @@ describe('context runtime direct contracts', () => {
         ],
       )
       assert.deepEqual(shared, { count: 1 })
-      assert.equal(clears, 1)
-      assert.equal(sets, 2)
+      assert.equal(clears, 0)
+      assert.equal(sets, 1)
     })
 
-    it('reconcile shrinks a Map while preserving an unchanged reconciled prefix', () => {
+    it('reconcile shrinks a Map by deleting only the removed entry', () => {
       const shared = { count: 0 }
       const removed = { count: 9 }
       /* eslint-disable perfectionist/sort-maps */
@@ -1530,8 +1530,8 @@ describe('context runtime direct contracts', () => {
       assert.deepEqual([...result.map.entries()], [['shared', shared]])
       assert.deepEqual(shared, { count: 1 })
       assert.equal(result.map.has('removed'), false)
-      assert.equal(clears, 1)
-      assert.equal(sets, 1)
+      assert.equal(clears, 0)
+      assert.equal(sets, 0)
     })
 
     it('reconcile grows a Set in place when next has additional entries', () => {
@@ -1582,7 +1582,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(adds, 0)
     })
 
-    it('reconcile rebuilds a growing Set while preserving an unchanged reconciled prefix', () => {
+    it('reconcile grows a Set by adding only the added member', () => {
       const shared = { count: 0 }
       const set = new Set<number | { count: number }>([shared])
       const clear = set.clear.bind(set)
@@ -1610,11 +1610,11 @@ describe('context runtime direct contracts', () => {
       assert.equal(result.set, setReference)
       assert.deepEqual([...result.set.values()], [shared, 2])
       assert.deepEqual(shared, { count: 1 })
-      assert.equal(clears, 1)
-      assert.equal(adds, 2)
+      assert.equal(clears, 0)
+      assert.equal(adds, 1)
     })
 
-    it('reconcile shrinks a Set while preserving an unchanged reconciled prefix', () => {
+    it('reconcile shrinks a Set by deleting only the removed member', () => {
       const shared = { count: 0 }
       const removed = { count: 9 }
       // eslint-disable-next-line perfectionist/sort-sets
@@ -1645,8 +1645,8 @@ describe('context runtime direct contracts', () => {
       assert.deepEqual([...result.set.values()], [shared])
       assert.deepEqual(shared, { count: 1 })
       assert.equal(result.set.has(removed), false)
-      assert.equal(clears, 1)
-      assert.equal(adds, 1)
+      assert.equal(clears, 0)
+      assert.equal(adds, 0)
     })
 
     it('reconcile grows an array while preserving an unchanged reconciled prefix', () => {

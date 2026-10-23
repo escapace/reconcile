@@ -1,6 +1,6 @@
 import { atomValue, isNode } from '../../graph/edge'
 import { isObject } from '../../object-property'
-import type { Compare, Edge, NativePolicy, Primitive, Resolve } from '../../types'
+import type { Compare, Edge, NativePolicy, Primitive } from '../../types'
 import {
   closeIterator,
   closeIteratorAfterThrow,
@@ -146,6 +146,10 @@ export const normalize = (edges: readonly Edge[], width: number): Edge[] => {
   return result
 }
 
+// Map keys and Set members are equal as the collections compare them (SameValueZero).
+const sameKey = (left: unknown, right: unknown): boolean =>
+  left === right || (Number.isNaN(left) && Number.isNaN(right))
+
 /**
  * Builds the ordered collection walker of a Map or Set publication facet.
  *
@@ -155,7 +159,9 @@ export function collectionSurface(operations: {
   readonly width: number
   iterator: (current: object) => Iterator<unknown>
   read: (entry: unknown, slot: number, strict: boolean) => unknown
-  replace: (edges: readonly Edge[], current: object, resolve: Resolve) => void
+  /** Writes one entry: a `Map` key and value, or a `Set` member (`value` unused). */
+  put: (current: object, key: unknown, value: unknown) => void
+  remove: (current: object, key: unknown) => void
   size: (current: object) => number
 }): Pick<NativePolicy, 'aligned' | 'matches' | 'publish'> {
   const { width } = operations
@@ -175,6 +181,15 @@ export function collectionSurface(operations: {
     }
     return true
   }
+  // The current entries, flattened as the edges are: key then value for a Map, member for a Set.
+  const entriesOf = (current: object): unknown[] => {
+    const present: unknown[] = []
+    const entries = operations.iterator(current)
+    for (let step = entries.next(); step.done !== true; step = entries.next())
+      for (let slot = 0; slot < width; slot += 1)
+        present.push(operations.read(step.value, slot, true))
+    return present
+  }
   const matches: NativePolicy['matches'] = (node, current, visit) =>
     operations.size(current) === node.edges.length / width && walk(node.edges, current, visit, true)
   return {
@@ -186,8 +201,35 @@ export function collectionSurface(operations: {
       })
     },
     publish(node, current, resolve) {
-      if (!matches(node, current, (actual, edge) => Object.is(resolve(edge), actual)))
-        operations.replace(node.edges, current, resolve)
+      const edges = node.edges
+      const present = entriesOf(current)
+      const count = present.length / width
+      const wanted = edges.length / width
+      // Entries match by position. Up to the first position whose key or member differs, each
+      // stays in place and a Map entry takes its next value; from there on the current entries
+      // are deleted and the next ones appended, which is the only way to reach their order
+      // (CollectionPlan.plan_eq).
+      let position = 0
+      while (
+        position < count &&
+        position < wanted &&
+        sameKey(present[position * width], resolve(edges[position * width]))
+      )
+        position += 1
+      if (width === 2)
+        for (let index = 0; index < position; index += 1) {
+          const value = resolve(edges[index * 2 + 1])
+          if (!Object.is(present[index * 2 + 1], value))
+            operations.put(current, present[index * 2], value)
+        }
+      for (let index = position; index < count; index += 1)
+        operations.remove(current, present[index * width])
+      for (let index = position; index < wanted; index += 1)
+        operations.put(
+          current,
+          resolve(edges[index * width]),
+          width === 2 ? resolve(edges[index * width + 1]) : undefined,
+        )
       return true
     },
   }
