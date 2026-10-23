@@ -62,3 +62,38 @@ describe('extensibility and prototype changes on drafts', () => {
     })
   })
 })
+
+describe('extensibility of changed objects in the result', () => {
+  it('keeps a changed frozen, sealed or non-extensible object closed', () => {
+    const frozen = Object.freeze({ child: { n: 0 }, k: 1 })
+    const sealed = Object.seal({ k: 1 })
+    const closed = Object.preventExtensions({ gone: 2, k: 1 })
+    const result = produce({ closed, frozen, sealed }, (draft) => {
+      draft.frozen.child.n = 1
+      draft.sealed.k = 2
+      delete (draft.closed as Partial<typeof closed>).gone
+      return draft
+    })
+    expect(result.frozen).not.toBe(frozen)
+    expect(Object.isFrozen(result.frozen)).toBe(true)
+    expect(result.frozen.child).toEqual({ n: 1 })
+    expect(Object.isSealed(result.sealed)).toBe(true)
+    expect(result.sealed.k).toBe(2)
+    expect(Object.isExtensible(result.closed)).toBe(false)
+    expect(result.closed).toEqual({ k: 1 })
+  })
+
+  it('keeps an object the recipe froze around drafts frozen', () => {
+    const result = produce({ inner: { n: 1 } }, (draft) => Object.freeze({ inner: draft.inner }))
+    expect(Object.isFrozen(result)).toBe(true)
+    expect(result.inner).toEqual({ n: 1 })
+  })
+
+  it('leaves a changed extensible object extensible', () => {
+    const result = produce({ object: { n: 1 } }, (draft) => {
+      draft.object.n = 2
+      return draft
+    })
+    expect(Object.isExtensible(result.object)).toBe(true)
+  })
+})

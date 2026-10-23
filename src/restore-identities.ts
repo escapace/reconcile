@@ -333,6 +333,9 @@ function publishFresh(
     const target = targets[index]
     for (let slot = 0; slot < node.edges.length; slot += 1)
       policy.freshWrite(node, target, slot, resolve)
+    // A copy of a frozen, sealed or otherwise non-extensible object is non-extensible too; with
+    // the attributes its properties keep, a copy of a frozen object is frozen.
+    if (!Object.isExtensible(records[index].target)) Object.preventExtensions(target)
   }
   return targets
 }
