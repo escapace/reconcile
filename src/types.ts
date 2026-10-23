@@ -15,6 +15,10 @@ export interface DraftContext {
   isSameDraftValue: (currentValue: unknown, value: unknown) => boolean
   /** Returns the handle or special-value copy that a recipe read sees. */
   materializeChild: (value: object) => object
+  /** The original of a special-value copy, such as a `Date` a recipe read; undefined otherwise. */
+  copyBase: (value: object) => object | undefined
+  /** The special-value copy a recipe read of `value` made, if any. */
+  copyOf: (value: object) => object | undefined
   /** Draft layers of `Map` and `Set` subclasses, by subclass prototype, for this call. */
   draftLayers?: Map<object, object>
 }

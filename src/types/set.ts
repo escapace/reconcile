@@ -239,27 +239,49 @@ function resolveSetMember(
   // use the built-in one on the working copy.
   contains?: (value: unknown) => boolean,
 ): unknown {
-  if (contains === undefined ? source.has(value) : contains(value)) {
-    return value
-  }
+  const holds = contains ?? ((form: unknown) => source.has(form))
+  if (holds(value)) return value
+  if (!isObject(value)) return LOOKUP_MISS
+  const form = otherForm(state.context, value, holds)
+  if (form !== LOOKUP_MISS) return form
+  return (
+    resolveWrappedCollectionMember(
+      source,
+      state.context.statesByIdentity.get(value)?.base ?? value,
+      state.base,
+      index,
+      setWalk,
+    ) ?? LOOKUP_MISS
+  )
+}
 
-  if (!isObject(value)) {
-    return LOOKUP_MISS
-  }
-
-  const drafted = state.context.statesByIdentity.get(value)
+/**
+ * The form of `value` that `holds` finds, or `LOOKUP_MISS`: the object a draft drafts or its
+ * handle, or the original or the copy of a special value, which a read of a `Date`, buffer, view
+ * or URL makes and which counts as its original, as a draft does.
+ */
+function otherForm(
+  context: BaseDraftState['context'],
+  value: object,
+  holds: (value: unknown) => boolean,
+): unknown {
+  const drafted = context.statesByIdentity.get(value)
   if (drafted !== undefined) {
     const { base, handle } = drafted
-    if (base !== value && (contains === undefined ? source.has(base) : contains(base))) return base
-    if (handle !== undefined && (contains === undefined ? source.has(handle) : contains(handle)))
-      return handle
-    value = drafted.base
+    if (base !== value && holds(base)) return base
+    if (handle !== undefined && holds(handle)) return handle
   }
+  return copyForm(context, value, holds)
+}
 
-  return (
-    resolveWrappedCollectionMember(source, value as object, state.base, index, setWalk) ??
-    LOOKUP_MISS
-  )
+/** The original or the copy of a special value that `holds` finds, or `LOOKUP_MISS`. */
+function copyForm(
+  context: BaseDraftState['context'],
+  value: object,
+  holds: (value: unknown) => boolean,
+): unknown {
+  const form = context.copyBase(value) ?? context.copyOf(value)
+  return form !== undefined && holds(form) ? form : LOOKUP_MISS
 }
 
 /** Resolves a member as the built-in methods do, with the built-in `has` on `members`. */
@@ -396,6 +418,11 @@ class SetCall extends Detached {
     if (operand.has.call(operand.set, member) || operand.has.call(operand.set, base)) return true
     const handle = drafted?.handle
     if (handle !== undefined && operand.has.call(operand.set, handle)) return true
+    if (
+      copyForm(state.context, member, (form) => Boolean(operand.has.call(operand.set, form))) !==
+      LOOKUP_MISS
+    )
+      return true
     return vue && operand.has.call(operand.set, storageIdentity(base))
   }
 

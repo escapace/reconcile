@@ -259,6 +259,9 @@ function resolveMapKey(state: MapDraftState, source: Map<unknown, unknown>, key:
     if (handle !== undefined && source.has(handle)) return handle
     key = drafted.base
   }
+  // A copy that a read of a `Date`, buffer, view or URL made counts as its original, as a draft does.
+  const copied = context.copyBase(key as object) ?? context.copyOf(key as object)
+  if (copied !== undefined && source.has(copied)) return copied
   return resolveWrappedCollectionMember(source, key as object, base, state.members, mapKeys) ?? key
 }
 

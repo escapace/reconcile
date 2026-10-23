@@ -3,13 +3,14 @@ import { isObject } from '../../object-property'
 import type { DraftContext } from '../../types'
 
 /**
- * The identity a draft compares when it decides membership: a draft counts as the object it
- * drafts and, in Vue reactive state, a Vue reactive proxy as its raw object; any other value is
- * itself (DraftMembers.includes_form).
+ * The identity a draft compares when it decides membership: a draft, or the copy a read of a
+ * `Date`, buffer, view or URL makes, counts as the object it stands for and, in Vue reactive
+ * state, a Vue reactive proxy as its raw object; any other value is itself. Each read therefore
+ * keeps its element's identity (DraftMembers.includes_drafted, includes_form).
  */
 const memberIdentity = (context: DraftContext, value: unknown, vue: boolean): unknown => {
   if (!isObject(value)) return value
-  const base = context.statesByIdentity.get(value)?.base ?? value
+  const base = context.statesByIdentity.get(value)?.base ?? context.copyBase(value) ?? value
   return vue ? storageIdentity(base) : base
 }
 

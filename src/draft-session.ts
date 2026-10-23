@@ -124,6 +124,14 @@ export class DraftSession extends Detached implements DraftContext {
     return this.createDraft(value)
   }
 
+  copyBase(value: object): object | undefined {
+    return this.specialCloneCloneToBase?.get(value)
+  }
+
+  copyOf(value: object): object | undefined {
+    return this.specialCloneBaseToClone?.get(value)
+  }
+
   /** Compares structural handles through their bases while keeping special copies distinct. */
   isSameDraftValue(currentValue: unknown, value: unknown): boolean {
     // Structural handles represent their bases; special writable clones remain distinct values.
