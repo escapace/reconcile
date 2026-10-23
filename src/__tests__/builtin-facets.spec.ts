@@ -3,15 +3,11 @@ import { expect, it } from 'vitest'
 import { produce } from '../produce'
 import { produce as produceSource } from '../produce.ts'
 import { MODULE_BRAND } from '../constants'
-import { PATCH_STATE_SYMBOL } from '../types/shared/draft-collection'
+import { draftState } from '../types/shared/draft-collection'
 import { builtinModules, snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
 
 it('uses global identities for the built-in protocol symbols', () => {
-  for (const symbol of [
-    MODULE_BRAND,
-    PATCH_STATE_SYMBOL,
-    ...builtinModules.map((type) => type.kind),
-  ]) {
+  for (const symbol of [MODULE_BRAND, ...builtinModules.map((type) => type.kind)]) {
     const key = Symbol.keyFor(symbol)
     expect(key).toMatch(/^@escapace\/reconcile\//)
     expect(Symbol.for(key!)).toBe(symbol)
@@ -50,7 +46,7 @@ it('accepts global symbols as ordinary Set members without sentinel collisions',
 
 it('keeps registry configuration exposed through a collection draft frozen', () => {
   produceSource(new Map(), (draft) => {
-    const state = Reflect.get(draft, PATCH_STATE_SYMBOL) as {
+    const state = draftState(draft) as unknown as {
       context: { types: typeof produceTypes }
     }
     expect(state.context.types).toBe(produceTypes)

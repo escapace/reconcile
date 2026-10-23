@@ -18,7 +18,7 @@ import { defineType } from './registry'
 import { collectionSurface, eachEntry, eachOpenedEntry, normalize } from './shared/collection'
 import {
   insertedCollectionValue,
-  PATCH_STATE_SYMBOL,
+  draftState,
   draftValue,
   adoptDraftClass,
   draftChild,
@@ -180,7 +180,7 @@ export const mapExposure: Extract<ExposureFacet, { tag: 'collection' }> = /* @__
 
 export const mapDraft = /* @__PURE__ */ freeze({
   tag: 'structural',
-  handle: (state) => new DraftMap(state),
+  handle: (state): object => new DraftMap(state),
   state: (base, context) => ({
     base,
     context,
@@ -265,12 +265,9 @@ const DraftMap = /* @__PURE__ */ (() => {
     // Keys are not drafts: a key is the object stored in the Map.
     (_state, key) => key,
   ) {
-    declare readonly [PATCH_STATE_SYMBOL]: MapDraftState
-
     /** Binds the wrapper to its call-local draft state. */
     constructor(state: MapDraftState) {
-      super()
-      this[PATCH_STATE_SYMBOL] = state
+      super(state)
       adoptDraftClass(this, DraftMap.prototype, Map.prototype, state)
       // A Map result carries only its entries, so the draft refuses new properties.
       Object.preventExtensions(this)
@@ -278,13 +275,13 @@ const DraftMap = /* @__PURE__ */ (() => {
 
     /** Reads the current collection size without allocating a copy. */
     get size(): number {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       return draftValue<Map<unknown, unknown>>(state).size
     }
 
     /** Walks the entries, as the working copy's own iterator gives them, each value as its draft. */
     [Symbol.iterator](): IterableIterator<[unknown, unknown]> {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       return draftWalk(prepareMapCopy(state)[Symbol.iterator](), (entry: [unknown, unknown]) => [
         entry[0],
         draftChild(state, entry[1]),
@@ -293,7 +290,7 @@ const DraftMap = /* @__PURE__ */ (() => {
 
     /** Clears a nonempty working collection and records an effective change. */
     clear(): void {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
 
       if (source.size === 0) {
@@ -308,7 +305,7 @@ const DraftMap = /* @__PURE__ */ (() => {
 
     /** Deletes an existing Map entry after resolving its identity in the captured copy. */
     delete(key: unknown): boolean {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
       const normalizedKey = resolveMapKey(state, source, key)
 
@@ -327,7 +324,7 @@ const DraftMap = /* @__PURE__ */ (() => {
 
     /** Returns a draft-safe Map value while preserving missing-key behavior. */
     get(key: unknown): unknown {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
       const normalizedKey = resolveMapKey(state, source, key)
       const value = source.get(normalizedKey)
@@ -345,14 +342,14 @@ const DraftMap = /* @__PURE__ */ (() => {
 
     /** Tests membership using draft-base and wrapper identity rules. */
     has(key: unknown): boolean {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
       return source.has(resolveMapKey(state, source, key))
     }
 
     /** Stores a value unless the resolved entry already represents the same draft value. */
     set(key: unknown, value: unknown): this {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
       const normalizedKey = resolveMapKey(state, source, key)
       const currentValue = source.get(normalizedKey)

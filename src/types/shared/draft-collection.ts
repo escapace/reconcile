@@ -13,7 +13,27 @@ export function draftValue<T extends object>(state: BaseDraftState): T {
   return (state.copy ?? state.base) as T
 }
 
-export const PATCH_STATE_SYMBOL = /* @__PURE__ */ Symbol.for('@escapace/reconcile/patch')
+/**
+ * Holds a collection draft's call-local state in a private field, so reflection, spreading and
+ * accessors on the prototype chain never see it: a draft has the own properties of its source.
+ * The draft classes discard this class's prototype from their chain; the field stays.
+ */
+class DraftStateHolder {
+  readonly #state: BaseDraftState
+
+  constructor(state: BaseDraftState) {
+    this.#state = state
+  }
+
+  /** The state of a draft this module constructed. */
+  static of<S extends BaseDraftState>(draft: object): S {
+    return (draft as DraftStateHolder).#state as S
+  }
+}
+
+/** The call-local state of a `Map` or `Set` draft. */
+export const draftState = <S extends BaseDraftState>(draft: object): S =>
+  DraftStateHolder.of<S>(draft)
 
 // Supply draft identity information; the storage boundary owns collection policy.
 export function insertedCollectionValue(
@@ -31,6 +51,17 @@ export function insertedCollectionValue(
   )
 }
 
+/** The walks every `Map` and `Set` draft inherits. */
+export interface DraftCollectionWalks {
+  entries: () => IterableIterator<[unknown, unknown]>
+  forEach: (
+    callback: (value: unknown, key: unknown, collection: unknown) => void,
+    ...[thisArgument]: unknown[]
+  ) => void
+  keys: () => IterableIterator<unknown>
+  values: () => IterableIterator<unknown>
+}
+
 /**
  * Builds the base of the `Map` or `Set` draft class.
  *
@@ -45,13 +76,11 @@ export function draftCollectionBase(
   builtin: object,
   prepareCopy: (state: BaseDraftState) => Map<unknown, unknown> | Set<unknown>,
   key: (state: BaseDraftState, key: unknown) => unknown,
-) {
-  abstract class DraftCollection {
-    declare readonly [PATCH_STATE_SYMBOL]: BaseDraftState
-
+): abstract new (state: BaseDraftState) => DraftCollectionWalks {
+  abstract class DraftCollection extends DraftStateHolder {
     /** Walks the entries, each value as its draft. */
     entries(): IterableIterator<[unknown, unknown]> {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState(this)
       return draftWalk(prepareCopy(state).entries(), (entry: [unknown, unknown]) => [
         key(state, entry[0]),
         draftChild(state, entry[1]),
@@ -65,7 +94,7 @@ export function draftCollectionBase(
     ): void {
       if (typeof callback !== 'function')
         throw new TypeError('The forEach callback is not a function')
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState(this)
       prepareCopy(state).forEach((value: unknown, entryKey: unknown) => {
         callback.call(thisArgument, draftChild(state, value), key(state, entryKey), this)
       })
@@ -73,13 +102,13 @@ export function draftCollectionBase(
 
     /** Walks the keys. */
     keys(): IterableIterator<unknown> {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState(this)
       return draftWalk(prepareCopy(state).keys(), (entryKey) => key(state, entryKey))
     }
 
     /** Walks the values, each object as its draft. */
     values(): IterableIterator<unknown> {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState(this)
       return draftWalk(prepareCopy(state).values(), (value) => draftChild(state, value))
     }
   }

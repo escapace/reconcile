@@ -18,7 +18,7 @@ import { defineType } from './registry'
 import { collectionSurface, eachMember, normalize } from './shared/collection'
 import {
   insertedCollectionValue,
-  PATCH_STATE_SYMBOL,
+  draftState,
   draftValue,
   adoptDraftClass,
   draftChild,
@@ -158,7 +158,7 @@ export const setExposure: Extract<ExposureFacet, { tag: 'collection' }> = /* @__
 
 export const setDraft = /* @__PURE__ */ freeze({
   tag: 'structural',
-  handle: (state) => new DraftSet(state),
+  handle: (state): object => new DraftSet(state),
   state: (base, context) => ({
     base,
     context,
@@ -601,12 +601,9 @@ const DraftSet = /* @__PURE__ */ (() => {
     prepareSetCopy as (state: BaseDraftState) => Set<unknown>,
     draftChild,
   ) {
-    declare readonly [PATCH_STATE_SYMBOL]: SetDraftState
-
     /** Binds the wrapper to its call-local draft state. */
     constructor(state: SetDraftState) {
-      super()
-      this[PATCH_STATE_SYMBOL] = state
+      super(state)
       adoptDraftClass(this, DraftSet.prototype, Set.prototype, state)
       // A Set result carries only its members, so the draft refuses new properties.
       Object.preventExtensions(this)
@@ -614,14 +611,14 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** Reads the current collection size without allocating a copy. */
     get size(): number {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       return draftValue<Set<unknown>>(state).size
     }
 
     /** Walks the members, as the working copy's own iterator gives them, each object as its
      * draft. */
     [Symbol.iterator](): IterableIterator<unknown> {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       return draftWalk(prepareSetCopy(state)[Symbol.iterator](), (member) =>
         draftChild(state, member),
       )
@@ -629,42 +626,46 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** The members of this draft, then those of `other` it does not hold. */
     union(other: unknown): Set<unknown> {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'union', other) as Set<unknown>
+      return setMethod(draftState<SetDraftState>(this), 'union', other) as Set<unknown>
     }
 
     /** The members also in `other`. */
     intersection(other: unknown): Set<unknown> {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'intersection', other) as Set<unknown>
+      return setMethod(draftState<SetDraftState>(this), 'intersection', other) as Set<unknown>
     }
 
     /** The members not in `other`. */
     difference(other: unknown): Set<unknown> {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'difference', other) as Set<unknown>
+      return setMethod(draftState<SetDraftState>(this), 'difference', other) as Set<unknown>
     }
 
     /** The members of this draft not in `other`, then those of `other` not in this draft. */
     symmetricDifference(other: unknown): Set<unknown> {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'symmetricDifference', other) as Set<unknown>
+      return setMethod(
+        draftState<SetDraftState>(this),
+        'symmetricDifference',
+        other,
+      ) as Set<unknown>
     }
 
     /** Whether every member is in `other`. */
     isSubsetOf(other: unknown): boolean {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'isSubsetOf', other) as boolean
+      return setMethod(draftState<SetDraftState>(this), 'isSubsetOf', other) as boolean
     }
 
     /** Whether every member of `other` is in this draft. */
     isSupersetOf(other: unknown): boolean {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'isSupersetOf', other) as boolean
+      return setMethod(draftState<SetDraftState>(this), 'isSupersetOf', other) as boolean
     }
 
     /** Whether no member is in `other`. */
     isDisjointFrom(other: unknown): boolean {
-      return setMethod(this[PATCH_STATE_SYMBOL], 'isDisjointFrom', other) as boolean
+      return setMethod(draftState<SetDraftState>(this), 'isDisjointFrom', other) as boolean
     }
 
     /** Adds a member only when no equivalent member already exists. */
     add(value: unknown): this {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       const source = liveMembers(state)
 
       if (builtinMember(state, source, value) !== LOOKUP_MISS) {
@@ -681,7 +682,7 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** Clears a nonempty working collection and records an effective change. */
     clear(): void {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       const source = draftValue<Set<unknown>>(state)
 
       if (source.size === 0) {
@@ -696,7 +697,7 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** Deletes an existing Set member and records only a successful removal. */
     delete(value: unknown): boolean {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       const source = draftValue<Set<unknown>>(state)
       const target = resolveSetMember(state, source, value)
 
@@ -717,7 +718,7 @@ const DraftSet = /* @__PURE__ */ (() => {
 
     /** Tests membership using draft-base and wrapper identity rules. */
     has(value: unknown): boolean {
-      const state = this[PATCH_STATE_SYMBOL]
+      const state = draftState<SetDraftState>(this)
       const source = draftValue<Set<unknown>>(state)
       return resolveSetMember(state, source, value) !== LOOKUP_MISS
     }
