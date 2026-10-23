@@ -467,6 +467,15 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   exactly their own keys. That publication of an ordinary target, not a wrapper whose descriptors
   hold its raw contents, takes its key list and each aligned key's presence and attributes from the
   preflight's descriptors and still reads each value (`publishKnown_eq`).
+- **Ordinal candidates.** `ReconcileWitness` leaves the candidate relation abstract (its `candidates`
+  field). The runtime offers each captured node other than the root the current objects aligned
+  with it, at the same key of an object, the same index of an array and the same insertion position
+  among `Map` entries (key and value) and `Set` members, plus a fresh copy; the root gets `current`
+  only. A current object is a candidate only at its own
+  position; another position gets it only as a pinned fixed image (_Full capture_)
+  (`candidates.ts` `collect`). The Pruned bridge checks this on plain-object graphs, including
+  swapped and rotated shared leaves; `readme-publication-semantics.spec.ts` and
+  `shared-identity-bug.spec.ts` cover arrays, `Map` and `Set`.
 - **Exposed handles.** Readback compares each read with the handle a node is bound to, so a value
   written must read back as that handle. A new object exposed through Vue's deep `reactive` proxy is
   filled through its raw object and stores a deep reactive child as the child's raw object, as a

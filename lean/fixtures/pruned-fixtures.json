@@ -188,5 +188,29 @@
         "shared": 3
       }
     ]
+  },
+  {
+    "before": [0, 1, 2, 3],
+    "children": [[1, 2, 3], [], [], []],
+    "name": "shared leaves rotated are rewritten in place by position, and next's objects change",
+    "nodes": [
+      {
+        "children": [1, 2, 3],
+        "occupant": 0,
+        "value": 0
+      },
+      {
+        "occupant": 1,
+        "shared": 2
+      },
+      {
+        "occupant": 2,
+        "shared": 3
+      },
+      {
+        "occupant": 3,
+        "shared": 1
+      }
+    ]
   }
 ]

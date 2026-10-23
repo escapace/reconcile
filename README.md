@@ -59,10 +59,12 @@ reconcile(state, { items: [{ id: 0 }, { id: 1 }, { id: 2 }] })
 // state.items[0] is still `first`, now { id: 0 }
 ```
 
-Likewise, reordering a `Map` moves its keys, not its value objects: the first value object stays first and takes the key and contents of the new first entry. To match objects by identifier, store them in a plain object keyed by identifier, not in an array or a `Map`.
+`Map` and `Set` entries work the same way: after a reorder, the first entry's value, key object or `Set` member stays first and takes the contents of the new first entry. To match objects by identifier, store them in a plain object keyed by identifier, not in an array, `Map` or `Set`.
 
 - An existing object at a matched position is kept and its contents are updated. A value of a different type, such as an array where an object was, replaces it. An object that `next` adds is a new copy, except for functions and other [objects kept by reference](#objects-kept-by-reference), such as a `RegExp`.
 - Only changed values are written, by ordinary assignment, so setters and watchers run only for values that changed. `reconcile(state, { ...state, count: 1 })` writes only `count`; [Object identity](#object-identity) gives the rule.
+
+When `next` holds an object of `current` at a different position, the object is matched at its own position: if `next` still has that position, the object stays there and takes the contents that `next` holds there, so `next`, which holds the same object, changes too; otherwise `current` drops it unchanged. An object inside an [object already in place](#object-identity) is the exception: `current` then holds it at both positions.
 
 When both arguments are objects that are not [kept by reference](#objects-kept-by-reference), `reconcile` returns `current`; otherwise it returns `next` and changes nothing. When `current` cannot be made to match `next`, for example because one is an object and the other an array, `reconcile` throws a `ReconcileError` of type `PublicationRejected` (see [Errors](#errors)). A failed call is not rolled back. Objects inside `current` that cannot be changed in place, such as frozen objects, are replaced by copies; see [`reconcile` limitations](#reconcile-limitations).
 
@@ -106,6 +108,8 @@ reconcile(
   }),
 )
 ```
+
+Objects are matched by position, so a recipe that reorders, inserts or removes array elements or `Map` or `Set` entries can give existing objects the contents of other elements or entries instead of moving them; see [Update objects in place](#update-objects-in-place).
 
 `produce` finishes before `reconcile` starts, so an error in the recipe leaves `current` unchanged. `reconcile` itself is not rolled back if it fails; see [`reconcile` limitations](#reconcile-limitations). When `current` comes from a getter or a function call, read it once into a variable, as above, and pass that variable to both functions, so that both receive the same object.
 
@@ -208,7 +212,7 @@ reconcile(state.value, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
 Each function treats reactive state as follows:
 
 - `reconcile(state.value, next)` updates the state in place. Nested objects keep their proxies, so components and watchers that hold them observe the changes, and only the dependents of changed values are triggered. Objects that `reconcile` adds become deeply reactive, as with any write through a reactive proxy, except copies of plain objects and class instances marked with `markRaw`; a copy of a marked array, `Map` or `Set` loses the mark. `reconcile` does not add or remove the mark on an object it keeps.
-- `produce(state.value, recipe)` returns plain objects for the changed parts and the state's own proxies for the unchanged parts; when the recipe returns the draft and changes nothing, it returns `state.value` itself, unless a getter returns a draft or `state.value` holds both a Vue proxy and its raw object; see [`produce`](#function-produce-). Mutating an unchanged part mutates the state and triggers its dependents. `reconcile(state.value, produce(state.value, recipe))` applies the changes in place and keeps the objects that components hold.
+- `produce(state.value, recipe)` returns plain objects for the changed parts and the state's own proxies for the unchanged parts; when the recipe returns the draft and changes nothing, it returns `state.value` itself, unless a getter returns a draft or `state.value` holds both a Vue proxy and its raw object; see [`produce`](#function-produce-). Mutating an unchanged part mutates the state and triggers its dependents. `reconcile(state.value, produce(state.value, recipe))` applies the changes in place and keeps the objects that components hold, matched by position; see [Update objects in place](#update-objects-in-place).
 - `snapshot(state.value)` returns a detached, non-reactive copy. Mutating the copy triggers nothing, and `reactive(copy)` creates a new proxy with no dependents.
 - `serialize(state.value)` encodes the current contents of the state, and `deserialize` returns plain, non-reactive objects.
 
@@ -408,7 +412,7 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 
 ### `reconcile` limitations
 
-- **Matched by position, not by identifier.** Array elements and `Map` entries are matched by index and insertion order; see [Update objects in place](#update-objects-in-place).
+- **Matched by position, not by identifier.** Array elements and `Map` and `Set` entries are matched by index and insertion order, even when `next` moves an object of `current`; see [Update objects in place](#update-objects-in-place).
 - **Not rolled back.** A failed call is not rolled back: writes made before the failure stay, so `current` can hold some of the new values. This applies to `PublicationRejected` and to errors from getters, setters and proxy traps.
 - **`current` itself must be updatable.** `reconcile` throws `PublicationRejected` when it cannot update `current` itself: for example, when `current` and `next` have different types, such as an object and an array, when `current` is a Temporal value that changed, or when `current` blocks a change, as described below. For more causes, see [`reconcile`](#function-reconcile-).
 - **Objects that block a change are replaced.** A change is blocked by a frozen or non-extensible object, a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, or a proxy trap that refuses the assignment. An object inside `current` that blocks a change is replaced by a new copy, so code that holds the old object does not see the change.
