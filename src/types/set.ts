@@ -27,7 +27,13 @@ import {
   builtinWalk,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { Detached } from '../standard-prototypes'
+import {
+  Detached,
+  builtinGetter,
+  builtinSetDelete,
+  builtinSetAdd,
+  nativeSetValues,
+} from '../standard-prototypes'
 
 /** Stable global identity owned by the set module. */
 export const SET_KIND = Symbol.for('@escapace/reconcile/set')
@@ -57,19 +63,28 @@ function vueState(state: SetDraftState): boolean {
 }
 
 const setPolicySurface = /* @__PURE__ */ collectionSurface({
+  builtin: {
+    put: builtinSetAdd,
+    remove: builtinSetDelete,
+    size: /* @__PURE__ */ builtinGetter(Set.prototype, 'size') as (current: object) => number,
+    iterator: (current) =>
+      Reflect.apply(nativeSetValues as () => unknown, current, []) as Iterator<unknown>,
+  },
+  own: {
+    iterator: (current) => (current as Set<unknown>).values(),
+    put: (current, key) => {
+      ;(current as Set<unknown>).add(key)
+    },
+    remove: (current, key) => {
+      ;(current as Set<unknown>).delete(key)
+    },
+    size: (current) => (current as Set<unknown>).size,
+  },
   width: 1,
-  iterator: (current) => (current as Set<unknown>).values(),
-  put: (current, key) => {
-    ;(current as Set<unknown>).add(key)
-  },
   read: (entry) => entry,
-  remove: (current, key) => {
-    ;(current as Set<unknown>).delete(key)
-  },
-  size: (current) => (current as Set<unknown>).size,
 })
 const setPolicyWrite: NativePolicy<SetLayout>['freshWrite'] = (node, target, index, resolve) => {
-  ;(target as Set<unknown>).add(resolve(node.edges[index]))
+  builtinSetAdd(target, resolve(node.edges[index]))
 }
 const setCapture = {
   construction: noValue,
@@ -88,7 +103,7 @@ const setConstruction = {
 
 // Adds one snapshot member to the receiving reference's target.
 function writeSetMember(this: SnapshotReceiver, edge: Edge): void {
-  ;(this.target as Set<unknown>).add(snapshotValue(edge))
+  builtinSetAdd(this.target!, snapshotValue(edge))
 }
 
 export const setSnapshot = /* @__PURE__ */ (() =>

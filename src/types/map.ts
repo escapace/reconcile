@@ -27,6 +27,12 @@ import {
   builtinWalk,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
+import {
+  builtinGetter,
+  builtinMapSet,
+  builtinMapDelete,
+  nativeMapEntries,
+} from '../standard-prototypes'
 
 /** Stable global identity owned by the map module. */
 export const MAP_KIND = Symbol.for('@escapace/reconcile/map')
@@ -47,24 +53,30 @@ function mapKeys(map: object): unknown[] {
 }
 
 const mapPolicySurface = /* @__PURE__ */ collectionSurface({
-  width: 2,
-  iterator: (current) => (current as Map<unknown, unknown>).entries(),
-  put: (current, key, value) => {
-    ;(current as Map<unknown, unknown>).set(key, value)
+  builtin: {
+    put: builtinMapSet,
+    remove: builtinMapDelete,
+    size: /* @__PURE__ */ builtinGetter(Map.prototype, 'size') as (current: object) => number,
+    iterator: (current) =>
+      Reflect.apply(nativeMapEntries as () => unknown, current, []) as Iterator<unknown>,
   },
+  own: {
+    iterator: (current) => (current as Map<unknown, unknown>).entries(),
+    put: (current, key, value) => {
+      ;(current as Map<unknown, unknown>).set(key, value)
+    },
+    remove: (current, key) => {
+      ;(current as Map<unknown, unknown>).delete(key)
+    },
+    size: (current) => (current as Map<unknown, unknown>).size,
+  },
+  width: 2,
   read: (entry, slot, strict) =>
     strict ? (entry as unknown[])[slot] : (entry as unknown[] | undefined)?.[slot],
-  remove: (current, key) => {
-    ;(current as Map<unknown, unknown>).delete(key)
-  },
-  size: (current) => (current as Map<unknown, unknown>).size,
 })
 const mapPolicyWrite: NativePolicy<MapLayout>['freshWrite'] = (node, target, index, resolve) => {
   if (index % 2 === 1)
-    (target as Map<unknown, unknown>).set(
-      resolve(node.edges[index - 1]),
-      resolve(node.edges[index]),
-    )
+    builtinMapSet(target, resolve(node.edges[index - 1]), resolve(node.edges[index]))
 }
 const mapCapture = {
   construction: noValue,
@@ -105,7 +117,7 @@ export const mapSnapshot = /* @__PURE__ */ (() =>
       writer.initialize(layout, target, (edge) => {
         if (pending === undefined) pending = edge
         else {
-          target.set(resolve(pending), resolve(edge))
+          builtinMapSet(target, resolve(pending), resolve(edge))
           pending = undefined
         }
       })

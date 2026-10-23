@@ -92,7 +92,12 @@ export function publishGraph(
   }
   // The channel between this call's preflights and publications, and the facts a passing
   // preflight read, by node.
-  const note: PublicationNote = { facts: undefined, prototype: undefined, unchanged: false }
+  const note: PublicationNote = {
+    facts: undefined,
+    fresh: false,
+    prototype: undefined,
+    unchanged: false,
+  }
   const preflight = denseArray<PreflightFacts | undefined>(size)
   const domains = candidates(types, records, root, graph, storage, note, preflight)
   // Retained choices take their storage from these probes and fresh ones their own node number,
@@ -269,10 +274,12 @@ export function publishGraph(
           ? facts
           : undefined
       note.unchanged = false
+      note.fresh = typeof state.bindings[index].choice === 'number'
       if (!publishNode(index)) return { rejected: index }
       if (!note.unchanged) unchanged = false
     }
     note.facts = undefined
+    note.fresh = false
     confirmed = unchanged
     return true
   }
@@ -286,7 +293,13 @@ export function publishGraph(
     outcome = REJECT
     const matches =
       matchesKind(types, target, node.layout.kind) &&
-      policies[node.layout.kind].matches(node, target, compare)
+      policies[node.layout.kind].matches(
+        node,
+        target,
+        compare,
+        // A fresh target exposed through a wrapper, such as Vue's, is read through the wrapper.
+        typeof state.bindings[index].choice === 'number' && target === writer(index),
+      )
     return matches ? MATCH : outcome
   }
   // The driver's adapter, built only when the driver takes over from the head attempt.

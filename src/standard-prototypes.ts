@@ -175,6 +175,46 @@ export const nativeMapEntries: unknown = /* @__PURE__ */ (() =>
 export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
   Object.getOwnPropertyDescriptor(Set.prototype, 'values')?.value as unknown)()
 
+/**
+ * A built-in getter, read when the module loads and called with an explicit receiver.
+ * @internal
+ */
+export function builtinGetter(prototype: object, key: PropertyKey): (target: object) => unknown {
+  // eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
+  const get = Object.getOwnPropertyDescriptor(prototype, key)!.get!
+  return (target) => Reflect.apply(get, target, []) as unknown
+}
+
+/** A built-in method of `Map` or `Set`, read when the module loads. */
+const collectionMethod = (prototype: object, key: string) =>
+  Object.getOwnPropertyDescriptor(prototype, key)!.value as (...parameters: unknown[]) => unknown
+const mapSet = /* @__PURE__ */ collectionMethod(Map.prototype, 'set')
+const mapDelete = /* @__PURE__ */ collectionMethod(Map.prototype, 'delete')
+const setAdd = /* @__PURE__ */ collectionMethod(Set.prototype, 'add')
+const setDelete = /* @__PURE__ */ collectionMethod(Set.prototype, 'delete')
+
+/**
+ * The built-in `set`, `add` and `delete` of `Map` and `Set`, called with an explicit receiver, so
+ * a subclass's override or an own property of the receiver is not called. A copy that the library
+ * builds is filled with them.
+ * @internal
+ */
+export const builtinMapSet = (target: object, key: unknown, value: unknown): void => {
+  Reflect.apply(mapSet, target, [key, value])
+}
+/** @internal */
+export const builtinMapDelete = (target: object, key: unknown): void => {
+  Reflect.apply(mapDelete, target, [key])
+}
+/** @internal */
+export const builtinSetAdd = (target: object, value: unknown): void => {
+  Reflect.apply(setAdd, target, [value])
+}
+/** @internal */
+export const builtinSetDelete = (target: object, value: unknown): void => {
+  Reflect.apply(setDelete, target, [value])
+}
+
 /** Marks the end of an iteration in {@link stepIterator}; no iterator can yield it. */
 export const iterationDone: unique symbol = Symbol('iteration done')
 

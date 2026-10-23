@@ -217,7 +217,13 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     index: number,
     resolve: Resolve,
   ) => void
-  readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
+  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`. */
+  readonly matches: (
+    node: CapturedNode<L>,
+    current: object,
+    visit: Compare,
+    fresh?: boolean,
+  ) => boolean
   /**
    * Writes the node's contents; a policy may use the preflight facts in `note` and set
    * `note.unchanged` when it wrote nothing and its readback would accept.
@@ -253,6 +259,9 @@ export interface PreflightFacts {
  */
 export interface PublicationNote {
   facts: PreflightFacts | undefined
+  /** Whether the object being published is a new one the call allocated, which no one else has
+   * seen, so its contents are written with the built-in operations. */
+  fresh: boolean
   /** The prototype of the object being preflighted, when capture read it; undefined otherwise. */
   prototype: object | null | undefined
   unchanged: boolean

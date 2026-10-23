@@ -312,34 +312,42 @@ class SnapshotWalk extends Detached {
     // Reading the prototype after another read of the array lets the engine fold it.
     const length = array.length
     const target = new Array<unknown>(length)
-    adoptPrototype(target, Object.getPrototypeOf(array) as object | null, Array.prototype)
+    const prototype = Object.getPrototypeOf(array) as object | null
     reference.target = target
     this.callerMemo?.set(source, target)
+    // The elements are assigned before the copy takes its prototype, so no setter on that
+    // prototype runs.
     for (let index = 0; index < array.length; index += 1)
       if (hasElement(array, index)) target[index] = this.slot(array[index])
+    adoptPrototype(target, prototype, Array.prototype)
   }
 
   observeMap(reference: SnapshotReference, source: object): void {
     const method = (source as { entries?: unknown }).entries
     const entries: unknown = Reflect.apply(method as () => unknown, source, [])
     const target = new Map<unknown, unknown>()
-    adoptPrototype(target, prototypeOf(source, this.read), Map.prototype)
+    const prototype = prototypeOf(source, this.read)
     reference.target = target
     this.callerMemo?.set(source, target)
+    // The copy is filled while its methods are the built-in ones and takes its prototype after,
+    // so a subclass's `set` does not run on it.
     eachOpenedEntry(entries, method, (key, child) => {
       const copiedKey = this.slot(key)
       target.set(copiedKey, this.slot(child))
       return false
     })
+    adoptPrototype(target, prototype, Map.prototype)
   }
 
   observeSet(reference: SnapshotReference, source: object): void {
     const values = (source as Set<unknown>).values()
     const target = new Set<unknown>()
-    adoptPrototype(target, prototypeOf(source, this.read), Set.prototype)
+    const prototype = prototypeOf(source, this.read)
     reference.target = target
     this.callerMemo?.set(source, target)
+    // Filled before it takes its prototype, as a Map copy is.
     for (const child of values) target.add(this.slot(child))
+    adoptPrototype(target, prototype, Set.prototype)
   }
 
   // The Date, ArrayBuffer, typed-array and DataView facets, observed inline in the same way.

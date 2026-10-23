@@ -150,28 +150,41 @@ export const normalize = (edges: readonly Edge[], width: number): Edge[] => {
 const sameKey = (left: unknown, right: unknown): boolean =>
   left === right || (Number.isNaN(left) && Number.isNaN(right))
 
-/**
- * Builds the ordered collection walker of a Map or Set publication facet.
- *
- * @param operations - Type-owned entry shape and replacement rules.
- */
-export function collectionSurface(operations: {
-  readonly width: number
+/** How a collection's entries are read and written: through the object's own methods, as
+ * application code does, or with the built-in methods. */
+export interface CollectionAccess {
   iterator: (current: object) => Iterator<unknown>
-  read: (entry: unknown, slot: number, strict: boolean) => unknown
   /** Writes one entry: a `Map` key and value, or a `Set` member (`value` unused). */
   put: (current: object, key: unknown, value: unknown) => void
   remove: (current: object, key: unknown) => void
   size: (current: object) => number
+}
+
+/**
+ * Builds the ordered collection walker of a Map or Set publication facet.
+ *
+ * @remarks
+ * An object from `current` is read and written through `own`, as application code would. A new
+ * copy that this call allocated uses `builtin`, so a subclass's override does not run on an object
+ * its constructor never initialized; a wrapper exposing one, such as Vue's, uses `own`.
+ *
+ * @param operations - Type-owned entry shape and the two ways to access entries.
+ */
+export function collectionSurface(operations: {
+  builtin: CollectionAccess
+  own: CollectionAccess
+  readonly width: number
+  read: (entry: unknown, slot: number, strict: boolean) => unknown
 }): Pick<NativePolicy, 'aligned' | 'matches' | 'publish'> {
   const { width } = operations
   const walk = (
     node: readonly Edge[],
     current: object | undefined,
     visit: Compare,
-    strict = false,
+    strict: boolean,
+    access: CollectionAccess,
   ): boolean => {
-    const previous = current === undefined ? undefined : operations.iterator(current)
+    const previous = current === undefined ? undefined : access.iterator(current)
     for (let index = 0; index < node.length; index += width) {
       const entry: unknown = previous?.next().value
       for (let slot = 0; slot < width; slot += 1) {
@@ -182,27 +195,39 @@ export function collectionSurface(operations: {
     return true
   }
   // The current entries, flattened as the edges are: key then value for a Map, member for a Set.
-  const entriesOf = (current: object): unknown[] => {
+  const entriesOf = (current: object, access: CollectionAccess): unknown[] => {
     const present: unknown[] = []
-    const entries = operations.iterator(current)
+    const entries = access.iterator(current)
     for (let step = entries.next(); step.done !== true; step = entries.next())
       for (let slot = 0; slot < width; slot += 1)
         present.push(operations.read(step.value, slot, true))
     return present
   }
-  const matches: NativePolicy['matches'] = (node, current, visit) =>
-    operations.size(current) === node.edges.length / width && walk(node.edges, current, visit, true)
+  const matches: NativePolicy['matches'] = (node, current, visit, fresh) => {
+    const access = fresh === true ? operations.builtin : operations.own
+    return (
+      access.size(current) === node.edges.length / width &&
+      walk(node.edges, current, visit, true, access)
+    )
+  }
   return {
     matches,
     aligned: (node, current, visit) => {
-      walk(node.edges, current, (actual, edge) => {
-        if (isNode(edge)) visit(actual, edge)
-        return true
-      })
+      walk(
+        node.edges,
+        current,
+        (actual, edge) => {
+          if (isNode(edge)) visit(actual, edge)
+          return true
+        },
+        false,
+        operations.own,
+      )
     },
-    publish(node, current, resolve) {
+    publish(node, current, resolve, _owner, note) {
       const edges = node.edges
-      const present = entriesOf(current)
+      const access = note?.fresh === true ? operations.builtin : operations.own
+      const present = entriesOf(current, access)
       const count = present.length / width
       const wanted = edges.length / width
       // Entries match by position. Up to the first position whose key or member differs, each
@@ -220,12 +245,12 @@ export function collectionSurface(operations: {
         for (let index = 0; index < position; index += 1) {
           const value = resolve(edges[index * 2 + 1])
           if (!Object.is(present[index * 2 + 1], value))
-            operations.put(current, present[index * 2], value)
+            access.put(current, present[index * 2], value)
         }
       for (let index = position; index < count; index += 1)
-        operations.remove(current, present[index * width])
+        access.remove(current, present[index * width])
       for (let index = position; index < wanted; index += 1)
-        operations.put(
+        access.put(
           current,
           resolve(edges[index * width]),
           width === 2 ? resolve(edges[index * width + 1]) : undefined,

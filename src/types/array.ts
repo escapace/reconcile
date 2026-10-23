@@ -31,7 +31,7 @@ import {
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
-import { hasElement, isDataDescriptor } from '../standard-prototypes'
+import { defineData, hasElement, isDataDescriptor } from '../standard-prototypes'
 
 /** Stable global identity owned by the array module. */
 export const ARRAY_KIND = Symbol.for('@escapace/reconcile/array')
@@ -91,9 +91,24 @@ const arrayConstruction = {
     adoptPrototype(new Array<unknown>(node.layout.length), node.layout.prototype, Array.prototype),
 } satisfies ConstructionPolicy<ArrayLayout>
 
+/**
+ * Writes an element into a new copy: by assignment when the copy is a standard array, otherwise
+ * as an own data property, so no setter on a subclass's prototype runs.
+ */
+function fillElement(
+  target: object,
+  prototype: object | null,
+  key: PropertyKey,
+  value: unknown,
+): void {
+  if (prototype === Array.prototype) (target as Record<PropertyKey, unknown>)[key] = value
+  else defineData(target, key, value)
+}
+
 // Writes one snapshot element into the receiving reference's target.
 function writeArraySlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
-  ;(this.target as Record<PropertyKey, unknown>)[key!] = snapshotValue(edge)
+  const target = this.target!
+  fillElement(target, Object.getPrototypeOf(target) as object | null, key!, snapshotValue(edge))
 }
 
 export const arraySnapshot = /* @__PURE__ */ (() =>
@@ -209,7 +224,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
     },
   } satisfies ImmutablePolicy<ArrayLayout>['immutable']),
   freshWrite(node, target, index, resolve) {
-    Reflect.set(target, node.keys[index], resolve(node.edges[index]))
+    fillElement(target, node.layout.prototype, node.keys[index], resolve(node.edges[index]))
   },
   someChild(source, read, test) {
     const array = source as unknown[]
