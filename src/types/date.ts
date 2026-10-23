@@ -14,13 +14,23 @@ import type {
 import { defineType } from './registry'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
+// The built-in time accessors: a subclass override or a patched prototype is never called, as
+// for buffers and URLs.
+// eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
+const dateGetTime = /* @__PURE__ */ (() => Date.prototype.getTime)()
+// eslint-disable-next-line typescript/unbound-method -- Called with an explicit receiver.
+const dateSetTime = /* @__PURE__ */ (() => Date.prototype.setTime)()
+
+/** A date's time, read with the built-in method. */
+export const timeOf = (value: object): number => Reflect.apply(dateGetTime, value, [])
+
 /** Stable global identity owned by the date module. */
 export const DATE_KIND = Symbol.for('@escapace/reconcile/date')
 
 const dateCapture = {
   construction: noValue,
   observe(value, begin) {
-    const time = (value as Date).getTime()
+    const time = timeOf(value)
     begin({ kind: DATE_KIND, prototype: Object.getPrototypeOf(value) as object | null, time })
   },
 } satisfies CapturePolicy<DateLayout>
@@ -51,9 +61,11 @@ export const datePublication = /* @__PURE__ */ (() =>
     compatible: yes,
     requirements: emptyEdges,
     seal: same,
-    matches: (node, current) => Object.is((current as Date).getTime(), node.layout.time),
+    matches: (node, current) => Object.is(timeOf(current), node.layout.time),
+    // Only a changed time is written.
     publish(node, current) {
-      ;(current as Date).setTime(node.layout.time)
+      if (!Object.is(timeOf(current), node.layout.time))
+        Reflect.apply(dateSetTime, current, [node.layout.time])
       return true
     },
   }))() satisfies PublicationPolicy<DateLayout>
@@ -66,12 +78,11 @@ export const dateImmutable = /* @__PURE__ */ (() => ({
       dependencies: noDependencies,
       copy: (value) =>
         adoptPrototype(
-          new Date((value as Date).getTime()),
+          new Date(timeOf(value)),
           Object.getPrototypeOf(value) as object | null,
           Date.prototype,
         ),
-      equivalent: (base, candidate) =>
-        Object.is((base as Date).getTime(), (candidate as Date).getTime()),
+      equivalent: (base, candidate) => Object.is(timeOf(base), timeOf(candidate)),
     } satisfies SpecialPolicy),
     tag: 'copy',
   } satisfies ImmutablePolicy<DateLayout>['immutable']),

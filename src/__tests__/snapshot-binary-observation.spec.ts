@@ -41,7 +41,7 @@ describe('snapshot binary and Date observation', () => {
     expect(copy.buffer).toBe(shared)
   })
 
-  it('reads an own getTime once per Date identity', () => {
+  it('copies a Date by its built-in time without reading an own getTime', () => {
     const date = new Date(9)
     let reads = 0
     Object.defineProperty(date, 'getTime', {
@@ -51,10 +51,10 @@ describe('snapshot binary and Date observation', () => {
       },
     })
     const copy = snapshot([date, date]) as [Date, Date]
-    expect(reads).toBe(1)
+    expect(reads).toBe(0)
     expect(copy[0]).toBe(copy[1])
     expect(copy[0]).not.toBe(date)
-    expect(Date.prototype.getTime.call(copy[0])).toBe(42)
+    expect(Date.prototype.getTime.call(copy[0])).toBe(9)
   })
 
   it('passes a primitive or an earlier copy from a buffer getter to the view constructor', () => {

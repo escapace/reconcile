@@ -20,7 +20,7 @@ import { OBJECT_KIND } from './types/object'
 import { ARRAY_KIND } from './types/array'
 import { MAP_KIND } from './types/map'
 import { SET_KIND } from './types/set'
-import { DATE_KIND } from './types/date'
+import { DATE_KIND, timeOf } from './types/date'
 import { ARRAY_BUFFER_KIND } from './types/array-buffer'
 import { TYPED_ARRAY_KIND, copyTypedArray } from './types/typed-array'
 import { DATA_VIEW_KIND, copyDataView } from './types/data-view'
@@ -337,7 +337,7 @@ class SnapshotWalk extends Detached {
 
   // The Date, ArrayBuffer, typed-array and DataView facets, observed inline in the same way.
   observeDate(reference: SnapshotReference, value: object): void {
-    const target = new Date((value as Date).getTime())
+    const target = new Date(timeOf(value))
     adoptPrototype(target, prototypeOf(value, this.read), Date.prototype)
     reference.target = target
     this.callerMemo?.set(value, target)

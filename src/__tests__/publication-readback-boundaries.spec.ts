@@ -176,21 +176,38 @@ it.each(['missing member', 'wrong member'] as const)(
   },
 )
 
+// An object whose setter runs `effect` when publication writes its value: a write that changes
+// bytes the engine already published, so readback rejects them and the plan is repaired.
+function trigger(effect: () => void): { value: number; writes: () => number } {
+  let stored = 0
+  let writes = 0
+  return {
+    get value(): number {
+      return stored
+    },
+    set value(next: number) {
+      writes += 1
+      effect()
+      stored = next
+    },
+    writes: () => writes,
+  }
+}
+
 it('repairs a buffer after a later publication changes its bytes', () => {
   const buffer = new ArrayBuffer(4)
-  const date = new Date(0)
-  Object.defineProperty(date, 'setTime', {
-    value(time: number) {
-      new Uint8Array(buffer)[0] = 9
-      return Date.prototype.setTime.call(date, time)
-    },
+  const hook = trigger(() => {
+    new Uint8Array(buffer)[0] = 9
   })
-  const current = { buffer, date }
+  const current = { buffer, hook }
   const nextBuffer = new Uint8Array([1, 2, 3, 4]).buffer
-  assert.equal(reconcile(current, { buffer: nextBuffer, date: new Date(1) }), current)
+  assert.equal(
+    reconcile(current, { buffer: nextBuffer, hook: { value: 1, writes: hook.writes } }),
+    current,
+  )
   assert.notEqual(current.buffer, buffer)
-  assert.equal(current.date, date)
-  assert.equal(date.getTime(), 1)
+  assert.equal(current.hook, hook)
+  assert.equal(hook.value, 1)
   assert.equal(current.buffer.byteLength, 4)
   assert.deepEqual([...new Uint8Array(current.buffer)], [1, 2, 3, 4])
   assert.deepEqual([...new Uint8Array(nextBuffer)], [1, 2, 3, 4])
@@ -209,17 +226,11 @@ it.each([false, true])(
   'rebuilds fresh views when their buffer is repaired (views first: %s)',
   (viewsFirst) => {
     const buffer = new ArrayBuffer(4)
-    const date = new Date(0)
-    let writes = 0
-    Object.defineProperty(date, 'setTime', {
-      value(time: number) {
-        writes += 1
-        new Uint8Array(buffer)[0] = 9
-        return Date.prototype.setTime.call(date, time)
-      },
+    const hook = trigger(() => {
+      new Uint8Array(buffer)[0] = 9
     })
     const sibling = { stable: true }
-    const current = { buffer, date, sibling }
+    const current = { buffer, hook, sibling }
     const nextBuffer = new Uint8Array([1, 2, 3, 4]).buffer
     const view = new Uint8Array(nextBuffer, 1, 2)
     const dataView = new DataView(nextBuffer, 1, 2)
@@ -227,7 +238,7 @@ it.each([false, true])(
       ? {
           buffer: nextBuffer,
           dataView,
-          date: new Date(1),
+          hook: { value: 1, writes: hook.writes },
           repeated: view,
           sibling: { stable: true },
           view,
@@ -235,7 +246,7 @@ it.each([false, true])(
       : {
           buffer: nextBuffer,
           dataView,
-          date: new Date(1),
+          hook: { value: 1, writes: hook.writes },
           repeated: view,
           sibling: { stable: true },
           view,
@@ -252,9 +263,10 @@ it.each([false, true])(
     assert.equal(result.dataView.byteLength, 2)
     assert.deepEqual([...new Uint8Array(result.buffer)], [1, 2, 3, 4])
     assert.deepEqual([...new Uint8Array(nextBuffer)], [1, 2, 3, 4])
-    assert.equal(result.date, date)
+    assert.equal(result.hook, hook)
     assert.equal(result.sibling, sibling)
-    assert.equal(writes, 2)
+    // The repaired plan finds the hook's value already written.
+    assert.equal(hook.writes(), 1)
   },
 )
 
@@ -263,16 +275,10 @@ it('retains an aligned view over the replacement buffer after repair', () => {
   const second = new ArrayBuffer(4)
   const firstView = new Uint8Array(first)
   const secondView = new Uint8Array(second)
-  const date = new Date(0)
-  let writes = 0
-  Object.defineProperty(date, 'setTime', {
-    value(time: number) {
-      writes += 1
-      new Uint8Array(first)[0] = 9
-      return Date.prototype.setTime.call(date, time)
-    },
+  const hook = trigger(() => {
+    new Uint8Array(first)[0] = 9
   })
-  const current = { first, left: firstView, right: secondView, second, trigger: date }
+  const current = { first, left: firstView, right: secondView, second, trigger: hook }
   const buffer = new Uint8Array([1, 2, 3, 4]).buffer
   const view = new Uint8Array(buffer)
   const result = reconcile(current, {
@@ -280,7 +286,7 @@ it('retains an aligned view over the replacement buffer after repair', () => {
     left: view,
     right: view,
     second: buffer,
-    trigger: new Date(1),
+    trigger: { value: 1, writes: hook.writes },
   })
   assert.equal(result, current)
   assert.equal(result.first, second)
@@ -289,35 +295,29 @@ it('retains an aligned view over the replacement buffer after repair', () => {
   assert.equal(result.right, secondView)
   assert.equal(result.left.buffer, result.first)
   assert.deepEqual([...result.left], [1, 2, 3, 4])
-  assert.equal(writes, 2)
+  assert.equal(hook.writes(), 1)
 })
 
-it('rebuilds a fresh view across multiple buffer rejections without extra repair attempts', () => {
+it('repairs a view across multiple buffer rejections without extra repair attempts', () => {
   const first = new ArrayBuffer(4)
   const second = new ArrayBuffer(4)
-  const date = new Date(0)
-  let writes = 0
-  Object.defineProperty(date, 'setTime', {
-    value(time: number) {
-      writes += 1
-      new Uint8Array(first)[0] = 9
-      new Uint8Array(second)[0] = 9
-      return Date.prototype.setTime.call(date, time)
-    },
+  const hook = trigger(() => {
+    new Uint8Array(first)[0] = 9
+    new Uint8Array(second)[0] = 9
   })
-  const current = { first, second, trigger: date }
+  const current = { first, second, trigger: hook }
   const buffer = new Uint8Array([1, 2, 3, 4]).buffer
   const result = reconcile(current, {
     first: buffer,
     second: buffer,
-    trigger: new Date(1),
+    trigger: { value: 1, writes: hook.writes },
     view: new Uint8Array(buffer),
   })
   assert.equal(result, current)
-  assert.notEqual(result.first, first)
-  assert.notEqual(result.first, second)
+  // The trigger corrupts both buffers once; the repaired plan keeps one of them for both keys.
+  assert.ok(result.first === first || result.first === second)
   assert.equal(result.first, result.second)
   assert.equal(result.view.buffer, result.first)
   assert.deepEqual([...result.view], [1, 2, 3, 4])
-  assert.equal(writes, 3)
+  assert.equal(hook.writes(), 1)
 })
