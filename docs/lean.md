@@ -467,6 +467,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   exactly their own keys. That publication of an ordinary target, not a wrapper whose descriptors
   hold its raw contents, takes its key list and each aligned key's presence and attributes from the
   preflight's descriptors and still reads each value (`publishKnown_eq`).
+- **Exposed handles.** Readback compares each read with the handle a node is bound to, so a value
+  written must read back as that handle. A new object exposed through Vue's deep `reactive` proxy is
+  filled through its raw object and stores a deep reactive child as the child's raw object, as a
+  write through the proxy would; the proxy's `get` returns the same proxy for it. Keys that the
+  proxy returns unwrapped (`__proto__`, `__v_isRef`, `__isVue`) store the handle itself
+  (`src/__tests__/vue-state.spec.ts`).
 
 ### Selection kernel
 

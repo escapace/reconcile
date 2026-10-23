@@ -506,8 +506,11 @@ export interface BoundEdge {
   readonly node: number
 }
 
-/** Resolves an edge through the current selected image, leaving atoms unchanged. */
-export type Resolve = (edge: Edge) => unknown
+/**
+ * Resolves an edge through the current selected image, leaving atoms unchanged; `key` is the
+ * property key the value is written to, when there is one.
+ */
+export type Resolve = (edge: Edge, key?: PropertyKey) => unknown
 
 /** Accumulates a graph node before native sealing makes its layout consumable. */
 export interface BuildingNode {

@@ -122,3 +122,64 @@ describe('markRaw objects', () => {
     assert.deepEqual(current, { n: 2 })
   })
 })
+
+describe('objects reconcile adds to reactive state', () => {
+  // Vue stores a deep reactive value as its raw object, so raw state holds no proxies.
+  const proxies = (value: unknown, seen = new Set<object>()): number => {
+    if (typeof value !== 'object' || value === null || seen.has(value)) return 0
+    seen.add(value)
+    let count = toRaw(value) === value ? 0 : 1
+    const raw = toRaw(value)
+    const children =
+      raw instanceof Map
+        ? [...raw.keys(), ...raw.values()]
+        : raw instanceof Set
+          ? [...raw]
+          : Object.values(raw)
+    for (const child of children) count += proxies(child, seen)
+    return count
+  }
+
+  it('hold raw objects, as Vue stores them, nested, shared and cyclic', () => {
+    const shared = { s: 1 }
+    const cycle: Record<string, unknown> = { c: 1 }
+    cycle.self = cycle
+    const key = { k: 1 }
+    const state = reactive<Record<string, unknown>>({ root: 1 })
+    reconcile(state, {
+      root: {
+        cycle,
+        list: [{ x: { y: {} } }, shared],
+        map: new Map([[key, { key }]]),
+        nested: { a: { b: {} } },
+        set: new Set([{ z: 1 }, shared]),
+        shared,
+      },
+    })
+    const raw = toRaw(state)
+    assert.equal(proxies(raw.root), 0)
+    const root = raw.root as { cycle: { self: unknown }; list: unknown[]; shared: unknown }
+    assert.equal(root.cycle.self, root.cycle)
+    assert.equal(root.list[1], root.shared)
+    assert.doesNotThrow(() => structuredClone(raw))
+    const view = state.root as { cycle: { self: unknown }; list: unknown[]; shared: unknown }
+    assert.isTrue(isReactive(view.cycle))
+    assert.equal(view.cycle.self, view.cycle)
+    assert.equal(view.list[1], view.shared)
+  })
+
+  it('keep a proxy at an own __proto__ key, which Vue reads without wrapping', () => {
+    const cycle: Record<string, unknown> = {}
+    Object.defineProperty(cycle, '__proto__', {
+      configurable: true,
+      enumerable: true,
+      value: cycle,
+      writable: true,
+    })
+    const state = reactive<Record<string, unknown>>({ root: 1 })
+    reconcile(state, { root: cycle })
+    const view = state.root as Record<string, unknown>
+    assert.isTrue(isReactive(view))
+    assert.equal(Object.getOwnPropertyDescriptor(toRaw(view), '__proto__')?.value, view)
+  })
+})

@@ -158,7 +158,7 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
 function writeProperties(
   node: CapturedNode<ObjectLayout>,
   target: object,
-  image: (edge: Edge) => unknown,
+  image: (edge: Edge, key?: PropertyKey) => unknown,
   known: ReadonlyArray<PropertyDescriptor | undefined> | undefined,
 ): number {
   const hidden = node.layout.hidden
@@ -167,7 +167,7 @@ function writeProperties(
     const key = node.keys[index]
     const descriptor = known !== undefined && index < known.length ? known[index] : undefined
     const added = descriptor === undefined && hidden?.has(key) === true && !hasOwn(target, key)
-    const written = publishKnown(target, key, image(node.edges[index]), descriptor)
+    const written = publishKnown(target, key, image(node.edges[index], key), descriptor)
     if (written === REFUSED) return REFUSED
     if (written === WROTE) result = WROTE
     if (added && !hide(target, key)) return REFUSED

@@ -155,6 +155,13 @@ export function normalizeCollectionInsertion(
   return entry.value
 }
 
+/** The exposure mode of Vue's deep `reactive` proxy over its storage (`classifyExposure`). */
+export const REACTIVE_MODE = 1
+
+/** Whether Vue's reactive `get` trap returns a property's value as stored, without wrapping it. */
+export const unwrappedKey = (key: PropertyKey | undefined): boolean =>
+  key === '__proto__' || key === '__v_isRef' || key === '__isVue'
+
 /** Classifies the finite raw/Vue exposure palette without constructing wrappers. */
 export function exposureMode(
   value: object,

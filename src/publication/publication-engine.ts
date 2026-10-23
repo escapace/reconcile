@@ -1,6 +1,6 @@
 import { atomValue, isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
-import { ExposurePalette, storageIdentity } from '../adapters/vue'
+import { ExposurePalette, REACTIVE_MODE, storageIdentity, unwrappedKey } from '../adapters/vue'
 import { EXPOSURE_MODES } from '../constants'
 import { isObject } from '../object-property'
 import type {
@@ -196,8 +196,18 @@ export function publishGraph(
   // The attempt being published or read back; the callbacks below read it instead of closing
   // over each revision.
   let active: Execution | undefined
-  const resolve = (edge: Edge): unknown =>
-    isNode(edge) ? exposed(active!, edge.node) : atomValue(edge)
+  // Whether the node being published is a new object exposed through a deep reactive proxy. It is
+  // filled through its raw writer, so it stores what a write through that proxy would: Vue keeps
+  // a deep reactive value as its raw object, and reading it back through the proxy gives the same
+  // proxy again. A key whose value the proxy returns unwrapped keeps the proxy itself.
+  let unwrapsReactive = false
+  const resolve = (edge: Edge, key?: PropertyKey): unknown => {
+    if (!isNode(edge)) return atomValue(edge)
+    const child = active!.bindings[edge.node]
+    return unwrapsReactive && child.mode === REACTIVE_MODE && !unwrappedKey(key)
+      ? child.storage
+      : child.exposed
+  }
   const writer = (index: number): object => active!.bindings[index].writer as object
   // Construction bindings already observed native ownership at prepare. URL child
   // identity is fixed for its owner's lifetime, so this lookup performs no live read.
@@ -258,6 +268,7 @@ export function publishGraph(
       first && facts?.current === binding.choice && binding.mode === 0 ? facts : undefined
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
+    unwrapsReactive = note.fresh && binding.mode === REACTIVE_MODE
     const node = records[index]
     const accepted = policies[node.layout.kind].publish(
       node,
