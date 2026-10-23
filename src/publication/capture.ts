@@ -46,12 +46,12 @@ class AlignedCapture extends Detached {
   // Objects marked by kept-subtree walks; created on the first walk.
   declare private readonly beginCallback: (layout: Layout) => void
   declare private closure: Set<object> | undefined
-  declare readonly currents: Array<object | undefined>
+  declare currents: Array<object | undefined>
   declare private readonly edgeCallback: CaptureEdge
-  declare readonly nodes: Array<BuildingNode | CapturedNode>
-  declare readonly occupants: Array<unknown[] | undefined>
+  declare nodes: Array<BuildingNode | CapturedNode>
+  declare occupants: Array<unknown[] | undefined>
   // The prototype capture read of each node's aligned current object; undefined when unread.
-  declare readonly prototypes: Array<object | null | undefined>
+  declare prototypes: Array<object | null | undefined>
   // The one prototype read shared by recognition and its caller for the object at hand.
   declare private readonly read: PrototypeRead
   // The root's prototypes, read by the caller before capture.
@@ -65,7 +65,7 @@ class AlignedCapture extends Detached {
   declare private pending: object | undefined
   declare private readonly references: Map<object, Edge>
   declare private readonly root: object | undefined
-  declare readonly sources: object[]
+  declare sources: object[]
   declare private readonly types: PublicationRegistry
 
   constructor(
@@ -138,7 +138,7 @@ class AlignedCapture extends Detached {
   }
 
   private reserve(index: number): NodeEdge {
-    this.nodes[index] = {
+    const node: BuildingNode = {
       attributes: undefined,
       edges: [],
       keys: [],
@@ -146,9 +146,18 @@ class AlignedCapture extends Detached {
       observed: undefined,
       pinned: undefined,
     }
-    this.currents[index] = this.pending
-    this.prototypes[index] = this.pendingPrototype
-    this.occupants[index] = undefined
+    // The first node's tables are exact literals; a later node grows them.
+    if (index === 0) {
+      this.nodes = [node]
+      this.currents = [this.pending]
+      this.prototypes = [this.pendingPrototype]
+      this.occupants = [undefined]
+    } else {
+      this.nodes[index] = node
+      this.currents[index] = this.pending
+      this.prototypes[index] = this.pendingPrototype
+      this.occupants[index] = undefined
+    }
     this.pending = undefined
     this.pendingPrototype = undefined
     return { node: index }
@@ -158,7 +167,8 @@ class AlignedCapture extends Detached {
   private begin(layout: Layout): void {
     const index = this.currentReference!.node
     ;(this.nodes[index] as BuildingNode).layout = layout
-    this.sources[index] = this.currentSource!
+    if (index === 0 && this.sources.length === 0) this.sources = [this.currentSource!]
+    else this.sources[index] = this.currentSource!
     const aligned = this.currents[index]
     if (aligned === undefined) return
     const read = this.share(this.prototypes[index])

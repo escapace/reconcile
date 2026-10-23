@@ -48,6 +48,23 @@ export function candidates(
         (node as { pinned?: object }).pinned = source
     })
   }
+  // A candidate's retained choice, or undefined when it cannot be retained.
+  const retainedChoice = (
+    node: CapturedNode,
+    index: number,
+    candidate: object,
+    policy: PublicationRegistry['policies'][symbol],
+  ): Choice | undefined => {
+    const prototype = ingressOf(types, node, index, candidate, alignment)
+    if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
+    if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true)
+      return undefined
+    const required = preflightOf(policy, node, candidate, note, prototype)
+    if (required === undefined) return undefined
+    // The first passing candidate's facts serve the publication that retains it.
+    if (note?.facts !== undefined) preflight![index] ??= note.facts
+    return { identity: candidate, required, retained: true, storage: storage(candidate, prototype) }
+  }
   return records.map((node, index): Choice[] => {
     if (node.pinned !== undefined)
       return [
@@ -59,24 +76,23 @@ export function candidates(
         },
       ]
     const policy = types.policies[node.layout.kind]
-    const choices: Choice[] = []
-    for (const candidate of index === 0 ? [root] : (aligned[index] ?? [])) {
-      const prototype = ingressOf(types, node, index, candidate, alignment)
-      if (prototype === MISMATCH || !policy.compatible(node, candidate)) continue
-      if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true) continue
-      const required = preflightOf(policy, node, candidate, note, prototype)
-      if (required === undefined) continue
-      // The first passing candidate's facts serve the publication that retains it.
-      if (note?.facts !== undefined) preflight![index] ??= note.facts
-      choices.push({
-        identity: candidate,
-        required,
-        retained: true,
-        storage: storage(candidate, prototype),
-      })
+    const list = index === 0 ? undefined : aligned[index]
+    const count = index === 0 ? 1 : list === undefined ? 0 : list.length
+    // At most one choice per candidate plus the fresh one, written in place and trimmed.
+    const choices = denseArray<Choice>(index === 0 ? count : count + 1)
+    let written = 0
+    for (let at = 0; at < count; at += 1) {
+      const choice = retainedChoice(node, index, index === 0 ? root : list![at], policy)
+      if (choice !== undefined) choices[written++] = choice
     }
     if (index !== 0)
-      choices.push({ identity: index, required: EMPTY_FACTS, retained: false, storage: index })
+      choices[written++] = {
+        identity: index,
+        required: EMPTY_FACTS,
+        retained: false,
+        storage: index,
+      }
+    if (written !== choices.length) choices.length = written
     return choices
   })
 }

@@ -27,11 +27,11 @@ export async function checkDeferredOrderRuntime(oracle: Oracle): Promise<void> {
         '  const previous = surface.keys(current)',
         '  const previous = surface.keys(current);globalThis.__cursor.start(previous,desiredKeys,surface.ordered)',
       )
-      const checkpoint = '    const retained = needsOrder ? retainThrough(key) : undefined'
+      const checkpoint = '    const retained = order?.through(previous, key)'
       replace(checkpoint, `${checkpoint};globalThis.__cursor.fixed(order,retained,key)`)
       replace(
-        '    if (order !== undefined) return order.retained === desiredKeys.length',
-        '    globalThis.__cursor.final(order);if (order !== undefined) return order.retained === desiredKeys.length',
+        '  if (order !== undefined) return order.retained === desiredKeys.length',
+        '  globalThis.__cursor.final(order);if (order !== undefined) return order.retained === desiredKeys.length',
       )
       const compiled = ts.transpileModule(source, {
         compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
@@ -50,7 +50,7 @@ const traces=[];let current;
 const key=k=>{if(k==='length')return[1,6];const id=deferredKeys.indexOf(k);assert(id>=0);return[id<2?0:id<4?1:2,id]};
 globalThis.__cursor={
  start(previous,desired,ordered){current={previous:[...previous],desired:[...desired],ordered,demands:[],finals:[],observations:[]}},
- fixed(order,kept,key){current.demands.push(current.previous.indexOf(key)+1);current.finals.push(false);current.observations.push(order===undefined?null:[order.retained,kept])},
+ fixed(order,kept,key){current.demands.push(current.previous.indexOf(key)+1);current.finals.push(false);current.observations.push(order==null?null:[order.retained,kept])},
  final(order){current.demands.push(current.previous.length);current.finals.push(true);current.observations.push(order===undefined?null:[order.retained,null])}
 };
 deferredOrderCases(input=>{

@@ -113,7 +113,7 @@ export function publishGraph(
   // another target.
   const bind = (choices: readonly Choice[], targets: readonly object[]): Binding[] | undefined => {
     const fixed = fixedNodes(choices)
-    const bindings: Binding[] = []
+    const bindings = denseArray<Binding>(size)
     // A retained target observes its choice's memoized storage, and selection admits no two
     // choices with one storage (GraphPolicy feasible), so only a fresh target can collide: with
     // any old storage, or with an earlier fresh target. A retained target sharing an earlier
@@ -135,7 +135,7 @@ export function publishGraph(
       const construction = policies[node.layout.kind].bindings
       const read = construction.tag === 'dependent' ? construction.read(node, target) : undefined
       if (read?.some((edge) => edge.identity !== targets[edge.node]) === true) return undefined
-      bindings.push({
+      bindings[index] = {
         choice: choice.identity,
         construction: read === undefined ? choice.required : [...choice.required, ...read],
         exposed: target,
@@ -144,7 +144,7 @@ export function publishGraph(
         palette: EXPOSURE_MODES,
         storage: observed.storage,
         writer: target,
-      })
+      }
     }
     return bindings
   }
@@ -209,94 +209,96 @@ export function publishGraph(
       return false
     }
   }
-  const adapter: Adapter & { retention: (state: Execution) => number } = {
-    prepare(selection) {
-      const choices: Choice[] = []
-      const targets: object[] = []
-      let fresh = false
-      for (let node = 0; node < size; node += 1) {
-        const choice = domains[node][selection[node]]
-        choices.push(choice)
-        targets.push(choice.retained ? (choice.identity as object) : (undefined as never))
-        if (!choice.retained) fresh = true
-      }
-      // With every choice retained the construction order is empty.
-      if (fresh) {
-        dependencies ??= records.map((node) => constructionDependencies(types, node))
-        const order = constructionOrder(
-          dependencies,
-          choices.map((choice) => choice.retained),
+  const prepare = (selection: Selection): Binding[] | undefined => {
+    const choices = denseArray<Choice>(size)
+    const targets = denseArray<object>(size)
+    let fresh = false
+    for (let node = 0; node < size; node += 1) {
+      const choice = domains[node][selection[node]]
+      choices[node] = choice
+      targets[node] = choice.retained ? (choice.identity as object) : (undefined as never)
+      if (!choice.retained) fresh = true
+    }
+    // With every choice retained the construction order is empty.
+    if (fresh) {
+      dependencies ??= records.map((node) => constructionDependencies(types, node))
+      const order = constructionOrder(
+        dependencies,
+        choices.map((choice) => choice.retained),
+      )
+      if (order === undefined) return undefined
+      // Native ownership found while allocating; a literal holds the field as its own data.
+      const owners: NativeOwners = { nativeOwners: undefined }
+      const resolveTarget = (edge: Edge): unknown =>
+        isNode(edge) ? targets[edge.node] : atomValue(edge)
+      for (let position = 0; position < order.length; position += 1) {
+        const index = order[position]
+        const target = policies[records[index].layout.kind].allocate(
+          records[index],
+          resolveTarget,
+          owners,
         )
-        if (order === undefined) return undefined
-        // Native ownership found while allocating; a literal holds the field as its own data.
-        const owners: NativeOwners = { nativeOwners: undefined }
-        const resolveTarget = (edge: Edge): unknown =>
-          isNode(edge) ? targets[edge.node] : atomValue(edge)
-        for (let position = 0; position < order.length; position += 1) {
-          const index = order[position]
-          const target = policies[records[index].layout.kind].allocate(
-            records[index],
-            resolveTarget,
-            owners,
-          )
-          if (target === undefined) return undefined
-          targets[index] = target
-        }
+        if (target === undefined) return undefined
+        targets[index] = target
       }
-      return bind(choices, targets)
-    },
-    publish(state) {
-      active = state
-      nativeOwners = undefined
-      // After this call's own writes, retained replaceable targets rerun the preflight. A fresh
-      // choice is labelled by its node index; a retained one by its object.
-      for (let index = 0; index < size; index += 1)
-        if (
-          written &&
-          typeof state.bindings[index].choice !== 'number' &&
-          records[index].pinned === undefined &&
-          policies[records[index].layout.kind].requirements(records[index], writer(index)) ===
-            undefined
-        )
-          return { rejected: index }
-      // Only the first publication reads the preflight's facts and may confirm itself: its
-      // targets are the ones the preflight read, and each is exposed as it is written.
-      const first = !written
-      written = true
-      confirmed = false
-      let unchanged = first
-      for (let index = 0; index < size; index += 1) {
-        if (records[index].pinned !== undefined) continue
-        // Facts serve only the object they were read from, exposed as itself; a wrapper's
-        // descriptors hold its raw contents, so it reads its own.
-        const facts = preflight[index]
-        note.facts =
-          first &&
-          facts?.current === state.bindings[index].choice &&
-          state.bindings[index].mode === 0
-            ? facts
-            : undefined
-        note.unchanged = false
-        if (!publishNode(state, index)) return { rejected: index }
-        if (!note.unchanged) unchanged = false
-      }
-      note.facts = undefined
-      confirmed = unchanged
-      return true
-    },
-    readback(state, index) {
-      const node = records[index]
-      // Bind and rebind store the memoized storage of the exposed object, so it always equals
-      // the binding's storage here, and no storage check is needed.
-      if (node.pinned !== undefined || confirmed) return MATCH
-      const target = exposed(state, index)
-      active = state
-      outcome = REJECT
-      const matches =
-        matchesKind(types, target, node.layout.kind) &&
-        policies[node.layout.kind].matches(node, target, compare)
-      return matches ? MATCH : outcome
-    },
+    }
+    return bind(choices, targets)
+  }
+  const publish = (state: Execution): ReturnType<Adapter['publish']> => {
+    active = state
+    nativeOwners = undefined
+    // After this call's own writes, retained replaceable targets rerun the preflight. A fresh
+    // choice is labelled by its node index; a retained one by its object.
+    for (let index = 0; index < size; index += 1)
+      if (
+        written &&
+        typeof state.bindings[index].choice !== 'number' &&
+        records[index].pinned === undefined &&
+        policies[records[index].layout.kind].requirements(records[index], writer(index)) ===
+          undefined
+      )
+        return { rejected: index }
+    // Only the first publication reads the preflight's facts and may confirm itself: its
+    // targets are the ones the preflight read, and each is exposed as it is written.
+    const first = !written
+    written = true
+    confirmed = false
+    let unchanged = first
+    for (let index = 0; index < size; index += 1) {
+      if (records[index].pinned !== undefined) continue
+      // Facts serve only the object they were read from, exposed as itself; a wrapper's
+      // descriptors hold its raw contents, so it reads its own.
+      const facts = preflight[index]
+      note.facts =
+        first && facts?.current === state.bindings[index].choice && state.bindings[index].mode === 0
+          ? facts
+          : undefined
+      note.unchanged = false
+      if (!publishNode(state, index)) return { rejected: index }
+      if (!note.unchanged) unchanged = false
+    }
+    note.facts = undefined
+    confirmed = unchanged
+    return true
+  }
+  const readback = (state: Execution, index: number): Readback => {
+    const node = records[index]
+    // Bind and rebind store the memoized storage of the exposed object, so it always equals
+    // the binding's storage here, and no storage check is needed.
+    if (node.pinned !== undefined || confirmed) return MATCH
+    const target = exposed(state, index)
+    active = state
+    outcome = REJECT
+    const matches =
+      matchesKind(types, target, node.layout.kind) &&
+      policies[node.layout.kind].matches(node, target, compare)
+    return matches ? MATCH : outcome
+  }
+  // The driver's adapter, built only when the driver takes over from the head attempt.
+  const adapter = (): Adapter & { retention: (state: Execution) => number } => ({
+    prepare,
+    publish,
+    readback,
     retention(state) {
       let score = 0
       for (let index = 0; index < size; index += 1) {
@@ -316,29 +318,29 @@ export function publishGraph(
       }
       return score
     },
-  }
+  })
   // The head plan's first revision runs here, with the adapter's callbacks called directly;
   // the driver continues from any other outcome exactly as its own first attempt would.
   const head = headSelection(domains, distinctStorages)
-  if (head === undefined) return execute(domains, adapter, distinctStorages).kind === 'accepted'
-  const bindings = adapter.prepare(head)
-  if (bindings?.length !== size) return afterHead(domains, adapter, head, UNPREPARED)
+  if (head === undefined) return execute(domains, adapter(), distinctStorages).kind === 'accepted'
+  const bindings = prepare(head)
+  if (bindings?.length !== size) return afterHead(domains, adapter(), head, UNPREPARED)
   // The head attempt is plan 0; the driver numbers its own attempts from 1.
   const state = startExecution(0, bindings)
-  const publication = adapter.publish(state)
+  const publication = publish(state)
   if (publication !== true)
-    return afterHead(domains, adapter, head, { publication, tag: 'refused' })
+    return afterHead(domains, adapter(), head, { publication, tag: 'refused' })
   let node = 0
   let result: Readback = MATCH
   for (; node < size; node += 1) {
-    result = adapter.readback(state, node)
+    result = readback(state, node)
     if (result.kind !== 'match') break
   }
   // A first revision whose readbacks all match is done with its bindings unchanged
   // (Execution.check_all_done), so every node exposes its prepared target, a retained choice's
   // own identity: an all-retained head scores its upper bound, as the retention scan would.
   if (result.kind === 'match' && scoreOf(domains, head) === size) return true
-  return afterHead(domains, adapter, head, headResult(state, node, result))
+  return afterHead(domains, adapter(), head, headResult(state, node, result))
 }
 
 const UNPREPARED: HeadOutcome = /* @__PURE__ */ Object.freeze({ tag: 'unprepared' })

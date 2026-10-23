@@ -1,6 +1,6 @@
 import { atomValue, isNode } from '../../graph/edge'
 import { arrayIndex, hasOwn, isObject } from '../../object-property'
-import type { BoundEdge, CapturedNode, Edge, PublicationNote } from '../../types'
+import type { BoundEdge, CapturedNode, Edge, NodeEdge, PublicationNote } from '../../types'
 import { defineData, denseArray, Detached, isDataDescriptor } from '../../standard-prototypes'
 
 // Property lookup is a derived index over the sealed graph, never a second graph.
@@ -40,6 +40,8 @@ export class PropertyOrder extends Detached {
   declare private readonly properties: ReadonlyMap<PropertyKey, Edge>
   declare retained: number
   declare private symbol: number
+  // The next current key `through` consumes.
+  declare private position: number
 
   constructor(properties: ReadonlyMap<PropertyKey, Edge>) {
     super()
@@ -49,6 +51,18 @@ export class PropertyOrder extends Detached {
     this.stale = true
     this.retained = 0
     this.symbol = this.keys.findIndex((key) => typeof key === 'symbol')
+    this.position = 0
+  }
+
+  /** Consumes the current keys in order through `key`, or all of them, and reports whether
+   * `key` can stay in place. */
+  through(previous: readonly PropertyKey[], key?: PropertyKey): boolean | undefined {
+    while (this.position < previous.length) {
+      const currentKey = previous[this.position++]
+      const retained = this.keep(currentKey)
+      if (currentKey === key) return retained
+    }
+    return undefined
   }
 
   /** Advances the order cursors and reports whether this current key can stay in place. */
@@ -112,56 +126,21 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   // Desired keys are buffered eagerly; DeferredOrder's cursor model and bridge rely on it.
   const desiredKeys = surface.desired?.(node) ?? [...properties().keys()]
   const previous = surface.keys(current)
-  let needsOrder = surface.ordered
-  let order: PropertyOrder | undefined
-  let position = 0
-  let pinned: Map<number, object> | undefined
   // The descriptor read for each current key, kept for the first publication when it asks.
   const descriptors =
     note === undefined ? undefined : denseArray<PropertyDescriptor | undefined>(previous.length)
-  // Only private cursor work waits. Native descriptors and reads keep their boundaries.
-  const retainThrough = (key?: PropertyKey): boolean | undefined => {
-    if (order === undefined) {
-      if (alignedPrefix(previous, desiredKeys)) {
-        needsOrder = false
-        return undefined
-      }
-      order = new PropertyOrder(properties())
-    }
-    while (position < previous.length) {
-      const currentKey = previous[position++]
-      const retained = order.keep(currentKey)
-      if (currentKey === key) return retained
-    }
-    return undefined
-  }
-  // A slot that cannot be recreated, a non-configurable one or an accessor written only through
-  // its setter, must keep its place in the desired order and, unless it can still change,
-  // already hold its expected value; an object pins its node, and two slots may not pin one node
-  // to different objects. A configurable accessor that is not desired is deleted.
-  const holdsFixed = (key: PropertyKey, position: number): boolean => {
-    const descriptor = Object.getOwnPropertyDescriptor(current, key)!
-    if (descriptors !== undefined) descriptors[position] = descriptor
-    const accessor = !isDataDescriptor(descriptor)
-    if (descriptor.configurable !== false && !accessor) return true
-    const retained = needsOrder ? retainThrough(key) : undefined
-    if (!properties().has(key)) return descriptor.configurable !== false
-    if (retained === false) return false
-    const expected = properties().get(key)!
-    if (isDataDescriptor(descriptor) ? descriptor.writable !== false : descriptor.set !== undefined)
-      return true
-    const actual = Reflect.get(current, key) as unknown
-    if (!isNode(expected) || !isObject(actual))
-      return !isNode(expected) && Object.is(atomValue(expected), actual)
-    pin.push({ identity: actual, node: expected.node })
-    pinned ??= new Map()
-    if (pinned.has(expected.node) && pinned.get(expected.node) !== actual) return false
-    pinned.set(expected.node, actual)
-    return true
-  }
+  if (!surface.compatible(node, current, properties)) return false
+  const cursor = fixedSlotsHold(
+    current,
+    previous,
+    desiredKeys,
+    surface.ordered,
+    properties,
+    pin,
+    descriptors,
+  )
   if (
-    !surface.compatible(node, current, properties) ||
-    !previous.every(holdsFixed) ||
+    cursor === false ||
     reachesInheritedAccessor(
       current,
       desiredKeys,
@@ -170,15 +149,128 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     )
   )
     return false
-  if (!Object.isExtensible(current)) {
-    if (needsOrder) retainThrough()
-    if (order !== undefined) return order.retained === desiredKeys.length
-    for (let index = 0; index < desiredKeys.length; index += 1)
-      if (!hasOwn(current, desiredKeys[index])) return false
-  }
+  if (
+    !Object.isExtensible(current) &&
+    !ownsDesired(current, previous, desiredKeys, cursor, surface.ordered, properties)
+  )
+    return false
   if (note !== undefined) note.facts = { current, descriptors: descriptors!, keys: previous }
   return true
 }
+
+/**
+ * Checks the fixed slot of each current key in key order, reading each descriptor once into
+ * `descriptors`. A slot that cannot be recreated, a non-configurable one or an accessor written
+ * only through its setter, must keep its place in the desired order and, unless it can still
+ * change, already hold its expected value; an object pins its node, and two slots may not pin
+ * one node to different objects. A configurable accessor that is not desired is deleted.
+ *
+ * @returns False when a slot cannot hold; otherwise the order cursor, created at the first
+ * fixed slot that asks, null when the current keys already begin with the desired order, or
+ * undefined when no fixed slot asked. Only private cursor work waits: it consumes current keys
+ * only as far as a fixed slot asks, while native descriptors and reads keep their boundaries.
+ */
+function fixedSlotsHold(
+  current: object,
+  previous: readonly PropertyKey[],
+  desiredKeys: readonly PropertyKey[],
+  ordered: boolean,
+  properties: () => ReadonlyMap<PropertyKey, Edge>,
+  pin: BoundEdge[],
+  descriptors: Array<PropertyDescriptor | undefined> | undefined,
+): false | PropertyOrder | null | undefined {
+  // Undecided until the first fixed slot asks; null once the keys already begin in order.
+  let order: PropertyOrder | null | undefined
+  let pinned: Map<number, object> | undefined
+  for (let position = 0; position < previous.length; position += 1) {
+    const key = previous[position]
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)!
+    if (descriptors !== undefined) descriptors[position] = descriptor
+    if (descriptor.configurable !== false && isDataDescriptor(descriptor)) continue
+    if (order === undefined && ordered) order = orderFor(previous, desiredKeys, properties) ?? null
+    const retained = order?.through(previous, key)
+    const held = fixedSlot(current, key, descriptor, retained, properties())
+    if (held === true) continue
+    if (
+      held === false ||
+      !pinNode(
+        pin,
+        (pinned ??= new Map<number, object>()),
+        (properties().get(key) as NodeEdge).node,
+        held,
+      )
+    )
+      return false
+  }
+  return order
+}
+
+// Pins `node` to `identity`; false when an earlier slot pinned it to another object.
+function pinNode(
+  pin: BoundEdge[],
+  pinned: Map<number, object>,
+  node: number,
+  identity: object,
+): boolean {
+  pin.push({ identity, node })
+  if (pinned.has(node) && pinned.get(node) !== identity) return false
+  pinned.set(node, identity)
+  return true
+}
+
+/**
+ * Whether a non-extensible `current` already owns every desired key, in an order its key cursor
+ * can reach. The rest of the current keys are consumed only here, once no write can change them.
+ */
+function ownsDesired(
+  current: object,
+  previous: readonly PropertyKey[],
+  desiredKeys: readonly PropertyKey[],
+  cursor: PropertyOrder | null | undefined,
+  ordered: boolean,
+  properties: () => ReadonlyMap<PropertyKey, Edge>,
+): boolean {
+  const order =
+    cursor === undefined && ordered
+      ? orderFor(previous, desiredKeys, properties)
+      : (cursor ?? undefined)
+  order?.through(previous)
+  if (order !== undefined) return order.retained === desiredKeys.length
+  for (let index = 0; index < desiredKeys.length; index += 1)
+    if (!hasOwn(current, desiredKeys[index])) return false
+  return true
+}
+
+/**
+ * Whether a fixed slot holds: false when it cannot, true when it needs nothing more, or the
+ * object it holds, which pins the expected node. A slot `next` lacks may stay only when it is
+ * configurable; one out of order cannot stay; one that can still change holds; otherwise it
+ * must already hold the expected value.
+ */
+function fixedSlot(
+  current: object,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor,
+  retained: boolean | undefined,
+  properties: ReadonlyMap<PropertyKey, Edge>,
+): boolean | object {
+  if (!properties.has(key)) return descriptor.configurable !== false
+  if (retained === false) return false
+  const expected = properties.get(key)!
+  if (isDataDescriptor(descriptor) ? descriptor.writable !== false : descriptor.set !== undefined)
+    return true
+  const actual = Reflect.get(current, key) as unknown
+  if (isNode(expected) && isObject(actual)) return actual
+  return !isNode(expected) && Object.is(atomValue(expected), actual)
+}
+
+// The order cursor for `previous`, or undefined when it already begins with the desired order.
+const orderFor = (
+  previous: readonly PropertyKey[],
+  desiredKeys: readonly PropertyKey[],
+  properties: () => ReadonlyMap<PropertyKey, Edge>,
+): PropertyOrder | undefined =>
+  alignedPrefix(previous, desiredKeys) ? undefined : new PropertyOrder(properties())
 
 // The count of current own keys when they begin with the desired order, otherwise -1.
 const ownedPrefix = (
