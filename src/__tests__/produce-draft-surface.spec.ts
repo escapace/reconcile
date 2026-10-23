@@ -121,6 +121,33 @@ describe('produce keeps own accessors of an unchanged object', () => {
     assert.notStrictEqual(result.target, target)
     assert.strictEqual(Object.getOwnPropertyDescriptor(result.target, 'value')?.value, child)
   })
+
+  it("gives a getter's data property in a rebuilt object the getter's enumerability", () => {
+    const target: Record<string, unknown> = { a: 1 }
+    for (const [key, enumerable] of [
+      ['hidden', false],
+      ['shown', true],
+    ] as const)
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable,
+        get(this: { a: number }) {
+          return this.a
+        },
+      })
+    const result = produce({ target }, (draft) => {
+      draft.target.a = 2
+      return draft
+    })
+    assert.notStrictEqual(result.target, target)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(result.target, 'hidden'), {
+      configurable: true,
+      enumerable: false,
+      value: 2,
+      writable: true,
+    })
+    assert.deepEqual(Object.keys(result.target), ['a', 'shown'])
+  })
 })
 
 describe('private fields stay with the instance that declares them', () => {

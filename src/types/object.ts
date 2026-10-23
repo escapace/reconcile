@@ -206,14 +206,19 @@ export const objectPublication = /* @__PURE__ */ (() =>
     seal: (node) => node,
   }))() satisfies PublicationPolicy<ObjectLayout>
 
-// Packs a data descriptor's configurable, enumerable and writable flags into bits 1, 2 and 4.
-/** Data attributes of a getter's value in a rebuilt object, with a bit marking the accessor. */
-export const OBSERVED_ACCESSOR = 15
+/** Marks a slot an own getter answered. A rebuilt object holds its value as a writable,
+ * configurable data property with the getter's enumerability. */
+export const OBSERVED_ACCESSOR = 8
 
+// Packs a data descriptor's configurable, enumerable and writable flags into bits 1, 2 and 4.
 const attributeBits = (descriptor: PropertyDescriptor): number =>
   (descriptor.configurable === true ? 1 : 0) |
   (descriptor.enumerable === true ? 2 : 0) |
   (descriptor.writable === true ? 4 : 0)
+
+// A key listed without a descriptor, as a proxy may list one, counts as enumerable.
+const accessorBits = (descriptor: PropertyDescriptor | undefined): number =>
+  OBSERVED_ACCESSOR | 5 | (descriptor?.enumerable === false ? 0 : 2)
 
 // Observes one own key of an object or its draft: its value, its attributes and whether `base`
 // backs it, which reads of `base` itself (`fromBase`) already answer.
@@ -238,7 +243,7 @@ function observeSlot(
     value,
     key,
     (isObject(value) || !data) && (fromBase ? data : backedProperty(base, key, value)),
-    data ? attributeBits(descriptor) : OBSERVED_ACCESSOR,
+    data ? attributeBits(descriptor) : accessorBits(descriptor),
   )
 }
 
@@ -270,7 +275,7 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
         // returned does not match, so that object is rebuilt with data.
         if (!isDataDescriptor(descriptor)) {
           if (
-            node.attributes?.[index] !== OBSERVED_ACCESSOR ||
+            ((node.attributes?.[index] ?? 0) & OBSERVED_ACCESSOR) === 0 ||
             !visit(node.observed?.[index], node.edges[index])
           )
             return false

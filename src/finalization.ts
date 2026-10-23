@@ -683,7 +683,7 @@ class DraftObservation extends Detached implements PendingActivation {
       record.children.push(value)
       if (attributes === undefined) return
       ;(record.attributes ??= []).push(attributes)
-      if (attributes === OBSERVED_ACCESSOR)
+      if ((attributes & OBSERVED_ACCESSOR) !== 0)
         (record.observed ??= [])[record.children.length - 1] = value
       return
     }
@@ -696,7 +696,7 @@ class DraftObservation extends Detached implements PendingActivation {
     if (attributes === undefined) return
     ;(record.attributes ??= []).push(attributes)
     // The raw value lets reuse keep the accessor only if it returned the resolved child itself.
-    if (attributes === OBSERVED_ACCESSOR)
+    if ((attributes & OBSERVED_ACCESSOR) !== 0)
       (record.observed ??= [])[record.children.length - 1] = value
   }
 
