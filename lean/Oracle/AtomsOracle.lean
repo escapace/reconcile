@@ -10,13 +10,14 @@ namespace Reconcile.AtomsOracle
 open Reconcile.Types.Atoms Lean
 
 /-- Real chains from a built-in prototype to `null`, in the order the bridge numbers them:
-`null`, `Object.prototype`, `Array.prototype`, the thirteen listed prototypes (`RegExp`,
+`null`, `Object.prototype`, `Array.prototype`, the fourteen listed prototypes (`RegExp`,
 `Error`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Promise`, `Number`,
-`String`, `Boolean`, `BigInt`, `Symbol`, `Blob`), then `TypeError` and `File`, which inherit
-listed prototypes, and the data prototypes `Map`, `Set`, `Date`, `URL` and `Uint8Array`. -/
+`String`, `Boolean`, `BigInt`, `Symbol`, `Blob`, `SharedArrayBuffer`), then `TypeError` and
+`File`, which inherit listed prototypes, and the data prototypes `Map`, `Set`, `Date`, `URL` and
+`Uint8Array`. -/
 def tails : List Chain :=
   [[], [.object], [.array, .object]] ++
-  (List.range 13).map (fun label => [.listed label, .object]) ++
+  (List.range 14).map (fun label => [.listed label, .object]) ++
   [[.data 0, .listed 1, .object], [.data 1, .listed 12, .object]] ++
   (List.range 4).map (fun label => [.data (label + 2), .object]) ++
   [[.data 6, .data 7, .object]]

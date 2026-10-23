@@ -4,9 +4,10 @@ import Mathlib.Data.List.Basic
 # Atom classification
 
 The library treats functions and objects whose state it cannot copy (a `RegExp`, `Error`,
-`WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Promise`, boxed primitive or `Blob`)
-as atoms: `Defs.Value.atom`, kept by reference and never traversed. `SnapshotSpec` passes atoms
-through, `ReconcileSpec` writes the next atom, and drafts never wrap one.
+`WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Promise`, boxed primitive, `Blob` or
+`SharedArrayBuffer`) as atoms: `Defs.Value.atom`, kept by reference and never traversed.
+`SnapshotSpec` passes atoms through, `ReconcileSpec` writes the next atom, and drafts never wrap
+one.
 
 An object is an atom when its prototype chain reaches one of those prototypes, which is
 `instanceof` against each of their constructors at once. The runtime reads the chain once:

@@ -106,7 +106,7 @@ describe('shared native graph capture', () => {
     expect(seen.get(source)).toBe(result)
   })
 
-  it('uses the captured buffer copy directly in snapshot mode', () => {
+  it('copies a buffer once in snapshot mode, without calling an overriding slice', () => {
     let copies = 0
     class CountedBuffer extends ArrayBuffer {
       override slice(start: number, end?: number): ArrayBuffer {
@@ -120,12 +120,13 @@ describe('shared native graph capture', () => {
       buffer: ArrayBuffer
       view: DataView
     }
-    expect(copies).toBe(1)
+    expect(copies).toBe(0)
     expect(result.buffer).not.toBe(source)
+    expect(result.buffer).toBeInstanceOf(CountedBuffer)
     expect(result.view.buffer).toBe(result.buffer)
     expect(result.view.getUint8(0)).toBe(42)
   })
-  it('constructs publication view samples before observing following slots', () => {
+  it('builds publication view samples with the built-in constructor', () => {
     const events: string[] = []
     class Sample extends Uint8Array {
       constructor(buffer: ArrayBuffer, offset: number, length: number) {
@@ -142,7 +143,7 @@ describe('shared native graph capture', () => {
         return 1
       },
     })
-    expect(events).toEqual(['construct', 'after'])
+    expect(events).toEqual(['after'])
   })
 
   it('preserves generated mixed graph identities and detaches their backing stores', () => {

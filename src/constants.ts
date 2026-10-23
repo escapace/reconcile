@@ -30,7 +30,7 @@ export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
 /**
  * Kind of an object whose state lives in internal slots that copying own properties loses: a
  * `RegExp`, `Error`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Promise`, boxed
- * primitive or `Blob`, or an instance of a subclass. Like functions, such atoms are kept by
+ * primitive, `Blob` or `SharedArrayBuffer`, or an instance of a subclass. Like functions, such atoms are kept by
  * reference and never drafted or copied. Ingress recognition (`recognize` in
  * `src/adapters/recognition.ts`) returns this kind in place of the plain-object fallback; no
  * registry table holds facets for it except `produce`'s leaf entry.

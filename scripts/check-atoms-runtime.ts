@@ -26,6 +26,7 @@ const tails: ReadonlyArray<readonly object[]> = [
     BigInt,
     Symbol,
     Blob,
+    SharedArrayBuffer,
   ].map((constructor) => [constructor.prototype as object, Object.prototype]),
   [TypeError.prototype, Error.prototype, Object.prototype],
   [File.prototype, Blob.prototype, Object.prototype],
@@ -102,8 +103,8 @@ function checkRow(row: Record<string, unknown>): boolean {
 /** Compares the atom classifier with Lean's `Types.Atoms.classify`. */
 export async function checkAtomsRuntime(oracle: Oracle): Promise<void> {
   checkRealChains(tails)
-  // 23 real chains behind zero to three custom prototypes.
-  const rows = await oracleCorpus(oracle, 'Atoms', 92, 64 * 1024)
+  // 24 real chains behind zero to three custom prototypes.
+  const rows = await oracleCorpus(oracle, 'Atoms', 96, 64 * 1024)
   let atoms = 0
   for (const line of rows) if (checkRow(jsonObject(JSON.parse(line)))) atoms += 1
   console.log(

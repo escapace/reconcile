@@ -22,8 +22,14 @@ import { MAP_KIND } from './types/map'
 import { SET_KIND } from './types/set'
 import { DATE_KIND, timeOf } from './types/date'
 import { ARRAY_BUFFER_KIND } from './types/array-buffer'
-import { TYPED_ARRAY_KIND, copyTypedArray } from './types/typed-array'
-import { DATA_VIEW_KIND, copyDataView } from './types/data-view'
+import { TYPED_ARRAY_KIND } from './types/typed-array'
+import { DATA_VIEW_KIND } from './types/data-view'
+import {
+  copyBuffer,
+  copyDataView,
+  copyTypedArray,
+  bufferOfView,
+} from './types/shared/binary-native'
 import { Detached, defineData, hasElement } from './standard-prototypes'
 
 // Read once: `key in Object.prototype` decides each new object's write.
@@ -69,7 +75,8 @@ class SnapshotReference extends Detached {
  *
  * Primitives, including bigints, are returned as they are. Objects kept by reference are shared
  * with the original: functions, a `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`,
- * `FinalizationRegistry` or `Blob`, a boxed primitive and an instance of a subclass of one of them.
+ * `FinalizationRegistry`, `Blob` or `SharedArrayBuffer`, a boxed primitive and an instance of a
+ * subclass of one of them. A view over a `SharedArrayBuffer` is copied over that same buffer.
  * Temporal support uses the eight value classes on the current global `Temporal` namespace, without
  * installing a polyfill. Other objects, such as class instances, are copied like plain objects. The
  * copy has the same prototype and own properties, as writable, configurable data properties that
@@ -346,7 +353,7 @@ class SnapshotWalk extends Detached {
   // An ArrayBuffer's construction answer is its copied bytes, which are its target, so its
   // inline observation also clears that target's construction metadata as `begin` would.
   observeBuffer(reference: SnapshotReference, value: object): void {
-    const target = (value as ArrayBuffer).slice(0)
+    const target = copyBuffer(value)
     reference.target = target
     this.constructed?.delete(target)
     this.callerMemo?.set(value, target)
@@ -371,7 +378,7 @@ class SnapshotWalk extends Detached {
 
   observeView(reference: SnapshotReference, source: object, kind: symbol): void {
     const view = source as ArrayBufferView
-    const buffer = this.viewBuffer(view.buffer) as ArrayBuffer
+    const buffer = this.viewBuffer(bufferOfView(view)) as ArrayBuffer
     const target =
       kind === DATA_VIEW_KIND ? copyDataView(view, buffer) : copyTypedArray(view, buffer)
     reference.target = target

@@ -42,8 +42,8 @@ import { produceTypes } from './types/builtins'
  * the field. Primitives, including bigints, and objects kept by reference are not drafted; they are
  * read and assigned as they are, so a method that changes such a value, such as
  * `WeakMap.prototype.set`, changes the original. Objects kept by reference are functions, a
- * `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry` or `Blob`,
- * a boxed primitive and an instance of a subclass of one of them.
+ * `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Blob` or
+ * `SharedArrayBuffer`, a boxed primitive and an instance of a subclass of one of them.
  *
  * Vue reactive proxies of objects, arrays, maps and sets are supported. Their drafts are not
  * reactive: `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such

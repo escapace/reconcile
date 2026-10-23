@@ -1,6 +1,7 @@
 import { freeze } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
 import { ARRAY_BUFFER_KIND } from './array-buffer'
+import { copyTypedArray } from './shared/binary-native'
 import { defineType } from './registry'
 import {
   viewDraft,
@@ -60,14 +61,3 @@ export const typedArrayType = /* @__PURE__ */ defineType<TypedArrayLayout>({
   recognition: typedArrayRecognition,
   requires: [ARRAY_BUFFER_KIND],
 })
-
-/** Preserves the element constructor, offset and element count over resolved storage. */
-export function copyTypedArray(value: ArrayBufferView, buffer: ArrayBuffer): ArrayBufferView {
-  const typed = value as unknown as {
-    byteOffset: number
-    constructor: new (buffer: ArrayBuffer, byteOffset: number, length: number) => ArrayBufferView
-    length: number
-  }
-  // eslint-disable-next-line new-cap -- The source view's constructor property has a fixed lowercase name.
-  return new typed.constructor(buffer, typed.byteOffset, typed.length)
-}

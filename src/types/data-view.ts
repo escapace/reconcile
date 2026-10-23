@@ -1,7 +1,7 @@
-import { adoptPrototype } from './shared/prototype'
 import { freeze } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
 import { ARRAY_BUFFER_KIND } from './array-buffer'
+import { copyDataView } from './shared/binary-native'
 import { defineType } from './registry'
 import {
   viewDraft,
@@ -60,12 +60,3 @@ export const dataViewType = /* @__PURE__ */ defineType<DataViewLayout>({
   recognition: dataViewRecognition,
   requires: [ARRAY_BUFFER_KIND],
 })
-
-/** Recreates the byte range using the native DataView constructor, on the source's prototype. */
-export function copyDataView(value: ArrayBufferView, buffer: ArrayBuffer): DataView {
-  return adoptPrototype(
-    new DataView(buffer, value.byteOffset, value.byteLength),
-    Object.getPrototypeOf(value) as object | null,
-    DataView.prototype,
-  )
-}

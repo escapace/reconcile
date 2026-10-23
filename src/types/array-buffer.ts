@@ -12,6 +12,7 @@ import type {
 } from '../types'
 import { defineType } from './registry'
 import { bufferEquivalent } from './shared/bytes'
+import { bufferByteLength, copyBuffer } from './shared/binary-native'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 /** Stable global identity owned by the array-buffer module. */
@@ -20,13 +21,13 @@ export const ARRAY_BUFFER_KIND = Symbol.for('@escapace/reconcile/array-buffer')
 const arrayBufferCapture = {
   construction: (layout) => layout.bytes,
   observe(value, begin) {
-    begin({ bytes: (value as ArrayBuffer).slice(0), kind: ARRAY_BUFFER_KIND })
+    begin({ bytes: copyBuffer(value), kind: ARRAY_BUFFER_KIND })
   },
 } satisfies CapturePolicy<ArrayBufferLayout>
 
 const arrayBufferConstruction = {
   bindings: independentBindings,
-  allocate: (node) => node.layout.bytes.slice(0),
+  allocate: (node) => copyBuffer(node.layout.bytes),
 } satisfies ConstructionPolicy<ArrayBufferLayout>
 
 export const arrayBufferSnapshot = /* @__PURE__ */ (() =>
@@ -45,7 +46,7 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     requirements: emptyEdges,
     seal: same,
     compatible: (node, current) =>
-      (current as ArrayBuffer).byteLength === node.layout.bytes.byteLength,
+      bufferByteLength(current) === bufferByteLength(node.layout.bytes),
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
     publish(node, current) {
       new Uint8Array(current as ArrayBuffer).set(new Uint8Array(node.layout.bytes))
@@ -59,7 +60,7 @@ export const arrayBufferImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value) => (value as ArrayBuffer).slice(0),
+      copy: (value) => copyBuffer(value),
       equivalent: (base, candidate) =>
         bufferEquivalent(base as ArrayBuffer, candidate as ArrayBuffer),
     } satisfies SpecialPolicy),

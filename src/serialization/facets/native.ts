@@ -1,12 +1,7 @@
 import { decodeFail as fail, int } from '../common'
 import { checkBytes, decodedSize, decodeBytes } from '../binary'
-import {
-  dataViewKind,
-  decodeTemporal,
-  constructView,
-  viewConstructors,
-  temporalNames,
-} from '../native'
+import { dataViewKind, decodeTemporal, constructView, temporalNames } from '../native'
+import { viewConstructors } from '../../types/shared/binary-native'
 import type { DecodeContext, Decoder } from '../contracts'
 import { enter } from './slots'
 import { charge, chargeParameters, stringWords } from '../size'

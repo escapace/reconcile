@@ -1,5 +1,4 @@
-import { copyDataView } from './types/data-view'
-import { copyTypedArray } from './types/typed-array'
+import { copyDataView, copyTypedArray, viewElement } from './types/shared/binary-native'
 
 /**
  * Recreates a `DataView` or typed-array view over a supplied buffer.
@@ -18,4 +17,6 @@ import { copyTypedArray } from './types/typed-array'
  * @internal
  */
 export const cloneBufferView = <T extends ArrayBufferView>(value: T, buffer: ArrayBuffer): T =>
-  (value instanceof DataView ? copyDataView(value, buffer) : copyTypedArray(value, buffer)) as T
+  (viewElement(value) === undefined
+    ? copyDataView(value, buffer)
+    : copyTypedArray(value, buffer)) as T

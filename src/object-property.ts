@@ -188,4 +188,5 @@ const listedPrototype = (prototype: object): boolean =>
   prototype === Symbol.prototype ||
   (typeof WeakRef === 'function' && prototype === WeakRef.prototype) ||
   (typeof FinalizationRegistry === 'function' && prototype === FinalizationRegistry.prototype) ||
-  (typeof Blob === 'function' && prototype === Blob.prototype)
+  (typeof Blob === 'function' && prototype === Blob.prototype) ||
+  (typeof SharedArrayBuffer === 'function' && prototype === SharedArrayBuffer.prototype)

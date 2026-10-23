@@ -3,6 +3,15 @@ import type { SpecialPolicy } from '../../types'
 import { noValue } from './empty'
 import { ARRAY_BUFFER_KIND } from '../array-buffer'
 import { bufferEquivalent } from './bytes'
+import { atomValue, isNode } from '../../graph/edge'
+import {
+  bufferByteLength,
+  bufferOfView,
+  isShared,
+  viewByteLength,
+  viewElement,
+  viewOffset,
+} from './binary-native'
 import type {
   CapturedNode,
   DraftStrategy,
@@ -21,7 +30,14 @@ export function viewCapture<K extends symbol>(
     construction: noValue,
     observe(value, begin, edge) {
       const view = value as ArrayBufferView
-      const buffer = edge(view.buffer, 'buffer', ARRAY_BUFFER_KIND, true) as ArrayBuffer
+      const storage = bufferOfView(view)
+      // A `SharedArrayBuffer` is kept by reference, as an atom edge; any other buffer is a node.
+      const buffer = edge(
+        storage,
+        'buffer',
+        isShared(storage) ? undefined : ARRAY_BUFFER_KIND,
+        true,
+      ) as ArrayBuffer
       begin({ kind, sample: copy(view, buffer) })
     },
   }
@@ -34,7 +50,7 @@ export function viewConstruction<K extends symbol>(
     bindings: /* @__PURE__ */ freeze({
       read: viewBindings,
       tag: 'dependent',
-      dependencies: (node) => [(node.edges[0] as { node: number }).node],
+      dependencies: (node) => (isNode(node.edges[0]) ? [node.edges[0].node] : []),
     } satisfies ConstructionPolicy<{
       readonly kind: K
       readonly sample: ArrayBufferView
@@ -63,18 +79,21 @@ export function viewPublication<K extends symbol>(): Omit<
 > {
   return {
     publish: yes,
-    requirements: viewBindings,
+    requirements: viewRequirements,
     seal: same,
     aligned: (node, current, visit) =>
-      visit(current === undefined ? undefined : (current as ArrayBufferView).buffer, node.edges[0]),
+      visit(current === undefined ? undefined : bufferOfView(current), node.edges[0]),
     compatible(node, current) {
       const actual = current as ArrayBufferView
       const sample = node.layout.sample
-      return viewShape(actual, sample) && actual.buffer.byteLength === sample.buffer.byteLength
+      return (
+        viewShape(actual, sample) &&
+        bufferByteLength(bufferOfView(actual)) === bufferByteLength(bufferOfView(sample))
+      )
     },
     matches(node, current, visit) {
       const actual = current as ArrayBufferView
-      return viewShape(actual, node.layout.sample) && visit(actual.buffer, node.edges[0])
+      return viewShape(actual, node.layout.sample) && visit(bufferOfView(actual), node.edges[0])
     },
   }
 }
@@ -92,46 +111,49 @@ export function viewImmutable<K extends symbol>(
         copy: (value, resolve) =>
           copy(
             value as ArrayBufferView,
-            resolve((value as ArrayBufferView).buffer, ARRAY_BUFFER_KIND) as ArrayBuffer,
+            resolve(bufferOfView(value), ARRAY_BUFFER_KIND) as ArrayBuffer,
           ),
-        dependencies: (value, visit) => visit((value as ArrayBufferView).buffer, ARRAY_BUFFER_KIND),
+        dependencies: (value, visit) => visit(bufferOfView(value), ARRAY_BUFFER_KIND),
         equivalent: (base, candidate) =>
           viewShape(base as ArrayBufferView, candidate as ArrayBufferView) &&
-          bufferEquivalent((base as ArrayBufferView).buffer, (candidate as ArrayBufferView).buffer),
+          bufferEquivalent(bufferOfView(base), bufferOfView(candidate)),
       } satisfies SpecialPolicy),
       tag: 'copy',
     } satisfies CopyType<{
       readonly kind: K
       readonly sample: ArrayBufferView
     }>['policy']['immutable']),
-    someChild: (source, _read, test) => test((source as ArrayBufferView).buffer),
+    someChild: (source, _read, test) => test(bufferOfView(source)),
   }
 }
 
 function viewShape(actual: ArrayBufferView, sample: ArrayBufferView): boolean {
   return (
-    actual.constructor === sample.constructor &&
-    actual.byteOffset === sample.byteOffset &&
-    actual.byteLength === sample.byteLength
+    Object.getPrototypeOf(actual) === Object.getPrototypeOf(sample) &&
+    viewElement(actual) === viewElement(sample) &&
+    viewOffset(actual) === viewOffset(sample) &&
+    viewByteLength(actual) === viewByteLength(sample)
   )
 }
 
+// A view over a `SharedArrayBuffer` binds nothing.
 function viewBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
-  return [
-    {
-      identity: (current as ArrayBufferView).buffer,
-      node: (node.edges[0] as { node: number }).node,
-    },
-  ]
+  const edge = node.edges[0]
+  return isNode(edge) ? [{ identity: bufferOfView(current), node: edge.node }] : []
 }
+
+// Only a view over the same `SharedArrayBuffer` can stand for a view over one.
+const viewRequirements = (node: Pick<CapturedNode, 'edges'>, current: object) =>
+  isNode(node.edges[0]) || bufferOfView(current) === atomValue(node.edges[0])
+    ? viewBindings(node, current)
+    : undefined
 
 /** Views own their backing-store observations, including rereads after constructor execution. */
 export const viewDraft: Extract<DraftStrategy, { tag: 'copy' }> = /* @__PURE__ */ freeze({
   links: /* @__PURE__ */ freeze({
     tag: 'dependent',
-    register: (source, target, visit) =>
-      visit((target as ArrayBufferView).buffer, (source as ArrayBufferView).buffer),
-    writable: (value, hasCopy) => hasCopy((value as ArrayBufferView).buffer),
+    register: (source, target, visit) => visit(bufferOfView(target), bufferOfView(source)),
+    writable: (value, hasCopy) => hasCopy(bufferOfView(value)),
   } satisfies Extract<DraftStrategy, { tag: 'copy' }>['links']),
   tag: 'copy',
 })

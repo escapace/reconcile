@@ -5,12 +5,19 @@ import {
 } from '../types/shared/url-carrier'
 import { encodeFail, decodeFail } from './common'
 import { globalTemporal } from '../standard-prototypes'
+import {
+  bufferByteLength,
+  bufferResizable,
+  dataBuffer,
+  dataLength,
+  dataOffset,
+  getter,
+  typedBuffer,
+  typedLength,
+  typedOffset,
+  viewConstructors,
+} from '../types/shared/binary-native'
 
-export interface ViewConstructor {
-  new (buffer: ArrayBuffer, offset: number, length: number): ArrayBufferView
-  readonly BYTES_PER_ELEMENT: number
-  readonly prototype: object
-}
 interface TemporalConstructor {
   new (...arguments_: Array<number | string>): TemporalValue
   prototype: TemporalValue
@@ -19,21 +26,6 @@ interface TemporalConstructor {
 interface TemporalValue {
   toString: (options?: { calendarName: string }) => string
 }
-export const viewConstructors: ReadonlyArray<ViewConstructor | undefined> = /* @__PURE__ */ (() =>
-  Object.freeze([
-    Int8Array,
-    Uint8Array,
-    Uint8ClampedArray,
-    Int16Array,
-    Uint16Array,
-    Int32Array,
-    Uint32Array,
-    globalThis.Float16Array,
-    Float32Array,
-    Float64Array,
-    BigInt64Array,
-    BigUint64Array,
-  ]))()
 // View kinds index viewConstructors; DataView follows them.
 export const dataViewKind = 12
 export const temporalNames = /* @__PURE__ */ (() =>
@@ -59,19 +51,6 @@ const durationFields = [
   'microseconds',
   'nanoseconds',
 ]
-const typedPrototype = /* @__PURE__ */ (() =>
-  Object.getPrototypeOf(Uint8Array.prototype) as object)()
-const getter = (prototype: object, key: PropertyKey): ((this: object) => unknown) | undefined =>
-  // eslint-disable-next-line typescript/unbound-method -- Native accessors are always invoked with an explicit receiver.
-  Object.getOwnPropertyDescriptor(prototype, key)?.get
-const bufferLength = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'byteLength')!)()
-const bufferResizable = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'resizable'))()
-const typedBuffer = /* @__PURE__ */ (() => getter(typedPrototype, 'buffer')!)()
-const typedOffset = /* @__PURE__ */ (() => getter(typedPrototype, 'byteOffset')!)()
-const typedLength = /* @__PURE__ */ (() => getter(typedPrototype, 'length')!)()
-const dataBuffer = /* @__PURE__ */ (() => getter(DataView.prototype, 'buffer')!)()
-const dataOffset = /* @__PURE__ */ (() => getter(DataView.prototype, 'byteOffset')!)()
-const dataLength = /* @__PURE__ */ (() => getter(DataView.prototype, 'byteLength')!)()
 // eslint-disable-next-line typescript/unbound-method -- The captured intrinsic is called with its source receiver.
 const dateTime = /* @__PURE__ */ (() => Date.prototype.getTime)()
 export function constructView(
@@ -109,7 +88,7 @@ export function nativeKind(
   return temporalKind(prototype)
 }
 export function readBuffer(value: object): { buffer: ArrayBuffer; byteLength: number } {
-  const byteLength = bufferLength.call(value) as number
+  const byteLength = bufferByteLength(value)
   if (bufferResizable?.call(value) === true) encodeFail('resizable buffer')
   return { buffer: value as ArrayBuffer, byteLength }
 }
