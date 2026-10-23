@@ -80,3 +80,15 @@ it('reads an unchanged sibling of a change once', () => {
   assert.equal(counts.get('sibling.ownKeys()'), 2, 'one key list')
   assert.equal(counts.get('sibling.get(n)'), 1)
 })
+
+it('keeps an unchanged object the recipe inserts, reading it once', () => {
+  const counts = new Map<string, number>()
+  const inserted = counted('inserted', { n: 0 }, counts)
+  const result = produce({ slot: undefined as object | undefined }, (draft) => {
+    draft.slot = inserted
+    return draft
+  })
+  assert.strictEqual(result.slot, inserted)
+  assert.equal(counts.get('inserted.ownKeys()'), 2, 'one key list')
+  assert.equal(counts.get('inserted.get(n)'), 1)
+})

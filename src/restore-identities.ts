@@ -270,6 +270,39 @@ function eachChild(
   else for (let index = 0; index < children.length; index += 1) visit(children[index])
 }
 
+/** registerFixed for a problem whose only registered node is `target`, then the head's answer:
+ * `target`, or undefined when a storage is claimed twice. */
+function keptWhole(
+  types: ImmutableRegistry,
+  target: object,
+  kindOf: (value: object) => symbol,
+  facts: FinalizationFacts | undefined,
+): object | undefined {
+  const fixedStorage = smallSet<object>()
+  let conflict = false
+  let folded: Set<object> | undefined
+  const unvisited: object[] = []
+  const claim = (value: object): void => {
+    const storage = storageIdentity(value, facts?.prototypes?.get(value))
+    if (smallHas(fixedStorage, storage)) conflict = true
+    smallAdd(fixedStorage, storage)
+  }
+  const child = (value: unknown): boolean => {
+    if (!isObject(value) || value === target) return false
+    if (!(folded ??= new Set()).has(value)) {
+      folded.add(value)
+      claim(value)
+      unvisited.push(value)
+    }
+    return false
+  }
+  claim(target)
+  eachChild(types, kindOf, target, facts?.walked?.get(target), child)
+  for (let next = unvisited.pop(); next !== undefined; next = unvisited.pop())
+    eachChild(types, kindOf, next, facts?.walked?.get(next), child)
+  return conflict ? undefined : target
+}
+
 /**
  * Keeps the retained targets, allocates the fresh ones in construction order and writes their
  * captured edges once every target exists.
@@ -336,6 +369,10 @@ export function restoreIdentities(
   kindOf?: (value: object) => symbol,
   facts?: FinalizationFacts,
 ): object | undefined {
+  // A result kept whole is the only registered node: every other object folds into it, nothing
+  // can be unavailable, and the head keeps it unless two folded storages clash.
+  if (!strict && result.layout === undefined)
+    return keptWhole(types, result.target, kindOf ?? ((value) => recognize(types, value)), facts)
   // The first, non-strict attempt folds the objects inside fixed subtrees; a conflict rejects it.
   const problem = compileImmutable(types, result, kindOf, facts, !strict)
   const { records, root } = problem
@@ -352,10 +389,23 @@ export function restoreIdentities(
   // (Construction.schedule_all_retained) and publication writes nothing, so the root keeps its
   // own target.
   if (head !== undefined && problem.unavailable.size === 0) return records[root].target
+  const targets = publishFirst(types, problem, head)
+  if (targets !== undefined) return targets[root]
+  if (!strict) return undefined
+  throw finalizationConstructionImpossible()
+}
+
+// Publishes the head, then each later mask the stream ranks, until one can be built.
+function publishFirst(
+  types: ImmutableRegistry,
+  problem: ImmutableProblem,
+  head: boolean[] | undefined,
+): object[] | undefined {
+  const records = problem.records
   const dependencies = records.map((record) => constructionDependencies(types, record.payload))
   if (head !== undefined) {
     const targets = publishPlan(types, records, dependencies, head)
-    if (targets !== undefined) return targets[root]
+    if (targets !== undefined) return targets
   }
   let skip = head !== undefined
   for (const selection of immutableSelections(problem)) {
@@ -364,8 +414,7 @@ export function restoreIdentities(
       continue
     }
     const targets = publishPlan(types, records, dependencies, selection)
-    if (targets !== undefined) return targets[root]
+    if (targets !== undefined) return targets
   }
-  if (!strict) return undefined
-  throw finalizationConstructionImpossible()
+  return undefined
 }
