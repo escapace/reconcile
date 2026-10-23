@@ -246,3 +246,27 @@ it('produce returns the original reactive root after no-op and undone edits', ()
     stop()
   }
 })
+
+it('fills objects reconcile adds before a synchronous effect can read them', () => {
+  const state = reactive<{
+    list: Array<{ id: number }>
+    user: { name: string; tags: string[] } | null
+  }>({ list: [], user: null })
+  const users: string[] = []
+  const lists: string[] = []
+  const stopUser = watchSyncEffect(() => {
+    users.push(JSON.stringify(state.user))
+  })
+  const stopList = watchSyncEffect(() => {
+    lists.push(JSON.stringify(state.list.map((item) => item.id)))
+  })
+  try {
+    reconcile(state, { list: [{ id: 1 }], user: { name: 'Ada', tags: ['a'] } })
+    // Each new object is complete when it is linked, so the last run saw the final value.
+    assert.deepEqual(users, ['null', '{"name":"Ada","tags":["a"]}'])
+    assert.equal(lists.at(-1), '[1]')
+  } finally {
+    stopUser()
+    stopList()
+  }
+})
