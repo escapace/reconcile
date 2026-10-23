@@ -175,6 +175,15 @@ export const nativeMapEntries: unknown = /* @__PURE__ */ (() =>
 export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
   Object.getOwnPropertyDescriptor(Set.prototype, 'values')?.value as unknown)()
 
+const arrayIndexOf = /* @__PURE__ */ (() => Array.prototype.indexOf)()
+
+/**
+ * The first index of `value` in `array` by strict equality, or -1, through the built-in `indexOf`.
+ * @internal
+ */
+export const indexIn = (array: readonly unknown[], value: unknown): number =>
+  Reflect.apply(arrayIndexOf, array, [value])
+
 /**
  * A built-in getter, read when the module loads and called with an explicit receiver.
  * @internal

@@ -60,6 +60,46 @@ const isFixed = (fixed: ReadonlySet<number> | undefined, index: number): boolean
 const MATCH: Readback = /* @__PURE__ */ Object.freeze({ kind: 'match' })
 const REJECT: Readback = /* @__PURE__ */ Object.freeze({ kind: 'reject' })
 
+// After a call's own writes, retained replaceable targets rerun the preflight; the first one
+// that no longer passes, or -1. A fresh choice is labelled by its node index; a retained one by
+// its object.
+function stale(
+  state: Execution,
+  records: CapturedGraph['nodes'],
+  types: PublicationRegistry,
+): number {
+  for (let index = 0; index < records.length; index += 1)
+    if (
+      typeof state.bindings[index].choice !== 'number' &&
+      records[index].pinned === undefined &&
+      types.policies[records[index].layout.kind].requirements(
+        records[index],
+        state.bindings[index].writer as object,
+      ) === undefined
+    )
+      return index
+  return -1
+}
+
+// Publishes every node that is not pinned; the first one refused, or -1. New objects are filled
+// before kept ones, which link them: code that a write into a kept object runs, such as a
+// synchronous Vue effect, finds each new object complete.
+function publishFreshFirst(
+  state: Execution,
+  records: CapturedGraph['nodes'],
+  publishNode: (index: number) => boolean,
+): number {
+  for (let pass = 0; pass < 2; pass += 1)
+    for (let index = 0; index < records.length; index += 1)
+      if (
+        records[index].pinned === undefined &&
+        (typeof state.bindings[index].choice === 'number') === (pass === 0) &&
+        !publishNode(index)
+      )
+        return index
+  return -1
+}
+
 /** Reads the live object currently exposed at a node of one attempt. */
 const exposed = (state: Execution, index: number): object => state.bindings[index].exposed as object
 
@@ -205,9 +245,12 @@ export function publishGraph(
   let confirmed = false
   // An exception from a setter, trap or method propagates unchanged at any depth, without
   // rollback; only a refusal the publication detects makes the driver try another plan.
-  // Publishes one bound node; the first publication passes the preflight's facts along.
-  const publishBinding = (state: Execution, index: number, first: boolean): boolean => {
-    const binding = state.bindings[index]
+  // Publishes one node of the active execution; the first publication passes the preflight's
+  // facts along. `unchanged` ends false when any node of a publication wrote.
+  let first = false
+  let unchanged = false
+  const publishNode = (index: number): boolean => {
+    const binding = active!.bindings[index]
     // Facts serve only the object they were read from, exposed as itself; a wrapper's
     // descriptors hold its raw contents, so it reads its own.
     const facts = preflight[index]
@@ -215,11 +258,16 @@ export function publishGraph(
       first && facts?.current === binding.choice && binding.mode === 0 ? facts : undefined
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
-    return publishNode(index)
-  }
-  const publishNode = (index: number): boolean => {
     const node = records[index]
-    return policies[node.layout.kind].publish(node, writer(index), resolve, owner, note)
+    const accepted = policies[node.layout.kind].publish(
+      node,
+      binding.writer as object,
+      resolve,
+      owner,
+      note,
+    )
+    if (!note.unchanged) unchanged = false
+    return accepted
   }
   const prepare = (selection: Selection): Binding[] | undefined => {
     const choices = denseArray<Choice>(size)
@@ -256,49 +304,18 @@ export function publishGraph(
     }
     return bind(choices, targets)
   }
-  // After this call's own writes, retained replaceable targets rerun the preflight; the first
-  // one that no longer passes, or -1. A fresh choice is labelled by its node index; a retained
-  // one by its object.
-  const stale = (state: Execution): number => {
-    for (let index = 0; index < size; index += 1)
-      if (
-        typeof state.bindings[index].choice !== 'number' &&
-        records[index].pinned === undefined &&
-        policies[records[index].layout.kind].requirements(records[index], writer(index)) ===
-          undefined
-      )
-        return index
-    return -1
-  }
-  // Publishes every node; the first one refused, or -1. New objects are filled before kept ones,
-  // which link them: code that a write into a kept object runs, such as a synchronous Vue
-  // effect, finds each new object complete. `unchanged` ends false when any node wrote.
-  let unchanged = false
-  const publishAll = (state: Execution, first: boolean): number => {
-    unchanged = first
-    for (let pass = 0; pass < 2; pass += 1)
-      for (let index = 0; index < size; index += 1) {
-        if (
-          records[index].pinned !== undefined ||
-          (typeof state.bindings[index].choice === 'number') !== (pass === 0)
-        )
-          continue
-        if (!publishBinding(state, index, first)) return index
-        if (!note.unchanged) unchanged = false
-      }
-    return -1
-  }
   const publish = (state: Execution): ReturnType<Adapter['publish']> => {
     active = state
     nativeOwners = undefined
-    const rejected = written ? stale(state) : -1
+    const rejected = written ? stale(state, records, types) : -1
     if (rejected !== -1) return { rejected }
     // Only the first publication reads the preflight's facts and may confirm itself: its
     // targets are the ones the preflight read, and each is exposed as it is written.
-    const first = !written
+    first = !written
     written = true
     confirmed = false
-    const refused = publishAll(state, first)
+    unchanged = first
+    const refused = publishFreshFirst(state, records, publishNode)
     note.facts = undefined
     note.fresh = false
     if (refused !== -1) return { rejected: refused }

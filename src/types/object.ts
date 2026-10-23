@@ -33,7 +33,7 @@ import {
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
-import { defineData, hide, isDataDescriptor } from '../standard-prototypes'
+import { defineData, hide, indexIn, isDataDescriptor } from '../standard-prototypes'
 
 /** Stable global identity owned by the object module. */
 /** Stable global identity owned by the object module. */
@@ -49,14 +49,15 @@ const RAW_MARKER = '__v_skip'
  */
 function managedKeys(current: object): PropertyKey[] {
   const keys = ownKeys(current)
-  for (let index = 0; index < keys.length; index += 1)
-    if (keys[index] === RAW_MARKER && !isEnumerable(current, RAW_MARKER)) {
-      const managed: PropertyKey[] = []
-      for (let other = 0; other < keys.length; other += 1)
-        if (other !== index) managed.push(keys[other])
-      return managed
-    }
-  return keys
+  const marker = indexIn(keys, RAW_MARKER)
+  return marker === -1 || isEnumerable(current, RAW_MARKER) ? keys : without(keys, marker)
+}
+
+// The keys except the one at `skipped`.
+function without(keys: readonly PropertyKey[], skipped: number): PropertyKey[] {
+  const kept: PropertyKey[] = []
+  for (let index = 0; index < keys.length; index += 1) if (index !== skipped) kept.push(keys[index])
+  return kept
 }
 
 /**
