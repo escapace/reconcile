@@ -45,6 +45,15 @@ import { publicationTypes } from './types/builtins'
  * and takes the enumerability of the property in `next`, so a non-enumerable one stays hidden from
  * key listing, spread and JSON; a property it keeps has its own attributes.
  *
+ * On an object that `reconcile` keeps and updates, an own getter for a key that `next` also has
+ * runs once when the call writes nothing and twice when it writes anything: once when `reconcile`
+ * compares its value and again when it checks the result. When the check finds that an object
+ * inside `current` blocked a change, for example through a setter that does not store its value,
+ * `reconcile` replaces that object and tries again; each retry runs the getter at most once more.
+ * These counts leave out reading `next`, which also runs the getters of any object of `current`
+ * that `next` holds, and reads that a proxy trap makes, such as Vue's when a write replaces a
+ * value.
+ *
  * `next` is read completely before `current` changes. When both arguments are objects that are not
  * kept by reference, a successful call returns `current`. When either is a primitive, a function or
  * another object kept by reference, the call returns `next` and changes nothing.
@@ -78,11 +87,12 @@ import { publicationTypes } from './types/builtins'
  * updated in place; and `current` itself blocking a change by being non-extensible or by having a
  * read-only non-configurable property, a non-configurable property that `next` lacks, a getter
  * without a setter, a setter that does not store its value, a proxy trap that refuses the
- * assignment, an inherited getter or setter for a key it lacks, or an own getter or setter that
- * would have to move to reach the key order of `next`. Inside `current`, such an object is replaced
- * by a new one instead. At any depth, the call also throws when a new object it creates would
- * inherit, from its prototype, Vue's reactive markers for the same raw object as another kept or
- * new object. Writes made before the failure are not rolled back.
+ * assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would
+ * have to move to reach the key order of `next`, or a value that another property's setter changes
+ * during the call. Inside `current`, such an object is replaced by a new one instead. At any depth,
+ * the call also throws when a new object it creates would inherit, from its prototype, Vue's
+ * reactive markers for the same raw object as another kept or new object. Writes made before the
+ * failure are not rolled back.
  * @throws Errors thrown by getters, setters or proxy traps propagate unchanged, also without
  * rollback.
  */

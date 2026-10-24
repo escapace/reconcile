@@ -88,8 +88,9 @@ import { produceTypes } from './types/builtins'
  * the original object with its getters; a getter that returns a draft, such as one returning
  * `this.items[0]`, makes its object new even when nothing changed. Otherwise the object is new, and
  * each getter is replaced by a data property that holds the value it returned and has the getter's
- * enumerability. Inside the getter, `this` is a draft of its object: writes through `this` become
- * part of the result, and changes to other objects take effect immediately and are not undone.
+ * enumerability, or, in an array, is enumerable. Inside the getter, `this` is a draft of its
+ * object: writes through `this` become part of the result, and changes to other objects take effect
+ * immediately and are not undone.
  *
  * A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag`
  * and `constructor` work as on the source. Its methods read the original until the first change and

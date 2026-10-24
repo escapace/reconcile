@@ -112,9 +112,11 @@ export const urlPublication = /* @__PURE__ */ (() =>
     matches: (node, current, visit) =>
       nativeURLHref(current as URL) === node.layout.href &&
       visit(nativeURLSearchParameters(current as URL), node.edges[0]),
-    publish(node, current) {
-      if (nativeURLHref(current as URL) !== node.layout.href)
-        setNativeURLHref(current as URL, node.layout.href)
+    publish(node, current, _resolve, _owner, note) {
+      const equal = nativeURLHref(current as URL) === node.layout.href
+      if (!equal) setNativeURLHref(current as URL, node.layout.href)
+      // Its own `searchParams` publishes as a node of its own.
+      if (note !== undefined) note.unchanged = equal
       return true
     },
   }))() satisfies PublicationPolicy<URLLayout>

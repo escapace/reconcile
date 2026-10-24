@@ -171,7 +171,12 @@ export const temporalPublication = /* @__PURE__ */ (() =>
     seal: same,
     compatible: (node, current) => matches(node.layout, current),
     matches: (node, current) => matches(node.layout, current),
-    publish: (node, current) => matches(node.layout, current),
+    // A Temporal value is never written: it is kept when equal, which readback would accept.
+    publish(node, current, _resolve, _owner, note) {
+      const kept = matches(node.layout, current)
+      if (note !== undefined) note.unchanged = kept
+      return kept
+    },
   }))() satisfies PublicationPolicy<TemporalLayout>
 
 export const temporalImmutable = /* @__PURE__ */ (() => ({

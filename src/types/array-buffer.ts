@@ -12,7 +12,7 @@ import type {
 } from '../types'
 import { defineType } from './registry'
 import { bufferEquivalent } from './shared/bytes'
-import { bufferByteLength, copyBuffer, copyBytes } from './shared/binary-native'
+import { bufferByteLength, copyBuffer, copyChangedBytes } from './shared/binary-native'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 /** Stable global identity owned by the array-buffer module. */
@@ -48,8 +48,11 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     compatible: (node, current) =>
       bufferByteLength(current) === bufferByteLength(node.layout.bytes),
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
-    publish(node, current) {
-      copyBytes(current as ArrayBuffer, node.layout.bytes)
+    // Equal bytes are not written, and readback, which compares the same bytes, would accept them;
+    // `compatible` matched the lengths.
+    publish(node, current, _resolve, _owner, note) {
+      const wrote = copyChangedBytes(current as ArrayBuffer, node.layout.bytes)
+      if (note !== undefined) note.unchanged = !wrote
       return true
     },
   }))() satisfies PublicationPolicy<ArrayBufferLayout>

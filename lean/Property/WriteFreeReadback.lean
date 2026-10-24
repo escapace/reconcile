@@ -1,4 +1,5 @@
 import Property.PropertyWrite
+import Graph.CollectionPlan
 import Mathlib.Data.List.Infix
 import Mathlib.Data.List.Nodup
 import Mathlib.Data.List.Perm.Subperm
@@ -12,12 +13,14 @@ object or an array would accept: the facts publication compared are the facts re
 `publishGraph` in `src/publication/publication-engine.ts` therefore answers the readback of such
 an attempt without reading again.
 
-The premise is that reads are stable: with no write, no setter and no write trap has run, so the
-readback would observe what publication observed. The model takes one observation for both.
+The premise is that reads are stable: with no write, no setter and no write trap has run, and the
+getters and read traps the call runs change nothing it reads, so the readback would observe what
+publication observed. The model takes one observation for both.
 
-It also proves that publishing a key with the slot the pre-write check observed equals publishing
-with the live slot when the two agree (`publishKnown_eq`): the runtime takes presence and
-attributes from the descriptor the check read, and still reads the value live.
+It also proves that publishing a key with what the call read of it before its first write equals
+publishing with the live slot when the two agree (`publishKnown_eq`, `publishPre_eq`,
+`publishSeen_eq`), and that a decision such a read made stale can only make the readback reject
+(`accepts_readsAs`, `acceptsRetry_readsAs`).
 -/
 
 namespace Reconcile.WriteFreeReadback
@@ -152,7 +155,178 @@ theorem array_writeFree_matches (length : Nat) (want : Nat → Option V) (o : Ob
   rw [hall i hi]
   exact ⟨rfl, fun _ h => h⟩
 
+/-! ## Deciding from the pre-write read
+
+`reconcile` reads each value of `current` once before its first write: capture reads the value at
+a key and the preflight its descriptor. Publication decides from that read whether the key needs a
+write (`publishPre`) and acts on the live slot only to write it, so a getter of `current` runs once
+when the call writes nothing. After any write, readback reads every key again, so a decision that a
+write in between made stale can only reject the attempt (`accepts_readsAs`), never accept a wrong
+result; the counterexample below is such a rejection. -/
+
+/-- Publication of one key, decided from `pre`, the slot as read before the call's first write; a
+write acts on `s`, the slot when publication reaches the key. -/
+def publishPre (env : Env V) (pre s : Slot V) (v : V) (proto : Bool) : Outcome V :=
+  match pre.own with
+  | some own =>
+    if read own = v then ⟨true, s, []⟩
+    else match own with
+      | .accessor .. => set env s v
+      | .data _ a => assign env s v a
+  | none => publish env s v proto
+
+/-- With stable reads the pre-write slot is the live slot, and the decision is `publish`'s. -/
+theorem publishPre_eq (env : Env V) (s : Slot V) (v : V) (proto : Bool) :
+    publishPre env s s v proto = publish env s v proto := by
+  unfold publishPre publish
+  rcases s.own with _ | own <;> rfl
+
+/-- A key whose pre-write read already holds the wanted value is not written. -/
+theorem publishPre_unchanged (env : Env V) (pre s : Slot V) (v : V) (proto : Bool)
+    (h : unchanged pre v = true) : publishPre env pre s v proto = ⟨true, s, []⟩ := by
+  unfold unchanged at h
+  unfold publishPre
+  split at h
+  · simp only [decide_eq_true_eq] at h
+    simp [h]
+  · cases h
+
+/-- One key of an attempt: its slot before the call's first write, its slot when publication
+reaches it, the wanted value and whether the key is `__proto__`. -/
+structure Key (V : Type) where
+  pre : Slot V
+  live : Slot V
+  want : V
+  proto : Bool
+
+/-- Whether publication writes the key: its pre-write read does not hold the wanted value. -/
+def Key.writes (k : Key V) : Bool := !unchanged k.pre k.want
+
+/-- The key's slot after its publication, which readback observes. -/
+def Key.after (env : Env V) (k : Key V) : Slot V := (publishPre env k.pre k.live k.want k.proto).slot
+
+/-- The engine accepts an attempt when every publication succeeded and, if any key was written,
+every key reads back as wanted; when none was, it answers the readback without reading. -/
+def accepts (env : Env V) (keys : List (Key V)) : Bool :=
+  keys.all (fun k => (publishPre env k.pre k.live k.want k.proto).ok) &&
+    (!keys.any Key.writes || keys.all fun k => readsAs (k.after env) k.want)
+
+/-- Deciding from pre-write reads never accepts a wrong result. With no write, reads are stable (no
+setter or write trap ran), so each key's live slot is its pre-write slot and reads as wanted; after
+a write, readback checked every key. -/
+theorem accepts_readsAs (env : Env V) (keys : List (Key V))
+    (stable : keys.any Key.writes = false → ∀ k ∈ keys, k.live = k.pre)
+    (h : accepts env keys = true) : ∀ k ∈ keys, readsAs (k.after env) k.want = true := by
+  intro k hk
+  simp only [accepts, Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true',
+    List.all_eq_true] at h
+  rcases h.2 with hnone | hall
+  · have hw : k.writes = false := by
+      rw [List.any_eq_false] at hnone
+      simpa using hnone k hk
+    have hu : unchanged k.pre k.want = true := by simpa [Key.writes] using hw
+    have hafter : k.after env = k.live := by
+      simp [Key.after, publishPre_unchanged env k.pre k.live k.want k.proto hu]
+    rw [hafter, stable hnone k hk]
+    exact unchanged_readsAs _ _ hu
+  · exact hall k hk
+
+/-! ## Retried plans
+
+A plan the engine retries publishes again after the call wrote, so its readback always reads. A
+node whose previous readback matched held exactly the values that revision wanted there; the retry
+decides each of its keys from that value (`publishSeen`) instead of reading it again, so each retry
+calls a getter of `current` once, at its readback. A decision a write in between made stale can only
+reject the retry (`acceptsRetry_readsAs`). -/
+
+/-- `writeProperty` in `src/types/shared/property-publication.ts`: `publish` once a read has shown
+that the key needs a write, deciding by the live slot without reading its value again. -/
+def write (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
+  match s.own with
+  | some (.accessor ..) => set env s v
+  | some (.data _ a) => assign env s v a
+  | none => if proto || inheritedAccessor s.inherited then define s v plain else assign env s v plain
+
+/-- Publication of one key decided from `seen`, a value read earlier: skipped when that is the
+wanted value and written on the live slot otherwise. A retried plan decides each key of a node its
+previous readback matched from what that readback saw, and an array's first publication each index
+from what capture read. -/
+def publishSeen (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
+  if seen = v then ⟨true, s, []⟩ else write env s v proto
+
+/-- With stable reads the live slot still reads as `seen`, and the decision is `publish`'s. -/
+theorem publishSeen_eq (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bool)
+    (h : readsAs s seen = true) : publishSeen env seen s v proto = publish env s v proto := by
+  unfold readsAs at h
+  unfold publishSeen publish write
+  split at h
+  · rename_i own hown
+    simp only [decide_eq_true_eq] at h
+    subst h
+    by_cases hv : read own = v
+    · simp [hv]
+    · simp only [hv, if_false, hown]
+      cases own <;> rfl
+  · cases h
+
+/-- One key of a retried plan: the value its previous readback saw, its slot when publication
+reaches it, the wanted value and whether the key is `__proto__`. -/
+structure SeenKey (V : Type) where
+  seen : V
+  live : Slot V
+  want : V
+  proto : Bool
+
+/-- The key's slot after its publication in the retry, which readback observes. -/
+def SeenKey.after (env : Env V) (k : SeenKey V) : Slot V :=
+  (publishSeen env k.seen k.live k.want k.proto).slot
+
+/-- The engine accepts a retried plan when every publication succeeded and every key reads back as
+wanted: only a call's first publication can be answered without reading. -/
+def acceptsRetry (env : Env V) (keys : List (SeenKey V)) : Bool :=
+  keys.all (fun k => (publishSeen env k.seen k.live k.want k.proto).ok) &&
+    keys.all fun k => readsAs (k.after env) k.want
+
+/-- Deciding a retry from the previous readback never accepts a wrong result, however stale. -/
+theorem acceptsRetry_readsAs (env : Env V) (keys : List (SeenKey V))
+    (h : acceptsRetry env keys = true) : ∀ k ∈ keys, readsAs (k.after env) k.want = true := by
+  simp only [acceptsRetry, Bool.and_eq_true, List.all_eq_true] at h
+  exact h.2
+
+/-! ## Native contents
+
+A `Map`'s or `Set`'s entries are published by `CollectionPlan`. A `Date`'s time, a buffer's bytes,
+a Temporal value and a `URL`'s or `URLSearchParams`'s text are compared whole, with the same
+built-in reads at publication and at readback; that both compare alike is a runtime obligation, not
+modelled here. -/
+
+/-- A collection publication that left the entries as they were reached the next entries
+(`CollectionPlan.plan_eq`), so readback, which compares them with the next entries, accepts. -/
+theorem collection_writeFree_matches {α β : Type} [DecidableEq α] (cur next : List (α × β))
+    (p : Nat) (hc : (CollectionPlan.keys cur).Nodup) (hn : (CollectionPlan.keys next).Nodup)
+    (hp : CollectionPlan.keys (cur.take p) = CollectionPlan.keys (next.take p))
+    (h : CollectionPlan.plan cur next p = cur) : cur = next := by
+  rw [← h]
+  exact CollectionPlan.plan_eq cur next p hc hn hp
+
 /-! ## Examples and counterexamples -/
+
+/-- Counterexample for deciding from the live slot: a key read as 7 before the first write and
+changed to 8 by another key's setter is not written, and readback rejects the attempt, which a live
+decision would have rewritten. The extra rejection is the price of one read. -/
+example :
+    unchanged (⟨some (.data 7 plain), .none, true⟩ : Slot Nat) 7 = true ∧
+      readsAs (publishPre storing ⟨some (.data 7 plain), .none, true⟩
+        ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = false ∧
+      readsAs (publish storing ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = true := by
+  decide
+
+/-- Counterexample for deciding a retry from the previous readback: it saw 7, another key's setter
+changed the slot to 8, and the retry skips the key; readback rejects it. -/
+example :
+    readsAs (publishSeen storing 7 ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = false ∧
+      readsAs (publish storing ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = true := by
+  decide
 
 -- Requested `[a, b]` over an object holding exactly them: write-free, and readback accepts.
 example : objectWriteFree [0, 1] (fun _ => 7)

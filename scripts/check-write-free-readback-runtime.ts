@@ -54,11 +54,17 @@ function run(current: object, next: object): Traps {
   return traps
 }
 
-function checkObject(row: Record<string, unknown>): boolean {
+/** The object a row describes: each listed key holding its value, mapped by `valueOf`. */
+function objectRow<T>(row: Record<string, unknown>, valueOf: (value: number) => T): object {
   assert.ok(Array.isArray(row.keys) && Array.isArray(row.values))
   const current: Record<string, unknown> = {}
   for (const [index, key] of row.keys.entries())
-    current[NAMES[integerIn(key, 0, 2)]] = integerIn(row.values[index], 0, 9)
+    current[NAMES[integerIn(key, 0, 2)]] = valueOf(integerIn(row.values[index], 0, 9))
+  return current
+}
+
+function checkObject(row: Record<string, unknown>): boolean {
+  const current = objectRow(row, (value) => value)
   const traps = run(current, { a: 1, b: 2 })
   // The preflight lists the keys once (names and symbols); a readback lists them again.
   const elided = traps.counts.get('ownKeys') === 2
@@ -69,7 +75,7 @@ function checkObject(row: Record<string, unknown>): boolean {
 }
 
 /** An array holding each defined value at its index and a hole for each undefined. */
-function sparse(elements: ReadonlyArray<number | undefined>): unknown[] {
+function sparse(elements: readonly unknown[]): unknown[] {
   const array: unknown[] = []
   array.length = elements.length
   for (const [index, element] of elements.entries())
@@ -77,14 +83,19 @@ function sparse(elements: ReadonlyArray<number | undefined>): unknown[] {
   return array
 }
 
-function checkArray(row: Record<string, unknown>): boolean {
-  const wanted = WANTED[integerIn(row.wanted, 0, WANTED.length - 1)]
+/** The array a row describes, each element mapped by `valueOf`. */
+function arrayRow(row: Record<string, unknown>, valueOf: (value: number) => unknown): unknown[] {
   assert.ok(Array.isArray(row.elements))
-  const current = sparse(
-    row.elements.map((element) => (element === null ? undefined : integerIn(element, 0, 9))),
+  return row.elements.map((element) =>
+    element === null ? undefined : valueOf(integerIn(element, 0, 9)),
   )
-  const next = sparse(wanted)
-  const traps = run(current, next)
+}
+
+const wantedOf = (row: Record<string, unknown>): ReadonlyArray<number | undefined> =>
+  WANTED[integerIn(row.wanted, 0, WANTED.length - 1)]
+
+function checkArray(row: Record<string, unknown>): boolean {
+  const traps = run(sparse(arrayRow(row, (value) => value)), sparse(wantedOf(row)))
   // Publication reads the length once; a readback reads it again.
   const elided = traps.counts.get('get:length') === 1
   assert.equal(elided, row.writeFree, `array ${JSON.stringify(row.elements)} readback elided`)
@@ -93,17 +104,80 @@ function checkArray(row: Record<string, unknown>): boolean {
   return elided
 }
 
-/** Compares readback elision with Lean's `Property.WriteFreeReadback`. */
+/** One frozen object per value. An object at its own position is kept, and one holding another
+ * value cannot take that value, so a key needs a write exactly when its object differs, as Lean
+ * compares values. */
+const pool = new Map<number, object>()
+const objectOf = (value: number): object => {
+  let object = pool.get(value)
+  if (object === undefined) pool.set(value, (object = Object.freeze({ value })))
+  return object
+}
+
+/** Reads of a requested key: capture's, which publication decides from, and readback's after any
+ * write; a requested key that `current` lacks is read by readback alone, an unrequested one never. */
+const expectedReads = (requested: boolean, held: boolean, writeFree: unknown): number =>
+  !requested ? 0 : !held || writeFree === true ? 1 : 2
+
+function assertReads(traps: Traps, key: PropertyKey, expected: number, row: unknown): void {
+  assert.equal(
+    traps.counts.get(`get:${String(key)}`) ?? 0,
+    expected,
+    `${JSON.stringify(row)} reads ${String(key)}`,
+  )
+}
+
+/**
+ * The same object row with object values: capture reads each requested key the current object
+ * holds, publication decides from that read (`WriteFreeReadback.publishPre`), and only readback,
+ * which follows any write, reads again.
+ */
+function checkObjectReads(row: Record<string, unknown>): void {
+  const current = objectRow(row, objectOf)
+  const held = new Set(Object.keys(current))
+  const traps = run(current, { a: objectOf(1), b: objectOf(2) })
+  for (const name of NAMES)
+    assertReads(traps, name, expectedReads(name !== 'c', held.has(name), row.writeFree), row)
+}
+
+/** The same array row with object elements, read as `checkObjectReads` reads keys; publication
+ * decides each from capture's read (`WriteFreeReadback.publishSeen`). */
+function checkArrayReads(row: Record<string, unknown>): void {
+  const wanted = wantedOf(row)
+  const elements = arrayRow(row, objectOf)
+  const traps = run(
+    sparse(elements),
+    sparse(wanted.map((element) => (element === undefined ? undefined : objectOf(element)))),
+  )
+  for (let index = 0; index < wanted.length; index += 1) {
+    const requested = wanted[index] !== undefined
+    assertReads(
+      traps,
+      index,
+      expectedReads(requested, elements[index] !== undefined, row.writeFree),
+      row,
+    )
+  }
+}
+
+/** Checks one row's elision and reads; whether its readback was elided. */
+function checkRow(row: Record<string, unknown>): boolean {
+  const object = 'keys' in row
+  const elided = object ? checkObject(row) : checkArray(row)
+  if (object) checkObjectReads(row)
+  else checkArrayReads(row)
+  return elided
+}
+
+/** Compares readback elision and the reads of `current` with Lean's `Property.WriteFreeReadback`. */
 export async function checkWriteFreeReadbackRuntime(oracle: Oracle): Promise<void> {
   // 46 ordered key subsets with their values and 53 arrays of length up to three.
   const rows = await oracleCorpus(oracle, 'WriteFreeReadback', 99, 64 * 1024)
   let elided = 0
-  for (const line of rows) {
-    const row = jsonObject(JSON.parse(line))
-    if ('keys' in row ? checkObject(row) : checkArray(row)) elided += 1
-  }
+  for (const line of rows) if (checkRow(jsonObject(JSON.parse(line)))) elided += 1
   console.log(
     `WriteFreeReadback Lean/native bridge: ${rows.length} publications, ${elided} write-free ` +
-      'with the readback elided, every other one read back',
+      'with the readback elided, every other one read back; each requested object value of ' +
+      '`current` read once without a write and twice with one',
   )
 }

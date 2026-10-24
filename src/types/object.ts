@@ -1,4 +1,4 @@
-import { OBJECT_KIND } from '../constants'
+import { OBJECT_KIND, OBSERVED_ACCESSOR, UNREAD } from '../constants'
 import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { freeze, independentBindings, yes } from './shared/empty'
 import { ordinaryExposure } from './shared/empty'
@@ -26,7 +26,9 @@ import {
   PropertyOrder,
   propertyRequirements,
   propertySlots,
+  priorRead,
   publishKnown,
+  publishRead,
   REFUSED,
   UNCHANGED,
   WROTE,
@@ -155,19 +157,30 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
  * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes.
  * `known` holds the preflight's descriptor for each requested key the target already had in
  * the same position. Returns `REFUSED`, `WROTE`, or `UNCHANGED` when no key was written. */
+// fallow-ignore-next-line complexity -- a dispatch helper per key slowed reconcile 3%
 function writeProperties(
   node: CapturedNode<ObjectLayout>,
   target: object,
   image: (edge: Edge, key?: PropertyKey) => unknown,
   known: ReadonlyArray<PropertyDescriptor | undefined> | undefined,
+  reads: readonly unknown[] | undefined,
+  held: ReadonlyMap<PropertyKey, unknown> | undefined,
+  removed: readonly PropertyKey[] | undefined,
 ): number {
   const hidden = node.layout.hidden
+  const lookup = reads !== undefined || held !== undefined
   let result = UNCHANGED
   for (let index = 0; index < node.keys.length; index += 1) {
     const key = node.keys[index]
     const descriptor = known !== undefined && index < known.length ? known[index] : undefined
     const added = descriptor === undefined && hidden?.has(key) === true && !hasOwn(target, key)
-    const written = publishKnown(target, key, image(node.edges[index], key), descriptor)
+    const read = lookup ? priorRead(reads, index, held, key, removed) : UNREAD
+    const value = image(node.edges[index], key)
+    // Without a read the key takes `publishKnown` as it is, kept small enough to inline.
+    const written =
+      read === UNREAD
+        ? publishKnown(target, key, value, descriptor)
+        : publishRead(target, key, value, descriptor, read)
     if (written === REFUSED) return REFUSED
     if (written === WROTE) result = WROTE
     if (added && !hide(target, key)) return REFUSED
@@ -177,23 +190,27 @@ function writeProperties(
 
 /** Deletes the current keys the requested order does not keep: past the requested count in the
  * aligned order, otherwise unrequested or configurable and out of order. Returns `REFUSED`,
- * `WROTE` when it deleted a key, or `UNCHANGED`. */
+ * `WROTE` when it deleted a key, or `UNCHANGED`; each requested key it deleted is added to
+ * `removed`, when given. */
 function deleteUnrequested(
   target: object,
   previous: readonly PropertyKey[],
   requested: number,
   properties: ReadonlyMap<PropertyKey, Edge> | undefined,
+  removed: PropertyKey[] | undefined,
 ): number {
   const order = properties === undefined ? undefined : new PropertyOrder(properties)
   let result = UNCHANGED
   for (let position = 0; position < previous.length; position += 1) {
     const key = previous[position]
     const retained = order?.keep(key)
+    const unrequested = !(properties === undefined ? position < requested : properties.has(key))
     if (
-      !(properties === undefined ? position < requested : properties.has(key)) ||
+      unrequested ||
       (retained === false && Object.getOwnPropertyDescriptor(target, key)?.configurable !== false)
     ) {
       if (!Reflect.deleteProperty(target, key)) return REFUSED
+      if (!unrequested) removed?.push(key)
       result = WROTE
     }
   }
@@ -228,7 +245,15 @@ export const objectPublication = /* @__PURE__ */ (() =>
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.
       const properties = alignedPrefix(previous, keys) ? undefined : objectSurface.slots(node)
-      const deleted = deleteUnrequested(target, previous, keys.length, properties)
+      // The reads, capture's or a previous readback's, follow the captured node's edges, which a
+      // kept node can drop one of; a requested key moved into the requested order is deleted
+      // first, and its read no longer holds.
+      const reads = node === captured ? note?.reads : undefined
+      // The fixed slots a preflight of this publication read, by key.
+      const held = note?.held?.get(target)
+      const removed =
+        (reads !== undefined || held !== undefined) && properties !== undefined ? [] : undefined
+      const deleted = deleteUnrequested(target, previous, keys.length, properties, removed)
       if (deleted === REFUSED) return false
       // In the aligned order, descriptor i belongs to requested key i.
       const written = writeProperties(
@@ -236,6 +261,9 @@ export const objectPublication = /* @__PURE__ */ (() =>
         target,
         image,
         properties === undefined ? facts?.descriptors : undefined,
+        reads,
+        held,
+        removed,
       )
       // Aligned, nothing deleted and no key written: readback would accept
       // (WriteFreeReadback.object_writeFree_matches).
@@ -247,10 +275,6 @@ export const objectPublication = /* @__PURE__ */ (() =>
     // Object slots are indexed on first demand; see objectSurface.
     seal: (node) => node,
   }))() satisfies PublicationPolicy<ObjectLayout>
-
-/** Marks a slot an own getter answered. A rebuilt object holds its value as a writable,
- * configurable data property with the getter's enumerability. */
-export const OBSERVED_ACCESSOR = 8
 
 // Packs a data descriptor's configurable, enumerable and writable flags into bits 1, 2 and 4.
 const attributeBits = (descriptor: PropertyDescriptor): number =>

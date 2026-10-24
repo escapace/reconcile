@@ -62,9 +62,12 @@ export const datePublication = /* @__PURE__ */ (() =>
     requirements: emptyEdges,
     seal: same,
     matches: (node, current) => Object.is(timeOf(current), node.layout.time),
-    // Only a changed time is written.
-    publish(node, current) {
-      if (!Object.is(timeOf(current), node.layout.time)) dateSetTime(current, node.layout.time)
+    // Only a changed time is written; a publication that wrote nothing found it equal, as readback,
+    // which compares the same time, would.
+    publish(node, current, _resolve, _owner, note) {
+      const equal = Object.is(timeOf(current), node.layout.time)
+      if (!equal) dateSetTime(current, node.layout.time)
+      if (note !== undefined) note.unchanged = equal
       return true
     },
   }))() satisfies PublicationPolicy<DateLayout>

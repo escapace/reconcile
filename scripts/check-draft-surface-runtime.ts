@@ -34,42 +34,62 @@ function checkAdmission(row: Row): void {
     assert.equal(Reflect.get(result.value, key), written, `result ${String(key)}`)
 }
 
-/** Builds an object whose getters return the listed values and reports whether produce keeps
- * it: a primitive, a kept child, a changed child or a draft handle of the kept child. */
+/** Where a keeping row's object or array holds its data and its getters: an object at `a` and
+ * `g0`, `g1`; an array at index 0 and the indices after it. */
+interface Holder {
+  readonly data: string
+  readonly target: Record<string, unknown>
+  readonly slot: (index: number) => string
+}
+
+const holders: ReadonlyArray<() => Holder> = [
+  () => ({ data: 'a', target: { a: 1 }, slot: (index) => `g${index}` }),
+  () => ({
+    data: '0',
+    target: [1] as unknown as Record<string, unknown>,
+    slot: (index) => String(index + 1),
+  }),
+]
+
+/** Builds an object or array whose getters return the listed values and reports whether
+ * produce keeps it: a primitive, a kept child, a changed child or a draft handle of the kept
+ * child. */
 function checkKeeping(row: Row): void {
   const returned = (row.returned as unknown[]).map((code) => integerIn(code, 0, 3))
+  const { data, slot, target } = holders[integerIn(row.kind, 0, 1)]()
   const kept = { n: 0 }
   const changed = { n: 0 }
   let draftOfKept: object | undefined
   const values = [() => 1, () => kept, () => changed, () => draftOfKept]
-  const target: Record<string, unknown> = { a: 1 }
   returned.forEach((code, index) =>
-    Object.defineProperty(target, `g${index}`, {
+    Object.defineProperty(target, slot(index), {
       configurable: true,
       enumerable: true,
       get: values[code],
     }),
   )
-  const current = { changed, kept, target }
-  const result = produce(current, (draft) => {
+  const result = produce({ changed, kept, target }, (draft) => {
     draftOfKept = draft.kept
-    if (row.dataChanged === true) draft.target.a = 2
+    if (row.dataChanged === true) draft.target[data] = 2
     draft.changed.n = 1
     return draft
   })
   assert.equal(result.target === target, row.keeps, `keeps ${JSON.stringify(row)}`)
+  // A rebuilt object holds each returned value as data, a handle as the kept child.
+  const expected = [1, kept, result.changed, kept]
   if (row.keeps !== true)
-    for (const [index, code] of returned.entries()) {
-      // A rebuilt object holds each returned value as data, a handle as the kept child.
-      const expected = [1, kept, result.changed, kept][code]
-      assert.equal(Object.getOwnPropertyDescriptor(result.target, `g${index}`)?.value, expected)
-    }
+    returned.forEach((code, index) =>
+      assert.equal(
+        Object.getOwnPropertyDescriptor(result.target, slot(index))?.value,
+        expected[code],
+      ),
+    )
 }
 
 /** Compares draft admission and own-accessor reuse with Lean's `DraftSurface`. */
 export async function checkDraftSurfaceRuntime(oracle: Oracle): Promise<void> {
-  // 15 kind and key pairs, then 2 × 20 objects with one or two getters.
-  const rows = await oracleCorpus(oracle, 'DraftSurface', 55, 64 * 1024)
+  // 15 kind and key pairs, then objects and arrays, 2 × 20 each, with one or two getters.
+  const rows = await oracleCorpus(oracle, 'DraftSurface', 95, 64 * 1024)
   let admissions = 0
   for (const line of rows) {
     const row = jsonObject(JSON.parse(line))
@@ -80,6 +100,7 @@ export async function checkDraftSurfaceRuntime(oracle: Oracle): Promise<void> {
   }
   console.log(
     `Draft-surface Lean/native bridge: ${admissions} draft writes admitted exactly where the ` +
-      `result carries them; ${rows.length - admissions} getter objects kept exactly where Lean keeps them`,
+      `result carries them; ${rows.length - admissions} getter objects and arrays kept exactly where ` +
+      `Lean keeps them`,
   )
 }

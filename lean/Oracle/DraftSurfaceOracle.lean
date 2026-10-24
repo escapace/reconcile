@@ -2,7 +2,8 @@ import Produce.DraftSurface
 import Lean
 
 /-! Oracle for the `DraftSurface` family: the admission of every draft kind and key class, and
-whether `produce` keeps an object with one or two getters, changed or not, under `DraftSurface`.
+whether `produce` keeps an object or array with one or two getters, changed or not, under
+`DraftSurface`.
 -/
 
 namespace Reconcile.DraftSurfaceOracle
@@ -20,25 +21,29 @@ private structure Admission where
   deriving ToJson
 
 private structure Keeping where
+  kind : Nat
   dataChanged : Bool
   returned : List Nat
   keeps : Bool
   deriving ToJson
 
-/-- Every kind and key class with its admission, then every object with one or two getters,
-changed or not, with whether `produce` keeps it. Indices follow the lists above. -/
+/-- Every kind and key class with its admission, then every object and array with one or two
+getters, changed or not, with whether `produce` keeps it. Indices follow the lists above. -/
 def run : IO Unit := do
   let lists := returns.map ([·]) ++ returns.flatMap fun a => returns.map fun b => [a, b]
-  IO.println (kinds.length * keys.length + 2 * lists.length)
+  let holders := kinds.filter holdsGetters
+  IO.println (kinds.length * keys.length + holders.length * 2 * lists.length)
   for kind in kinds do
     for key in keys do
       let row : Admission :=
         { kind := kinds.idxOf kind, key := keys.idxOf key, admits := admits kind key }
       IO.println (toJson row).compress
-  for dataChanged in [false, true] do
-    for returned in lists do
-      let row : Keeping :=
-        { dataChanged, returned := returned.map returns.idxOf, keeps := keeps dataChanged returned }
-      IO.println (toJson row).compress
+  for kind in holders do
+    for dataChanged in [false, true] do
+      for returned in lists do
+        let row : Keeping :=
+          { kind := kinds.idxOf kind, dataChanged, returned := returned.map returns.idxOf,
+            keeps := keeps dataChanged returned }
+        IO.println (toJson row).compress
 
 end Reconcile.DraftSurfaceOracle

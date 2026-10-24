@@ -23,6 +23,7 @@ export async function checkDeferredOrderRuntime(oracle: Oracle): Promise<void> {
       replace("'../../graph/edge'", moduleUrl('src/graph/edge.ts'))
       replace("'../../types'", moduleUrl('src/types.ts'))
       replace("'../../standard-prototypes'", moduleUrl('src/standard-prototypes.ts'))
+      replace("'../../constants'", moduleUrl('src/constants.ts'))
       replace(
         '  const previous = surface.keys(current, node)',
         '  const previous = surface.keys(current, node);globalThis.__cursor.start(previous,desiredKeys,surface.ordered)',

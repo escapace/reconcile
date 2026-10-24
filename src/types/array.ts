@@ -6,7 +6,9 @@ import { ordinaryExposure } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
+  CapturedNode,
   ConstructionPolicy,
+  DraftObservationContext,
   SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
@@ -17,14 +19,17 @@ import { isObject, ownKeys } from '../object-property'
 import { draftArrayIndexRejected, draftArrayLengthRejected } from '../error'
 import { arrayIndex, hasOwn } from '../object-property'
 import type { Edge } from '../types'
+import { OBSERVED_ACCESSOR, UNREAD } from '../constants'
 import { defineType } from './registry'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { PropertyDraftState, createPropertyHandle, writeDataSlot } from './shared/draft-properties'
 import type { PropertySurface } from './shared/property-publication'
 import {
+  priorRead,
   propertyRequirements,
   propertySlots,
   publishProperty,
+  publishRead,
   REFUSED,
   UNCHANGED,
   WROTE,
@@ -123,6 +128,15 @@ export const arraySnapshot = /* @__PURE__ */ (() =>
     },
   }))() satisfies SnapshotPolicy<ArrayLayout>
 
+// What the call already read at edge `edge`, which holds `key`, or `UNREAD`.
+const readAt = (
+  node: CapturedNode<ArrayLayout>,
+  reads: readonly unknown[] | undefined,
+  edge: number,
+  key: string,
+  held: ReadonlyMap<PropertyKey, unknown> | undefined,
+): unknown => priorRead(node.keys[edge] === key ? reads : undefined, edge, held, key)
+
 export const arrayPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...arrayCapture,
@@ -142,15 +156,27 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       }
       return true
     },
+    // fallow-ignore-next-line complexity -- a dispatch helper per element slowed reconcile 3%
     publish(node, target, image, _owner, note) {
       const properties = arraySurface.slots(node)
       const length = node.layout.length
       let written = publishProperty(target, 'length', length)
       if (written === REFUSED) return false
+      // The reads, capture's or a previous readback's, follow the edges: present indices in order.
+      const reads = note?.reads
+      // The fixed slots a preflight of this publication read, by key.
+      const held = note?.held?.get(target)
+      let edge = 0
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         if (properties.has(key)) {
-          const element = publishProperty(target, key, image(properties.get(key)))
+          const read = readAt(node, reads, edge, key, held)
+          edge += 1
+          const value = image(properties.get(key))
+          const element =
+            read === UNREAD
+              ? publishProperty(target, key, value)
+              : publishRead(target, key, value, undefined, read)
           if (element === REFUSED) return false
           if (element === WROTE) written = WROTE
         } else if (hasOwn(target, index)) {
@@ -163,7 +189,9 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       if (note !== undefined) note.unchanged = written === UNCHANGED
       return true
     },
-    requirements: (node, current) => propertyRequirements(node, current, arraySurface),
+    // The note serves only the fixed slots' reads: an array's publication takes no other facts.
+    requirements: (node, current, note) =>
+      propertyRequirements(node, current, arraySurface, undefined, note),
     // The building node and its layout are private to this capture; seal indexes them in place.
     seal(node) {
       let length = node.layout.length
@@ -177,12 +205,47 @@ export const arrayPublication = /* @__PURE__ */ (() =>
     },
   }))() satisfies PublicationPolicy<ArrayLayout>
 
+// Observes one index of an array or its draft. An index the array does not own is an element
+// only when its prototype, other than the standard one, supplies it; an own getter is marked, as
+// on objects, so reuse can keep it.
+function observeElement(
+  array: unknown[],
+  index: number,
+  observer: DraftObservationContext<ArrayLayout>,
+): void {
+  const properties = observer.properties
+  const key = String(index)
+  const own =
+    properties === undefined
+      ? Object.getOwnPropertyDescriptor(array, key)
+      : properties.ownDescriptor(key)
+  if (
+    own === undefined &&
+    !(properties === undefined
+      ? hasElement(array, index)
+      : properties.contains(key) && !(index in Array.prototype))
+  )
+    return
+  const data = own !== undefined && isDataDescriptor(own)
+  const value = !data
+    ? observer.read(array, key)
+    : properties === undefined
+      ? (Reflect.get(array, key) as unknown)
+      : properties.ownValue(key, own)
+  observer.edge(
+    value,
+    key,
+    isObject(value) && backedProperty(observer.base, key, value),
+    data || own === undefined ? undefined : OBSERVED_ACCESSOR,
+  )
+}
+
 export const arrayImmutable = /* @__PURE__ */ (() => ({
   ...arrayConstruction,
   immutable: /* @__PURE__ */ freeze({
     tag: 'structural',
     observeDraft(source, observer) {
-      const { base, properties } = observer
+      const properties = observer.properties
       const array = source as unknown[]
       const length = (): number =>
         properties === undefined ? array.length : (properties.read('length') as number)
@@ -192,18 +255,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
           ? (Object.getPrototypeOf(source) as object | null)
           : properties.sourcePrototype()
       observer.begin({ kind: ARRAY_KIND, length: size, prototype, slots: undefined })
-      for (let index = 0; index < length(); index += 1) {
-        const key = String(index)
-        if (
-          !(properties === undefined
-            ? hasElement(array, index)
-            : properties.contains(key) &&
-              (!(index in Array.prototype) || properties.ownDescriptor(key) !== undefined))
-        )
-          continue
-        const value = observer.read(source, key)
-        observer.edge(value, key, isObject(value) && backedProperty(base, key, value))
-      }
+      for (let index = 0; index < length(); index += 1) observeElement(array, index, observer)
     },
     reuse(node, current, visit) {
       const array = current as unknown[]
@@ -212,10 +264,13 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
       for (let index = 0; index < array.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(current, index)
         if (descriptor === undefined) continue
+        if (node.keys[position] !== String(index)) return false
+        // An own getter observed in this call stays as on objects (DraftSurface.keeps).
         if (
-          node.keys[position] !== String(index) ||
-          !isDataDescriptor(descriptor) ||
-          !visit(array[index], node.edges[position])
+          isDataDescriptor(descriptor)
+            ? !visit(array[index], node.edges[position])
+            : ((node.attributes?.[position] ?? 0) & OBSERVED_ACCESSOR) === 0 ||
+              !visit(node.observed?.[position], node.edges[position])
         )
           return false
         position += 1

@@ -24,6 +24,10 @@ export const SPECIAL_REPLACEMENT = /* @__PURE__ */ Object.freeze({
   untracked: 'fresh',
 } as const)
 
+/** Marks a slot an own getter answered. A rebuilt object holds its value as a writable,
+ * configurable data property with the getter's enumerability; a rebuilt array as an element. */
+export const OBSERVED_ACCESSOR = 8
+
 /** Stable global identity of the plain-object fallback kind. */
 export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
 
@@ -38,3 +42,9 @@ export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
  * @internal
  */
 export const ATOM_KIND = Symbol.for('@escapace/reconcile/atom')
+
+/**
+ * Marks an edge whose occupant aligned capture did not read; no value of `current` is this
+ * private object.
+ */
+export const UNREAD: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)

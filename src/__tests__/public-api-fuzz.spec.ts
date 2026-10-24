@@ -326,7 +326,9 @@ function checkArrayObservation(length: number, mask: number, mutate: boolean, un
   for (let index = 1; index < length; index += 1)
     assert.equal(reads[index], (mask & (1 << index)) !== 0 ? 1 : 0)
   assert.isTrue(graphsEqual(expected, result))
-  assert.equal(result === base, undo && mask === 0)
+  // Kept, with its getters, when the recipe changed none of its data: a getter that writes the
+  // draft changes it (DraftSurface.keeps).
+  assert.equal(result === base, undo && (mask === 0 || !mutate))
   // Native array proxy operations receive string keys, not our numeric
   // traversal indices. Do not freeze incidental internal trap counts.
   assert.isTrue(keys.length > 0 && keys.every((key) => typeof key === 'string'))

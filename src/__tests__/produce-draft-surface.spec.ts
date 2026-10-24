@@ -122,6 +122,33 @@ describe('produce keeps own accessors of an unchanged object', () => {
     assert.strictEqual(Object.getOwnPropertyDescriptor(result.target, 'value')?.value, child)
   })
 
+  it('keeps an array with an index getter by the same rule as an object', () => {
+    let reads = 0
+    const list: unknown[] = [1]
+    Object.defineProperty(list, 1, {
+      configurable: true,
+      enumerable: true,
+      get: () => (reads += 1),
+    })
+    const kept = produce({ count: 0, list }, (draft) => {
+      draft.count = 1
+      return draft
+    })
+    assert.strictEqual(kept.list, list)
+    assert.equal(reads, 1)
+    const rebuilt = produce({ list }, (draft) => {
+      draft.list[0] = 2
+      return draft
+    })
+    assert.notStrictEqual(rebuilt.list, list)
+    assert.deepEqual(Object.getOwnPropertyDescriptor(rebuilt.list, 1), {
+      configurable: true,
+      enumerable: true,
+      value: 2,
+      writable: true,
+    })
+  })
+
   it("gives a getter's data property in a rebuilt object the getter's enumerability", () => {
     const target: Record<string, unknown> = { a: 1 }
     for (const [key, enumerable] of [

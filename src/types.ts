@@ -283,6 +283,15 @@ export interface PublicationNote {
   /** Whether the object being published is a wrapper, such as a Vue reactive proxy, written
    * through its own methods; every other object's contents are written with the built-ins. */
   wrapped: boolean
+  /** What the call already read of the object being preflighted or published, by edge position:
+   * before the first write, the occupants that aligned capture read, with `UNREAD` or no entry at
+   * a position capture did not read; in a retried plan, what the previous readback saw, when that
+   * readback matched the object; undefined otherwise. */
+  reads: readonly unknown[] | undefined
+  /** The value of each fixed slot that a preflight read before the publication's first write, by
+   * object and key, so that publication decides from it instead of reading again; created on the
+   * first such read and cleared before each later publication. */
+  held: Map<object, Map<PropertyKey, unknown>> | undefined
 }
 
 /** Native facets retained by each public operation. */
@@ -473,13 +482,18 @@ export interface CapturedNode<L extends { readonly kind: symbol } = Layout> {
  * Represents a finite graph closed under all node references, including its root.
  *
  * @remarks
- * Aligned capture records, per captured node, the current object it was first aligned with
- * and the occupant read for each own-property edge, so candidate discovery reuses those reads.
+ * Aligned capture records, per captured node, the current object it was first aligned with. At
+ * the position of each own-property edge whose next value is an object, it also records the
+ * occupant it read; an earlier position holds `UNREAD`, and the list can end before the last edge.
+ * Candidate discovery and the first publication of the aligned object reuse those reads.
  */
 export interface CapturedGraph {
   readonly nodes: readonly CapturedNode[]
   readonly root: Edge
   readonly currents?: ReadonlyArray<object | undefined>
+  /** The kind capture recognized for each aligned object whose kind differs from its node's; a
+   * per-call memo that discovery extends. */
+  readonly kinds?: Map<object, symbol> | undefined
   readonly occupants?: ReadonlyArray<readonly unknown[] | undefined>
   /** Source object of each captured node; pinned nodes record their occupant. */
   readonly sources?: readonly object[]

@@ -93,12 +93,15 @@ export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
     seal: same,
     matches: (node, current) =>
       nativeParametersText(current as URLSearchParams) === node.layout.text,
-    publish(node, current, _resolve, owner) {
-      replaceNativeParameters(
+    // A publication that wrote nothing found the text equal, as readback, which compares the same
+    // text, would.
+    publish(node, current, _resolve, owner, note) {
+      const wrote = replaceNativeParameters(
         current as URLSearchParams,
         node.layout.text,
         () => owner?.(current, URL_KIND) as URL | undefined,
       )
+      if (note !== undefined) note.unchanged = !wrote
       return true
     },
   }))() satisfies PublicationPolicy<URLSearchParametersLayout>

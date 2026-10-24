@@ -74,10 +74,27 @@ const typedSet = /* @__PURE__ */ (() =>
     builtinValue(typedPrototype, 'set'),
   ))()
 
+// The built-in `length` getter of typed arrays, called without an argument list.
+const typedLengthOf = /* @__PURE__ */ (() => uncurried<[], number>(typedLength))()
+
 /** Copies the bytes of `source` to the start of `target`, which holds at least as many, with the
  * built-in `set`. */
-export const copyBytes = (target: ArrayBufferLike, source: ArrayBufferLike): void => {
+const copyBytes = (target: ArrayBufferLike, source: ArrayBufferLike): void => {
   typedSet(new Uint8Array(target), new Uint8Array(source))
+}
+
+/** Copies the bytes of `source` into `target`, of the same length, when any differs, with the
+ * built-in `set`; returns whether it wrote. */
+export function copyChangedBytes(target: ArrayBufferLike, source: ArrayBufferLike): boolean {
+  const left = new Uint8Array(target)
+  const right = new Uint8Array(source)
+  const length = typedLengthOf(right)
+  for (let index = 0; index < length; index += 1)
+    if (left[index] !== right[index]) {
+      typedSet(left, right)
+      return true
+    }
+  return false
 }
 
 /** A new buffer holding the `length` bytes of `buffer` from `offset`. */

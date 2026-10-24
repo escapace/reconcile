@@ -1,4 +1,4 @@
-import { freeze, same, yes } from './empty'
+import { freeze, same } from './empty'
 import type { SpecialPolicy } from '../../types'
 import { noValue } from './empty'
 import { ARRAY_BUFFER_KIND } from '../array-buffer'
@@ -78,7 +78,6 @@ export function viewPublication<K extends symbol>(): Omit<
   keyof CapturePolicy | keyof ConstructionPolicy
 > {
   return {
-    publish: yes,
     requirements: viewRequirements,
     seal: same,
     aligned: (node, current, visit) =>
@@ -94,6 +93,12 @@ export function viewPublication<K extends symbol>(): Omit<
     matches(node, current, visit) {
       const actual = current as ArrayBufferView
       return viewShape(actual, node.layout.sample) && visit(bufferOfView(actual), node.edges[0])
+    },
+    // A view writes nothing: its bytes are its buffer's, and the preflight bound its buffer, which
+    // readback compares with its shape.
+    publish: (_node, _current, _resolve, _owner, note) => {
+      if (note !== undefined) note.unchanged = true
+      return true
     },
   }
 }

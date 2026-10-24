@@ -93,21 +93,22 @@ function stepAll(iterator: object): unknown[] {
 export const nativeParameterEntries = (value: URLSearchParams): unknown[] =>
   stepAll(parametersEntries(value))
 
-/** Replaces native ordered entries, avoiding normalization when no change is needed. */
+/** Replaces native ordered entries, avoiding normalization when no change is needed; returns
+ * whether it wrote. */
 export function replaceNativeParameters(
   target: URLSearchParams,
   text: string,
   owner?: () => URL | undefined,
-): void {
+): boolean {
   const previous = nativeParametersText(target)
-  if (previous === text) return
+  if (previous === text) return false
   const url = owner?.()
   if (url !== undefined) {
     // Clearing a nonempty list can normalize an opaque path before later appends.
     // An initially empty list must not clear its raw query: it may protect spaces.
     if (previous !== '') setNativeURLSearch(url, '')
     if (text !== '') setNativeURLSearch(url, text)
-    return
+    return true
   }
   const keys = stepAll(parametersKeys(target))
   for (let index = 0; index < keys.length; index += 1)
@@ -117,6 +118,7 @@ export function replaceNativeParameters(
     const entry = entries[index] as readonly [string, string]
     parametersAppend(target, entry[0], entry[1])
   }
+  return true
 }
 
 /** Private construction metadata, distinct from every caller-supplied native memo value. */

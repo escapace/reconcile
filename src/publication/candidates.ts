@@ -25,7 +25,7 @@ export function candidates(
   root: object,
   alignment?: Pick<
     CapturedGraph,
-    'currents' | 'occupants' | 'protectedStorage' | 'prototypes' | 'sources'
+    'currents' | 'kinds' | 'occupants' | 'protectedStorage' | 'prototypes' | 'sources'
   >,
   storage: (value: object, prototype?: object | null) => object = storageIdentity,
   note?: PublicationNote,
@@ -61,7 +61,10 @@ export function candidates(
     if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
     if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true)
       return undefined
-    const required = preflightOf(policy, node, candidate, note, prototype)
+    // The occupants capture read of the object it aligned serve that object's fixed slots.
+    const reads =
+      candidate === alignment?.currents?.[index] ? alignment.occupants?.[index] : undefined
+    const required = preflightOf(policy, node, candidate, note, prototype, reads)
     if (required === undefined) return undefined
     // The first passing candidate's facts serve the publication that retains it.
     if (note?.facts !== undefined) preflight![index] ??= note.facts
@@ -132,22 +135,25 @@ function preflightOf(
   candidate: object,
   note: PublicationNote | undefined,
   prototype: object | null | undefined,
+  reads: readonly unknown[] | undefined,
 ): ReturnType<PublicationRegistry['policies'][symbol]['requirements']> {
   if (note !== undefined) {
     note.facts = undefined
     note.prototype = prototype
+    note.reads = reads
   }
   return policy.requirements(node, candidate, note)
 }
 
-// Recorded occupants follow the node edges in order; atom edges have no entry.
+// Recorded occupants follow the node edges by position; capture read one for every node edge.
 function replayOccupants(
   node: CapturedNode,
   slots: readonly unknown[],
   visit: (current: unknown, edge: Edge) => void,
 ): void {
-  let slot = 0
-  for (const child of node.edges) if (isNode(child)) visit(slots[slot++], child)
+  const edges = node.edges
+  for (let index = 0; index < edges.length; index += 1)
+    if (isNode(edges[index])) visit(slots[index], edges[index])
 }
 
 // A node visited without an aligned object of its kind; it holds no candidate.
@@ -170,12 +176,12 @@ function collect(
   old: unknown,
   records: readonly CapturedNode[],
   wrapper: (value: object, prototype?: object | null) => boolean,
-  alignment?: Pick<CapturedGraph, 'currents' | 'occupants' | 'prototypes'>,
+  alignment?: Pick<CapturedGraph, 'currents' | 'kinds' | 'occupants' | 'prototypes'>,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
-  // capture's recognition.
-  let kinds: Map<object, symbol> | undefined
+  // capture's recognition, which also recorded each aligned object of another kind.
+  let kinds = alignment?.kinds
   const kindOf = (object: object): symbol => {
     let kind = (kinds ??= new Map<object, symbol>()).get(object)
     if (kind === undefined) kinds.set(object, (kind = recognize(types, object)))

@@ -65,11 +65,19 @@ theorem refused (kind : Kind) (key : Key) :
 
 /-! ## Own accessors of an unchanged object
 
-After the recipe, `produce` calls each own getter in the result once. An object is kept, with its
-accessors, when the recipe changed none of its data, every child it reaches is kept, and every
-getter returned exactly the value the result holds there: the child itself or a primitive. A
+After the recipe, `produce` calls each own getter in the result once. An object or array is kept,
+with its accessors, when the recipe changed none of its data, every child it reaches is kept, and
+every getter returned exactly the value the result holds there: the child itself or a primitive. A
 getter that returned a draft handle, or a value that changed, makes the object new, with data
 properties that hold the returned values. -/
+
+/-- The kinds whose drafts carry own properties, so own getters: objects, and arrays, whose index
+getters are elements. `keeps` decides both by the same rule, so the oracle states each row for
+both kinds. -/
+def holdsGetters : Kind → Bool
+  | .object => true
+  | .array => true
+  | _ => false
 
 /-- What one own getter returned: a primitive, a child the result keeps, a child that changed,
 or a draft handle, which the result replaces by its value. -/

@@ -68,23 +68,33 @@ const REJECT: Readback = /* @__PURE__ */ Object.freeze({ kind: 'reject' })
 
 // After a call's own writes, retained replaceable targets rerun the preflight; the first one
 // that no longer passes, or -1. A fresh choice is labelled by its node index; a retained one by
-// its object.
+// its object. A fixed slot's value comes from what the previous readback saw of a node it
+// matched (`seen`), or is read once and kept in `note.held` for the publication that follows.
 function stale(
   state: Execution,
   records: CapturedGraph['nodes'],
   types: PublicationRegistry,
+  note: PublicationNote,
+  seen: (index: number, binding: Binding) => unknown[] | undefined,
 ): number {
-  for (let index = 0; index < records.length; index += 1)
+  let rejected = -1
+  for (let index = 0; index < records.length && rejected === -1; index += 1) {
+    const binding = state.bindings[index]
+    if (typeof binding.choice === 'number' || records[index].pinned !== undefined) continue
+    note.prototype = undefined
+    note.reads = seen(index, binding)
     if (
-      typeof state.bindings[index].choice !== 'number' &&
-      records[index].pinned === undefined &&
       types.policies[records[index].layout.kind].requirements(
         records[index],
-        state.bindings[index].writer as object,
+        binding.writer as object,
+        note,
       ) === undefined
     )
-      return index
-  return -1
+      rejected = index
+  }
+  note.facts = undefined
+  note.reads = undefined
+  return rejected
 }
 
 // Publishes every node that is not pinned; the first one refused, or -1. New objects are filled
@@ -134,6 +144,8 @@ export function publishGraph(
 ): boolean {
   const records = graph.nodes
   const size = records.length
+  const currents = graph.currents
+  const occupants = graph.occupants
   const policies = types.policies
   // Construction dependencies are sealed facts, listed on the first preparation.
   let dependencies: Array<readonly number[]> | undefined
@@ -167,7 +179,9 @@ export function publishGraph(
   const note: PublicationNote = {
     facts: undefined,
     fresh: false,
+    held: undefined,
     prototype: undefined,
+    reads: undefined,
     unchanged: false,
     wrapped: false,
   }
@@ -292,6 +306,25 @@ export function publishGraph(
   // facts along. `unchanged` ends false when any node of a publication wrote.
   let first = false
   let unchanged = false
+  // The attempt the last readback read and how many of its nodes, from the first, matched: the
+  // readback reads them in order and stops at the first mismatch. Each held what that revision
+  // wanted, which a retried publication decides from instead of reading again
+  // (WriteFreeReadback.publishSeen); a retry's readback always reads.
+  let checked: Execution | undefined
+  let matching = 0
+  // What the last readback saw at each key of a node it matched, when the node is published
+  // through the object that readback read.
+  const seen = (index: number, binding: Binding): unknown[] | undefined => {
+    const before = checked === undefined || index >= matching ? undefined : checked.bindings[index]
+    if (before?.choice !== binding.choice || before.exposed !== binding.writer) return undefined
+    const edges = records[index].edges
+    const reads = denseArray<unknown>(edges.length)
+    for (let edge = 0; edge < edges.length; edge += 1) {
+      const wanted = edges[edge]
+      reads[edge] = isNode(wanted) ? checked!.bindings[wanted.node].exposed : atomValue(wanted)
+    }
+    return reads
+  }
   const publishNode = (index: number): boolean => {
     const binding = active!.bindings[index]
     // Facts serve only the object they were read from, exposed as itself; a wrapper's
@@ -302,6 +335,12 @@ export function publishGraph(
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
     note.wrapped = binding.writer !== rawOf(binding)
+    // The occupants capture read serve the first publication of the object it read them from.
+    note.reads = first
+      ? binding.choice === currents?.[index]
+        ? occupants?.[index]
+        : undefined
+      : seen(index, binding)
     unwrapsReactive = note.fresh && binding.mode === REACTIVE_MODE
     const node = records[index]
     const accepted = policies[node.layout.kind].publish(
@@ -352,7 +391,9 @@ export function publishGraph(
   const publish = (state: Execution): ReturnType<Adapter['publish']> => {
     active = state
     nativeOwners = undefined
-    const rejected = written ? stale(state, records, types) : -1
+    // Each later publication decides from reads made after the previous one's writes.
+    if (written) note.held = undefined
+    const rejected = written ? stale(state, records, types, note, seen) : -1
     if (rejected !== -1) return { rejected }
     // Only the first publication reads the preflight's facts and may confirm itself: its
     // targets are the ones the preflight read, and each is exposed as it is written.
@@ -364,6 +405,10 @@ export function publishGraph(
     note.facts = undefined
     note.fresh = false
     note.wrapped = false
+    note.reads = undefined
+    // A refused publication wrote without a readback after it; the next one reads afresh.
+    checked = refused === -1 ? state : undefined
+    matching = 0
     if (refused !== -1) return { rejected: refused }
     confirmed = unchanged
     return true
@@ -372,7 +417,10 @@ export function publishGraph(
     const node = records[index]
     // Bind and rebind store the memoized storage of the exposed object, so it always equals
     // the binding's storage here, and no storage check is needed.
-    if (node.pinned !== undefined || confirmed) return MATCH
+    if (node.pinned !== undefined || confirmed) {
+      matching = index + 1
+      return MATCH
+    }
     const target = exposed(state, index)
     active = state
     outcome = REJECT
@@ -386,7 +434,9 @@ export function publishGraph(
         // A target exposed through a wrapper, such as Vue's, is read through the wrapper.
         target !== rawOf(state.bindings[index]),
       )
-    return matches ? MATCH : outcome
+    if (!matches) return outcome
+    matching = index + 1
+    return MATCH
   }
   // The driver's adapter, built only when the driver takes over from the head attempt.
   const adapter = (): Adapter & { retention: (state: Execution) => number } => ({

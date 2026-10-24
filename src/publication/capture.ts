@@ -1,6 +1,6 @@
 import { atomValue, isNode } from '../graph/edge'
 import { hasOwn, isObject, prototypeOf } from '../object-property'
-import { ATOM_KIND } from '../constants'
+import { ATOM_KIND, UNREAD } from '../constants'
 import { atomPrototype } from '../object-property'
 import { OBJECT_KIND } from '../types/object'
 import { recognize, recognizeStructure } from '../adapters/recognition'
@@ -48,6 +48,9 @@ class AlignedCapture extends Detached {
   declare private closure: Set<object> | undefined
   declare currents: Array<object | undefined>
   declare private readonly edgeCallback: CaptureEdge
+  // The kind recognized for each aligned object found to be of another kind than its node's;
+  // created on the first, so discovery does not recognize it again.
+  declare kinds: Map<object, symbol> | undefined
   declare nodes: Array<BuildingNode | CapturedNode>
   declare occupants: Array<unknown[] | undefined>
   // The prototype capture read of each node's aligned current object; undefined when unread.
@@ -79,6 +82,7 @@ class AlignedCapture extends Detached {
     this.classified = undefined
     this.closure = undefined
     this.currents = []
+    this.kinds = undefined
     this.nodes = []
     this.occupants = []
     this.prototypes = []
@@ -172,9 +176,12 @@ class AlignedCapture extends Detached {
     const aligned = this.currents[index]
     if (aligned === undefined) return
     const read = this.share(this.prototypes[index])
-    if (recognize(this.types, aligned, read) === layout.kind)
-      this.prototypes[index] = read.known ? read.prototype : undefined
-    else this.currents[index] = undefined
+    const kind = recognize(this.types, aligned, read)
+    if (kind === layout.kind) this.prototypes[index] = read.known ? read.prototype : undefined
+    else {
+      this.currents[index] = undefined
+      ;(this.kinds ??= new Map()).set(aligned, kind)
+    }
   }
 
   // Resets the shared prototype read for a new object, holding `prototype` when already known.
@@ -234,7 +241,7 @@ class AlignedCapture extends Detached {
     const references = this.references
     const known = references.get(child)
     const occupant: unknown = hasOwn(aligned, key) ? Reflect.get(aligned, key) : undefined
-    // An atom has no occupant entry.
+    this.recordOccupant(parent, occupant)
     const childKind = known === undefined ? this.classify(child, kind) : kind
     if (childKind === ATOM_KIND) return atom(references, child)
     const prototype = known === undefined ? this.classified : undefined
@@ -247,11 +254,18 @@ class AlignedCapture extends Detached {
       references.set(child, edge)
       return edge
     }
-    // One entry per own-property node edge, in edge order; atoms are not recorded.
-    if (known === undefined || isNode(known)) (this.occupants[parent] ??= []).push(occupant)
     if (known !== undefined) return known
     this.pending = isObject(occupant) ? occupant : undefined
     return this.observe(child, childKind!, prototype)
+  }
+
+  // Records the occupant read for the parent's next edge, at that edge's position; an earlier edge
+  // whose occupant was not read holds `UNREAD`.
+  private recordOccupant(parent: number, occupant: unknown): void {
+    const slots = (this.occupants[parent] ??= [])
+    const position = (this.nodes[parent] as BuildingNode).edges.length
+    while (slots.length < position) slots.push(UNREAD)
+    slots.push(occupant)
   }
 
   // A keepable kind needs no construction input and has independent bindings. Its subtree is
@@ -332,6 +346,7 @@ export function capture(
   const root = run.visit(value)
   return {
     currents: run.currents,
+    kinds: run.kinds,
     nodes: run.nodes as CapturedNode[],
     occupants: run.occupants,
     protectedStorage: run.protectedStorage,

@@ -206,11 +206,14 @@ export function collectionSurface(operations: {
         sameKey(present[position * width], resolve(edges[position * width]))
       )
         position += 1
+      let unchanged = position === count && position === wanted
       if (width === 2)
         for (let index = 0; index < position; index += 1) {
           const value = resolve(edges[index * 2 + 1])
-          if (!Object.is(present[index * 2 + 1], value))
+          if (!Object.is(present[index * 2 + 1], value)) {
             access.put(current, present[index * 2], value)
+            unchanged = false
+          }
         }
       for (let index = position; index < count; index += 1)
         access.remove(current, present[index * width])
@@ -220,6 +223,9 @@ export function collectionSurface(operations: {
           resolve(edges[index * width]),
           width === 2 ? resolve(edges[index * width + 1]) : undefined,
         )
+      // Every entry in place with its value: readback would accept
+      // (WriteFreeReadback.collection_writeFree_matches).
+      if (note !== undefined) note.unchanged = unchanged
       return true
     },
   }

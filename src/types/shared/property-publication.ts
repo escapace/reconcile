@@ -1,7 +1,14 @@
 import { atomValue, isNode } from '../../graph/edge'
 import { arrayIndex, hasOwn, isObject, propertyDescriptor } from '../../object-property'
 import type { BoundEdge, CapturedNode, Edge, NodeEdge, PublicationNote } from '../../types'
-import { defineData, denseArray, Detached, isDataDescriptor } from '../../standard-prototypes'
+import {
+  defineData,
+  denseArray,
+  Detached,
+  indexIn,
+  isDataDescriptor,
+} from '../../standard-prototypes'
+import { UNREAD } from '../../constants'
 
 // Property lookup is a derived index over the sealed graph, never a second graph.
 export function propertySlots(node: Pick<CapturedNode, 'edges' | 'keys'>): Map<PropertyKey, Edge> {
@@ -111,7 +118,8 @@ export interface PropertySurface<L extends { readonly kind: symbol }> {
  * This is the preflight: candidate discovery runs it once per candidate, and the engine reruns it
  * only after the call's own writes. It rules out representation failures but cannot predict
  * setter or proxy behavior, so publication and readback still verify the result. Each candidate
- * key is listed once and its descriptor read once; each fixed slot is read once.
+ * key is listed once and its descriptor read once; a fixed slot's value is taken from what the
+ * call already read (`context`), or read once and kept for the publication that follows.
  * @internal
  */
 export function canPublishProperties<L extends { readonly kind: symbol }>(
@@ -120,6 +128,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   surface: PropertySurface<L>,
   pin: BoundEdge[],
   note?: PublicationNote,
+  context: PublicationNote | undefined = note,
 ): boolean {
   // The slot index is private; a surface that lists desired keys builds it only on demand.
   let index: ReadonlyMap<PropertyKey, Edge> | undefined
@@ -132,6 +141,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     note === undefined ? undefined : denseArray<PropertyDescriptor | undefined>(previous.length)
   if (!surface.compatible(node, current, properties)) return false
   const cursor = fixedSlotsHold(
+    node,
     current,
     previous,
     desiredKeys,
@@ -139,6 +149,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     properties,
     pin,
     descriptors,
+    context,
   )
   if (
     cursor === false ||
@@ -172,6 +183,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
  * only as far as a fixed slot asks, while native descriptors and reads keep their boundaries.
  */
 function fixedSlotsHold(
+  node: CapturedNode,
   current: object,
   previous: readonly PropertyKey[],
   desiredKeys: readonly PropertyKey[],
@@ -179,6 +191,7 @@ function fixedSlotsHold(
   properties: () => ReadonlyMap<PropertyKey, Edge>,
   pin: BoundEdge[],
   descriptors: Array<PropertyDescriptor | undefined> | undefined,
+  context: PublicationNote | undefined,
 ): false | PropertyOrder | null | undefined {
   // Undecided until the first fixed slot asks; null once the keys already begin in order.
   let order: PropertyOrder | null | undefined
@@ -190,7 +203,7 @@ function fixedSlotsHold(
     if (descriptor.configurable !== false && isDataDescriptor(descriptor)) continue
     if (order === undefined && ordered) order = orderFor(previous, desiredKeys, properties) ?? null
     const retained = order?.through(previous, key)
-    const held = fixedSlot(current, key, descriptor, retained, properties())
+    const held = fixedSlot(node, current, key, descriptor, retained, properties(), context)
     if (held === true) continue
     if (
       held === false ||
@@ -249,20 +262,63 @@ function ownsDesired(
  * must already hold the expected value.
  */
 function fixedSlot(
+  node: CapturedNode,
   current: object,
   key: PropertyKey,
   descriptor: PropertyDescriptor,
   retained: boolean | undefined,
   properties: ReadonlyMap<PropertyKey, Edge>,
+  context: PublicationNote | undefined,
 ): boolean | object {
   if (!properties.has(key)) return descriptor.configurable !== false
   if (retained === false) return false
   const expected = properties.get(key)!
   if (isDataDescriptor(descriptor) ? descriptor.writable !== false : descriptor.set !== undefined)
     return true
-  const actual = Reflect.get(current, key) as unknown
+  const actual = heldValue(node, current, key, context)
   if (isNode(expected) && isObject(actual)) return actual
   return !isNode(expected) && Object.is(atomValue(expected), actual)
+}
+
+/**
+ * The value of a fixed slot: what the call already read at its edge (`context.reads`), what an
+ * earlier preflight of this publication read, or one read now, kept in `context.held` so that
+ * publication decides from it (Property.WriteFreeReadback.publishPre, publishSeen).
+ */
+function heldValue(
+  node: CapturedNode,
+  current: object,
+  key: PropertyKey,
+  context: PublicationNote | undefined,
+): unknown {
+  const reads = context?.reads
+  const edge = reads === undefined ? -1 : indexIn(node.keys, key)
+  if (edge !== -1 && edge < reads!.length && reads![edge] !== UNREAD) return reads![edge]
+  let held = context?.held?.get(current)
+  if (held?.has(key) === true) return held.get(key)
+  const value = Reflect.get(current, key) as unknown
+  if (context !== undefined) {
+    if (held === undefined) (context.held ??= new Map()).set(current, (held = new Map()))
+    held.set(key, value)
+  }
+  return value
+}
+
+/**
+ * What the call already read at edge `index`, which holds `key`, of the object being published:
+ * capture's or a previous readback's read, else what a preflight of this publication read at that
+ * fixed slot (`held`), else `UNREAD`. A key publication deleted first (`removed`) holds no read.
+ */
+export function priorRead(
+  reads: readonly unknown[] | undefined,
+  index: number,
+  held: ReadonlyMap<PropertyKey, unknown> | undefined,
+  key: PropertyKey,
+  removed?: readonly PropertyKey[],
+): unknown {
+  if (removed?.includes(key) === true) return UNREAD
+  const read = reads !== undefined && index < reads.length ? reads[index] : UNREAD
+  return read === UNREAD && held?.has(key) === true ? held.get(key) : read
 }
 
 // The order cursor for `previous`, or undefined when it already begins with the desired order.
@@ -362,6 +418,11 @@ export function publishProperty(target: object, key: PropertyKey, value: unknown
   // An unchanged own value needs no descriptor: presence and one read decide it.
   const present = hasOwn(target, key)
   if (present && Object.is(Reflect.get(target, key), value)) return UNCHANGED
+  return writeProperty(target, key, value, present)
+}
+
+// The write of `publishProperty`, once a read has shown that the key needs one.
+function writeProperty(target: object, key: PropertyKey, value: unknown, present: boolean): number {
   const descriptor = present ? Object.getOwnPropertyDescriptor(target, key) : undefined
   // A missing key whose assignment would reach an accessor is defined, so no setter runs; for an
   // object `reconcile` keeps, the preflight has already rejected that case.
@@ -399,6 +460,32 @@ export function publishKnown(
     : wrote(assignData(target, key, value, descriptor))
 }
 
+/**
+ * `publishKnown` with a value the call already read of this key (`read`): the one aligned capture
+ * or a preflight read before the first write, or the one a retried plan's previous readback saw.
+ * It decides whether the key needs a write, without reading it again, and the descriptor, or else
+ * the live slot, gives the presence and attributes the write uses
+ * (Property.WriteFreeReadback.publishPre, publishSeen); with stable reads that is
+ * `publishProperty`'s decision (publishPre_eq, publishSeen_eq). After an earlier write the read can
+ * be stale, which the readback that follows any write catches (accepts_readsAs,
+ * acceptsRetry_readsAs).
+ */
+export function publishRead(
+  target: object,
+  key: PropertyKey,
+  value: unknown,
+  descriptor: PropertyDescriptor | undefined,
+  read: unknown,
+): number {
+  if (Object.is(read, value)) return UNCHANGED
+  if (descriptor === undefined) return writeProperty(target, key, value, hasOwn(target, key))
+  return wrote(
+    isDataDescriptor(descriptor)
+      ? assignData(target, key, value, descriptor)
+      : Reflect.set(target, key, value),
+  )
+}
+
 // Assignment lets a reactive proxy observe the write; a definition follows when assignment left
 // no own property, or when it refused a key the object holds read-only. Any other refusal, such as
 // a proxy's `set` trap rejecting the value, stands (PropertyWrite.assignStrict_eq).
@@ -433,7 +520,10 @@ export function propertyRequirements<L extends { readonly kind: symbol }>(
   candidate: object,
   surface: PropertySurface<L>,
   note?: PublicationNote,
+  context: PublicationNote | undefined = note,
 ): readonly BoundEdge[] | undefined {
   const required: BoundEdge[] = []
-  return canPublishProperties(node, candidate, surface, required, note) ? required : undefined
+  return canPublishProperties(node, candidate, surface, required, note, context)
+    ? required
+    : undefined
 }

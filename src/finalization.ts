@@ -1,6 +1,5 @@
 import { isObject } from './object-property'
-import { ATOM_KIND } from './constants'
-import { OBSERVED_ACCESSOR } from './types/object'
+import { ATOM_KIND, OBSERVED_ACCESSOR } from './constants'
 import { recognize } from './adapters/recognition'
 import type { DraftSession } from './draft-session'
 import { finalizationAccessorUnstable } from './error'
@@ -682,23 +681,19 @@ class DraftObservation extends Detached implements PendingActivation {
     const currentBacked = backed === true
     if (key !== undefined) (record.keys ??= []).push(key)
     if (this.slots !== undefined) this.slots.push({ currentBacked, value })
-    if (!isObject(value)) {
-      // A primitive slot resolves to itself in every phase.
-      record.children.push(value)
-      if (attributes === undefined) return
-      ;(record.attributes ??= []).push(attributes)
-      if ((attributes & OBSERVED_ACCESSOR) !== 0)
-        (record.observed ??= [])[record.children.length - 1] = value
-      return
+    // A primitive slot resolves to itself in every phase.
+    if (!isObject(value)) record.children.push(value)
+    else {
+      const resolve = this.active || this.resolvesInactive(value)
+      record.children.push(
+        resolve
+          ? finalization.materializeContainerSlot(value, currentBacked)
+          : { discoveredBy: undefined, layout: undefined, leaf: undefined, target: value },
+      )
     }
-    const resolve = this.active || this.resolvesInactive(value)
-    record.children.push(
-      resolve
-        ? finalization.materializeContainerSlot(value, currentBacked)
-        : { discoveredBy: undefined, layout: undefined, leaf: undefined, target: value },
-    )
+    // Attributes are indexed by slot: an object marks every slot, an array only its getters.
     if (attributes === undefined) return
-    ;(record.attributes ??= []).push(attributes)
+    ;(record.attributes ??= [])[record.children.length - 1] = attributes
     // The raw value lets reuse keep the accessor only if it returned the resolved child itself.
     if ((attributes & OBSERVED_ACCESSOR) !== 0)
       (record.observed ??= [])[record.children.length - 1] = value
