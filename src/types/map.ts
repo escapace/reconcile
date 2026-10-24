@@ -12,7 +12,7 @@ import type {
   SnapshotPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import { resolveWrappedCollectionMember, storageIdentity, type WrappedIndex } from '../adapters/vue'
+import { resolveWrappedCollectionMember, type WrappedIndex } from '../adapters/vue'
 import type { BaseDraftState, Edge, ExposureFacet, NativePolicy } from '../types'
 import { defineType } from './registry'
 import { collectionSurface, normalize } from './shared/collection'
@@ -29,7 +29,7 @@ import {
   wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { draftedForm } from './shared/draft-members'
+import { draftedForm, rawForm } from './shared/draft-members'
 import {
   builtinMapClear,
   builtinMapDelete,
@@ -285,9 +285,10 @@ function resolveMapKey(
     if (form !== undefined) return form
     key = drafted.base
   }
-  // A Vue proxy of a key the Map holds is that key, as Vue's methods count it.
-  const storage = storageIdentity(key as object)
-  if (storage !== key && readHas(source, wrapped, storage)) return storage
+  // A Vue proxy of a key the Map holds is that key, as Vue's methods count it, and so is a Vue proxy
+  // of an object whose draft the Map holds as a key.
+  const raw = rawForm(context, key as object, drafted, source, wrapped, readHas)
+  if (raw !== undefined) return raw
   // A copy that a read of a `Date`, buffer, view or URL made counts as its original, as a draft does.
   const copied = context.copyBase(key as object) ?? context.copyOf(key as object)
   if (copied !== undefined && readHas(source, wrapped, copied)) return copied
@@ -416,7 +417,7 @@ const DraftMap = /* @__PURE__ */ (() => {
       const present = builtinMapHas(copy, copyKey)
       const insertedKey = present
         ? copyKey
-        : insertedCollectionValue(state, copyKey, mapExposure, true)
+        : insertedCollectionValue(state, copyKey, mapExposure, true, builtinMapHas)
       builtinMapSet(copy, insertedKey, insertedValue)
       if (!present) state.members.revision += 1
       state.modified = true

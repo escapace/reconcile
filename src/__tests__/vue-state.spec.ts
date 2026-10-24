@@ -1,5 +1,16 @@
 import { assert, describe, it, vi } from 'vitest'
-import { isReactive, isRef, markRaw, reactive, readonly, ref, shallowRef, toRaw, watch } from 'vue'
+import {
+  isReactive,
+  isRef,
+  markRaw,
+  reactive,
+  readonly,
+  ref,
+  shallowReactive,
+  shallowRef,
+  toRaw,
+  watch,
+} from 'vue'
 
 import { deserialize, isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
 import { encodeText } from './fixtures/text-codec'
@@ -537,5 +548,112 @@ describe('reconcile and snapshot with a Vue proxy kept or remembered', () => {
       ]),
     ) as { m: Map<object, number> }
     assert.equal(copy.m.size, 2)
+  })
+})
+
+describe('reconcile with a root or a kept object seen through another view', () => {
+  // `next` holds the root of `current` below `child`, at a position other than its own, so the
+  // result holds there a new object with next's contents there, as for plain state.
+  it('does not keep in place an object that leads to a root through a view of it', () => {
+    for (const view of [reactive, shallowReactive]) {
+      const raw: { v: number; child?: { parent: { v: number } } } = { v: 1 }
+      raw.child = markRaw({ parent: raw })
+      reconcile(view(raw), { child: raw.child, v: 2 })
+      assert.equal(raw.v, 2)
+      assert.notEqual(raw.child.parent, raw)
+      assert.equal(raw.child.parent.v, 1)
+    }
+  })
+
+  it('keeps next out of current when next is a proxy', () => {
+    const shared: { ref?: object } = {}
+    const current = { child: shared, v: 1 }
+    const raw = { child: shared, v: 2 }
+    shared.ref = raw
+    reconcile(current, shallowReactive(raw))
+    assert.equal(current.child.ref, current)
+  })
+
+  it('keeps each view in place where next holds the view current holds', () => {
+    const raw = { a: 1 }
+    const proxy = reactive(raw)
+    const second = readonly(raw)
+    const object = { n: 0, x: raw, y: proxy }
+    reconcile(object, { n: 1, x: raw, y: proxy })
+    assert.isTrue(object.x === raw && object.y === proxy)
+    const reversed = { n: 0, x: proxy, y: raw }
+    reconcile(reversed, { n: 1, x: proxy, y: raw })
+    assert.isTrue(reversed.x === proxy && reversed.y === raw)
+    const list = [raw, proxy, second]
+    reconcile(list, [raw, proxy, second])
+    assert.isTrue(list[0] === raw && list[1] === proxy && list[2] === second)
+    const state = shallowReactive({ n: 0, x: raw, y: proxy })
+    const seen = vi.fn()
+    watch(() => state.y, seen, { flush: 'sync' })
+    reconcile(
+      state,
+      produce(state, (draft) => {
+        draft.n += 1
+        return draft
+      }),
+    )
+    assert.equal(toRaw(state).y, proxy)
+    assert.equal(seen.mock.calls.length, 0)
+  })
+})
+
+describe('a Set or Map draft that holds the draft of an object', () => {
+  it('finds it through a Vue proxy of the object', () => {
+    const x = { id: 1 }
+    const proxy = reactive(x)
+    const result = produce({ s: new Set<object>(), x }, (draft) => {
+      draft.s.add(draft.x)
+      assert.isTrue(draft.s.has(proxy))
+      draft.s.add(proxy)
+      assert.equal(draft.s.size, 1)
+      return draft
+    })
+    assert.equal(result.s.size, 1)
+    const holder: { m?: Map<object, string> } = {}
+    const keyed = produce({ h: holder, x }, (draft) => {
+      draft.h.m = new Map([[draft.x, 'v']])
+      assert.equal(draft.h.m.get(proxy), 'v')
+      draft.h.m.set(proxy, 'w')
+      return draft
+    })
+    assert.deepEqual([...keyed.h.m!], [[x, 'w']])
+  })
+})
+
+describe('writing back another view of one object', () => {
+  it('changes nothing, whichever view was read first', () => {
+    const c = { id: 1 }
+    const current = { o: { p: reactive(c) }, z: c }
+    const undone = produce(current, (draft) => {
+      void draft.z
+      const value = draft.o.p
+      ;(draft.o as { p: unknown }).p = 0
+      draft.o.p = value
+      return draft
+    })
+    assert.equal(undone, current)
+    const swapped = { x: reactive(c), y: c }
+    assert.equal(
+      produce(swapped, (draft) => {
+        draft.x = draft.y
+        return draft
+      }),
+      swapped,
+    )
+    const o = { id: 2 }
+    const held = { d: shallowReactive(o), m: readonly(new Map([['k', o]])) }
+    assert.equal(
+      produce(held, (draft) => {
+        void draft.d
+        ;(draft.m as Map<string, object>).set('k', draft.m.get('k')!)
+        return draft
+      }),
+      held,
+    )
   })
 })

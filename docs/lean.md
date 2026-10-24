@@ -469,11 +469,19 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 - **Full capture.** The pinned closure must sit in the current heap at its occupants, be closed and
   separate from captured nodes, have observed buffer extents and receive no write. The runtime walks
-  a subtree before pinning it, refuses to pin when the walk meets either root, excludes walked
-  objects from other domains, and pins to itself any captured node the walk met. Only plain-object
-  and array slots pin, and captured views never pin their buffers.
+  a subtree before pinning it, refuses to pin when the walk meets either root, compared by storage
+  so that a Vue proxy of a root or the raw object of a proxy root counts as that root, excludes
+  walked objects from other domains, and pins to itself any captured node the walk met. Each pinned
+  slot's edge holds that slot's occupant, so a slot keeps the Vue view it held although another
+  view of the same raw object was pinned first (`pinnedImage`). Only plain-object and array slots
+  pin, and captured views never pin their buffers.
+- **Buffer shape.** An `arrayBuffer` node holds bytes only, and `compatibleShape` compares their
+  count. The runtime also keeps a buffer only when it has next's resizability and maximum length,
+  which a copy would carry, so a kept buffer differs from next in no property a copy has.
 - **Property order.** `DeferredOrder` applies only while key storage is private, stable and
-  non-escaping, and desired keys are buffered eagerly.
+  non-escaping, and desired keys are buffered eagerly. A key moved into the requested order is
+  deleted, assigned again so that a reactive proxy observes it, and given back its own attributes,
+  as `PropertyWrite` keeps them for a key written in place.
 - **Property writes.** `PropertyWrite` covers one key of an ordinary object, or of a proxy whose
   traps forward to one, such as a Vue reactive proxy. The prototype walk in `canPublishProperties`
   must find the descriptor assignment would reach. It reads a descriptor of `Object.prototype` or
@@ -500,8 +508,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   a wrapper whose descriptors hold its raw contents, takes its key list and each aligned key's
   presence and attributes from the preflight's descriptors (`publishKnown_eq`).
 - **Reads before the first write.** Capture records the value it read at each key of an aligned
-  object, and each index of an aligned array, whose value in `next` is an object (`occupants`). The
-  preflight takes a fixed slot's value from those reads or reads it once (`held`). The first
+  object, and each index of an aligned array, whose value in `next` is an object (`occupants`), and
+  candidate discovery records the same for each other object aligned with a node
+  (`candidateReads`). The preflight of each candidate takes a fixed slot's value from those reads
+  or reads it once (`held`). Reads follow the captured node's edges; a kept object's node, which
+  drops `next`'s `markRaw` marker, drops that edge's read too. The first
   publication of the object decides from either value whether the key needs a write, without
   reading it again: `publishPre_eq` when the current keys begin in the requested order, so the
   preflight's descriptor gives the attributes, and otherwise, as for an array, `publishSeen_eq`,

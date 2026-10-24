@@ -19,7 +19,7 @@ import type {
   PublicationNote,
   Readback,
 } from '../types'
-import { candidates } from './candidates'
+import { alignedReads, candidates } from './candidates'
 import { constructionOrder } from '../graph/construction'
 import { constructionDependencies } from '../graph/construction-facts'
 import { continueExecution, execute, scoreOf, type HeadOutcome } from '../graph/driver'
@@ -138,8 +138,6 @@ export function publishGraph(
 ): boolean {
   const records = graph.nodes
   const size = records.length
-  const currents = graph.currents
-  const occupants = graph.occupants
   // A copy keeps the `markRaw` marker of the value it copies.
   const marks = graph.marks
   const mark = (index: number, target: object): void => {
@@ -335,12 +333,8 @@ export function publishGraph(
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
     note.wrapped = binding.writer !== rawOf(binding)
-    // The occupants capture read serve the first publication of the object it read them from.
-    note.reads = first
-      ? binding.choice === currents?.[index]
-        ? occupants?.[index]
-        : undefined
-      : seen(index, binding)
+    // What capture or discovery read at the object's slots serves its first publication.
+    note.reads = first ? alignedReads(graph, index, binding.choice) : seen(index, binding)
     unwrapsReactive = note.fresh && binding.mode === REACTIVE_MODE
     const node = records[index]
     const accepted = policies[node.layout.kind].publish(

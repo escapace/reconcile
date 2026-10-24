@@ -43,20 +43,27 @@ class DraftStateHolder {
 export const draftState = <S extends BaseDraftState>(draft: object): S =>
   DraftStateHolder.of<S>(draft)
 
-// Supply draft identity information; the storage boundary owns collection policy.
+// Supply draft identity information; the storage boundary owns collection policy. An object that
+// is neither a draft nor a Vue proxy, and that the collection's raw storage does not already hold
+// (`held`), is one the recipe adds: it is stored as itself, a read gives its draft, which a Vue
+// proxy of it shares, and the result holds it, with the drafts it holds finalized, as it holds any
+// object the recipe adds. An object the collection held is stored as Vue exposes it.
 export function insertedCollectionValue(
   state: BaseDraftState,
   value: unknown,
   exposure: Extract<ExposureFacet, { tag: 'collection' }>,
   unwrap: boolean,
+  held?: (raw: object, value: object) => boolean,
 ): unknown {
-  return normalizeCollectionInsertion(
-    state.base,
-    value,
-    isObject(value) ? state.context.statesByIdentity.get(value)?.base : undefined,
-    exposure,
-    unwrap,
+  if (!isObject(value)) return value
+  const resolved = state.context.statesByIdentity.get(value)?.base
+  if (
+    resolved === undefined &&
+    storageIdentity(value) === value &&
+    held?.(storageIdentity(state.base), value) !== true
   )
+    return value
+  return normalizeCollectionInsertion(state.base, value, resolved, exposure, unwrap)
 }
 
 /** The walks every `Map` and `Set` draft inherits. */

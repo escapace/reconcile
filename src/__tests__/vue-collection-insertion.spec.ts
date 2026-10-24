@@ -1,5 +1,13 @@
 import { assert, describe, it } from 'vitest'
-import { reactive, readonly, shallowReactive, shallowReadonly, watchSyncEffect } from 'vue'
+import {
+  isProxy,
+  reactive,
+  readonly,
+  shallowReactive,
+  shallowReadonly,
+  toRaw,
+  watchSyncEffect,
+} from 'vue'
 
 import { produce, reconcile, ReconcileError } from '../index'
 
@@ -259,10 +267,12 @@ it.each(['throw', 'empty', 'wrong', 'extra'] as const)(
         return Reflect.get(target, property, receiver) as unknown
       },
     })
+    // A Vue proxy is stored as the collection exposes it, which its own iterator reports; an
+    // object the recipe makes is stored as itself and asks no iterator.
     assert.throws(
       () =>
         produce({ map }, (draft) => {
-          draft.map.set(key, 2)
+          draft.map.set(reactive(key), 2)
           return draft
         }),
       mode === 'throw' ? Error : ReconcileError,
@@ -304,4 +314,48 @@ it('rejects a change to an object that an ordinary collection holds as itself an
     ReconcileError,
   )
   assert.equal(raw.n, 0)
+})
+
+describe('an object the recipe adds to a Vue reactive Map or Set', () => {
+  it('is held as itself, with the drafts it holds finalized', () => {
+    for (const wrap of [reactive, readonly]) {
+      const state = reactive({
+        list: [1],
+        map: wrap(new Map<string, object>()) as Map<string, object>,
+        set: new Set<object>(),
+      })
+      const original = toRaw(state).list
+      const result = produce(state, (draft) => {
+        draft.set.add({ o: original, w: draft.list })
+        draft.map.set('k', { w: draft.list })
+        draft.list.push(2)
+        return draft
+      })
+      const [member] = result.set as Set<{ o: number[]; w: number[] }>
+      assert.isFalse(isProxy(member))
+      assert.equal(member.w, result.list)
+      assert.equal(member.o, result.list)
+      const value = (result.map as Map<string, { w: number[] }>).get('k')!
+      assert.isFalse(isProxy(value))
+      assert.equal(value.w, result.list)
+    }
+  })
+
+  it('is held as itself when the recipe does not change it', () => {
+    const added = { x: 1 }
+    const state = reactive({
+      list: [] as object[],
+      map: new Map<object, object>(),
+      set: new Set<object>(),
+    })
+    const result = produce(state, (draft) => {
+      draft.set.add(added)
+      draft.map.set(added, added)
+      draft.list.push(added)
+      return draft
+    })
+    assert.equal([...result.set][0], added)
+    assert.deepEqual([...result.map][0], [added, added])
+    assert.equal(result.list[0], added)
+  })
 })

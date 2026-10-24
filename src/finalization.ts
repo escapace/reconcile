@@ -456,8 +456,10 @@ export class Finalization extends Detached {
       (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
       this.phase,
     )
-    // A copy keeps the `markRaw` marker of the value it copies.
+    // A copy keeps the `markRaw` marker of the value it copies and, like a copy a read made, is not
+    // extensible; a value that is its own copy, such as a `SharedArrayBuffer`, belongs to `current`.
     markLike(clone, value)
+    if (clone !== value) Reflect.preventExtensions(clone)
     return this.recordLeaf(clone, value)
   }
 

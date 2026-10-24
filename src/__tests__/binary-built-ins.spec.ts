@@ -151,5 +151,28 @@ describe('resizable buffers', () => {
     expect(result.view.buffer).toBe(result.buffer)
     expect((snapshot(new ArrayBuffer(1)) as ArrayBuffer).resizable).toBe(false)
   })
+
+  it('are kept by reconcile only for a buffer of the same resizability and maximum', () => {
+    for (const [held, wanted] of [
+      [new ArrayBuffer(2, { maxByteLength: 8 }), new ArrayBuffer(2)],
+      [new ArrayBuffer(2), new ArrayBuffer(2, { maxByteLength: 8 })],
+      [new ArrayBuffer(2, { maxByteLength: 8 }), new ArrayBuffer(2, { maxByteLength: 4 })],
+    ]) {
+      const current = { buffer: held }
+      reconcile(current, { buffer: wanted })
+      expect(current.buffer).not.toBe(held)
+      expect([current.buffer.resizable, current.buffer.maxByteLength]).toEqual([
+        wanted.resizable,
+        wanted.maxByteLength,
+      ])
+    }
+    const kept = new ArrayBuffer(2, { maxByteLength: 8 })
+    const current = { buffer: kept }
+    const wanted = new ArrayBuffer(2, { maxByteLength: 8 })
+    new Uint8Array(wanted)[0] = 3
+    reconcile(current, { buffer: wanted })
+    expect(current.buffer).toBe(kept)
+    expect(Array.from(new Uint8Array(kept))).toEqual([3, 0])
+  })
 })
 /* eslint-enable baseline-js/use-baseline */

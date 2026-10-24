@@ -2,8 +2,9 @@ import Produce.DraftMembers
 import Lean
 
 /-! Oracle for the `DraftMembers` family: what `includes`, `indexOf` and `lastIndexOf` return under
-`DraftMembers` for every searched value, on three array drafts: plain `[a, b, a, 7]`, plain
-`[reactive(a), b, a, 7]` whose Vue proxy is drafted before `a`, and Vue reactive `[a, b, a, 7]`. -/
+`DraftMembers` for every searched value, on four array drafts: plain `[a, b, a, 7]`; plain
+`[reactive(a), b, a, 7]` whose Vue proxy is drafted before the search, and the same array searched
+before any element is read; and Vue reactive `[a, b, a, 7]`. -/
 
 namespace Reconcile.DraftMembersOracle
 
@@ -22,26 +23,28 @@ private def storage : Nat → Nat
   | 5 | 7 => 1
   | n => n
 
+/-- A key when the values in `drafted` have drafts: the storage of a drafted value, and any other
+value itself. -/
+private def keyOf (drafted : List Nat) (v : Nat) : Nat :=
+  if v ∈ drafted then storage v else v
+
 private structure Scenario where
   name : String
   elements : List Nat
-  held : Nat → Nat
-  targets : Nat → List Nat
-
-/-- The base of each draft: `a`'s draft is made from `a`, or from `reactive(a)` when the proxy is
-drafted first, and `a` and the proxy then share it; every other value is itself. -/
-private def baseOf (proxyFirst : Bool) : Nat → Nat
-  | 0 | 6 => if proxyFirst then 3 else 0
-  | 7 => 1
-  | n => n
+  /-- The values drafted before the search, and after it has read every element. -/
+  before : List Nat
+  after : List Nat
+  vue : Bool
 
 private def scenarios : List Scenario :=
-  [{ name := "plain", elements := [0, 1, 0, 2], held := baseOf false,
-      targets := plainTargets (baseOf false) storage },
-    { name := "plain, proxy drafted first", elements := [3, 1, 0, 2], held := baseOf true,
-      targets := plainTargets (baseOf true) storage },
-    { name := "vue", elements := [0, 1, 0, 2], held := storage ∘ baseOf false,
-      targets := fun x => [storage (baseOf false x)] }]
+  [{ name := "plain", elements := [0, 1, 0, 2], before := [0, 1, 6, 7], after := [0, 1, 6, 7],
+      vue := false },
+    { name := "plain, proxy drafted first", elements := [3, 1, 0, 2], before := [0, 1, 3, 6, 7],
+      after := [0, 1, 3, 6, 7], vue := false },
+    { name := "plain, searched first", elements := [3, 1, 0, 2], before := [6, 7],
+      after := [0, 1, 3, 6, 7], vue := false },
+    { name := "vue", elements := [0, 1, 0, 2], before := [0, 1, 6, 7], after := [0, 1, 6, 7],
+      vue := true }]
 
 private structure Observation where
   scenario : String
@@ -61,9 +64,14 @@ def run : IO Unit := do
   IO.println (scenarios.length * queries.length)
   for scenario in scenarios do
     for (query, key) in queries do
-      let { name, elements, held, targets } := scenario
+      let before := keyOf scenario.before
+      let after := keyOf scenario.after
+      let held := if scenario.vue then storage ∘ after else after
+      let targets := if scenario.vue then fun x => [storage (before x)]
+        else plainTargets before storage
+      let elements := scenario.elements
       let row : Observation :=
-        { scenario := name, query, includes := includesBy held targets elements key,
+        { scenario := scenario.name, query, includes := includesBy held targets elements key,
           indexOf := position (indexOfBy held targets elements key),
           lastIndexOf := position (lastIndexOfBy held targets elements key) }
       IO.println (toJson row).compress

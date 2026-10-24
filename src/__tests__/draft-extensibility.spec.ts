@@ -97,3 +97,22 @@ describe('extensibility of changed objects in the result', () => {
     expect(Object.isExtensible(result.object)).toBe(true)
   })
 })
+
+describe('copies of dates, buffers and URLs', () => {
+  it('are not extensible when copied only because a linked value changed', () => {
+    const buffer = new ArrayBuffer(4)
+    const viewed = produce({ buffer, view: new Uint8Array(buffer, 0, 2) }, (draft) => {
+      new Uint8Array(draft.buffer)[0] = 9
+      return draft
+    })
+    expect(viewed.view[0]).toBe(9)
+    expect(Object.isExtensible(viewed.view)).toBe(false)
+    const url = new URL('https://x.test/?a=1')
+    const linked = produce({ parameters: url.searchParams, url }, (draft) => {
+      draft.parameters.append('b', '2')
+      return draft
+    })
+    expect(linked.url.search).toBe('?a=1&b=2')
+    expect(Object.isExtensible(linked.url)).toBe(false)
+  })
+})

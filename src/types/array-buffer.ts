@@ -12,7 +12,12 @@ import type {
 } from '../types'
 import { defineType } from './registry'
 import { bufferEquivalent } from './shared/bytes'
-import { bufferByteLength, copyBuffer, copyChangedBytes } from './shared/binary-native'
+import {
+  bufferByteLength,
+  bufferMaximum,
+  copyBuffer,
+  copyChangedBytes,
+} from './shared/binary-native'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 /** Stable global identity owned by the array-buffer module. */
@@ -45,8 +50,11 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     aligned: noValue,
     requirements: emptyEdges,
     seal: same,
+    // A kept buffer takes next's bytes in place, so it must already have next's length and, as a
+    // copy would, its resizability and maximum.
     compatible: (node, current) =>
-      bufferByteLength(current) === bufferByteLength(node.layout.bytes),
+      bufferByteLength(current) === bufferByteLength(node.layout.bytes) &&
+      bufferMaximum(current) === bufferMaximum(node.layout.bytes),
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
     // Equal bytes are not written, and readback, which compares the same bytes, would accept them;
     // `compatible` matched the lengths.

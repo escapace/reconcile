@@ -68,6 +68,14 @@ export const isShared = (buffer: object): boolean =>
 export const bufferByteLength = (buffer: object): number =>
   Reflect.apply(isShared(buffer) ? sharedLength! : bufferLength, buffer, []) as number
 
+/** The length a resizable buffer can grow to, or -1 for a fixed-length or shared buffer. */
+export const bufferMaximum = (buffer: object): number =>
+  bufferResizable === undefined ||
+  isShared(buffer) ||
+  Reflect.apply(bufferResizable, buffer, []) !== true
+    ? -1
+    : (Reflect.apply(bufferMaxLength!, buffer, []) as number)
+
 // The built-in `set` of typed arrays, read when the module loads.
 const typedSet = /* @__PURE__ */ (() =>
   uncurried<[source: ArrayBufferView, offset?: number], undefined>(

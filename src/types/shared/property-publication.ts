@@ -461,8 +461,9 @@ export function publishKnown(
 }
 
 /**
- * `publishKnown` with a value the call already read of this key (`read`): the one aligned capture
- * or a preflight read before the first write, or the one a retried plan's previous readback saw.
+ * `publishKnown` with a value the call already read of this key (`read`): the one aligned capture,
+ * candidate discovery or a preflight read before the first write, or the one a retried plan's
+ * previous readback saw.
  * It decides whether the key needs a write, without reading it again, and the descriptor, or else
  * the live slot, gives the presence and attributes the write uses
  * (Property.WriteFreeReadback.publishPre, publishSeen); with stable reads that is

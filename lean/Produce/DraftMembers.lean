@@ -60,14 +60,17 @@ theorem indexOf_form (identity : α → β) (elements : List α) (x y : α)
 
 /-! ## Looking a value up by several identities
 
-Outside Vue reactive state an element's identity is the base of its draft, the object the draft
-was made from, and a searched value is looked up by its own identity and by its raw object's
-(`plainTargets`). One draft stands for a Vue proxy and its raw object, so its base may be either.
-A search therefore finds the element itself (`plain_self`), the raw object of a searched Vue proxy
-(`plain_raw`) and every object that shares the searched value's draft (`plain_shared`), and only
-objects of the searched value's storage (`plain_sound`). A search for a raw object finds a Vue
-proxy of it only through their shared draft. In Vue reactive state both sides are raw objects:
-that is the search above with `storage ∘ base` as the identity (`includesBy_single`).
+Outside Vue reactive state a value's key is the storage of its draft when it has one, which every
+view of that storage shares whichever view the draft was made from, and otherwise the value
+itself, or the original of a copy. A searched value is looked up by its key and by its key's raw
+object (`plainTargets`). The searched value's key is taken before the search reads any element,
+and reading an element can draft it, changing its key from the value to its storage
+(`plain_self_staged`). A search therefore finds an element the array holds (`plain_self`,
+`plain_self_staged`), the raw object of a searched Vue proxy (`plain_raw`) and every object that
+shares the searched value's key (`plain_shared`), and only objects of the searched value's storage
+(`plain_sound`). A search for a raw object finds a Vue proxy of it only through a draft of one of
+them. In Vue reactive state both sides are raw objects: that is the search above with
+`storage ∘ key` as the identity (`includesBy_single`).
 -/
 
 /-- `includes`, comparing each element's identity with those the searched value is looked up
@@ -131,39 +134,55 @@ theorem indexOfBy_form (held : α → β) (targets : α → List β) (elements :
 
 section Plain
 
-variable {γ : Type} [DecidableEq γ] (base storage : γ → γ)
+variable {γ : Type} [DecidableEq γ] (key storage : γ → γ)
 
-/-- What a search outside Vue reactive state looks a value up by: the base of its draft, or the
-value itself, and the base of its raw object's draft, or that raw object. -/
-def plainTargets (x : γ) : List γ := [base x, base (storage (base x))]
+/-- What a search outside Vue reactive state looks a value up by: its key and its key's raw
+object. -/
+def plainTargets (x : γ) : List γ := [key x, storage (key x)]
 
 /-- A search finds an element the array holds. -/
 theorem plain_self (elements : List γ) (x : γ) (hx : x ∈ elements) :
-    includesBy base (plainTargets base storage) elements x = true :=
+    includesBy key (plainTargets key storage) elements x = true :=
   (includesBy_iff _ _ _ _).mpr ⟨x, hx, by simp [plainTargets]⟩
 
 /-- A search for a Vue proxy finds its raw object. -/
-theorem plain_raw (elements : List γ) (x : γ) (hr : storage (base x) ∈ elements) :
-    includesBy base (plainTargets base storage) elements x = true :=
-  (includesBy_iff _ _ _ _).mpr ⟨_, hr, by simp [plainTargets]⟩
-
-/-- A search finds every object that shares the searched value's draft. -/
-theorem plain_shared (elements : List γ) (x e : γ) (he : e ∈ elements) (h : base e = base x) :
-    includesBy base (plainTargets base storage) elements x = true :=
+theorem plain_raw (elements : List γ) (x e : γ) (he : e ∈ elements)
+    (h : key e = storage (key x)) :
+    includesBy key (plainTargets key storage) elements x = true :=
   (includesBy_iff _ _ _ _).mpr ⟨e, he, by simp [plainTargets, h]⟩
 
-/-- When the draft of a raw object is made from a view of it, a search finds only objects of the
-searched value's storage. -/
-theorem plain_sound (hb : ∀ v, storage (base (storage v)) = storage v) (elements : List γ) (x : γ)
-    (h : includesBy base (plainTargets base storage) elements x = true) :
-    ∃ e ∈ elements, storage (base e) = storage (base x) := by
+/-- A search finds every object that shares the searched value's key. -/
+theorem plain_shared (elements : List γ) (x e : γ) (he : e ∈ elements) (h : key e = key x) :
+    includesBy key (plainTargets key storage) elements x = true :=
+  (includesBy_iff _ _ _ _).mpr ⟨e, he, by simp [plainTargets, h]⟩
+
+/-- A search finds only objects of the searched value's storage. -/
+theorem plain_sound (idem : ∀ v, storage (storage v) = storage v) (elements : List γ) (x : γ)
+    (h : includesBy key (plainTargets key storage) elements x = true) :
+    ∃ e ∈ elements, storage (key e) = storage (key x) := by
   obtain ⟨e, he, ht⟩ := (includesBy_iff _ _ _ _).mp h
   refine ⟨e, he, ?_⟩
   simp only [plainTargets, List.mem_cons, List.not_mem_nil, or_false] at ht
   rcases ht with ht | ht
   · rw [ht]
-  · rw [ht, hb]
+  · rw [ht, idem]
 
 end Plain
+
+/-- The key of a drafted value is the storage of its draft's base, the same for every view of
+one storage whichever view the draft was made from. -/
+theorem drafted_key {γ : Type} (storage base : γ → γ)
+    (hb : ∀ v, storage (base v) = storage v) (v w : γ) (h : storage v = storage w) : storage (base v) = storage (base w) := by
+  rw [hb, hb, h]
+
+/-- The searched value's key is taken before the search reads an element, `after` gives each
+element's key once read, and reading changes a key at most from the value to its storage. A
+search still finds an element the array holds. -/
+theorem plain_self_staged {γ : Type} [DecidableEq γ] (storage before after : γ → γ)
+    (elements : List γ) (x : γ) (hx : x ∈ elements)
+    (hafter : after x = before x ∨ after x = storage (before x)) :
+    includesBy after (plainTargets before storage) elements x = true :=
+  (includesBy_iff _ _ _ _).mpr ⟨x, hx, by
+    rcases hafter with h | h <;> simp [plainTargets, h]⟩
 
 end Reconcile.DraftMembers

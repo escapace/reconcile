@@ -29,7 +29,7 @@ import {
   wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { draftedForm } from './shared/draft-members'
+import { draftedForm, rawForm } from './shared/draft-members'
 import {
   closeIterator,
   Detached,
@@ -312,10 +312,9 @@ function otherForm(
     const form = draftedForm(context, drafted, value, set, own, holds)
     if (form !== undefined) return form
   }
-  // A Vue proxy of a member the Set holds is that member, as Vue's methods count it.
-  const storage = storageIdentity(value)
-  if (storage !== value && holds(set, own, storage)) return storage
-  return copyForm(context, value, set, own)
+  // A Vue proxy of a member the Set holds is that member, as Vue's methods count it, and so is a
+  // Vue proxy of an object whose draft the Set holds.
+  return rawForm(context, value, drafted, set, own, holds) ?? copyForm(context, value, set, own)
 }
 
 /** The original or the copy of a special value that `set` holds, or `LOOKUP_MISS`. */
@@ -463,9 +462,8 @@ class SetCall extends Detached {
     // The original or the copy of a special value counts as the value, as `copyForm` finds it.
     const form = state.context.copyBase(member) ?? state.context.copyOf(member)
     if (form !== undefined && Reflect.apply(operand.has, operand.set, [form])) return true
-    // The raw object of a Vue proxy, in any state.
-    const raw = storageIdentity(base)
-    return raw !== base && Reflect.apply(operand.has, operand.set, [raw])
+    // The raw object of a Vue proxy, in any state, and the forms of its draft.
+    return rawForm(state.context, base, drafted, operand, false, operandHas) !== undefined
   }
 
   /** The member of `members`, this draft's live members or a `snapshot` of them, that `value` is a
@@ -715,7 +713,7 @@ const DraftSet = /* @__PURE__ */ (() => {
         return this
       }
 
-      const insertedValue = insertedCollectionValue(state, value, setExposure, false)
+      const insertedValue = insertedCollectionValue(state, value, setExposure, false, builtinSetHas)
       builtinSetAdd(prepareSetCopy(state), insertedValue)
       state.members.revision += 1
       state.modified = true

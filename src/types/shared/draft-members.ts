@@ -25,14 +25,39 @@ export function draftedForm<C>(
 }
 
 /**
- * The identity a draft compares when it decides membership: a draft, or the copy a read of a
- * `Date`, buffer, view or URL makes, counts as the object it stands for and, with `vue`, a Vue
- * reactive proxy as its raw object; any other value is itself. Each read therefore keeps its
- * element's identity (DraftMembers.includesBy_drafted, includesBy_form).
+ * The form of `value`'s raw object that `holds` finds in `container`, when `value` is a Vue proxy:
+ * the raw object itself or a form of its draft other than the one `drafted` already tried, or
+ * `undefined` (DraftMembers.plainTargets).
+ */
+export function rawForm<C>(
+  context: DraftContext,
+  value: object,
+  drafted: DraftState | undefined,
+  container: C,
+  flag: boolean,
+  holds: (container: C, flag: boolean, form: unknown) => boolean,
+): object | undefined {
+  const storage = storageIdentity(value)
+  if (storage === value) return undefined
+  if (holds(container, flag, storage)) return storage
+  const shared = context.statesByIdentity.get(storage)
+  return shared === undefined || shared === drafted
+    ? undefined
+    : draftedForm(context, shared, storage, container, flag, holds)
+}
+
+/**
+ * The identity a draft compares when it decides membership, its key: the storage of the draft of a
+ * drafted value, which every view of that storage shares whichever view the draft was made from
+ * (DraftMembers.drafted_key); the original of the copy a read of a `Date`, buffer, view or URL
+ * makes; with `vue`, the raw object of a Vue proxy; and any other value itself. Each read
+ * therefore keeps its element's identity (DraftMembers.includesBy_drafted, includesBy_form).
  */
 const memberIdentity = (context: DraftContext, value: unknown, vue: boolean): unknown => {
   if (!isObject(value)) return value
-  const base = context.statesByIdentity.get(value)?.base ?? context.copyBase(value) ?? value
+  const drafted = context.statesByIdentity.get(value)
+  if (drafted !== undefined) return storageIdentity(drafted.base)
+  const base = context.copyBase(value) ?? value
   return vue ? storageIdentity(base) : base
 }
 
@@ -47,8 +72,9 @@ const lengthOf = (array: unknown[]): number =>
   Math.min(Math.max(integerOrInfinity(array.length), 0), Number.MAX_SAFE_INTEGER)
 
 /** The first index a forward search visits, as `includes` and `indexOf` derive it. */
-const start = (fromIndex: unknown, length: number): number => {
-  const index = integerOrInfinity(fromIndex)
+const start = (from: readonly unknown[], length: number): number => {
+  // An omitted `fromIndex` is not read, so no index `Array.prototype` holds stands in for it.
+  const index = from.length === 0 ? 0 : integerOrInfinity(from[0])
   return index >= 0 ? index : Math.max(length + index, 0)
 }
 
@@ -60,28 +86,25 @@ const start = (fromIndex: unknown, length: number): number => {
  * reads only the indices it visits and stops at the first match. It compares member identities,
  * so it finds an element whether the caller holds the object or its draft
  * (DraftMembers.includesBy_drafted, indexOfBy_drafted, lastIndexOfBy_drafted). Outside Vue
- * reactive state it looks the searched value up by its own identity and by its raw object's, so a
+ * reactive state it looks the searched value up by its key and by its key's raw object, so a
  * search for a Vue proxy finds its raw object and objects that share one draft find each other
- * (DraftMembers.plainTargets, plain_raw, plain_shared); in Vue reactive state it compares raw
- * objects (DraftMembers.includesBy_single).
+ * (DraftMembers.plainTargets, plain_raw, plain_shared). The searched value's key is taken before
+ * the search drafts any element, which changes an element's key at most from the value to its
+ * storage, so the search still finds an element the array holds (plain_self_staged). In Vue
+ * reactive state it compares raw objects (DraftMembers.includesBy_single).
  */
 export function arraySearches(context: DraftContext, base: object): ReadonlyMap<unknown, unknown> {
   const vue = storageIdentity(base) !== base
   const held = (value: unknown) => memberIdentity(context, value, vue)
-  // The identity of the searched value's raw object, which `held` already gives in Vue reactive
-  // state.
-  const raw = (target: unknown) => {
-    if (vue || !isObject(target)) return target
-    const storage = storageIdentity(target)
-    return storage === target ? target : memberIdentity(context, storage, false)
-  }
+  // The raw object of the searched value's key, which `held` already gives in Vue reactive state.
+  const raw = (target: unknown) => (vue || !isObject(target) ? target : storageIdentity(target))
   function includes(this: unknown, value: unknown, ...from: unknown[]) {
     const array = Object(this) as unknown[]
     const length = lengthOf(array)
     if (length === 0) return false
     const target = held(value)
     const other = raw(target)
-    for (let index = start(from[0], length); index < length; index += 1) {
+    for (let index = start(from, length); index < length; index += 1) {
       const element = held(array[index])
       // SameValueZero: NaN finds NaN, and 0 finds -0.
       if (
@@ -99,7 +122,7 @@ export function arraySearches(context: DraftContext, base: object): ReadonlyMap<
     if (length === 0) return -1
     const target = held(value)
     const other = raw(target)
-    for (let index = start(from[0], length); index < length; index += 1) {
+    for (let index = start(from, length); index < length; index += 1) {
       if (!(index in array)) continue
       const element = held(array[index])
       if (element === target || element === other) return index

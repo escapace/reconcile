@@ -74,6 +74,22 @@ function keptNode(node: CapturedNode<ObjectLayout>): CapturedNode<ObjectLayout> 
   return { ...node, attributes, edges, keys }
 }
 
+/**
+ * `reads`, the values the call read at the captured node's edges, for the kept node `keptNode`
+ * makes of it: without the read at the marker's edge.
+ */
+function keptReads(
+  captured: CapturedNode<ObjectLayout>,
+  node: CapturedNode<ObjectLayout>,
+  reads: readonly unknown[] | undefined,
+): readonly unknown[] | undefined {
+  if (node === captured || reads === undefined) return reads
+  const kept: unknown[] = []
+  for (let index = 0; index < captured.keys.length; index += 1)
+    if (captured.keys[index] !== RAW_MARKER) kept.push(index < reads.length ? reads[index] : UNREAD)
+  return kept
+}
+
 const objectSurface: PropertySurface<ObjectLayout> = {
   compatible: yes,
   keys: managedKeys,
@@ -148,9 +164,11 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
   }))() satisfies SnapshotPolicy<ObjectLayout>
 
 /** Writes each requested property in order. A property this write adds takes next's
- * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes.
- * `known` holds the preflight's descriptor for each requested key the target already had in
- * the same position. Returns `REFUSED`, `WROTE`, or `UNCHANGED` when no key was written. */
+ * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes, and so
+ * does one `deleteUnrequested` deleted to move it (`moved`): it is assigned, so a reactive proxy
+ * observes the write, and then takes its attributes again. `known` holds the preflight's
+ * descriptor for each requested key the target already had in the same position. Returns
+ * `REFUSED`, `WROTE`, or `UNCHANGED` when no key was written. */
 // fallow-ignore-next-line complexity -- a dispatch helper per key slowed reconcile 3%
 function writeProperties(
   node: CapturedNode<ObjectLayout>,
@@ -160,6 +178,7 @@ function writeProperties(
   reads: readonly unknown[] | undefined,
   held: ReadonlyMap<PropertyKey, unknown> | undefined,
   removed: readonly PropertyKey[] | undefined,
+  moved: readonly unknown[] | undefined,
 ): number {
   const hidden = node.layout.hidden
   const lookup = reads !== undefined || held !== undefined
@@ -167,7 +186,12 @@ function writeProperties(
   for (let index = 0; index < node.keys.length; index += 1) {
     const key = node.keys[index]
     const descriptor = known !== undefined && index < known.length ? known[index] : undefined
-    const added = descriptor === undefined && hidden?.has(key) === true && !hasOwn(target, key)
+    const before = moved === undefined || moved.length === 0 ? undefined : movedFrom(moved, key)
+    const added =
+      before === undefined &&
+      descriptor === undefined &&
+      hidden?.has(key) === true &&
+      !hasOwn(target, key)
     const read = lookup ? priorRead(reads, index, held, key, removed) : UNREAD
     const value = image(node.edges[index], key)
     // Without a read the key takes `publishKnown` as it is, kept small enough to inline.
@@ -178,6 +202,12 @@ function writeProperties(
     if (written === REFUSED) return REFUSED
     if (written === WROTE) result = WROTE
     if (added && !hide(target, key)) return REFUSED
+    if (
+      before !== undefined &&
+      (before.enumerable !== true || before.writable !== true) &&
+      !defineData(target, key, value, before.enumerable, true, before.writable)
+    )
+      return REFUSED
   }
   return result
 }
@@ -185,13 +215,14 @@ function writeProperties(
 /** Deletes the current keys the requested order does not keep: past the requested count in the
  * aligned order, otherwise unrequested or configurable and out of order. Returns `REFUSED`,
  * `WROTE` when it deleted a key, or `UNCHANGED`; each requested key it deleted is added to
- * `removed`, when given. */
+ * `removed`, when given, and its attributes to `moved` when they are not the defaults. */
 function deleteUnrequested(
   target: object,
   previous: readonly PropertyKey[],
   requested: number,
   properties: ReadonlyMap<PropertyKey, Edge> | undefined,
   removed: PropertyKey[] | undefined,
+  moved: unknown[] | undefined,
 ): number {
   const order = properties === undefined ? undefined : new PropertyOrder(properties)
   let result = UNCHANGED
@@ -199,16 +230,46 @@ function deleteUnrequested(
     const key = previous[position]
     const retained = order?.keep(key)
     const unrequested = !(properties === undefined ? position < requested : properties.has(key))
-    if (
-      unrequested ||
-      (retained === false && Object.getOwnPropertyDescriptor(target, key)?.configurable !== false)
-    ) {
-      if (!Reflect.deleteProperty(target, key)) return REFUSED
-      if (!unrequested) removed?.push(key)
-      result = WROTE
-    }
+    const deleted = unrequested
+      ? wrote(Reflect.deleteProperty(target, key))
+      : retained === false
+        ? moveKey(target, key, removed, moved)
+        : UNCHANGED
+    if (deleted === REFUSED) return REFUSED
+    if (deleted === WROTE) result = WROTE
   }
   return result
+}
+
+const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
+
+/** Deletes a requested key that is out of order so that it can move, recording it in `removed`
+ * and, as a key followed by its descriptor, in `moved` when its attributes are not the ones an
+ * assignment gives; a non-configurable key stays. */
+function moveKey(
+  target: object,
+  key: PropertyKey,
+  removed: PropertyKey[] | undefined,
+  moved: unknown[] | undefined,
+): number {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (descriptor?.configurable === false) return UNCHANGED
+  if (!Reflect.deleteProperty(target, key)) return REFUSED
+  removed?.push(key)
+  if (
+    descriptor !== undefined &&
+    isDataDescriptor(descriptor) &&
+    (descriptor.enumerable !== true || descriptor.writable !== true)
+  )
+    moved?.push(key, descriptor)
+  return WROTE
+}
+
+/** The descriptor `moveKey` recorded for `key` in `moved`, or undefined. */
+function movedFrom(moved: readonly unknown[], key: PropertyKey): PropertyDescriptor | undefined {
+  for (let index = 0; index < moved.length; index += 2)
+    if (moved[index] === key) return moved[index + 1] as PropertyDescriptor
+  return undefined
 }
 
 export const objectPublication = /* @__PURE__ */ (() =>
@@ -239,15 +300,16 @@ export const objectPublication = /* @__PURE__ */ (() =>
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.
       const properties = alignedPrefix(previous, keys) ? undefined : objectSurface.slots(node)
-      // The reads, capture's or a previous readback's, follow the captured node's edges, which a
-      // kept node can drop one of; a requested key moved into the requested order is deleted
-      // first, and its read no longer holds.
-      const reads = node === captured ? note?.reads : undefined
+      // The reads, capture's or a previous readback's, follow the captured node's edges, from
+      // which a kept node drops the marker's; a requested key moved into the requested order is
+      // deleted first, and its read no longer holds.
+      const reads = keptReads(captured, node, note?.reads)
       // The fixed slots a preflight of this publication read, by key.
       const held = note?.held?.get(target)
       const removed =
         (reads !== undefined || held !== undefined) && properties !== undefined ? [] : undefined
-      const deleted = deleteUnrequested(target, previous, keys.length, properties, removed)
+      const moved: unknown[] | undefined = properties === undefined ? undefined : []
+      const deleted = deleteUnrequested(target, previous, keys.length, properties, removed, moved)
       if (deleted === REFUSED) return false
       // In the aligned order, descriptor i belongs to requested key i.
       const written = writeProperties(
@@ -258,6 +320,7 @@ export const objectPublication = /* @__PURE__ */ (() =>
         reads,
         held,
         removed,
+        moved,
       )
       // Aligned, nothing deleted and no key written: readback would accept
       // (WriteFreeReadback.object_writeFree_matches).

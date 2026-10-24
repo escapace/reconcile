@@ -19,6 +19,7 @@ export function encodeGraph(value: unknown): unknown[] {
     payloads: [],
     plain: undefined,
     scalars: undefined,
+    scans: undefined,
     scratch: [],
     shapeRoot: radixTrie(),
     shapes: [],

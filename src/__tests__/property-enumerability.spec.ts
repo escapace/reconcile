@@ -85,6 +85,33 @@ describe('new objects keep their source enumerability', () => {
     assert.equal(current.secret, 2)
   })
 
+  it('a property moved to reach next key order keeps its own attributes', () => {
+    const current: Record<PropertyKey, unknown> = {}
+    Object.defineProperty(current, 'id', { configurable: true, enumerable: true, value: 7 })
+    Object.defineProperty(current, 'secret', {
+      configurable: true,
+      enumerable: false,
+      value: 's',
+      writable: true,
+    })
+    current.name = 'a'
+    // eslint-disable-next-line perfectionist/sort-objects -- next's key order is the case
+    reconcile(current, { name: 'b', secret: 't', id: 8 })
+    assert.deepEqual(Reflect.ownKeys(current), ['name', 'secret', 'id'])
+    assert.deepEqual(descriptor(current, 'id'), {
+      configurable: true,
+      enumerable: true,
+      value: 8,
+      writable: false,
+    })
+    assert.deepEqual(descriptor(current, 'secret'), {
+      configurable: true,
+      enumerable: false,
+      value: 't',
+      writable: true,
+    })
+  })
+
   it('produce keeps a hidden property hidden in a changed object', () => {
     const result = produce({ value: source() }, (draft) => {
       draft.value.shown = 5

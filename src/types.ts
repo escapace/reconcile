@@ -503,6 +503,10 @@ export interface CapturedGraph {
    * per-call memo that discovery extends. */
   readonly kinds?: Map<object, symbol> | undefined
   readonly occupants?: ReadonlyArray<readonly unknown[] | undefined>
+  /** The values discovery read at the slots of each node's other aligned objects, by object and
+   * edge position, `UNREAD` where it read none and absent past the last it read; discovery
+   * creates the table on its first read. */
+  candidateReads?: Array<Map<object, unknown[]> | undefined>
   /** Source object of each captured node; pinned nodes record their occupant. */
   readonly sources?: readonly object[]
   /** Storage of every object inside a pinned subtree; no other position may retain one. */
@@ -534,7 +538,8 @@ export type DraftEdge = (
 ) => void
 
 /** Reports a fixed-correspondence child pair for candidate discovery. */
-export type Align = (actual: unknown, expected: Edge) => void
+/** Visits one aligned child; a property slot passes its edge's position. */
+export type Align = (actual: unknown, expected: Edge, position?: number) => void
 
 /** Checks one observed child against the selected image of a captured edge. */
 export type Compare = (actual: unknown, expected: Edge) => boolean

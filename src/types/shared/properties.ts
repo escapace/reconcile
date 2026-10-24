@@ -27,6 +27,7 @@ export function alignedProperties(
       visit(
         current !== undefined && hasOwn(current, key) ? Reflect.get(current, key) : undefined,
         edge,
+        index,
       )
     }
   }

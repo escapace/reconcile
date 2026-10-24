@@ -58,18 +58,19 @@ import { publicationTypes } from './types/builtins'
  * kept by reference, a successful call returns `current`. When either is a primitive, a function or
  * another object kept by reference, the call returns `next` and changes nothing.
  *
- * An object in `next` that is already the object at the same property of the matched current object
- * stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them
- * or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`.
- * Objects inside it stay where they are unless `next` places them elsewhere, and the final state is
- * the same as if it had been updated. This does not apply to an object that refers to `current` or
- * `next` at any depth; such an object is updated like any other.
+ * An object in `next` that is already the object at the same property or index of the matched
+ * current object stays in place: `reconcile` reads its contents once, as part of `next`, and does
+ * not change them or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes
+ * only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the
+ * final state is the same as if it had been updated. This does not apply to an object that refers
+ * to `current` or `next` at any depth, or to a key, value or member of a `Map` or `Set` that is not
+ * itself in place, or anything inside one; such an object is updated like any other.
  *
  * Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for
- * one object at two positions applies to them. When `current` holds both and `next` holds that
- * object or one new object at each of their positions, `reconcile` keeps the object and writes the
- * same one of the two at each position, unless `next` holds at every position the one `current`
- * already holds there.
+ * one object at two positions applies to them. When `current` holds both and `next` holds, at each
+ * of their positions, either that object or one and the same new object, `reconcile` keeps the
+ * object and writes the same one of the two at each position. It writes neither when `next` holds
+ * at every position the one `current` already holds there and that one stays in place, as above.
  *
  * @example
  * ```ts

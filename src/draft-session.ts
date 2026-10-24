@@ -188,6 +188,13 @@ export class DraftSession extends Detached implements DraftContext {
       ? (this.statesByIdentity.get(currentValue)?.base ?? currentValue)
       : currentValue
     const assignedBase = isObject(value) ? (this.statesByIdentity.get(value)?.base ?? value) : value
-    return Object.is(currentBase, assignedBase)
+    if (Object.is(currentBase, assignedBase)) return true
+    // A Vue proxy and its raw object are one object, so writing one where the other is changes
+    // nothing.
+    return (
+      isObject(currentBase) &&
+      isObject(assignedBase) &&
+      storageIdentity(currentBase) === storageIdentity(assignedBase)
+    )
   }
 }

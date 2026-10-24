@@ -60,6 +60,9 @@ export interface EncodeContext {
   payloads: Array<Row | undefined>
   plain: number[][] | undefined
   scalars: number[] | undefined
+  // How far `heldTwice` has scanned each Map or Set frame that holds such a shared node; created on
+  // the first.
+  scans: Map<Frame, KeyScan> | undefined
   scratch: number[]
   shapeRoot: RadixNode<string>
   shapes: string[][]
@@ -102,6 +105,14 @@ export interface Frame {
   next: (...arguments_: unknown[]) => unknown
   // The built-in step of a fresh native iterator, called with the iterator; undefined otherwise.
   step: ((iterator: object) => unknown) | undefined
+}
+/** The reference keys or members a frame's row holds before `scanned`, and where the scan of the
+ * frame's runs stands. */
+export interface KeyScan {
+  boundary: number
+  readonly held: Set<unknown>
+  reference: boolean
+  scanned: number
 }
 export type Leaf = (value: object, context: EncodeContext, kind?: number) => Row
 export type Row = unknown[]

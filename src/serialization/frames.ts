@@ -1,4 +1,4 @@
-import type { Frame, EncodeContext } from './contracts'
+import type { EncodeContext, Frame, KeyScan } from './contracts'
 // Inline.lean inline_step_refines / inline_matches_recursive: containers write children in
 // place and yield after a child pushed its frame. Positional.lean sparse_roundtrip covers the
 // incremental presence runs. Dynamic observations and IteratorClose are runtime obligations
@@ -183,19 +183,31 @@ function member(frame: Frame, value: unknown, context: EncodeContext, width: num
 // A Vue proxy is a view of its raw object, so the two are one node; a Map or Set that holds both as
 // two keys or members, which deserialize cannot restore, is rejected. The key just encoded is the
 // node `context.alias`; an earlier key is the same node when it is a reference slot with that id.
+// Each frame's row is scanned once, from where the last check stopped.
 function heldTwice(frame: Frame, context: EncodeContext, width: number): void {
   const { boundaries, top } = context
   const row = frame.row
-  let reference = false
-  let boundary = frame.runs < 0 ? top : frame.runs
-  for (let index = 0; index < row.length - 1; index += 1) {
-    while (boundary < top && boundaries[boundary] <= index) {
-      reference = !reference
-      boundary += 1
+  const scans = (context.scans ??= new Map<Frame, KeyScan>())
+  let scan = scans.get(frame)
+  if (scan === undefined) {
+    scan = {
+      boundary: frame.runs < 0 ? top : frame.runs,
+      held: new Set(),
+      reference: false,
+      scanned: 0,
     }
-    if (reference && index % width === 0 && row[index] === context.alias)
-      fail('Vue proxy and its raw object as two keys or members')
+    scans.set(frame, scan)
   }
+  const end = row.length - 1
+  for (let index = scan.scanned; index < end; index += 1) {
+    while (scan.boundary < top && boundaries[scan.boundary] <= index) {
+      scan.reference = !scan.reference
+      scan.boundary += 1
+    }
+    if (scan.reference && index % width === 0) scan.held.add(row[index])
+  }
+  scan.scanned = end
+  if (scan.held.has(context.alias)) fail('Vue proxy and its raw object as two keys or members')
 }
 function startArray(frame: Frame) {
   if (!Array.isArray(frame.value)) fail('array brand')

@@ -304,8 +304,10 @@ class SnapshotWalk extends Detached {
     const prototype = prototypeOf(source, this.read)
     // The structural scan ends here for atoms too; one more step of the same walk keeps them.
     if (prototype !== Object.prototype && prototype !== null && atomPrototype(prototype)) {
-      reference.target = source
-      this.callerMemo?.set(source, source)
+      // Kept by reference; a Vue proxy of one, such as of a `WeakMap`, is its raw object.
+      const kept = storageIdentity(source, prototype)
+      reference.target = kept
+      this.callerMemo?.set(source, kept)
       return
     }
     if (this.view(reference, source, prototype)) return
@@ -478,9 +480,11 @@ class SnapshotWalk extends Detached {
         ? recognizeStructure(this.types, source, read)
         : recognize(this.types, source, read))
     if (known === ATOM_KIND) {
-      // An atom is kept by reference, as a function is.
-      reference.target = source
-      this.callerMemo?.set(source, source)
+      // An atom is kept by reference, as a function is; a Vue proxy of one, such as of a
+      // `WeakMap`, is its raw object.
+      const kept = storageIdentity(source)
+      reference.target = kept
+      this.callerMemo?.set(source, kept)
       return reference
     }
     if (this.builtin) {

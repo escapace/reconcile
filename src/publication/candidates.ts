@@ -2,7 +2,7 @@ import { isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
 import { storageIdentity } from '../adapters/vue'
 import { isObject } from '../object-property'
-import { EMPTY_FACTS } from '../constants'
+import { EMPTY_FACTS, UNREAD } from '../constants'
 import type {
   CapturedGraph,
   CapturedNode,
@@ -25,7 +25,13 @@ export function candidates(
   root: object,
   alignment?: Pick<
     CapturedGraph,
-    'currents' | 'kinds' | 'occupants' | 'protectedStorage' | 'prototypes' | 'sources'
+    | 'candidateReads'
+    | 'currents'
+    | 'kinds'
+    | 'occupants'
+    | 'protectedStorage'
+    | 'prototypes'
+    | 'sources'
   >,
   storage: (value: object, prototype?: object | null) => object = storageIdentity,
   note?: PublicationNote,
@@ -61,9 +67,8 @@ export function candidates(
     if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
     if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true)
       return undefined
-    // The occupants capture read of the object it aligned serve that object's fixed slots.
-    const reads =
-      candidate === alignment?.currents?.[index] ? alignment.occupants?.[index] : undefined
+    // What capture or discovery read at the candidate's slots serves its fixed slots.
+    const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)
     if (required === undefined) return undefined
     // The first passing candidate's facts serve the publication that retains it.
@@ -101,6 +106,22 @@ export function candidates(
     return choices
   })
 }
+
+/**
+ * What the call read at the slots of `candidate` for node `index` before any write: the occupants
+ * capture recorded for the object it aligned, or the values discovery read for another aligned
+ * object (WriteFreeReadback.publishPre).
+ */
+export const alignedReads = (
+  alignment: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'occupants'> | undefined,
+  index: number,
+  candidate: unknown,
+): readonly unknown[] | undefined =>
+  !isObject(candidate) || alignment === undefined
+    ? undefined
+    : candidate === alignment.currents?.[index]
+      ? alignment.occupants?.[index]
+      : alignment.candidateReads?.[index]?.get(candidate)
 
 // The prototype capture read of the object aligned with node `index`, when `candidate` is it.
 const capturedPrototype = (
@@ -176,7 +197,10 @@ function collect(
   old: unknown,
   records: readonly CapturedNode[],
   wrapper: (value: object, prototype?: object | null) => boolean,
-  alignment?: Pick<CapturedGraph, 'currents' | 'kinds' | 'occupants' | 'prototypes'>,
+  alignment?: Pick<
+    CapturedGraph,
+    'candidateReads' | 'currents' | 'kinds' | 'occupants' | 'prototypes'
+  >,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
@@ -189,7 +213,45 @@ function collect(
   }
   const currents = alignment?.currents
   const occupants = alignment?.occupants
-  const visit = (current: unknown, edge: Edge): void => {
+  // The candidate whose slots the walk is reading, by node, and the values read so far, created
+  // at its first slot; each value serves that candidate's preflight and first publication.
+  let reading = -1
+  let readingObject: object | undefined
+  let read: unknown[] | undefined
+  const note = (current: unknown, position: number | undefined): void => {
+    if (position === undefined || readingObject === undefined) return
+    if (read === undefined) {
+      read = []
+      const table = (alignment!.candidateReads ??= denseArray(records.length))
+      ;(table[reading] ??= new Map()).set(readingObject, read)
+    }
+    // Slots are read in edge order; one not read holds `UNREAD`, and so does any past the last.
+    while (read.length < position) read.push(UNREAD)
+    read.push(current)
+  }
+  // Walks the aligned slots of `candidate` for node `index`, noting what it reads.
+  const walk = (index: number, node: CapturedNode, candidate: object | undefined): void => {
+    const outer = reading
+    const outerObject = readingObject
+    const outerRead = read
+    reading = index
+    readingObject = alignment === undefined ? undefined : candidate
+    read = undefined
+    // A collection asks whether its object is a wrapper, with the prototype capture read, as
+    // discovery's later probe of the same object passes it.
+    types.policies[node.layout.kind].aligned(
+      node,
+      candidate,
+      visit,
+      wrapper,
+      capturedPrototype(alignment, index, candidate),
+    )
+    reading = outer
+    readingObject = outerObject
+    read = outerRead
+  }
+  const visit = (current: unknown, edge: Edge, position?: number): void => {
+    note(current, position)
     if (!isNode(edge)) return
     const index = edge.node
     const node = records[index]
@@ -207,16 +269,7 @@ function collect(
     else if (!first) return
     else aligned[index] = VISITED as object[]
     const slots = recorded ? occupants![index] : undefined
-    // A collection asks whether its object is a wrapper, with the prototype capture read, as
-    // discovery's later probe of the same object passes it.
-    if (slots === undefined)
-      types.policies[node.layout.kind].aligned(
-        node,
-        candidate,
-        visit,
-        wrapper,
-        capturedPrototype(alignment, index, candidate),
-      )
+    if (slots === undefined) walk(index, node, candidate)
     else replayOccupants(node, slots, visit)
   }
   visit(old, { node: 0 })

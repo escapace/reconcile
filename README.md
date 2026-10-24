@@ -242,11 +242,11 @@ In a recipe, array, `Map` and `Set` drafts work like the collections they draft.
 
 ### Dates and binary data
 
-`reconcile` updates a `Date` in place to the next time, and a buffer or view, including a `BigInt64Array` or `BigUint64Array`, to the next bytes. It replaces a buffer whose size changes and a view whose offset, length or type changes.
+`reconcile` updates a `Date` in place to the next time, and a buffer or view, including a `BigInt64Array` or `BigUint64Array`, to the next bytes. It replaces a buffer whose size, resizability or maximum size changes, and a view whose offset, length or type changes or whose buffer it replaces.
 
 Reading a `Date`, `ArrayBuffer`, typed array or `DataView` from a `produce` draft gives a writable copy. If the recipe does not change a copy, the result holds the original.
 
-A copy of a resizable buffer is resizable to the same maximum, and a view over it is copied with a fixed length. Every function that reads the bytes of a detached buffer throws a `TypeError`.
+A copy of a resizable buffer is resizable to the same maximum, and a view over it is copied with a fixed length. When a recipe shrinks a resizable buffer so that a fixed-length view over it no longer fits, reading that view from the draft afterwards throws a native `RangeError`, and so does `produce` when the result holds a view the recipe did not read. A typed array read before the shrink is out of bounds, with length 0, and `produce` returns it as it is; a `DataView` read before the shrink makes `produce` throw a `TypeError`. Every function that reads the bytes of a detached buffer throws a `TypeError`.
 
 A Node.js `Buffer` is a subclass of `Uint8Array`, so `serialize` rejects it. Pass `new Uint8Array(buffer)`, which copies its bytes. Do not pass a view over `buffer.buffer`: Node.js allocates small buffers from a shared pool, so such a view can encode the whole pool.
 
@@ -298,7 +298,7 @@ Each function keeps or replaces objects as follows:
 | `snapshot(value)`                             | No                   | All new                                                         |
 | `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                         |
 
-- **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents once, as part of `next`, and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth.
+- **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents once, as part of `next`, and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth, or a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one: such an object is updated like any other.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members. A search for a Vue proxy also finds its raw object. In Vue reactive state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
@@ -457,12 +457,14 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 ### Vue limitations
 
 - **Reads are tracked.** These functions read through the proxy, so inside a `computed` or a watcher getter, Vue tracks every property they read, at every depth. `snapshot(toRaw(state.value))` copies without tracking: the raw object has the same contents.
+- **Dates, buffers and URLs are not tracked.** Vue does not track the time, bytes or text of a `Date`, buffer, view, `URL` or `URLSearchParams`, so `reconcile` triggers nothing when it updates one in place.
 - **Only the proxy is reactive.** `reconcile` on the raw object changes the contents but triggers nothing. A `readonly()` proxy rejects the writes: Vue logs a warning, and `reconcile` throws `PublicationRejected`.
 - **Shallow proxies track only the top level.** With `shallowRef()`, only `.value` is tracked, so `reconcile(state.value, next)` changes the contents but triggers nothing; assign `state.value = produce(state.value, recipe)` instead. With `shallowReactive()`, only root-level properties trigger updates.
 - **A draft is not reactive.** `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such as `forEach` give the recipe drafts, so the recipe never changes the state.
 - **A ref object is a class instance.** Pass `.value`, not the ref: `snapshot` copies a ref's internal fields, so Vue still treats the copy as a ref, and writing its `value` can run the original's effects; `serialize` rejects a ref. The same applies to a ref inside a reactive array or `Map`, which Vue does not unwrap. A ref that is a property of a reactive object is unwrapped, and `reconcile` writes through it.
 - **Synchronous watchers see each write.** `reconcile` writes one value at a time, so a watcher with `flush: 'sync'` can run while the state is partly updated: after an array's new length and before its new elements, or while reordered keys or entries are deleted and not yet added back. An object that `reconcile` adds is complete when it appears, but an object inside it that is also in `current` can still be updated afterwards.
-- **A proxy and its raw object are one object.** See [Object identity](#object-identity). A `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members cannot be copied, because the copy would hold one object as two keys: `snapshot` throws `SnapshotWrapperKeyDuplicated` and `serialize` throws `SerializeValueUnsupported`. `reconcile` throws `PublicationRejected` when `next` holds such a collection at a position where `current` does not already hold it, and `produce` throws `FinalizationConstructionImpossible` when the recipe changes, through a draft, the object behind the two keys.
+- **A proxy and its raw object are one object.** See [Object identity](#object-identity). A `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members cannot be copied, because the copy would hold one object as two keys: `snapshot` throws `SnapshotWrapperKeyDuplicated` and `serialize` throws `SerializeValueUnsupported`. `reconcile` throws `PublicationRejected` when `next` holds such a collection, unless it is an [object already in place](#object-identity). `produce` throws `FinalizationConstructionImpossible` when the recipe changes, through a draft, the object behind the two keys.
+- **`hasOwnProperty` reads as Vue's method.** For the key `hasOwnProperty`, a `reactive()` or `shallowReactive()` proxy returns Vue's own method, and the functions read through the proxy, so they read that method instead of the property's value. `reconcile` throws `PublicationRejected` when it would store that key through such a proxy.
 - **`__v_raw` is read.** To recognize Vue proxies, the functions read `__v_raw` from the objects they visit, so a getter of that name runs, possibly more than once in a call.
 - **A reactive `Map` or `Set` makes the functions throw under SES.** The iterator that Vue returns for a reactive `Map` or `Set` inherits the built-in `next` method, and Vue assigns its own `next` method to it. After SES `lockdown()`, with any `overrideTaming`, that assignment throws a `TypeError`. The functions read the entries of such a `Map` or `Set` through Vue's iterator, so a call that reads them throws that error, as `snapshot` and `serialize` always do.
 
@@ -632,7 +634,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L101-L103 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L102-L104 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -670,9 +672,9 @@ On an object that `reconcile` keeps and updates, an own getter for a key that `n
 
 `next` is read completely before `current` changes. When both arguments are objects that are not kept by reference, a successful call returns `current`. When either is a primitive, a function or another object kept by reference, the call returns `next` and changes nothing.
 
-An object in `next` that is already the object at the same property of the matched current object stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the final state is the same as if it had been updated. This does not apply to an object that refers to `current` or `next` at any depth; such an object is updated like any other.
+An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the final state is the same as if it had been updated. This does not apply to an object that refers to `current` or `next` at any depth, or to a key, value or member of a `Map` or `Set` that is not itself in place, or anything inside one; such an object is updated like any other.
 
-Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for one object at two positions applies to them. When `current` holds both and `next` holds that object or one new object at each of their positions, `reconcile` keeps the object and writes the same one of the two at each position, unless `next` holds at every position the one `current` already holds there.
+Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for one object at two positions applies to them. When `current` holds both and `next` holds, at each of their positions, either that object or one and the same new object, `reconcile` keeps the object and writes the same one of the two at each position. It writes neither when `next` holds at every position the one `current` already holds there and that one stays in place, as above.
 
 ### Examples
 

@@ -176,14 +176,18 @@ export function compileImmutable(
     const reusable =
       childrenReusable &&
       (record.settled === true ||
-        types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) =>
-          Object.is(
-            actual,
-            isNode(expected)
-              ? ((expected as ViewEdge).view ?? records[expected.node].target)
-              : atomValue(expected),
-          ),
-        ))
+        types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) => {
+          const wanted = isNode(expected)
+            ? ((expected as ViewEdge).view ?? records[expected.node].target)
+            : atomValue(expected)
+          // Another view of the object the slot holds is that object (StorageViews).
+          return (
+            Object.is(actual, wanted) ||
+            (isNode(expected) &&
+              isObject(actual) &&
+              storageOf(actual) === storageOf(wanted as object))
+          )
+        }))
     locallyReusable[index] = reusable
     // A failed parent is already a closure seed; only omit implications into it.
     // Passing parents can still fail later through a cycle, so retain their incidences.

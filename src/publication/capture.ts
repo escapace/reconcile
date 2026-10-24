@@ -75,6 +75,10 @@ class AlignedCapture extends Detached {
   declare private pending: object | undefined
   declare private readonly references: Map<object, Edge>
   declare private readonly root: object | undefined
+  // The storages of `current` and `next`, which a kept subtree must not contain, so that a Vue
+  // proxy of a root or the raw object of a proxy root counts as that root; read by the first walk.
+  declare private nextStorage: object | undefined
+  declare private rootStorage: object | undefined
   declare sources: object[]
   declare private readonly types: PublicationRegistry
   // Whether a Vue proxy of an object of `next` has been met.
@@ -113,6 +117,8 @@ class AlignedCapture extends Detached {
     this.currentReference = undefined
     this.references = new Map()
     this.root = current
+    this.rootStorage = undefined
+    this.nextStorage = undefined
     this.count = 0
     this.currentSource = undefined
     this.sources = []
@@ -300,6 +306,15 @@ class AlignedCapture extends Detached {
     const known = references.get(child)
     const occupant: unknown = hasOwn(aligned, key) ? Reflect.get(aligned, key) : undefined
     this.recordOccupant(parent, occupant)
+    // A view kept in place keeps itself, though another view of its raw object was kept first
+    // (PrunedReconcile.PrunedWitness.pinnedImage).
+    if (
+      known !== undefined &&
+      !isNode(known) &&
+      atomValue(known) !== child &&
+      Object.is(occupant, child)
+    )
+      return atom(references, child)
     const childKind = known === undefined ? this.classify(child, kind) : kind
     if (childKind === ATOM_KIND) return atom(references, child)
     const prototype = known === undefined ? this.classified : undefined
@@ -312,15 +327,16 @@ class AlignedCapture extends Detached {
     return this.observe(child, childKind!, prototype)
   }
 
-  // The edge that keeps `child` in place. A Vue proxy and its raw object `storage` are one object,
-  // so the other views of a kept proxy resolve to its edge; one already captured as a node keeps
-  // that node, which the kept object's position then takes too.
+  // The edge that keeps `child` in place. A Vue proxy and its raw object `storage` are one object:
+  // one already captured as a node keeps that node, which the kept object's position then takes
+  // too, and each view kept in place keeps itself; a view met elsewhere resolves to the first.
   private kept(child: object, storage: object): Edge {
     const references = this.references
     if (storage !== child) {
       this.viewed = true
       const viewed = references.get(storage)
       if (viewed !== undefined) {
+        if (!isNode(viewed)) return atom(references, child)
         references.set(child, viewed)
         return viewed
       }
@@ -352,7 +368,12 @@ class AlignedCapture extends Detached {
     if (policy.bindings.tag !== 'independent' || policy.construction !== noValue) return undefined
     const closure = (this.closure ??= new Set())
     if (closure.has(candidate)) return storageIdentity(candidate)
+    if (this.rootStorage === undefined) {
+      this.rootStorage = storageIdentity(this.root!)
+      this.nextStorage = storageIdentity(this.nextRoot as object)
+    }
     const visited: object[] = []
+    const owners: object[] = []
     const stack: object[] = []
     let source: object | undefined = candidate
     let prototype: object | null | undefined
@@ -379,22 +400,24 @@ class AlignedCapture extends Detached {
     }
     while (source !== undefined) {
       if (!closure.has(source)) {
-        if (source === this.nextRoot || source === this.root) {
+        // A root met through another view of it is that root (PrunedReconcile.FullCapture.closed).
+        const owner = storageIdentity(source, prototype)
+        if (owner === this.nextStorage || owner === this.rootStorage) {
           visited.forEach((marked) => closure.delete(marked))
           return undefined
         }
         closure.add(source)
         visited.push(source)
+        owners.push(owner)
         policy.observe(source, noValue, edge, 'publication', prototype)
       }
       source = pop()
     }
     const walked = (this.protectedStorage ??= new Set())
     let storage: object = candidate
-    for (const marked of visited) {
-      const owner = storageIdentity(marked)
-      walked.add(owner)
-      if (marked === candidate) storage = owner
+    for (let index = 0; index < visited.length; index += 1) {
+      walked.add(owners[index])
+      if (visited[index] === candidate) storage = owners[index]
     }
     return storage
   }
@@ -423,6 +446,7 @@ export function capture(
   const run = new AlignedCapture(types, value, current, valuePrototype, currentPrototype)
   const root = run.visit(value)
   return {
+    candidateReads: undefined,
     currents: run.currents,
     kinds: run.kinds,
     marks: run.marks,
