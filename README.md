@@ -20,7 +20,7 @@ The package is ESM only, has no dependencies and has no import side effects, so 
 | [Make a deep copy that can be changed without affecting the original](#make-a-deep-copy)               | `snapshot(value)`                                                                      | `structuredClone(value)`                                      |
 | [Store or send a value as JSON text and restore it later](#store-or-send-a-value-as-json)              | `JSON.stringify(serialize(value))`, then `deserialize(JSON.parse(text), { maxBytes })` | `JSON.stringify(value)`, then `JSON.parse(text)`              |
 
-`reconcile` changes `current`, and `deserialize` can change its input. `produce`, `snapshot`, `serialize` and [`requiredMaxBytes`](#choose-a-limit) do not change their argument.
+`reconcile` changes `current`, and `deserialize` can change its input. `produce`, `snapshot`, `serialize` and [`requiredMaxBytes`](#choose-a-limit) do not change the value they receive; `snapshot` adds entries to its optional `seen` map.
 
 ```ts
 import { produce, reconcile, snapshot } from '@escapace/reconcile'
@@ -62,17 +62,17 @@ reconcile(state, { items: [{ id: 0 }, { id: 1 }, { id: 2 }] })
 `Map` and `Set` entries work the same way: after a reorder, the first entry's value, key object or `Set` member stays first and takes the contents of the new first entry. To match objects by identifier, store them in a plain object keyed by identifier, not in an array, `Map` or `Set`.
 
 - An existing object at a matched position is kept and its contents are updated. A value of a different type, such as an array where an object was, replaces it. An object that `next` adds is a new copy, except for functions and other [objects kept by reference](#objects-kept-by-reference), such as a `RegExp`.
-- Only changed values are written, by ordinary assignment, so setters and watchers run only for values that changed. `reconcile(state, { ...state, count: 1 })` writes only `count`; [Object identity](#object-identity) gives the rule.
+- Only changed values are written, by ordinary assignment, so setters and watchers run only for values that changed or moved: to reach the key order of `next`, `reconcile` deletes and adds back the properties and the `Map` and `Set` entries that move. `reconcile(state, { ...state, count: 1 })` writes only `count`; [Object identity](#object-identity) gives the rule.
 
 When `next` holds an object of `current` at a different position, the object is matched at its own position: if `next` still has that position, the object stays there and takes the contents that `next` holds there, so `next`, which holds the same object, changes too; otherwise `current` drops it unchanged. An object inside an [object already in place](#object-identity) is the exception: `current` then holds it at both positions.
 
-When both arguments are objects that are not [kept by reference](#objects-kept-by-reference), `reconcile` returns `current`; otherwise it returns `next` and changes nothing. When `current` cannot be made to match `next`, for example because one is an object and the other an array, `reconcile` throws a `ReconcileError` of type `PublicationRejected` (see [Errors](#errors)). A failed call is not rolled back. Objects inside `current` that cannot be changed in place, such as frozen objects, are replaced by copies; see [`reconcile` limitations](#reconcile-limitations).
+When both arguments are objects that are not [kept by reference](#objects-kept-by-reference), `reconcile` returns `current`; otherwise it returns `next` and changes nothing. When `current` cannot be made to match `next`, for example because one is an object and the other an array, `reconcile` throws a `ReconcileError` of type `PublicationRejected` (see [Errors](#errors)). A failed call is not rolled back. Objects inside `current` that cannot be changed in place, such as frozen plain objects and arrays, are replaced by copies; see [`reconcile` limitations](#reconcile-limitations).
 
 Full contract: [`reconcile`](#function-reconcile-).
 
 ## Build an updated copy
 
-`produce(current, recipe)` passes a draft of `current` to `recipe` and returns the value the recipe returns, with drafts replaced by ordinary values. The draft behaves like `current` but records changes instead of applying them, so `current` is not modified. As with a value built by hand with spread syntax, such as `{ ...state, items: [...state.items, { id: 2 }] }`, the result shares its unchanged parts with `current`.
+`produce(current, recipe)` passes a draft of `current` to `recipe` and returns the value the recipe returns, with drafts replaced by ordinary values. The draft behaves like `current` but records changes instead of applying them, so `produce` does not modify `current`. As with a value built by hand with spread syntax, such as `{ ...state, items: [...state.items, { id: 2 }] }`, the result shares its unchanged parts with `current`.
 
 ```ts
 const state = { user: { name: 'Ada' }, items: [{ id: 1 }] }
@@ -95,7 +95,7 @@ Full contract: [`produce`](#function-produce-).
 
 ## Apply a recipe in place
 
-To change existing objects with a recipe, and only if the recipe completes, pass the result of `produce` to `reconcile`. Only changed values are written.
+To change existing objects with a recipe, and only if the recipe completes, pass the result of `produce` to `reconcile`. Only changed and moved values are written.
 
 ```ts
 const current = store.state // read once
@@ -111,11 +111,11 @@ reconcile(
 
 Objects are matched by position, so a recipe that reorders, inserts or removes array elements or `Map` or `Set` entries can give existing objects the contents of other elements or entries instead of moving them; see [Update objects in place](#update-objects-in-place).
 
-`produce` finishes before `reconcile` starts, so an error in the recipe leaves `current` unchanged. `reconcile` itself is not rolled back if it fails; see [`reconcile` limitations](#reconcile-limitations). When `current` comes from a getter or a function call, read it once into a variable, as above, and pass that variable to both functions, so that both receive the same object.
+`produce` finishes before `reconcile` starts, so an error in the recipe leaves `current` unchanged, apart from changes the recipe makes to objects that have no draft: `Map` key objects and [objects kept by reference](#objects-kept-by-reference). `reconcile` itself is not rolled back if it fails; see [`reconcile` limitations](#reconcile-limitations). When `current` comes from a getter or a function call, read it once into a variable, as above, and pass that variable to both functions, so that both receive the same object.
 
 ## Make a deep copy
 
-`snapshot(value)` returns a detached deep copy of `value`: the copy can be changed without affecting the original. Functions and other [objects kept by reference](#objects-kept-by-reference), such as a `RegExp`, are shared with the original, not copied.
+`snapshot(value)` returns a detached deep copy of `value`: the copy can be changed without affecting the original, apart from functions and other [objects kept by reference](#objects-kept-by-reference), such as a `RegExp`, which are shared with the original, not copied.
 
 ```ts
 const state = { user: { name: 'Ada' }, tags: ['a'] }
@@ -211,7 +211,7 @@ reconcile(state.value, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
 
 Each function treats reactive state as follows:
 
-- `reconcile(state.value, next)` updates the state in place. Nested objects keep their proxies, so components and watchers that hold them observe the changes, and only the dependents of changed values are triggered. Objects that `reconcile` adds become deeply reactive, as with any write through a reactive proxy, except copies of objects marked with `markRaw`.
+- `reconcile(state.value, next)` updates the state in place. Nested objects keep their proxies, so components and watchers that hold them observe the changes, and only the dependents of changed or moved values are triggered. Objects that `reconcile` adds become deeply reactive, as with any write through a reactive proxy, except copies of objects marked with `markRaw`.
 - `produce(state.value, recipe)` returns plain objects for the changed parts and the state's own proxies for the unchanged parts; when the recipe returns the draft and changes nothing, it returns `state.value` itself, unless a getter returns a draft; see [`produce`](#function-produce-). Mutating an unchanged part mutates the state and triggers its dependents. `reconcile(state.value, produce(state.value, recipe))` applies the changes in place and keeps the objects that components hold, matched by position; see [Update objects in place](#update-objects-in-place).
 - `snapshot(state.value)` returns a detached, non-reactive copy. Mutating the copy triggers nothing, and `reactive(copy)` creates a new proxy with no dependents.
 - `serialize(state.value)` encodes the current contents of the state, and `deserialize` returns plain, non-reactive objects.
@@ -242,7 +242,7 @@ In a recipe, array, `Map` and `Set` drafts work like the collections they draft.
 
 ### Dates and binary data
 
-`reconcile` updates a `Date` in place to the next time, and a buffer or view, including a `BigInt64Array` or `BigUint64Array`, to the next bytes. It replaces a buffer whose size, resizability or maximum size changes, and a view whose offset, length or type changes or whose buffer it replaces.
+`reconcile` updates a `Date` in place to the next time, and a buffer or view, including a `BigInt64Array` or `BigUint64Array`, to the next bytes. It replaces a buffer whose size, resizability or maximum size changes, and a view whose offset, length or type changes or whose buffer it replaces; a view it keeps keeps its own length tracking.
 
 Reading a `Date`, `ArrayBuffer`, typed array or `DataView` from a `produce` draft gives a writable copy. If the recipe does not change a copy, the result holds the original.
 
@@ -291,12 +291,12 @@ During a `produce` recipe, getters run on every read, and assignments call sette
 
 Each function keeps or replaces objects as follows:
 
-| Function                                      | Changes the original | Objects in the result                                           |
-| --------------------------------------------- | -------------------- | --------------------------------------------------------------- |
-| `reconcile(current, next)`                    | Yes, in place        | The original objects, with new contents; added objects are new  |
-| `produce(current, recipe)`                    | No                   | Unchanged parts are the original objects; changed parts are new |
-| `snapshot(value)`                             | No                   | All new                                                         |
-| `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                         |
+| Function                                      | Changes the original | Objects in the result                                                                            |
+| --------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| `reconcile(current, next)`                    | Yes, in place        | The original objects, with new contents; added objects are new, except objects kept by reference |
+| `produce(current, recipe)`                    | No                   | Unchanged parts are the original objects; changed parts are new                                  |
+| `snapshot(value)`                             | No                   | All new, except objects kept by reference                                                        |
+| `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                                                          |
 
 - **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents once, as part of `next`, and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth, or a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one: such an object is updated like any other.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members. A search for a Vue proxy also finds its raw object. In Vue reactive state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one.
@@ -320,7 +320,7 @@ const size = requiredMaxBytes(serialize(largestLegitimateState), { maxBytes: Inf
 To estimate the size without `serialize`:
 
 - For a value that holds only plain objects, arrays, strings, finite numbers, booleans and `null`, measure the largest legitimate value with `JSON.stringify`: if its text has _n_ characters, the value fits in 8 × _n_ bytes. Measure the value itself, not the output of `serialize`: that text can write one property key for many objects and omits sparse-array holes, while the size counts every key and every hole.
-- For values JSON cannot carry, measure a stand-in the same way: each `Map` as an array of `[key, value]` pairs, each `Set` as an array, each `bigint` as a string and `undefined` as `null`. `JSON.stringify` alone writes a `Map` or `Set` as `{}`, omits `undefined` properties and throws on a `bigint`.
+- For values JSON cannot carry, measure a stand-in the same way: each `Map` as an array of `[key, value]` pairs, each `Set` as an array, each `bigint` as a string, each `BigInt64Array` or `BigUint64Array` as an array of strings and `undefined` as `null`. `JSON.stringify` alone writes a `Map` or `Set` as `{}`, omits `undefined` properties and throws on a `bigint`.
 - For an `ArrayBuffer`, `DataView`, `URL`, `URLSearchParams` or Temporal value, add its size from [How size is counted](#how-size-is-counted): its JSON text can be shorter than its size. `JSON.stringify` writes an `ArrayBuffer`, `DataView` or `URLSearchParams` as `{}`.
 
 Test that the largest legitimate values deserialize under the chosen limit.
@@ -436,7 +436,7 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 - **Frozen objects and read-only properties.** Because a draft follows its object's property attributes and extensibility, `produce` cannot change a property of a frozen object or a read-only property of `current`, delete a non-configurable property, or add a property to a non-extensible object, such as a sealed one. To change frozen state, pass `snapshot(state)`, whose copies are writable.
 - **Assignment only.** Defining a property on an object or array draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws `DraftDefinePropertyUnsupported`; use assignment instead. `Object.freeze`, `Object.seal` and `Object.preventExtensions` throw a `TypeError` on such a draft, as does `Object.setPrototypeOf` with a different prototype.
 - **`Map` keys are not drafts.** Iterating a `Map` draft yields each key as the `Map` yields it, which in Vue reactive state is Vue's proxy of the stored key; only values are drafts. Changing a key object in a recipe changes `current`. To change a key, delete the entry and set a new one; the entry then moves to the end.
-- **`Set` methods are fixed at import.** A `Set` draft has only the `Set` methods that the runtime's `Set` had when this library was imported; install a polyfill for them before importing the library.
+- **`Set` methods are fixed at import.** A `Set` draft implements only the `Set` methods that the runtime's `Set` had when this library was imported. A method added to `Set.prototype` later runs with the draft as `this`, so one that calls a built-in `Set` method on `this`, as a polyfill does, throws a `TypeError`; install a polyfill before importing the library.
 - **A custom `has` receives drafts.** In `Set` draft methods that look members up in their operand, such as `isSubsetOf` and `difference`, a custom `has` on the operand, such as a subclass override, receives drafts and must recognize them itself. A `Set` or `Map` operand that uses the built-in `has`, or a Vue reactive proxy of one, finds a member whether it holds the object or its draft.
 - **Changed dates, buffers and URLs are not extensible.** A `Date`, buffer, view, `URL` or `URLSearchParams` value that a recipe changes is a new, non-extensible copy in the result: adding a property to it throws a `TypeError` in strict-mode code. To add properties, copy it first, for example with `new Date(value)` or `new URL(value)`.
 
@@ -466,7 +466,7 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 - **A proxy and its raw object are one object.** See [Object identity](#object-identity). A `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members cannot be copied, because the copy would hold one object as two keys: `snapshot` throws `SnapshotWrapperKeyDuplicated` and `serialize` throws `SerializeValueUnsupported`. `reconcile` throws `PublicationRejected` when `next` holds such a collection, unless it is an [object already in place](#object-identity). `produce` throws `FinalizationConstructionImpossible` when the recipe changes, through a draft, the object behind the two keys.
 - **`hasOwnProperty` reads as Vue's method.** For the key `hasOwnProperty`, a `reactive()` or `shallowReactive()` proxy returns Vue's own method, and the functions read through the proxy, so they read that method instead of the property's value. `reconcile` throws `PublicationRejected` when it would store that key through such a proxy.
 - **`__v_raw` is read.** To recognize Vue proxies, the functions read `__v_raw` from the objects they visit, so a getter of that name runs, possibly more than once in a call.
-- **A reactive `Map` or `Set` makes the functions throw under SES.** The iterator that Vue returns for a reactive `Map` or `Set` inherits the built-in `next` method, and Vue assigns its own `next` method to it. After SES `lockdown()`, with any `overrideTaming`, that assignment throws a `TypeError`. The functions read the entries of such a `Map` or `Set` through Vue's iterator, so a call that reads them throws that error, as `snapshot` and `serialize` always do.
+- **A reactive `Map` or `Set` makes the functions throw under SES.** The iterator that Vue returns for a reactive `Map` or `Set` inherits the built-in `next` method, and Vue assigns its own `next` method to it. After SES `lockdown()`, with any `overrideTaming`, that assignment throws a `TypeError`. The functions read the entries of such a `Map` or `Set` through Vue's iterator, so they throw that error when they visit one: `snapshot` and `serialize` for a value that holds one, `reconcile` when `next` holds one, even one already in place, or when `current` holds one where `next` holds a `Map` or `Set`, and `produce` when its result holds one, even one the recipe did not read.
 
 ### Standard prototypes
 
