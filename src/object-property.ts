@@ -1,4 +1,5 @@
-import { builtinValue, uncurried } from './standard-prototypes'
+import { UNREAD } from './constants'
+import { builtinValue, defineData, isDataDescriptor, uncurried } from './standard-prototypes'
 
 /**
  * One object's prototype, shared by every reader in a call that meets the object: `known` once
@@ -106,6 +107,70 @@ export const isEnumerable = /* @__PURE__ */ (() =>
   uncurried<[key: PropertyKey], boolean>(
     builtinValue(Object.prototype, 'propertyIsEnumerable'),
   ))() as (value: object, key: PropertyKey) => boolean
+
+/** The key of Vue's `markRaw` marker, a non-enumerable own `true`. */
+export const RAW_MARKER = '__v_skip'
+
+/**
+ * `keys`, the own keys of `value`, without Vue's `markRaw` marker: object metadata, not data, so
+ * no function reads or writes it as a property. An enumerable property of that name is data.
+ *
+ * @internal
+ */
+export function withoutRawMarker<K extends PropertyKey>(value: object, keys: readonly K[]): K[] {
+  let marker = -1
+  for (let index = 0; index < keys.length && marker === -1; index += 1)
+    if (keys[index] === RAW_MARKER) marker = index
+  if (marker === -1 || isEnumerable(value, RAW_MARKER)) return keys as K[]
+  const kept: K[] = []
+  for (let index = 0; index < keys.length; index += 1) if (index !== marker) kept.push(keys[index])
+  return kept
+}
+
+/**
+ * The value of Vue's `markRaw` marker on `value`, a non-enumerable own data property, or `UNREAD`
+ * when it holds none.
+ *
+ * @internal
+ */
+export function rawMarkerOf(value: object): unknown {
+  if (!hasOwn(value, RAW_MARKER)) return UNREAD
+  const descriptor = Object.getOwnPropertyDescriptor(value, RAW_MARKER)
+  return descriptor?.enumerable === false && isDataDescriptor(descriptor)
+    ? (descriptor.value as unknown)
+    : UNREAD
+}
+
+/**
+ * Gives a copy of a value other than an object the `markRaw` marker its source held
+ * (`rawMarkerOf`), as a hidden, writable and configurable property, as an object's copy holds it.
+ *
+ * @internal
+ */
+export const markCopy = (copy: object, marker: unknown): void => {
+  if (marker !== UNREAD) defineData(copy, RAW_MARKER, marker, false)
+}
+
+/**
+ * Gives `copy` the `markRaw` marker `source` holds, with its writability and configurability, as a
+ * copy that keeps its source's property attributes does. A value that is its own copy, such as a
+ * `SharedArrayBuffer`, is left as it is.
+ *
+ * @internal
+ */
+export function markLike(copy: object, source: object): void {
+  if (copy === source || !hasOwn(source, RAW_MARKER)) return
+  const descriptor = Object.getOwnPropertyDescriptor(source, RAW_MARKER)
+  if (descriptor?.enumerable === false && isDataDescriptor(descriptor))
+    defineData(
+      copy,
+      RAW_MARKER,
+      descriptor.value,
+      false,
+      descriptor.configurable === true,
+      descriptor.writable === true,
+    )
+}
 
 // Read when the module loads, so a later change to `Object.prototype` is never called.
 const isPrototypeOf = /* @__PURE__ */ (() =>

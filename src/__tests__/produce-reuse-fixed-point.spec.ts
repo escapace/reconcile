@@ -11,41 +11,39 @@ interface Node {
   e2?: Node
 }
 
-it.each([false, true])('preserves many parallel edges and distinct storage (undo: %s)', (undo) => {
-  const child = { value: 0 }
-  const current = {
-    aliases: Array.from({ length: 140_000 }, () => child),
-    wrapped: reactive(child),
-  }
-  const next = produce(current, (draft) => {
-    draft.aliases[0].value = 1
-    if (undo) draft.aliases[0].value = 0
-    return draft
-  })
+// A Vue proxy is a view of its raw object: the two are one object, which `produce` keeps at every
+// position as each held it, or replaces at all of them with one new object.
+it.each([false, true])(
+  'keeps many parallel edges and a Vue proxy as one object (undo: %s)',
+  (undo) => {
+    const child = { value: 0 }
+    const current = {
+      aliases: Array.from({ length: 140_000 }, () => child),
+      wrapped: reactive(child),
+    }
+    const next = produce(current, (draft) => {
+      draft.aliases[0].value = 1
+      if (undo) draft.aliases[0].value = 0
+      return draft
+    })
 
-  assert.notEqual(next, current)
-  if (undo) {
-    // Keeping the array and raw child preserves two identities. Pinning the
-    // untouched wrapper would preserve only one and discard both compatible nodes.
-    assert.equal(next.aliases, current.aliases)
-    assert.equal(next.aliases[0], child)
-    assert.notEqual(next.wrapped, current.wrapped)
-  } else {
-    assert.notEqual(next.aliases, current.aliases)
-    assert.notEqual(next.aliases[0], child)
-    assert.equal(next.wrapped, current.wrapped)
-  }
-  assert.equal(next.aliases.length, current.aliases.length)
-  for (const alias of next.aliases) assert.equal(alias, next.aliases[0])
-  for (const alias of current.aliases) assert.equal(alias, child)
-  assert.equal(next.aliases[0].value, undo ? 0 : 1)
-  const replacement = undo ? next.wrapped : next.aliases[0]
-  replacement.value = 7
-  assert.equal(child.value, 0)
-  assert.equal(undo ? next.aliases[0].value : next.wrapped.value, 0)
-})
+    if (undo) {
+      assert.equal(next, current)
+      assert.equal(next.wrapped, current.wrapped)
+    } else {
+      assert.notEqual(next.aliases, current.aliases)
+      assert.notEqual(next.aliases[0], child)
+      assert.equal(next.wrapped, next.aliases[0])
+    }
+    assert.equal(next.aliases.length, current.aliases.length)
+    for (const alias of next.aliases) assert.equal(alias, next.aliases[0])
+    for (const alias of current.aliases) assert.equal(alias, child)
+    assert.equal(next.aliases[0].value, undo ? 0 : 1)
+    assert.equal(child.value, 0)
+  },
+)
 
-it('chooses the larger compatible subset independently of undo bookkeeping', () => {
+it('keeps a raw object and its Vue proxy whatever the recipe writes back', () => {
   for (const reverse of [false, true]) {
     for (let touched = 0; touched < 16; touched += 1) {
       const raw = { value: 0 }
@@ -64,13 +62,10 @@ it('chooses the larger compatible subset independently of undo bookkeeping', () 
         }
         return draft
       })
-      assert.notEqual(next, current)
-      assert.equal(next.left, parent)
+      assert.equal(next, current)
       assert.equal(next.left.child, raw)
-      assert.notEqual(next.right, wrapped)
-      next.right.value = 9
+      assert.equal(next.right, wrapped)
       assert.equal(raw.value, 0)
-      assert.equal(wrapped.value, 0)
     }
   }
 })
@@ -130,7 +125,7 @@ function assertRetainedNode(
 }
 
 it.each(['object', 'array', 'map key', 'map value', 'set'] as const)(
-  'retains the larger untouched %s subtree while separating conflicting storage',
+  'keeps an untouched %s subtree and a Vue proxy of an object in it',
   (kind) => {
     const raw = { n: 0 }
     const leaf =
@@ -160,14 +155,11 @@ it.each(['object', 'array', 'map key', 'map value', 'set'] as const)(
     assert.equal(next.repeated, untouched)
     assert.equal(next.left.self, untouched)
     assert.equal(next.sibling, sibling)
-    assert.notEqual(next.right, current.right)
-    next.right.n = 9
-    assert.equal(raw.n, 0)
-    assert.equal(current.right.n, 0)
+    assert.equal(next.right, current.right)
   },
 )
 
-it.each([false, true])('separates two untouched subtrees (unrelated undo: %s)', (undo) => {
+it.each([false, true])('keeps two untouched views of one object (unrelated undo: %s)', (undo) => {
   const raw = { n: 0 }
   const left = { child: raw, self: undefined as unknown }
   left.self = left
@@ -188,20 +180,19 @@ it.each([false, true])('separates two untouched subtrees (unrelated undo: %s)', 
   assert.equal(next.left, next.repeated)
   assert.equal(next.left.self, next.left)
   assert.equal(next.sibling, sibling)
-  next.right.n = 9
-  assert.equal(next.left.child.n, 0)
+  assert.equal(next.right, current.right)
 })
 
-it.each(['draft', 'replacement'] as const)('checks untouched storage for a %s return', (mode) => {
+it.each(['draft', 'replacement'] as const)('keeps both views for a %s return', (mode) => {
   const raw = { n: 0 }
   const current = { left: raw, right: reactive(raw) }
   const next = produce(current, (draft) => (mode === 'draft' ? draft : { ...current }))
-  assert.equal(raw.n, 0)
-  next.right.n = 9
-  assert.equal(next.left.n, 0)
+  if (mode === 'draft') assert.equal(next, current)
+  assert.equal(next.left, raw)
+  assert.equal(next.right, current.right)
 })
 
-it('preserves explicit cancellation despite overlapping storage', () => {
+it('preserves explicit cancellation of a change through one view', () => {
   const raw = { n: 0 }
   const current = { left: raw, right: reactive(raw) }
   const next = produce(current, (draft) => {
@@ -212,21 +203,25 @@ it('preserves explicit cancellation despite overlapping storage', () => {
   assert.equal(raw.n, 0)
 })
 
-it('selects the greater immutable reuse count across a storage conflict and parent dependency', () => {
+it('gives every view of a changed object one new object', () => {
   const raw = { value: 0 }
   const wrapped = reactive(raw)
-  const current = { first: raw, second: { child: wrapped } }
+  const current = { first: raw, second: { child: wrapped }, third: { child: raw } }
   const result = produce(current, (draft) => {
+    draft.second.child.value = 1
+    return draft
+  })
+  assert.equal(raw.value, 0)
+  assert.notEqual(result.first, raw)
+  assert.equal(result.first.value, 1)
+  assert.equal(result.second.child, result.first)
+  assert.equal(result.third.child, result.first)
+  const unchanged = produce(current, (draft) => {
     draft.first.value = 1
     draft.first.value = 0
     draft.second.child.value = 1
     draft.second.child.value = 0
     return draft
   })
-  assert.notEqual(result, current)
-  assert.notEqual(result.first, raw)
-  assert.equal(result.second, current.second)
-  assert.equal(result.second.child, wrapped)
-  assert.equal(result.first.value, 0)
-  assert.equal(raw.value, 0)
+  assert.equal(unchanged, current)
 })

@@ -1,9 +1,17 @@
 import { atomValue, isNode, snapshotValue } from './graph/edge'
 import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
+import { storageIdentity } from './adapters/vue'
 import { recognize, recognizeStructure } from './adapters/recognition'
 import { ATOM_KIND } from './constants'
-import { atomPrototype, hiddenNames, isEnumerable, prototypeOf } from './object-property'
+import {
+  atomPrototype,
+  hiddenNames,
+  isEnumerable,
+  markCopy,
+  prototypeOf,
+  rawMarkerOf,
+} from './object-property'
 import type {
   Edge,
   Layout,
@@ -14,12 +22,9 @@ import type {
 } from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
-import {
-  forEachMapEntry,
-  forEachSetMember,
-  wrappedCollection,
-} from './types/shared/draft-collection'
+import { forEachMapEntry, forEachSetMember } from './types/shared/draft-collection'
 import { builtinMapSet, builtinSetAdd } from './standard-prototypes'
+import { snapshotWrapperKeyDuplicated } from './error'
 import { adoptPrototype } from './types/shared/prototype'
 import { OBJECT_KIND } from './types/object'
 import { ARRAY_KIND } from './types/array'
@@ -39,6 +44,21 @@ import { Detached, defineData, hasElement } from './standard-prototypes'
 
 // Read once: `key in Object.prototype` decides each new object's write.
 const objectPrototype = /* @__PURE__ */ (() => Object.prototype)()
+
+/**
+ * `storages`, the storages of a `Map`'s keys or a `Set`'s members so far, with `key`'s. A Vue
+ * proxy and its raw object, or two Vue proxies of one raw object, are one object, which a copy
+ * cannot hold as two keys or members.
+ */
+function distinct(storages: Set<object> | undefined, key: object): Set<object> {
+  const storage = storageIdentity(key)
+  if (storages?.has(storage) === true) throw snapshotWrapperKeyDuplicated()
+  return (storages ?? new Set<object>()).add(storage)
+}
+
+/** Whether Vue proxies values of `kind`: objects, arrays, maps and sets. */
+const proxied = (kind: symbol): boolean =>
+  kind === OBJECT_KIND || kind === ARRAY_KIND || kind === MAP_KIND || kind === SET_KIND
 
 /**
  * Owns pending or initialized snapshot state on the canonical traversal reference.
@@ -76,7 +96,8 @@ class SnapshotReference extends Detached {
  * cycles, the link between each URL and its `searchParams` object and the sharing between buffers
  * and their views. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView`, typed
  * arrays, `URL`, `URLSearchParams` and Temporal values are supported, including Vue reactive
- * proxies of objects, arrays, maps and sets.
+ * proxies of objects, arrays, maps and sets. A Vue proxy and its raw object are one object and get
+ * one copy. A copy of an object marked with Vue's `markRaw` keeps the mark.
  *
  * Primitives, including bigints, are returned as they are. Objects kept by reference are shared
  * with the original: functions, a `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`,
@@ -115,11 +136,15 @@ class SnapshotReference extends Detached {
  * supplied entry is a detached copy of its source. Map a URL and its `searchParams` together, to a
  * copy whose `searchParams` is the mapped entry, or map neither. Mapping only the `searchParams`
  * of a URL in `value` throws `SnapshotURLSearchParamsMemoIncompatible`. Mapping only the URL
- * leaves a copy of its `searchParams` elsewhere in the result unlinked from the mapped URL.
+ * leaves a copy of its `searchParams` elsewhere in the result unlinked from the mapped URL. An entry
+ * for a raw object also serves its Vue proxies; an entry for a proxy serves only that proxy.
  * @returns A copy of `value`, detached unless `seen` supplies entries that are not, or `value`
  * itself when it is not an object.
  * @throws {@link ReconcileError} with type `SnapshotURLSearchParamsMemoIncompatible` when `seen`
  * maps the `searchParams` of a URL in `value` but not the URL.
+ * @throws {@link ReconcileError} with type `SnapshotWrapperKeyDuplicated` when a `Map` or `Set` in
+ * `value` holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two
+ * keys or members.
  * @throws Errors thrown by getters or proxy traps propagate unchanged.
  */
 export function snapshot(
@@ -171,6 +196,8 @@ class SnapshotWalk extends Detached {
   declare currentReference: SnapshotReference | undefined
   declare currentSource: object | undefined
   declare edgeCallback: Deliver | undefined
+  /** The raw object of the Vue proxy being copied, from `view` until `remember` takes it. */
+  declare viewing: object | undefined
   /** The prototype recognition read for the object `observe` is on, before it recurses. */
   declare readonly read: PrototypeRead
   declare readonly references: Map<object, SnapshotReference>
@@ -189,6 +216,7 @@ class SnapshotWalk extends Detached {
     this.currentSource = undefined
     this.beginCallback = undefined
     this.edgeCallback = undefined
+    this.viewing = undefined
   }
 
   edgeOf(source: unknown, kind?: symbol): Edge {
@@ -215,7 +243,7 @@ class SnapshotWalk extends Detached {
       else if (response !== undefined)
         (this.constructed ??= new WeakMap()).set(reference.target!, response)
     }
-    this.callerMemo?.set(this.currentSource!, reference.target!)
+    this.remember(this.currentSource!, reference.target!)
   }
 
   // Delivers one slot of the node and answers a construction edge.
@@ -271,6 +299,7 @@ class SnapshotWalk extends Detached {
   // The built-in object, array, Map and Set facets, observed inline for the exact built-in
   // registry: the same native reads in the same order as their `observe`, then the target their
   // writer would create, the memo write, and each slot as their writer would store it.
+  // fallow-ignore-next-line complexity -- one copy per object; a helper per object costs snapshot time
   observeObject(reference: SnapshotReference, source: object): void {
     const prototype = prototypeOf(source, this.read)
     // The structural scan ends here for atoms too; one more step of the same walk keeps them.
@@ -279,6 +308,7 @@ class SnapshotWalk extends Detached {
       this.callerMemo?.set(source, source)
       return
     }
+    if (this.view(reference, source, prototype)) return
     const names = Object.getOwnPropertyNames(source)
     const hidden = hiddenNames(source, names)
     const target = (prototype === Object.prototype ? {} : Object.create(prototype)) as Record<
@@ -287,7 +317,7 @@ class SnapshotWalk extends Detached {
     >
     const standard = standardPrototype(prototype)
     reference.target = target
-    this.callerMemo?.set(source, target)
+    this.remember(source, target)
     // On a standard prototype only keys `Object.prototype` holds, such as `__proto__`, and hidden
     // keys need a definition; setOwnProperty decides alike.
     if (standard && hidden === undefined)
@@ -317,57 +347,81 @@ class SnapshotWalk extends Detached {
   }
 
   observeArray(reference: SnapshotReference, source: object): void {
+    if (this.view(reference, source)) return
     const array = source as unknown[]
     // Reading the prototype after another read of the array lets the engine fold it.
     const length = array.length
     const target = new Array<unknown>(length)
     const prototype = Object.getPrototypeOf(array) as object | null
     reference.target = target
-    this.callerMemo?.set(source, target)
+    this.remember(source, target)
     // The elements are assigned before the copy takes its prototype, so no setter on that
     // prototype runs.
     for (let index = 0; index < array.length; index += 1)
       if (hasElement(array, index)) target[index] = this.slot(array[index])
     adoptPrototype(target, prototype, Array.prototype)
+    markCopy(target, rawMarkerOf(source))
+  }
+
+  // Records `target` as the copy of a Map or Set, unless `source` views an object that already has
+  // a copy; then undefined, otherwise whether `source` is a wrapper.
+  collection(
+    reference: SnapshotReference,
+    source: object,
+    prototype: object | null,
+    target: object,
+  ): boolean | undefined {
+    if (this.view(reference, source, prototype)) return undefined
+    const wrapped = this.viewing !== undefined
+    reference.target = target
+    this.remember(source, target)
+    return wrapped
   }
 
   // A Map or Set is read, and its copy filled, with the built-ins, so no override runs; a wrapper,
   // such as a Vue reactive proxy, is read through its own iterator.
   observeMap(reference: SnapshotReference, source: object): void {
-    const target = new Map<unknown, unknown>()
     const prototype = prototypeOf(source, this.read)
-    reference.target = target
-    this.callerMemo?.set(source, target)
+    const target = new Map<unknown, unknown>()
+    const wrapped = this.collection(reference, source, prototype, target)
+    if (wrapped === undefined) return
+    let storages: Set<object> | undefined
     forEachMapEntry(
       source,
       (child, key) => {
+        if (isObject(key)) storages = distinct(storages, key)
         const copiedKey = this.slot(key)
         builtinMapSet(target, copiedKey, this.slot(child))
       },
-      wrappedCollection(source, prototype),
+      wrapped,
     )
     adoptPrototype(target, prototype, Map.prototype)
+    markCopy(target, rawMarkerOf(source))
   }
 
   observeSet(reference: SnapshotReference, source: object): void {
-    const target = new Set<unknown>()
     const prototype = prototypeOf(source, this.read)
-    reference.target = target
-    this.callerMemo?.set(source, target)
+    const target = new Set<unknown>()
+    const wrapped = this.collection(reference, source, prototype, target)
+    if (wrapped === undefined) return
+    let storages: Set<object> | undefined
     forEachSetMember(
       source,
       (child) => {
+        if (isObject(child)) storages = distinct(storages, child)
         builtinSetAdd(target, this.slot(child))
       },
-      wrappedCollection(source, prototype),
+      wrapped,
     )
     adoptPrototype(target, prototype, Set.prototype)
+    markCopy(target, rawMarkerOf(source))
   }
 
   // The Date, ArrayBuffer, typed-array and DataView facets, observed inline in the same way.
   observeDate(reference: SnapshotReference, value: object): void {
     const target = new Date(timeOf(value))
     adoptPrototype(target, prototypeOf(value, this.read), Date.prototype)
+    markCopy(target, rawMarkerOf(value))
     reference.target = target
     this.callerMemo?.set(value, target)
   }
@@ -376,6 +430,8 @@ class SnapshotWalk extends Detached {
   // inline observation also clears that target's construction metadata as `begin` would.
   observeBuffer(reference: SnapshotReference, value: object): void {
     const target = copyBuffer(value)
+    // A shared buffer is its own copy.
+    if (target !== value) markCopy(target, rawMarkerOf(value))
     reference.target = target
     this.constructed?.delete(target)
     this.callerMemo?.set(value, target)
@@ -403,6 +459,7 @@ class SnapshotWalk extends Detached {
     const buffer = this.viewBuffer(bufferOfView(view)) as ArrayBuffer
     const target =
       kind === DATA_VIEW_KIND ? copyDataView(view, buffer) : copyTypedArray(view, buffer)
+    markCopy(target, rawMarkerOf(source))
     reference.target = target
     this.callerMemo?.set(source, target)
   }
@@ -456,28 +513,69 @@ class SnapshotWalk extends Detached {
         return reference
       }
     }
+    this.observePolicy(reference, source, known)
+    return reference
+  }
+
+  // Observes `source` through its kind's facet, which writes the copy through `begin` and `edge`.
+  observePolicy(reference: SnapshotReference, source: object, known: symbol): void {
+    if (!this.builtin && proxied(known) && this.view(reference, source)) return
     const policy = this.types.policies[known]
     const begin = (this.beginCallback ??= (layout) => {
       this.begin(layout)
     })
     const edge = (this.edgeCallback ??= (value, key, knownKind, construction) =>
       this.edge(value, key, knownKind, construction))
-    if (!this.builtin) {
+    if (!this.builtin)
       policy.observe(
         source,
         this.routed(reference, source, begin),
         this.routed(reference, source, edge),
         'snapshot',
       )
-      return reference
+    else {
+      const parent = this.currentReference
+      const parentSource = this.currentSource
+      this.currentReference = reference
+      this.currentSource = source
+      policy.observe(source, begin, edge, 'snapshot')
+      this.currentReference = parent
+      this.currentSource = parentSource
     }
-    const parent = this.currentReference
-    const parentSource = this.currentSource
-    this.currentReference = reference
-    this.currentSource = source
-    policy.observe(source, begin, edge, 'snapshot')
-    this.currentReference = parent
-    this.currentSource = parentSource
-    return reference
+    // A copy keeps Vue's `markRaw` marker, which an object's copy keeps as one of its properties.
+    const target = reference.target
+    if (target !== undefined && target !== source && known !== OBJECT_KIND)
+      markCopy(target, rawMarkerOf(source))
+  }
+
+  // A Vue proxy is a view of its raw object, so the two are copied as one object. True when
+  // `source` views an object that already has a copy, which `reference` then takes; otherwise a
+  // proxy's raw object joins `reference`, and `remember` records the copy for both.
+  view(reference: SnapshotReference, source: object, prototype?: object | null): boolean {
+    const storage = storageIdentity(source, prototype)
+    if (storage === source) return false
+    const viewed = this.references.get(storage)
+    const target = viewed === undefined ? this.callerMemo?.get(storage) : viewed.target
+    if (target !== undefined) {
+      reference.target = target
+      reference.layout = viewed?.layout
+      this.callerMemo?.set(source, target)
+      return true
+    }
+    if (viewed === undefined) {
+      this.references.set(storage, reference)
+      this.viewing = storage
+    }
+    return false
+  }
+
+  // Records `target` as the caller's copy of `source` and of the raw object `view` found.
+  remember(source: object, target: object): void {
+    const storage = this.viewing
+    this.viewing = undefined
+    const seen = this.callerMemo
+    if (seen === undefined) return
+    seen.set(source, target)
+    if (storage !== undefined) seen.set(storage, target)
   }
 }

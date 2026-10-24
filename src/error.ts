@@ -25,6 +25,7 @@ export const RECONCILE_ERROR_TYPES = [
   'PublicationRejected',
   'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible',
+  'SnapshotWrapperKeyDuplicated',
 ] as const
 
 /** The `type` of a {@link ReconcileError}: one of {@link RECONCILE_ERROR_TYPES}. */
@@ -92,9 +93,9 @@ export interface ReconcileErrorMetadata {
    */
   FinalizationChildInvalid: { child: unknown; index: number }
   /**
-   * No consistent result exists: objects the result must keep would share their contents, so a
-   * write through one changes the other, as with a Vue reactive proxy and its raw object, or the
-   * new objects cannot be created in any order.
+   * No consistent result exists: the new objects cannot be created in any order, or a `Map` or
+   * `Set` would hold one new object as two keys or members, as when it holds a Vue proxy and its
+   * raw object and the recipe changes that object.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   FinalizationConstructionImpossible: {}
@@ -121,6 +122,12 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   SnapshotURLSearchParamsMemoIncompatible: {}
+  /**
+   * A `Map` or `Set` in the value holds a raw object and a Vue proxy of it, or two Vue proxies of
+   * one raw object, as two keys or members; they are one object, so a copy cannot hold both.
+   */
+  // eslint-disable-next-line typescript/no-empty-object-type
+  SnapshotWrapperKeyDuplicated: {}
 }
 
 /** The `cause` of a {@link ReconcileError}: its `type` and that type's properties. */
@@ -256,6 +263,12 @@ export const snapshotURLSearchParametersMemoIncompatible = () =>
   new ReconcileError(
     { type: 'SnapshotURLSearchParamsMemoIncompatible' },
     "The seen map supplies a copy of a URL's searchParams but not of the URL.",
+  )
+
+export const snapshotWrapperKeyDuplicated = () =>
+  new ReconcileError(
+    { type: 'SnapshotWrapperKeyDuplicated' },
+    'A Map or Set holds a Vue proxy and its raw object as two keys or members.',
   )
 
 export const deserializeInputInvalid = (reason: string) =>

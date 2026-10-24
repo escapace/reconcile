@@ -14,7 +14,15 @@ import type {
   DraftStrategy,
   Recognition,
 } from '../types'
-import { hasOwn, hiddenNames, isEnumerable, isObject, ownKeys } from '../object-property'
+import {
+  hasOwn,
+  hiddenNames,
+  isEnumerable,
+  isObject,
+  ownKeys,
+  RAW_MARKER,
+  withoutRawMarker,
+} from '../object-property'
 import { setOwnProperty, standardPrototype } from '../set-own-property'
 import type { Edge } from '../types'
 import { defineType } from './registry'
@@ -35,32 +43,18 @@ import {
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
-import { defineData, hide, indexIn, isDataDescriptor } from '../standard-prototypes'
+import { defineData, hide, isDataDescriptor } from '../standard-prototypes'
 
 /** Stable global identity owned by the object module. */
 /** Stable global identity owned by the object module. */
 export { OBJECT_KIND }
-
-/** The key of Vue's `markRaw` marker, a non-enumerable own `true`. */
-const RAW_MARKER = '__v_skip'
 
 /**
  * The own keys of a kept object that publication manages: all of them except Vue's `markRaw`
  * marker, which `reconcile` neither deletes from nor adds to a kept object, so the object stays
  * reactive or raw as it was.
  */
-function managedKeys(current: object): PropertyKey[] {
-  const keys = ownKeys(current)
-  const marker = indexIn(keys, RAW_MARKER)
-  return marker === -1 || isEnumerable(current, RAW_MARKER) ? keys : without(keys, marker)
-}
-
-// The keys except the one at `skipped`.
-function without(keys: readonly PropertyKey[], skipped: number): PropertyKey[] {
-  const kept: PropertyKey[] = []
-  for (let index = 0; index < keys.length; index += 1) if (index !== skipped) kept.push(keys[index])
-  return kept
-}
+const managedKeys = (current: object): PropertyKey[] => withoutRawMarker(current, ownKeys(current))
 
 /**
  * The node as it is published into a kept object: without `next`'s `markRaw` marker, which a new

@@ -215,7 +215,7 @@ it('rejects impossible key order on a non-extensible root before deleting keys',
   assert.equal(current.a, 0)
 })
 
-it('does not restore independent finalized nodes onto the same Vue backing storage', () => {
+it('keeps a raw object and its Vue proxy that the recipe changes back', () => {
   const raw = { n: 0 }
   const current = { left: raw, right: reactive(raw) }
   const next = produce(current, (draft) => {
@@ -227,8 +227,8 @@ it('does not restore independent finalized nodes onto the same Vue backing stora
   })
   assert.equal(current.left.n, 0)
   assert.equal(current.right.n, 0)
-  next.left.n = 9
-  assert.equal(next.right.n, 0)
+  // A Vue proxy is a view of its raw object: one draft, kept at both positions as each held it.
+  assert.equal(next, current)
 })
 
 it('does not invoke application getters while inspecting wrapper identity', () => {

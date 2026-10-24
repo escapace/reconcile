@@ -242,7 +242,8 @@ the whole domain; `Driver` separates earlier observations from fresh certificati
 | `ProduceFinalizeCoherence`, `ProduceFinalizeCoherenceSoundness`                                                                                                                                                          | `draft_shared_finalized_image_coherence`, `draft_moved_reference_final_location_correctness`                                | `src/finalization.ts`                                                                                                                                                                       | proof-only                                                                      | Drafts                     |
 | `ReuseClosure`, `Immutable`, `ImmutableLabels`                                                                                                                                                                           | `reuseSurvivors_greatest`, `selected_published`, `selected_storage_distinct`, `fresh_below_native`                          | `src/restore-identities.ts`                                                                                                                                                                 | Contract (`Immutable`); `ImmutableLabels` proof-only                            | Identity and storage       |
 | `FoldedLeaves`                                                                                                                                                                                                           | `feasible_iff`, `dead_iff`, `record_iff`, `score_extend`                                                                    | folding in `compileImmutable`, `src/restore-identities.ts`                                                                                                                                  | proof-only                                                                      | Folded leaves              |
-| `PromotedLeaves`                                                                                                                                                                                                         | `feasible_iff`, `best_keeps`, `kept_whole`                                                                                  | fixed leaves in discovery, `src/finalization.ts`; `keptWhole`, `src/restore-identities.ts`                                                                                                  | proof-only                                                                      | Promoted leaves            |
+| `StorageViews`                                                                                                                                                                                                           | `register_storages_nodup`, `register_covers`, `register_append`, `folded_storages_nodup`                                    | registration by storage in `compileImmutable`, `src/restore-identities.ts`; `DraftSession.stateOf`                                                                                          | proof-only                                                                      | Identity and storage       |
+| `PromotedLeaves`                                                                                                                                                                                                         | `feasible_iff`, `best_keeps`, `kept_whole`                                                                                  | fixed leaves in discovery, `src/finalization.ts`; a result kept whole in `restoreIdentities`, `src/restore-identities.ts`                                                                   | proof-only                                                                      | Promoted leaves            |
 | `ImmutableAssembly`                                                                                                                                                                                                      | `append_keeps_target`, `completion_agreement`                                                                               | record assembly in `src/restore-identities.ts`                                                                                                                                              | proof-only                                                                      | Immutable assembly         |
 | `CompactImmutable`, `CompactOwners`                                                                                                                                                                                      | `feasible_iff`, `ranked_decode`, `ranked_head`, `separated_of_distinct`                                                     | `src/graph/immutable-selection.ts` `immutableSelections`                                                                                                                                    | CompactImmutable                                                                | Preferred attempts         |
 | `KeyOrder`                                                                                                                                                                                                               | `build_nodup`, `ownKeys_ownKeys`, `rebuild_preserves`, `produce_key_order`                                                  | `preparePropertyCopy` in `src/types/shared/draft-properties.ts`; finalization                                                                                                               | KeyOrder                                                                        | Key order                  |
@@ -250,7 +251,7 @@ the whole domain; `Driver` separates earlier observations from fresh certificati
 | `DraftClass`                                                                                                                                                                                                             | `draft_instanceOf`, `lookup_other`, `lookup_method`                                                                         | `draftCollectionBase` and `adoptDraftClass` in `src/types/shared/draft-collection.ts`                                                                                                       | DraftClass                                                                      | Draft class                |
 | `DraftIteration`                                                                                                                                                                                                         | `iterate_entries`, `iterate_kept`, `write_after_iterate`, `kept_untouched`, `drafted_nodup`                                 | `draftWalk` and `draftCollectionBase` in `src/types/shared/draft-collection.ts`                                                                                                             | DraftIteration                                                                  | Draft iteration            |
 | `DraftRead`                                                                                                                                                                                                              | `read_copied`, `read_not_wrapper`                                                                                           | `get`, `read` and `contains` of `PropertyDraftState` in `src/types/shared/draft-properties.ts`                                                                                              | DraftRead                                                                       | Draft reads                |
-| `DraftMembers`                                                                                                                                                                                                           | `includes_drafted`, `indexOf_drafted`, `lastIndexOf_drafted`, `includes_form`, `indexOf_form`                               | `memberIdentity` and `arraySearches` in `src/types/shared/draft-members.ts`                                                                                                                 | DraftMembers                                                                    | Draft members              |
+| `DraftMembers`                                                                                                                                                                                                           | `includesBy_drafted`, `includesBy_form`, `includesBy_single`, `plain_self`, `plain_raw`, `plain_shared`, `plain_sound`      | `memberIdentity` and `arraySearches` in `src/types/shared/draft-members.ts`                                                                                                                 | DraftMembers                                                                    | Draft members              |
 | `DraftSetMethods`                                                                                                                                                                                                        | `mem_union`, `mem_intersection`, `mem_difference`, `mem_symmetricDifference`, `isDisjointFrom_walk`, `intersection_drafted` | `setMethods` in `src/types/set.ts`                                                                                                                                                          | DraftSetMethods                                                                 | Draft members, Set methods |
 | `CopyPrototype`                                                                                                                                                                                                          | `adopt_eq`, `copy_keeps`, `serializes_iff_restored`                                                                         | `adoptPrototype` in `src/types/shared/prototype.ts`; array, `Map`, `Set`, `Date`, `DataView`, URL and Temporal construction; `serialize` recognition                                        | CopyPrototype                                                                   | Copy prototypes            |
 | `Requirements`, `RequirementAdmission`, `RequirementPropagation`                                                                                                                                                         | `close_least`, `admit_nodup`, `completed_insertion_order`                                                                   | `src/graph/requirements.ts` `closeRequirements`                                                                                                                                             | Policy (`Requirements`); SeededRequirements (all three)                         | none                       |
@@ -290,11 +291,21 @@ scored `m` lower (`score_extend`). The two problems agree on whether some fixed 
 (`dead_iff`) and otherwise on each record (`record_iff`); a counterexample shows why a clashing
 storage must reject the folded problem.
 
+`StorageViews` models how identity restoration registers the objects a result holds: one node per
+storage, so a Vue proxy and its raw object are one node, and folding skips an object whose storage
+is registered or already folded. The registered objects have pairwise distinct storages
+(`register_storages_nodup`) and every object resolves to the node registered for its storage
+(`register_covers`).
+Registering the nodes and then the folded objects is one registration (`register_append`), so their
+storages are all distinct (`folded_storages_nodup`): the premise of `FoldedLeaves` holds and no
+storage clashes.
+
 `PromotedLeaves` lets discovery keep an unchanged object the recipe inserted as a fixed leaf, as it
 keeps one backed by `current`: promoting a record that reaches no seed and whose reach has storages
 of its own leaves the masks that keep it (`feasible_iff`), and every highest-scoring mask kept it
 already (`best_keeps`). A result kept whole has one choice, feasible exactly when its storages are
-distinct (`kept_whole`), so identity restoration answers it with the storage claims alone.
+distinct (`kept_whole`); registration by storage makes them distinct (`folded_storages_nodup`), so
+identity restoration keeps it without visiting it.
 
 `Requirements` specifies the least closure. `SeededRequirements` proves that dropping implications
 into seed facts keeps the closure and its trace, which `compileImmutable` relies on. `FactRenaming`
@@ -428,7 +439,19 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Capture.** Observations follow the documented order, collections are normalized, descriptor
   operations behave natively, and observations stay stable within a phase.
 - **Identity and storage.** Fresh allocations are fresh, storage detection is correct, and each
-  publication attempt gets a fresh private token.
+  publication attempt gets a fresh private token. A Vue proxy is a view of its raw object, and the
+  views of one storage are one object: capture, `snapshot` and `serialize` give them one node,
+  `produce` one draft (`DraftSession.stateOf`), and identity restoration one node per storage
+  (`StorageViews`); where the result keeps that node, each slot shows the view it held. Storage
+  detection reads `__v_raw` with one [[Get]] per probe, which runs an accessor of that name, and
+  reads Vue's other flags without running an accessor.
+- **Views as keys.** A `Map` or `Set` that holds two views of one object as two keys or members
+  holds one node twice, which no copy can hold: capture rejects one in `next` before sealing would
+  merge the entries, `snapshot` and `serialize` throw, and identity restoration builds no plan
+  that copies the node, so `produce` keeps both views or throws.
+- **Vue marks.** Vue's `markRaw` marker is metadata outside the model: capture and `serialize` list
+  no key for it, each copy of a marked object holds it as a hidden property, and an object the
+  result keeps neither gains nor loses it.
 
 ### `snapshot`
 
@@ -527,8 +550,9 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Folded leaves.** A non-strict compile folds the objects a fixed node's walk meets first and
   registers none of them, so they follow every registered node as `FoldedLeaves` orders them; their
   storages join the fixed storages, their edges to registered nodes become the edges of the fixed
-  node whose walk met them, and no record points at one. A storage conflict rejects the folded
-  problem, and the strict sealed pass compiles without folding.
+  node whose walk met them, and no record points at one. Objects are told apart by storage, so no
+  storage conflict arises (`StorageViews.folded_storages_nodup`); the runtime still rejects a
+  folded problem with a conflict, and the strict sealed pass compiles without folding.
 - **Immutable assembly.** Recursive comparisons read only the pending record's target; edges,
   payload and settled state are consumed after completion. `immutable-assembly.spec.ts` checks these
   boundaries with a cycle and accessor-backed records.
@@ -548,9 +572,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   DraftIteration bridge checks walks and results on a `Map`.
 - **Draft reads.** `hasOwnProperty` on the object reports its own keys, which a Vue proxy passes
   to its raw object; the DraftRead bridge checks Vue reactive objects and arrays.
-- **Draft members.** A member's identity is the raw object a Vue proxy reports through its
-  marker, which Vue does not change during a call; the DraftMembers bridge checks plain and Vue
-  reactive arrays.
+- **Draft members.** A member's identity is the base of its draft or, in Vue reactive state, the
+  raw object a Vue proxy reports through `__v_raw`, which Vue does not change during a call. A
+  draft's base is the view it was made from; the draft of a raw object is made from a view of it,
+  and `memberIdentity` maps the draft and every view registered for it to that base, which
+  `plain_sound` and `includesBy_drafted` take as premises. The DraftMembers bridge checks plain and
+  Vue reactive arrays, including one whose Vue proxy is drafted before its raw object.
 - **Set methods.** The model assumes an operand whose `has` and `keys` agree and change nothing, and
   whose keys are distinct by identity. The runtime reads `size`, `has` and `keys` and calls them in
   the order the specification gives, walks the draft live, or as a copy for `difference`, and closes
@@ -559,8 +586,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   asked for each form of a member, which its `has` cannot observe; any other operand's `has`
   receives the draft. The draft's members and size are read with the built-ins, past a subclass's
   iterator and `size`, and the draft runs the built-in algorithm even when the class overrides the
-  method. The DraftSetMethods bridge checks results, and that a result holds this draft's object
-  members as drafts.
+  method. Outside Vue reactive state a Vue proxy finds its raw object but not the reverse
+  (`DraftMembers.plainTargets`), so the model, which compares one identity, covers members and
+  keys that hold no Vue proxy there; with one, a method chooses by the sizes as the native
+  algorithm with that `has` does. The DraftSetMethods bridge checks results, and that a result holds
+  this draft's object members as drafts.
 - **Copy prototypes.** A copy takes the source's prototype as read once at capture, and
   `Object.setPrototypeOf` on the fresh copy succeeds. Each kind's standard prototype is its live
   constructor's `prototype`, which does not change during a call. The CopyPrototype bridge checks
@@ -593,7 +623,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   `Collection` model. A `Map` or `Set` is walked with the built-in `forEach`, or with a fresh
   built-in iterator stepped by the built-in `next`. `builtin-contents.spec.ts` checks that no
   override runs, whether a subclass, the instance or a change to a standard prototype after the
-  module loads supplies it. Exception: a Vue collection proxy, recognized by `collectionIdentity`
+  module loads supplies it. Exception: a Vue collection proxy, recognized by `storageIdentity`
   through its raw marker, is used through Vue's methods, which call the raw object's methods; the
   premise then assumes that the raw object's methods, overrides included, behave as the built-ins
   do. `reconcile`'s readback, which reads through the same methods, rejects a result whose reported
@@ -717,7 +747,7 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | `DraftIteration`          | `check-draft-iteration-runtime.ts`          | scripts of iterations and writes on a `Map` draft: each walk, the result's entries and whether the result keeps the original agree with Lean                                                                                                                                                                                                                                                                               |
 | `SettledChildren`         | `check-settled-children-runtime.ts`         | every graph of three objects with child lists of at most two entries, with no object or one object changed through its draft, asked whether object 0 and then object 1 need a copy: each answer, the settled answers, including those settled before their question ended, and the kept child lists equal Lean's                                                                                                           |
 | `DraftRead`               | `check-draft-read-runtime.ts`               | reads of Vue reactive object and array drafts, before and after the first write: an owned key gives the child's draft, and Vue's raw-object marker, `hasOwnProperty` and `forEach` come from the prototype, not from Vue's proxy                                                                                                                                                                                           |
-| `DraftMembers`            | `check-draft-members-runtime.ts`            | `includes`, `indexOf` and `lastIndexOf` on plain and Vue reactive array drafts of `[a, b, a, 7]`, for each object as itself, its draft and the value Vue reactive state hands out, another object and numbers: results agree with Lean                                                                                                                                                                                     |
+| `DraftMembers`            | `check-draft-members-runtime.ts`            | `includes`, `indexOf` and `lastIndexOf` on plain and Vue reactive array drafts of `[a, b, a, 7]` and a plain one of `[reactive(a), b, a, 7]`, for each object as itself, its draft and its Vue proxies, another object and numbers: results agree with Lean                                                                                                                                                                |
 | `DraftSetMethods`         | `check-draft-set-methods-runtime.ts`        | the `Set` methods on plain and Vue reactive `Set` drafts, unwritten and with a working copy, over enumerated member and key lists, with each operand form (a `Set` from `current`, a `Set` of drafts, a `Set` draft and a set-like object): the members of each result agree with Lean                                                                                                                                     |
 | `CopyPrototype`           | `check-copy-prototype-runtime.ts`           | copies by `snapshot`, an object `reconcile` adds and a changed `produce` result, of arrays, maps, sets, dates, data views, URLs and parameters, each as its own instance and as a subclass instance: every copy keeps its source's prototype, and `serialize` accepts only the standard prototype, which `deserialize` restores                                                                                            |
 | `SeededRequirements`      | `check-seeded-requirements-runtime.ts`      | closure traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                    |

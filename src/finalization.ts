@@ -1,4 +1,4 @@
-import { isObject } from './object-property'
+import { isObject, markLike } from './object-property'
 import { ATOM_KIND, OBSERVED_ACCESSOR } from './constants'
 import { recognize } from './adapters/recognition'
 import type { DraftSession } from './draft-session'
@@ -205,8 +205,7 @@ export class Finalization extends Detached {
       return this.checkMaterialization(value, knownKind, traversal.visited)
     // A handle needs unwrapping whatever its base holds, which is checkMaterialization's first
     // answer; it needs no visited set.
-    const state = isObject(value) ? this.session.statesByIdentity.get(value) : undefined
-    if (state !== undefined && state.base !== value) return true
+    if (isObject(value) && this.session.statesByIdentity.get(value)?.handle === value) return true
     const visited = new Set<object>()
     const outer = this.unsettled
     this.unsettled = undefined
@@ -232,10 +231,11 @@ export class Finalization extends Detached {
     }
 
     // A handle needs unwrapping even when its base is unchanged. Do not cache
-    // this answer against the base: materializeState can still reuse that base.
-    const state = this.session.statesByIdentity.get(value)
+    // this answer against the base: materializeState can still reuse that base. Every view of a
+    // drafted object answers as its draft (DraftSession.stateOf).
+    const state = this.session.stateOf(value)
+    if (state?.handle === value) return true
     const base = state?.base ?? value
-    if (base !== value) return true
     const memo = this.phase.required
     if (this.materializationPlan?.closure.holds(base) === true) {
       return true
@@ -354,7 +354,13 @@ export class Finalization extends Detached {
 
   /** Memoizes a resolved object identity that needs no structural reuse analysis. */
   private recordLeaf(target: object, memoKey: object, leaf?: true): FinalizedReference {
-    const reference = { discoveredBy: undefined, layout: undefined, leaf, target }
+    const reference = {
+      discoveredBy: undefined,
+      layout: undefined,
+      leaf,
+      target,
+      viewOf: undefined,
+    }
     this.phase.values.set(memoKey, reference)
     return reference
   }
@@ -367,11 +373,9 @@ export class Finalization extends Detached {
 
     // A drafted value is memoized under its base, never under its handle, so its state is
     // found first and the memo is read once, by base.
-    const draftState = this.session.statesByIdentity.get(value)
+    const draftState = this.session.stateOf(value)
 
-    if (draftState !== undefined) {
-      return this.materializeState(draftState)
-    }
+    if (draftState !== undefined) return this.materializeDrafted(value, draftState)
 
     const memo = this.phase.values
     const cached = memo.get(value)
@@ -447,14 +451,14 @@ export class Finalization extends Detached {
       this.planSpecialClone(dependency)
       return true
     })
-    return this.recordLeaf(
-      policy.copy(
-        value,
-        (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
-        this.phase,
-      ),
+    const clone = policy.copy(
       value,
+      (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
+      this.phase,
     )
+    // A copy keeps the `markRaw` marker of the value it copies.
+    markLike(clone, value)
+    return this.recordLeaf(clone, value)
   }
 
   /**
@@ -488,6 +492,18 @@ export class Finalization extends Detached {
     )
     this.session.types.structural[kind].observeDraft(source, observer)
     return observer.record!
+  }
+
+  /**
+   * The reference of a slot that holds `value`, drafted as `state`. A Vue proxy and its raw object
+   * share one draft; a slot that holds another view of the drafted object than its base keeps that
+   * view where the result keeps the object.
+   */
+  private materializeDrafted(value: object, state: DraftState): object {
+    const reference = this.materializeState(state)
+    return value === state.base || value === state.handle
+      ? reference
+      : viewReference(value, reference as FinalizedReference)
   }
 
   /** Captures one draft state and records whether its slots need semantic resolution. */
@@ -665,6 +681,7 @@ class DraftObservation extends Detached implements PendingActivation {
       observed: undefined,
       settled: !this.active,
       target: this.target,
+      viewOf: undefined,
     }
     this.record = record
     this.values.set(this.memoKey, record)
@@ -688,7 +705,13 @@ class DraftObservation extends Detached implements PendingActivation {
       record.children.push(
         resolve
           ? finalization.materializeContainerSlot(value, currentBacked)
-          : { discoveredBy: undefined, layout: undefined, leaf: undefined, target: value },
+          : {
+              discoveredBy: undefined,
+              layout: undefined,
+              leaf: undefined,
+              target: value,
+              viewOf: undefined,
+            },
       )
     }
     // Attributes are indexed by slot: an object marks every slot, an array only its getters.
@@ -723,3 +746,12 @@ class DraftObservation extends Detached implements PendingActivation {
     return this.finalization.readTraversalProperty(value, key, this.state)
   }
 }
+
+/** A slot's view of an object whose reference another view holds (FinalizedReference.viewOf). */
+const viewReference = (target: object, of: FinalizedReference): FinalizedReference => ({
+  discoveredBy: undefined,
+  layout: undefined,
+  leaf: undefined,
+  target,
+  viewOf: of,
+})

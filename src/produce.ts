@@ -52,10 +52,10 @@ import { produceTypes } from './types/builtins'
  *
  * Vue reactive proxies of objects, arrays, maps and sets are supported. Their drafts are not
  * reactive: `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such
- * as `forEach` called on a draft receive drafts. When the recipe reaches both a Vue proxy and its
- * raw object, such as through a non-reactive object that holds both, they get separate drafts: a
- * change through one does not show through the other. When `current` holds both, the result holds a
- * new copy at one of their positions, even when the recipe changes neither.
+ * as `forEach` called on a draft receive drafts. A Vue proxy and its raw object are one object and
+ * have one draft. When the recipe does not change the object, the result keeps the proxy and the
+ * raw object where each was; when it does, the result holds one new object at each of their
+ * positions.
  *
  * Reading a value or writing an equal value back does not count as a change. During the recipe,
  * getters run on every read and assignments call setters with the draft as `this`; `Reflect.set`
@@ -109,9 +109,9 @@ import { produceTypes } from './types/builtins'
  *
  * Draft searches count an object and its draft as the same value: `includes`, `indexOf` and
  * `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as
- * `union` on a `Set` draft. In Vue reactive state, a reactive proxy and its raw object also count
- * as the same value. `===` in recipe code compares references, so compare such values with these
- * methods or by a key.
+ * `union` on a `Set` draft. A search for a Vue proxy also finds its raw object. In Vue reactive
+ * state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one. `===` in
+ * recipe code compares references, so compare such values with these methods or by a key.
  *
  * `Set` draft methods return this draft's members as drafts and an operand's values as the operand
  * gives them. An operand whose `has` is the built-in `Set` or `Map` method, or a Vue reactive `Set`

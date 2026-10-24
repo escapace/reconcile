@@ -1,14 +1,8 @@
 import { atomValue, isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
-import {
-  collectionIdentity,
-  ExposurePalette,
-  REACTIVE_MODE,
-  storageIdentity,
-  unwrappedKey,
-} from '../adapters/vue'
+import { ExposurePalette, REACTIVE_MODE, storageIdentity, unwrappedKey } from '../adapters/vue'
 import { EXPOSURE_MODES } from '../constants'
-import { isObject } from '../object-property'
+import { isObject, markCopy } from '../object-property'
 import type {
   Adapter,
   Binding,
@@ -146,6 +140,12 @@ export function publishGraph(
   const size = records.length
   const currents = graph.currents
   const occupants = graph.occupants
+  // A copy keeps the `markRaw` marker of the value it copies.
+  const marks = graph.marks
+  const mark = (index: number, target: object): void => {
+    const marker = marks?.get(index)
+    if (marker !== undefined) markCopy(target, marker)
+  }
   const policies = types.policies
   // Construction dependencies are sealed facts, listed on the first preparation.
   let dependencies: Array<readonly number[]> | undefined
@@ -168,7 +168,7 @@ export function publishGraph(
   const wrapper = (value: object, prototype?: object | null): boolean => {
     let owner = storages.get(value)
     if (owner === undefined) {
-      storages.set(value, (owner = collectionIdentity(value, prototype)))
+      storages.set(value, (owner = storageIdentity(value, prototype)))
       if (owner !== value) unshared = false
       ;(early ??= []).push(value)
     }
@@ -383,6 +383,7 @@ export function publishGraph(
           owners,
         )
         if (target === undefined) return undefined
+        mark(index, target)
         targets[index] = target
       }
     }

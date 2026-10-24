@@ -9,8 +9,10 @@ export type { PrototypeRead }
  * @internal
  */
 export interface DraftContext {
-  /** Each base and each handle, mapped to its draft state. */
+  /** Each base and each handle, and each other view of a drafted object, mapped to its state. */
   readonly statesByIdentity: WeakMap<object, DraftState>
+  /** The views of the object `state` drafts other than its base, such as its raw object. */
+  viewsOf: (state: DraftState) => readonly object[]
   /** Compares two values, treating a structural handle as its base. */
   isSameDraftValue: (currentValue: unknown, value: unknown) => boolean
   /** Returns the handle or special-value copy that a recipe read sees. */
@@ -65,6 +67,12 @@ export interface FinalizedReference<L extends Layout = Layout> {
   readonly leaf: boolean | undefined
   /** The mark of the identity compile that last discovered this reference. */
   discoveredBy: object | undefined
+  /**
+   * The reference of the object whose view, such as a Vue proxy or its raw object, `target` is,
+   * when the object's draft is another view's: the result shows `target` wherever it keeps the
+   * object.
+   */
+  readonly viewOf: FinalizedReference | undefined
 }
 
 /**
@@ -501,6 +509,9 @@ export interface CapturedGraph {
   readonly protectedStorage?: ReadonlySet<unknown>
   /** The prototype capture read of each node's aligned current object; undefined when unread. */
   readonly prototypes?: ReadonlyArray<object | null | undefined>
+  /** Vue's `markRaw` marker by node, for each node other than a plain object whose source holds
+   * one; a copy publication allocates defines it again. */
+  readonly marks?: ReadonlyMap<number, unknown>
 }
 
 /** Installs native layout state at the observer-defined begin boundary. */

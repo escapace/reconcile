@@ -214,6 +214,7 @@ function immutableSpecialFixture(variant: number): Fixture {
     },
     leaf: undefined,
     target: current,
+    viewOf: undefined,
   }
   if ((variant & 32) !== 0) Object.freeze(current)
   const fixture = {
@@ -253,6 +254,7 @@ function extensionImmutable(types: TypeRegistry, variant: number): Fixture {
     layout: { kind: CELL_KIND },
     leaf: undefined,
     target: cell,
+    viewOf: undefined,
   }
   if ((variant & 2) !== 0) cell.value = cell
   record.children.push((variant & 4) !== 0 ? record : variant % 2)

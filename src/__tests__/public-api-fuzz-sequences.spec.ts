@@ -224,14 +224,10 @@ describe('deterministic public API fuzz regressions', () => {
         assert.equal(next.parents[index].child, next.parents[0].child)
         assert.equal(next.parents[index] === current.parents[index], undo)
       }
-      assert.equal(next.wrapped === current.wrapped, !undo)
       assert.equal(next.parents[0].child.value, undo ? 0 : 1)
-      // An undone graph keeps all compatible parents and replaces the wrapper;
-      // a changed child instead rejects all those parent proposals.
-      const replacement = undo ? next.wrapped : next.parents[0].child
-      replacement.value = 7
-      assert.equal(shared.value, 0)
-      assert.equal(undo ? next.parents[0].child.value : next.wrapped.value, 0)
+      // A Vue proxy is a view of its raw object: an undone graph keeps the proxy with every
+      // parent, and a changed child is one new object at the proxy's position too.
+      assert.equal(next.wrapped, undo ? current.wrapped : next.parents[0].child)
     },
     60_000,
   )

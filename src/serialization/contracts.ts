@@ -47,6 +47,9 @@ export interface Decoder {
   allocate: (payload: Row, layout: number, context: DecodeContext, index: number) => unknown
 }
 export interface EncodeContext {
+  // The node the last `node` call found for an object that shares it with another view of its
+  // storage, such as a Vue proxy and its raw object, or -1.
+  alias: number
   bigints: Map<bigint, number> | undefined
   boundaries: number[]
   descriptors: number[]
@@ -62,6 +65,9 @@ export interface EncodeContext {
   shapes: string[][]
   stack: Frame[]
   top: number
+  // The objects whose node another view of their storage shares, such as a Vue proxy and its raw
+  // object; created on the first.
+  views: Set<object> | undefined
 }
 export interface Frame {
   active: boolean
@@ -90,6 +96,8 @@ export interface Frame {
   }
   tag: number
   value: object
+  // Whether `value` is a wrapper, such as a Vue reactive proxy, as `node` probed it.
+  wrapped: boolean
   detail?: number
   next: (...arguments_: unknown[]) => unknown
   // The built-in step of a fresh native iterator, called with the iterator; undefined otherwise.

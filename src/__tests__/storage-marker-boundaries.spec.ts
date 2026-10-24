@@ -1,8 +1,35 @@
 import { assert, it } from 'vitest'
+import { reactive, readonly } from 'vue'
 
 import { isReconcileError, isReconcileErrorOfType, produce, reconcile, snapshot } from '../index'
 
-it.each(['__v_raw', '__v_isReactive', '__v_isReadonly'] as const)(
+it('reads __v_raw with one [[Get]], running an application getter of that name', () => {
+  const raw = { n: 0 }
+  let reads = 0
+  const prototype = { __v_isReactive: false, __v_isReadonly: false }
+  const failures: Error[] = []
+  Object.defineProperty(prototype, '__v_raw', {
+    get() {
+      reads += 1
+      if (failures.length !== 0) throw failures[0]
+      return raw
+    },
+  })
+  const candidate = Object.assign(Object.create(prototype) as { n: number }, { n: 0 })
+  const current = { left: raw, right: candidate }
+  assert.equal(reconcile(current, { left: { n: 1 }, right: { n: 2 } }), current)
+  assert.isAbove(reads, 0)
+  // Without Vue's flags the object the getter returns is not candidate's storage.
+  assert.equal(current.left, raw)
+  assert.equal(current.right, candidate)
+  assert.equal(raw.n, 1)
+  assert.equal(candidate.n, 2)
+  // An error the getter throws propagates unchanged.
+  failures.push(new Error('marker'))
+  assert.throws(() => snapshot(current), failures[0])
+})
+
+it.each(['__v_isReactive', '__v_isReadonly'] as const)(
   'does not invoke an inherited application getter for %s while resolving storage',
   (marker) => {
     const raw = { n: 0 }
@@ -86,27 +113,26 @@ it('rejects a fresh target whose wrapper markers resolve to old storage', () => 
   assert.equal(current.a, old)
 })
 
-it('rejects two fresh targets whose wrapper markers resolve to one storage', () => {
-  const shared = { n: 0 }
-  const next = {
-    a: { n: 9 },
-    x: Object.assign(Object.create({ __v_isReactive: true, __v_raw: shared }) as object, { n: 1 }),
-    y: Object.assign(Object.create({ __v_isReadonly: true, __v_raw: shared }) as object, { n: 2 }),
-  }
-  rejected(() => reconcile({ a: { n: 9 } }, next))
+it('captures two wrappers of one raw object in next as one object', () => {
+  const raw = { n: 1 }
+  const next = { a: { n: 9 }, x: reactive(raw), y: readonly(raw) }
+  const current: Record<string, unknown> = { a: { n: 9 } }
+  reconcile(current, next)
+  // A Vue proxy is a view of its raw object: `current` holds one object at both positions.
+  assert.strictEqual(current.x, current.y)
+  assert.deepEqual(current.x, { n: 1 })
 })
 
-// A Map or Set is asked whether it is a Vue wrapper with fewer reads than an ordinary object, and
-// still never through an application getter of a marker.
+// A Map or Set is asked whether it is a Vue wrapper by the same one read as an ordinary object.
 it.each(['map', 'set'] as const)(
-  'does not invoke an inherited marker getter of a %s in any function',
+  'treats a %s with an inherited marker getter that returns no object as ordinary',
   (kind) => {
     let reads = 0
     const define = (prototype: object) =>
       Object.defineProperty(prototype, '__v_raw', {
         get() {
           reads += 1
-          throw new Error('Application marker getter was invoked')
+          return undefined
         },
       })
     class Marked extends Map<unknown, unknown> {}
@@ -125,7 +151,7 @@ it.each(['map', 'set'] as const)(
       else collection.add(3)
       return draft
     })
-    assert.equal(reads, 0)
+    assert.isAbove(reads, 0)
     assert.equal(current.collection, kept)
     assert.notEqual(copy.collection, kept)
     assert.equal(result.collection.size, kind === 'map' ? 2 : 3)

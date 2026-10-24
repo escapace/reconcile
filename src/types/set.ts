@@ -29,6 +29,7 @@ import {
   wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
+import { draftedForm } from './shared/draft-members'
 import {
   closeIterator,
   Detached,
@@ -69,6 +70,14 @@ const throughOwn = (state: SetDraftState, members: Set<unknown>): boolean =>
 /** Whether `set` holds `value`: through its own `has` when `own`, otherwise with the built-in. */
 const holds = (set: object, own: boolean, value: unknown): boolean =>
   own ? (set as Set<unknown>).has(value) : builtinSetHas(set, value)
+/** A native `Set` or `Map` operand and its `has`. */
+interface SetOperand {
+  readonly set: object
+  readonly has: (value: unknown) => boolean
+}
+/** Whether a native operand holds `value`, asked through its own `has`. */
+const operandHas = (operand: SetOperand, _: boolean, value: unknown): boolean =>
+  Boolean(Reflect.apply(operand.has, operand.set, [value]))
 
 const setPolicySurface = /* @__PURE__ */ collectionSurface({
   builtin: {
@@ -300,10 +309,12 @@ function otherForm(
 ): unknown {
   const drafted = context.statesByIdentity.get(value)
   if (drafted !== undefined) {
-    const { base, handle } = drafted
-    if (base !== value && holds(set, own, base)) return base
-    if (handle !== undefined && holds(set, own, handle)) return handle
+    const form = draftedForm(context, drafted, value, set, own, holds)
+    if (form !== undefined) return form
   }
+  // A Vue proxy of a member the Set holds is that member, as Vue's methods count it.
+  const storage = storageIdentity(value)
+  if (storage !== value && holds(set, own, storage)) return storage
   return copyForm(context, value, set, own)
 }
 
@@ -402,13 +413,11 @@ class SetCall extends Detached {
   // Declared and assigned in the constructor, as every internal class's fields are: a parameter
   // property or field initializer becomes a defineProperty call with the unrenamed name, which
   // the build's renamed reads would miss.
-  declare private operand:
-    { readonly set: object; readonly has: (value: unknown) => boolean } | undefined
+  declare private operand: SetOperand | undefined
   declare private operandVue: boolean | undefined
   declare readonly record: SetRecord
   declare private readonly snapshot: WrappedIndex
   declare readonly state: SetDraftState
-  declare private readonly vue: boolean
 
   constructor(state: SetDraftState, record: SetRecord) {
     super()
@@ -417,7 +426,6 @@ class SetCall extends Detached {
     this.record = record
     this.snapshot = { built: undefined, revision: 0, vue: undefined }
     this.state = state
-    this.vue = vueState(state)
   }
 
   /** Whether the operand is Vue reactive state, which counts a Vue proxy as its raw object. */
@@ -438,24 +446,26 @@ class SetCall extends Detached {
   inOperand(member: unknown): boolean {
     const { record, state } = this
     if (!isObject(member)) return Boolean(Reflect.apply(record.has, record.set, [member]))
-    const vue = this.wrapped() || this.vue
+    // Asking whether the operand is Vue reactive state settles `operand`.
+    this.wrapped()
     const { operand } = this
     if (operand === undefined)
       return Boolean(Reflect.apply(record.has, record.set, [draftChild(state, member)]))
-    // The member, the object it drafts, its draft and, in Vue reactive state, its raw object.
+    // The member, the forms of the object it drafts and, for a Vue proxy, its raw object.
+    if (operandHas(operand, false, member)) return true
     const drafted = state.context.statesByIdentity.get(member)
-    const base = drafted?.base ?? member
     if (
-      Reflect.apply(operand.has, operand.set, [member]) ||
-      Reflect.apply(operand.has, operand.set, [base])
+      drafted !== undefined &&
+      draftedForm(state.context, drafted, member, operand, false, operandHas) !== undefined
     )
       return true
-    const handle = drafted?.handle
-    if (handle !== undefined && Reflect.apply(operand.has, operand.set, [handle])) return true
+    const base = drafted?.base ?? member
     // The original or the copy of a special value counts as the value, as `copyForm` finds it.
     const form = state.context.copyBase(member) ?? state.context.copyOf(member)
     if (form !== undefined && Reflect.apply(operand.has, operand.set, [form])) return true
-    return vue && Reflect.apply(operand.has, operand.set, [storageIdentity(base)])
+    // The raw object of a Vue proxy, in any state.
+    const raw = storageIdentity(base)
+    return raw !== base && Reflect.apply(operand.has, operand.set, [raw])
   }
 
   /** The member of `members`, this draft's live members or a `snapshot` of them, that `value` is a

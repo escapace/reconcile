@@ -63,6 +63,7 @@ roots = [
   "Oracle.SettledChildrenOracle",
   "Produce.FoldedLeaves",
   "Produce.PromotedLeaves",
+  "Produce.StorageViews",
   "Produce.DraftMembers",
   "Oracle.DraftMembersOracle",
   "Produce.DraftSetMethods",

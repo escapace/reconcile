@@ -3,7 +3,7 @@ import { isObject } from '../object-property'
 import type { ExposureFacet, ExposureObservation, KeyedCollection } from '../types'
 import { Detached, isDataDescriptor } from '../standard-prototypes'
 
-/** Reads wrapper markers without invoking an accessor declared as application data. */
+/** Reads Vue's wrapper flags without invoking an accessor declared as application data. */
 function marker(value: object, key: string, prototype?: object | null): unknown {
   // Ordinary getters using these names are application data, not a wrapper protocol.
   // `Object.prototype` has an immutable prototype, null, so the walk ends there without a read.
@@ -27,6 +27,15 @@ function marker(value: object, key: string, prototype?: object | null): unknown 
 }
 
 /**
+ * Vue's raw object marker of `value`, read with one [[Get]].
+ *
+ * @remarks
+ * Every object is asked, so the read is an operator, which the engine caches per receiver shape;
+ * an application getter of that name runs. Vue's traps answer it without tracking a read.
+ */
+const rawOf = (value: object): unknown => (value as { readonly __v_raw?: unknown }).__v_raw
+
+/**
  * Resolves the backing object of recognized Vue wrappers for storage ownership checks.
  *
  * @remarks
@@ -38,27 +47,8 @@ function marker(value: object, key: string, prototype?: object | null): unknown 
  * @internal
  */
 export function storageIdentity(value: object, prototype?: object | null): object {
-  return resolveStorage(value, prototype, marker(value, '__v_raw', prototype))
-}
-
-/**
- * {@link storageIdentity} of a `Map` or `Set`, with fewer reads.
- *
- * @remarks
- * When no object on the collection's chain has `__v_raw`, which `in` asks without running a getter
- * and which Vue's collection proxies, trapping only reads, answer from their raw object, the marker
- * walk would end by reading `__v_raw`; that one read stands for the walk. Both are written as
- * operators, which the engine caches per receiver shape, not as `Reflect` calls, which it does not.
- * @internal
- */
-export function collectionIdentity(value: object, prototype?: object | null): object {
-  return resolveStorage(
-    value,
-    prototype,
-    '__v_raw' in value
-      ? marker(value, '__v_raw', prototype)
-      : (value as { readonly __v_raw?: unknown }).__v_raw,
-  )
+  const raw = rawOf(value)
+  return isObject(raw) && raw !== value ? resolveStorage(value, prototype, raw) : value
 }
 
 // Follows raw markers from `value`, whose own `__v_raw` marker is `first`.
@@ -84,7 +74,7 @@ function resolveStorage(
     if (seen.has(raw)) return value
     seen.add(raw)
     current = raw
-    raw = marker(current, '__v_raw')
+    raw = rawOf(current)
   }
   return current
 }
@@ -157,7 +147,7 @@ export function normalizeCollectionInsertion(
   // Reproduce exposure through the wrapper's own iterator and an isolated singleton.
   // Preserve shallow/readonly layers without importing Vue or writing live storage.
   const layers: object[] = [base]
-  for (let layer = marker(base, '__v_raw'); layer !== raw; layer = marker(layer, '__v_raw')) {
+  for (let layer = rawOf(base); layer !== raw; layer = rawOf(layer)) {
     if (!isObject(layer) || layers.includes(layer)) throw draftWrapperIdentityChanged()
     layers.push(layer)
   }
@@ -227,7 +217,7 @@ function classifyExposure(
   exposure: ExposureFacet,
 ): number | undefined {
   if (storage === value) return 0
-  const raw = marker(value, '__v_raw')
+  const raw = rawOf(value)
   const readonly = marker(value, '__v_isReadonly') === true
   const reactive = marker(value, '__v_isReactive') === true
   const shallow = shallowExposure(value, exposure)
@@ -236,7 +226,7 @@ function classifyExposure(
   if (
     !readonly ||
     !isObject(raw) ||
-    marker(raw, '__v_raw') !== storage ||
+    rawOf(raw) !== storage ||
     marker(raw, '__v_isReactive') !== true ||
     marker(raw, '__v_isReadonly') === true
   )

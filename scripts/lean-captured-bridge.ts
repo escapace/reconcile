@@ -86,7 +86,15 @@ function observeCaptured(fixture: Fixture): GraphObservation {
     return draft
   })
   const resultNodes = fixture.before.map((_, id) => at(result, id))
-  assert.equal(new Set(resultNodes).size, size, `${fixture.name}: distinct nodes collapsed`)
+  // Only a wrapper and its raw object, one object, can become one new object.
+  const raw = (id: number): number => fixture.wrappedOf?.[id] ?? id
+  resultNodes.forEach((node, id) => {
+    assert.equal(
+      raw(resultNodes.indexOf(node)),
+      raw(id),
+      `${fixture.name}: distinct nodes collapsed`,
+    )
+  })
   const identity = identityLabels(current, resultNodes, size, fixture.name)
   checkInputKept(fixture, current, resultNodes)
   return observeGraph(fixture.name, resultNodes, identity, (node, id) =>

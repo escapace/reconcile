@@ -131,8 +131,9 @@ theorem best_keeps (h : Promoted p q r) {k : Nat → Bool} (hk : Feasible p k)
     omega
 
 /-- A problem whose nodes are all fixed and which has no seed, the result kept whole, has one
-choice: keep everything, feasible exactly when the storages are distinct. The runtime answers it
-with the storage claims alone (`keptWhole` in `src/restore-identities.ts`). -/
+choice: keep everything, feasible exactly when the storages are distinct. Registration by storage
+makes them distinct (`StorageViews.folded_storages_nodup`), so `restoreIdentities` in
+`src/restore-identities.ts` keeps it without visiting it. -/
 theorem kept_whole {p : Problem} (hfix : ∀ i < p.size, p.fixed i = true)
     (hseed : ∀ s, p.seed s = false) (k : Nat → Bool) :
     Feasible p k ↔ (∀ i < p.size, k i = true) ∧

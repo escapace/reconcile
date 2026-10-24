@@ -1,5 +1,5 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
+import { reactive, toRaw } from 'vue'
 import { produce } from '../index'
 
 describe('finalization dependency propagation', () => {
@@ -93,8 +93,9 @@ for (const kind of ['date', 'buffer', 'typed array', 'data view'] as const) {
         const right = readSpecial[container](result.right.child)
         assert.equal(left, right)
         assert.equal(left, special)
-        result.left.n = 9
-        assert.equal(result.right.n, 0)
+        // A Vue proxy is a view of its raw object, so the result keeps both.
+        assert.equal(result.left, raw)
+        assert.equal(result.right, wrapped)
       },
     )
   }
@@ -123,8 +124,9 @@ it('keeps unchanged outside specials and their buffer aliases when another subtr
   assert.equal(result.view.buffer, result.buffer)
   assert.equal(result.view.byteOffset, 1)
   assert.equal(result.view.byteLength, 2)
-  result.left.n = 9
-  assert.equal(result.right.n, 0)
+  // A Vue proxy is a view of its raw object, so the result keeps both.
+  assert.equal(result.left, raw)
+  assert.equal(toRaw(result.right), raw)
 })
 
 it('keeps changed draft specials during ownership expansion', () => {
@@ -144,8 +146,8 @@ it('keeps changed draft specials during ownership expansion', () => {
   result.root.view[1] = 8
   assert.equal(current.date.getTime(), 0)
   assert.equal(current.view[1], 0)
-  result.left.n = 9
-  assert.equal(result.right.n, 0)
+  assert.equal(result.left, raw)
+  assert.equal(toRaw(result.right), raw)
 })
 
 it('keeps outside dates in a dormant container without extra container reads', () => {

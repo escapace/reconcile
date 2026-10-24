@@ -12,7 +12,7 @@ import type {
   SnapshotPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import { resolveWrappedCollectionMember, type WrappedIndex } from '../adapters/vue'
+import { resolveWrappedCollectionMember, storageIdentity, type WrappedIndex } from '../adapters/vue'
 import type { BaseDraftState, Edge, ExposureFacet, NativePolicy } from '../types'
 import { defineType } from './registry'
 import { collectionSurface, normalize } from './shared/collection'
@@ -29,6 +29,7 @@ import {
   wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
+import { draftedForm } from './shared/draft-members'
 import {
   builtinMapClear,
   builtinMapDelete,
@@ -280,11 +281,13 @@ function resolveMapKey(
 
   const drafted = context.statesByIdentity.get(key)
   if (drafted !== undefined) {
-    if (drafted.base !== key && readHas(source, wrapped, drafted.base)) return drafted.base
-    const handle = drafted.handle
-    if (handle !== undefined && readHas(source, wrapped, handle)) return handle
+    const form = draftedForm(context, drafted, key, source, wrapped, readHas)
+    if (form !== undefined) return form
     key = drafted.base
   }
+  // A Vue proxy of a key the Map holds is that key, as Vue's methods count it.
+  const storage = storageIdentity(key as object)
+  if (storage !== key && readHas(source, wrapped, storage)) return storage
   // A copy that a read of a `Date`, buffer, view or URL made counts as its original, as a draft does.
   const copied = context.copyBase(key as object) ?? context.copyOf(key as object)
   if (copied !== undefined && readHas(source, wrapped, copied)) return copied

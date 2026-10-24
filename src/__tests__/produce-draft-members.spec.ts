@@ -1,5 +1,5 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
+import { reactive, shallowReactive } from 'vue'
 import { produce } from '../index'
 
 // Where a draft decides membership, it compares member identities: a draft counts as the object
@@ -105,14 +105,24 @@ describe('array drafts find an object in any of its forms', () => {
     })
   })
 
-  it('counts a Vue proxy as its raw object only in Vue reactive state', () => {
+  it('finds the raw object of a Vue proxy, and every object that shares its draft', () => {
     const item = { id: 1 }
     produce({ items: [item] }, (draft) => {
-      assert.isFalse(draft.items.includes(reactive(item)))
+      assert.isTrue(draft.items.includes(reactive(item)))
+      assert.equal(draft.items.indexOf(shallowReactive(item)), 0)
       return draft
     })
-    produce(reactive({ items: [item] }), (draft) => {
+    // The proxy is drafted first, and `item` shares its draft.
+    produce({ items: [reactive(item), 1, item] }, (draft) => {
+      assert.equal(draft.items[0], draft.items[2])
+      assert.equal(draft.items.indexOf(item), 0)
+      assert.equal(draft.items.lastIndexOf(item), 2)
+      assert.equal(draft.items.lastIndexOf(shallowReactive(item)), 2)
+      return draft
+    })
+    produce(reactive({ items: [item], proxied: [reactive(item)] }), (draft) => {
       assert.isTrue(draft.items.includes(reactive(item)))
+      assert.isTrue(draft.proxied.includes(item))
       return draft
     })
   })

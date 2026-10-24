@@ -18,6 +18,7 @@ function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLay
     layout: { hidden: undefined, kind: OBJECT_KIND, prototype: Object.prototype, slots: undefined },
     leaf: undefined,
     target,
+    viewOf: undefined,
   }
 }
 

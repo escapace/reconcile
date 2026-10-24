@@ -47,7 +47,7 @@ describe('finite Vue exposure certification', () => {
     expect(palette.observe(second)).toBeUndefined()
   })
 
-  it('does not evaluate application accessor markers', () => {
+  it('reads an application accessor raw marker once and needs Vue flags too', () => {
     let reads = 0
     const value = {
       get __v_raw() {
@@ -56,6 +56,6 @@ describe('finite Vue exposure certification', () => {
       },
     }
     expect(exposureMode(value)).toBe(0)
-    expect(reads).toBe(0)
+    expect(reads).toBe(1)
   })
 })

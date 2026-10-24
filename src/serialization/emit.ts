@@ -5,6 +5,7 @@ import { encodeFail as fail } from './common'
 import { keyed } from './layout'
 import { intern, lookup } from './radix'
 import { sparseArray } from '../standard-prototypes'
+import { storageIdentity } from '../adapters/vue'
 // Positional.lean encodeSlots / layoutOf: every value position is a slot. Its kind, literal or
 // reference, is recorded only where it changes, as the run boundary at the slot's position.
 export function slot(frame: Frame, item: unknown, context: EncodeContext): void {
@@ -101,24 +102,56 @@ export function layout(
 // Identity is reserved on discovery; containers push a frame, leaves are captured at once.
 export function node(item: object, context: EncodeContext): number {
   let id = context.ids.get(item)
-  if (id === undefined) {
-    const { descriptors, payloads } = context
-    id = payloads.length
-    context.ids.set(item, id)
-    payloads.push(undefined)
-    descriptors.push(-1)
-    const kind = recognize(item)
-    const captureLeaf = leafCaptures[kind.tag]
-    if (captureLeaf === undefined) context.stack.push(frame(id, kind.tag, kind.detail, item))
-    else {
-      payloads[id] = captureLeaf(item, context, kind.detail)
-      descriptors[id] = layout(kind.tag, kind.detail, -1, context)
-    }
+  if (id !== undefined) {
+    // An object whose node another view of its storage shares is found through that view too.
+    if (context.views?.has(item) === true) context.alias = id
+    return id
+  }
+  const prototype = Object.getPrototypeOf(item) as object | null
+  const kind = recognize(item, prototype)
+  // A Vue proxy is a view of its raw object, so the two are one node. Vue proxies only objects,
+  // arrays, maps and sets.
+  const storage =
+    kind.tag <= 2 || kind.tag === 4 || kind.tag === 5 ? storageIdentity(item, prototype) : item
+  if (storage !== item) {
+    id = viewOf(item, storage, context)
+    if (id !== undefined) return id
+  }
+  const { descriptors, payloads } = context
+  id = payloads.length
+  context.ids.set(item, id)
+  payloads.push(undefined)
+  descriptors.push(-1)
+  if (storage !== item) {
+    context.ids.set(storage, id)
+    ;(context.views ??= new Set()).add(item).add(storage)
+  }
+  const captureLeaf = leafCaptures[kind.tag]
+  if (captureLeaf === undefined)
+    context.stack.push(frame(id, kind.tag, kind.detail, item, storage !== item))
+  else {
+    payloads[id] = captureLeaf(item, context, kind.detail)
+    descriptors[id] = layout(kind.tag, kind.detail, -1, context)
   }
   return id
 }
+// The node of a Vue proxy `item` whose raw object `storage` is already encoded, or undefined.
+function viewOf(item: object, storage: object, context: EncodeContext): number | undefined {
+  const id = context.ids.get(storage)
+  if (id === undefined) return undefined
+  context.ids.set(item, id)
+  ;(context.views ??= new Set()).add(item).add(storage)
+  context.alias = id
+  return id
+}
 // Every frame starts with one field layout so the traversal stays monomorphic.
-export function frame(id: number, tag: number, detail: number | undefined, value: unknown): Frame {
+export function frame(
+  id: number,
+  tag: number,
+  detail: number | undefined,
+  value: unknown,
+  wrapped: boolean,
+): Frame {
   return {
     active: false,
     child: undefined,
@@ -142,5 +175,6 @@ export function frame(id: number, tag: number, detail: number | undefined, value
     step: undefined,
     tag,
     value,
+    wrapped,
   } as unknown as Frame
 }

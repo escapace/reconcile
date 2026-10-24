@@ -9,7 +9,7 @@ import { leafCaptures } from './leaf'
 import { lengths } from './layout'
 import { node, slot } from './emit'
 import { intern } from './radix'
-import { wrappedCollection } from '../types/shared/draft-collection'
+import { withoutRawMarker } from '../object-property'
 import {
   openBuiltin,
   closeIteratorAfterThrow,
@@ -86,7 +86,7 @@ function map(frame: Frame, context: EncodeContext) {
     frame.row = []
     // The built-in iterator, fresh and native; a wrapper, such as a Vue reactive proxy, is walked
     // as `for...of` over its `entries()` walks it.
-    if (wrappedCollection(frame.value)) {
+    if (frame.wrapped) {
       const method = (frame.value as { entries?: unknown }).entries
       frame.native = method === nativeMapEntries
       iterator(frame, Reflect.apply(method as () => Iterable<unknown>, frame.value, []))
@@ -114,7 +114,7 @@ function map(frame: Frame, context: EncodeContext) {
       key = pair[0]
       value = pair[1]
     }
-    slot(frame, key, context)
+    member(frame, key, context, 2)
     if (pushed(frame, context)) {
       frame.mapValue = value
       frame.phase = 2
@@ -140,9 +140,13 @@ function next(frame: Frame) {
 }
 function record(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
-    frame.keys = Object.getOwnPropertyNames(frame.value)
-    // deserialize restores enumerable properties only, so a hidden one is rejected, not revealed.
-    if (Object.keys(frame.value).length !== frame.keys.length) fail('non-enumerable property')
+    let names = Object.getOwnPropertyNames(frame.value)
+    const enumerable = Object.keys(frame.value).length
+    // Vue's `markRaw` marker is metadata, not data, and is not encoded. deserialize restores
+    // enumerable properties only, so any other hidden property is rejected, not revealed.
+    if (enumerable !== names.length) names = withoutRawMarker(frame.value, names)
+    if (enumerable !== names.length) fail('non-enumerable property')
+    frame.keys = names
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
     frame.row = []
@@ -160,15 +164,38 @@ function record(frame: Frame, context: EncodeContext) {
 function set(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
-    if (wrappedCollection(frame.value)) iterator(frame, (frame.value as Set<unknown>).values())
+    if (frame.wrapped) iterator(frame, (frame.value as Set<unknown>).values())
     else builtinIterator(frame, frame.value, false)
     frame.phase = 1
   }
   while (next(frame)) {
-    slot(frame, frame.child, context)
+    member(frame, frame.child, context, 1)
     if (pushed(frame, context)) return false
   }
   return true
+}
+// Encodes a key of a Map, whose entries are `width` 2 slots wide, or a member of a Set, `width` 1.
+function member(frame: Frame, value: unknown, context: EncodeContext, width: number): void {
+  context.alias = -1
+  slot(frame, value, context)
+  if (context.alias >= 0) heldTwice(frame, context, width)
+}
+// A Vue proxy is a view of its raw object, so the two are one node; a Map or Set that holds both as
+// two keys or members, which deserialize cannot restore, is rejected. The key just encoded is the
+// node `context.alias`; an earlier key is the same node when it is a reference slot with that id.
+function heldTwice(frame: Frame, context: EncodeContext, width: number): void {
+  const { boundaries, top } = context
+  const row = frame.row
+  let reference = false
+  let boundary = frame.runs < 0 ? top : frame.runs
+  for (let index = 0; index < row.length - 1; index += 1) {
+    while (boundary < top && boundaries[boundary] <= index) {
+      reference = !reference
+      boundary += 1
+    }
+    if (reference && index % width === 0 && row[index] === context.alias)
+      fail('Vue proxy and its raw object as two keys or members')
+  }
 }
 function startArray(frame: Frame) {
   if (!Array.isArray(frame.value)) fail('array brand')

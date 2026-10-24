@@ -282,12 +282,12 @@ describe('Set draft methods follow the native algorithms', () => {
     })
   })
 
-  it('counts a Vue proxy as its raw object only in Vue reactive state', () => {
+  it('finds the raw object of a Vue proxy, and a proxy only in Vue reactive state', () => {
     const member = { n: 1 }
     const proxy = reactive(member)
-    produce({ tags: new Set([member]) }, (draft) => {
-      assert.isFalse(draft.tags.has(proxy))
-      assert.equal(draft.tags.intersection(new Set([proxy])).size, 0)
+    produce({ proxied: new Set([proxy]), tags: new Set([member]) }, (draft) => {
+      assert.isTrue(draft.tags.has(proxy))
+      assert.isFalse(draft.proxied.has(member))
       return draft
     })
     produce(reactive({ tags: new Set([member]) }), (draft) => {

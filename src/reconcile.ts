@@ -65,9 +65,11 @@ import { publicationTypes } from './types/builtins'
  * the same as if it had been updated. This does not apply to an object that refers to `current` or
  * `next` at any depth; such an object is updated like any other.
  *
- * Vue reactive proxies are supported. When `current` holds a proxy and its raw object at different
- * positions and `next` does not hold those same objects there, `reconcile` keeps at most one of
- * them and gives the other position a new object, because a write through one changes the other.
+ * Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for
+ * one object at two positions applies to them. When `current` holds both and `next` holds that
+ * object or one new object at each of their positions, `reconcile` keeps the object and writes the
+ * same one of the two at each position, unless `next` holds at every position the one `current`
+ * already holds there.
  *
  * @example
  * ```ts

@@ -165,16 +165,14 @@ describe('compact immutable selection', () => {
     expect(current.n).toBe(0)
   })
 
-  it('does not retain two distinct Vue wrappers sharing writable storage', () => {
+  it('keeps two Vue wrappers of one raw object, which are one object', () => {
     const raw = { n: 0 }
     const a = reactive(raw)
     const b = shallowReactive(raw)
     const current = { a, b }
     const result = produce(current, (draft) => draft)
-    expect(result).not.toBe(current)
-    expect(result.a).toBe(a)
-    expect(result.b).not.toBe(b)
-    expect(storageIdentity(result.a)).not.toBe(storageIdentity(result.b))
+    expect(result).toBe(current)
+    expect(storageIdentity(result.a)).toBe(storageIdentity(result.b))
     expect(raw.n).toBe(0)
   })
 

@@ -14,13 +14,16 @@ it('encodes Vue wrappers as the data they expose', () => {
   assert.equal(encodeText(reactive(set)), encodeText(set))
 })
 
-it('restores plain data, and keeps a wrapper and its raw object as two objects', () => {
+it('restores plain data, and restores a wrapper and its raw object as one object', () => {
   const raw = { x: 1 }
   const copy = decodeText(encodeText({ raw, wrapped: reactive(raw) })) as Record<string, object>
   assert.isFalse(isReactive(copy))
   assert.isFalse(isReactive(copy.wrapped))
-  assert.notEqual(copy.raw, copy.wrapped)
-  assert.deepEqual(copy.raw, copy.wrapped)
+  assert.equal(copy.raw, copy.wrapped)
+  assert.deepEqual(copy.raw, { x: 1 })
+  const reversed = decodeText(encodeText([readonly(raw), raw, reactive(raw)])) as object[]
+  assert.equal(reversed[0], reversed[1])
+  assert.equal(reversed[1], reversed[2])
 })
 
 it('reads through the wrappers, so an enclosing effect tracks what it encoded', () => {

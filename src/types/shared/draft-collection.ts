@@ -1,5 +1,5 @@
 import { hasOwn, isObject } from '../../object-property'
-import { collectionIdentity, normalizeCollectionInsertion } from '../../adapters/vue'
+import { normalizeCollectionInsertion, storageIdentity } from '../../adapters/vue'
 import type { BaseDraftState, ExposureFacet } from '../../types'
 import {
   defineData,
@@ -149,7 +149,7 @@ export function draftCollectionBase(
  * instance of a subclass, is read and written with the built-ins, so no override runs.
  */
 export const wrappedCollection = (collection: object, prototype?: object | null): boolean =>
-  collectionIdentity(collection, prototype) !== collection
+  storageIdentity(collection, prototype) !== collection
 
 /**
  * Calls `each` with the value and key of every entry of a `Map`, in order: through its own

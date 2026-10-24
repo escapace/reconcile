@@ -98,7 +98,7 @@ it.each([
   assert.equal([...result.set][0], [...current.set][0])
 })
 
-it.each([false, true])('separates shallow collection storage after undo = %s', (undo) => {
+it.each([false, true])('keeps shallow collections and their key after undo = %s', (undo) => {
   const key = { n: 0 }
   const current = {
     key: shallowReactive(key),
@@ -114,20 +114,12 @@ it.each([false, true])('separates shallow collection storage after undo = %s', (
     }
     return draft
   })
-  // Retaining the raw key, Map, and Set preserves three identities. Keeping
-  // the earlier shallow key wrapper would unnecessarily replace all three.
-  assert.notEqual(result.key, current.key)
-  assert.equal(result.map, current.map)
-  assert.equal(result.set, current.set)
-  const resultKey = [...result.map.keys()][0]
-  assert.equal([...result.set][0], resultKey)
-  assert.equal(result.map.get(resultKey), 1)
-  assert.equal(resultKey, key)
-  result.key.n = 9
-  assert.equal(resultKey.n, 0)
+  // A Vue proxy is a view of its raw object, so the shallow key proxy and the raw key the
+  // collections hold are one object, which the result keeps as each position held it.
+  assert.equal(result, current)
+  assert.equal([...result.map.keys()][0], key)
+  assert.equal([...result.set][0], key)
   assert.equal(key.n, 0)
-  assert.equal([...current.map.keys()][0], key)
-  assert.equal([...current.set][0], key)
 })
 
 it('shares inserted Map keys, values, Set members, and property drafts', () => {
@@ -283,31 +275,33 @@ it.each(['throw', 'empty', 'wrong', 'extra'] as const)(
   },
 )
 
-it('keeps raw and wrapped identities distinct in ordinary collections', () => {
+it('rejects a change to an object that an ordinary collection holds as itself and its proxy', () => {
   const raw = { n: 0 }
   const wrapped = reactive(raw)
   const current = {
-    map: new Map<object, number>(),
+    map: new Map<object, number>([
+      [raw, 1],
+      [wrapped, 2],
+    ]),
     raw,
-    set: new Set<object>(),
+    set: new Set<object>([raw, wrapped]),
     wrapped,
   }
-  const result = produce(current, (draft) => {
-    draft.map.set(raw, 1)
-    draft.map.set(wrapped, 2)
-    draft.set.add(raw)
-    draft.set.add(wrapped)
+  // Unchanged, the two keys and members stay as the collections hold them.
+  const kept = produce(current, (draft) => {
     draft.raw.n = 3
+    draft.raw.n = 0
     return draft
   })
-  assert.equal(result.map.size, 2)
-  assert.equal(result.set.size, 2)
-  assert.equal(result.map.get(result.raw), 1)
-  assert.equal(result.map.get(result.wrapped), 2)
-  assert.isTrue(result.set.has(result.raw))
-  assert.isTrue(result.set.has(result.wrapped))
-  assert.notEqual(result.raw, result.wrapped)
-  assert.equal(result.raw.n, 3)
-  assert.equal(result.wrapped.n, 0)
+  assert.equal(kept, current)
+  // Changed, the proxy and its raw object are one new object, which a Map or Set holds once.
+  assert.throws(
+    () =>
+      produce(current, (draft) => {
+        draft.raw.n = 3
+        return draft
+      }),
+    ReconcileError,
+  )
   assert.equal(raw.n, 0)
 })

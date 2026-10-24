@@ -27,9 +27,9 @@ it('keeps an unchanged subtree whose object the recipe moves elsewhere as itself
   assert.strictEqual(result.changed.copy, moved)
 })
 
-it('copies an unchanged subtree holding a Vue proxy and its raw object', () => {
-  // Both share one storage, which the result can keep only once: the raw object stays, the
-  // proxy becomes a plain copy, and an unrelated unchanged sibling stays itself.
+it('keeps an unchanged subtree holding a Vue proxy and its raw object', () => {
+  // A Vue proxy is a view of its raw object, so the two are one object, which the result keeps at
+  // both positions as each held it.
   const raw = { n: 0 }
   const kept = { raw, wrapped: reactive(raw) }
   assert.strictEqual(toRaw(kept.wrapped), raw)
@@ -38,9 +38,8 @@ it('copies an unchanged subtree holding a Vue proxy and its raw object', () => {
     draft.changed.n = 1
     return draft
   })
-  assert.notStrictEqual(result.kept, kept)
+  assert.strictEqual(result.kept, kept)
   assert.strictEqual(result.kept.raw, raw)
-  assert.notStrictEqual(result.kept.wrapped, kept.wrapped)
-  assert.notStrictEqual(toRaw(result.kept.wrapped), raw)
+  assert.strictEqual(result.kept.wrapped, kept.wrapped)
   assert.strictEqual(result.other, current.other)
 })

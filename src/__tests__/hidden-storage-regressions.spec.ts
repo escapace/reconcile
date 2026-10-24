@@ -45,7 +45,9 @@ it('does not lose caller publication edits through a raw and Vue-wrapped sibling
       return draft
     }),
   )
-  assert.deepEqual(snapshot(result), { left: { value: 1 }, right: { value: 0 } })
+  // A Vue proxy is a view of its raw object, so the change shows at both positions.
+  assert.deepEqual(snapshot(result), { left: { value: 1 }, right: { value: 1 } })
+  assert.equal(result.left, raw)
 })
 
 it.each([
