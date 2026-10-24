@@ -76,12 +76,12 @@ import { produceTypes } from './types/builtins'
  *
  * A draft follows its object's property attributes and extensibility: a read-only property refuses
  * writes, a non-configurable one refuses deletion and a non-extensible object, such as a sealed
- * one, refuses new properties, so a frozen object in `current` cannot be changed through its draft;
- * pass `snapshot(state)` to change frozen state. In the result, a changed object other than a
- * `Date`, buffer, view, URL or `URLSearchParams` value keeps its extensibility, a changed object
- * other than an array keeps the attributes of its existing data properties, and properties the
- * recipe adds are writable, enumerable and configurable. A frozen object other than an array,
- * without getters, that is rebuilt because a child changed is therefore frozen.
+ * one, refuses new properties, so the properties of a frozen object in `current` cannot be changed
+ * through its draft; pass `snapshot(state)` to change frozen state. In the result, a changed object
+ * other than a `Date`, buffer, view, URL or `URLSearchParams` value keeps its extensibility, a
+ * changed object other than an array keeps the attributes of its existing data properties, and
+ * properties the recipe adds are writable, enumerable and configurable. A frozen object other than
+ * an array, without getters, that is rebuilt because a child changed is therefore frozen.
  *
  * After the recipe returns, each own getter in the result is called once, in depth-first order. An
  * object that the recipe did not change, and whose getters returned values the result keeps, stays

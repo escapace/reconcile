@@ -598,14 +598,20 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 ### All operations
 
+- **Frozen contents.** `PropertyWrite` takes attributes and extensibility for properties only;
+  `CollectionPlan` and the time, bytes and text of dates, buffers, views and URLs have no such
+  input, because the built-in methods change them on a frozen value too. The runtime checks a
+  frozen built-in's properties, keeps it and updates its contents in place, and a `produce` draft
+  changes them in its copy; `standard-prototypes.spec.ts` checks both in each hardened runtime.
 - **Intrinsic independence.** The models have no prototypes, so the runtime's own records, tables,
   descriptors, errors and loops must not reach `Object.prototype` or `Array.prototype`; see
   [AGENTS.md](../AGENTS.md) and `src/standard-prototypes.ts`. The `Uint8Array` base64 methods and
   the global `Temporal` are read as own properties. Built-in methods captured when the module
   loads are read through `builtinValue`, which calls the getter a hardened runtime puts in place
   of a method, and are called with an explicit receiver; `standard-prototypes.spec.ts` runs every
-  function on every value kind under `node --frozen-intrinsics` and requires the outcomes of an
-  ordinary runtime. A Vue collection proxy, whose contents are not read with the built-ins, is
+  function on every value kind under `node --frozen-intrinsics` and under SES `lockdown()` with
+  default and severe override taming, importing the library before and after it, and requires the
+  outcomes of an ordinary runtime. A Vue collection proxy, whose contents are not read with the built-ins, is
   walked with the `for...of` and destructuring protocol (`stepIterator`, `entryPair`,
   `closeIterator`), except that a `return` only `Object.prototype` holds is neither read nor
   called; a `Set` method operand's keys are stepped as the specification steps them and closed in

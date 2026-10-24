@@ -86,9 +86,9 @@ import { publicationTypes } from './types/builtins'
  * @throws {@link ReconcileError} with type `PublicationRejected` when `current` cannot be made to
  * match `next`. Causes include `current` and `next` having different types, such as an object and
  * an array; `current` itself being a changed Temporal value, which is immutable and cannot be
- * updated in place; and `current` itself blocking a change by being non-extensible or by having a
- * read-only non-configurable property, a non-configurable property that `next` lacks, a getter
- * without a setter, a setter that does not store its value, a proxy trap that refuses the
+ * updated in place; and `current` itself blocking a change to a property by being non-extensible or
+ * by having a read-only non-configurable property, a non-configurable property that `next` lacks,
+ * a getter without a setter, a setter that does not store its value, a proxy trap that refuses the
  * assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would
  * have to move to reach the key order of `next`, or a value that another property's setter changes
  * during the call. Inside `current`, such an object is replaced by a new one instead. At any depth,

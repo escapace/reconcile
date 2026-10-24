@@ -26,6 +26,7 @@
     "lefthook": "2.2.0",
     "prettier": "3.9.9",
     "prettier-config-escapace": "1.2.2",
+    "ses": "2.3.0",
     "syncpack": "15.3.3",
     "tinybench": "6.2.1",
     "tsx": "4.23.15",
