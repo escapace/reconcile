@@ -24,6 +24,11 @@ rev = "v4.28.0"
 name = "Reconcile"
 srcDir = "lean"
 roots = [
+  "Spec.Graph",
+  "Spec.Reconcile",
+  "Spec.Produce",
+  "Spec.Promises",
+  "Oracle.SpecOracle",
   "Serialization.Collection",
   "Oracle.SerializationCollectionOracle",
   "Serialization.DFS",

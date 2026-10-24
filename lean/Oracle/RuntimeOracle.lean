@@ -26,6 +26,7 @@ import Oracle.FactRenamingOracle
 import Oracle.DeferredOrderOracle
 import Oracle.SelectionUnwindOracle
 import Oracle.PrunedOracle
+import Oracle.SpecOracle
 
 /-! Sequential JSON-line requests share one imported Lean environment.
 Oracle output remains unchanged. A record-separator line terminates each response;
@@ -73,6 +74,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "FactRenaming" => FactRenamingOracle.run request.args
   | "DeferredOrder" => DeferredOrderOracle.run request.input
   | "SelectionUnwind" => SelectionUnwindOracle.run request.input
+  | "Spec" => SpecOracle.run request.input
   | "Pruned" =>
     if (← PrunedOracle.run request.args) != 0 then throw (IO.userError "Pruned oracle failed")
   | _ => throw (IO.userError s!"Unknown oracle family: {request.family}")

@@ -6,6 +6,7 @@ import { checkOwnedNativeChildRuntime } from './check-owned-native-child-runtime
 import { checkCapturedRuntime } from './lean-captured-bridge'
 import { checkPolicyRuntime } from './lean-policy-bridge'
 import { checkPrunedRuntime } from './lean-pruned-bridge'
+import { checkSpecGate } from './lean-spec-bridge'
 import { startOracle } from './lean-oracle'
 
 const oracle = await startOracle()
@@ -25,6 +26,7 @@ try {
   await checkOwnedNativeChildRuntime(oracle.run)
   await checkSerializationRuntime(oracle.run)
   await checkSerializationCollectionRuntime(oracle.run)
+  await checkSpecGate(oracle.run)
   // Bound a response before a whole oversized line can accumulate. Shutdown must
   // preserve the original diagnostic rather than mask it with the killed exit code.
   await assert.rejects(oracle.run('Contract', [], { maxBuffer: 1 }), /output exceeds 1 bytes/)
