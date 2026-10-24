@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive, toRaw } from 'vue'
 import { reconcile, ReconcileError } from '../index'
 
 describe('identical-occupant pruning', () => {
@@ -99,29 +98,6 @@ describe('identical-occupant pruning', () => {
     assert.equal(shared.n, 0)
     assert.notEqual(current.a, shared)
     assert.equal(current.a.n, 5)
-  })
-
-  it('does not pin a raw object against its reactive wrapper', () => {
-    const raw = { inner: { m: 0 }, n: 0 }
-    const current = reactive({ child: raw, counter: 0 })
-    const wrapped = current.child
-    assert.notEqual(wrapped, raw)
-    const result = reconcile(current, { child: raw, counter: 1 })
-    assert.equal(result, current)
-    assert.equal(toRaw(current.child), raw)
-    assert.equal(current.child, wrapped)
-    assert.equal(current.counter, 1)
-  })
-
-  it('pins a reactive child against the same reactive wrapper', () => {
-    const current = reactive({ child: { inner: { m: 0 }, n: 0 }, counter: 0 })
-    const wrapped = current.child
-    const inner = wrapped.inner
-    const result = reconcile(current, { child: wrapped, counter: 1 })
-    assert.equal(result, current)
-    assert.equal(current.child, wrapped)
-    assert.equal(current.child.inner, inner)
-    assert.equal(current.counter, 1)
   })
 
   it('never writes into a frozen pinned subtree', () => {

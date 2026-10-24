@@ -223,7 +223,6 @@ it('finds a site in the library for every text-matched counter', () => {
     'selection.supportRequirementVisits',
     'selection.trailRestores',
     'selection.trailWrites',
-    'storage.probes',
   ]
   expect(textMatched.filter((key) => !found.has(key))).toEqual([])
   expect([...(found.get('observation.events') ?? [])].toSorted()).toEqual([

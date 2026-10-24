@@ -16,8 +16,6 @@ export const RECONCILE_ERROR_TYPES = [
   'DraftArrayIndexRejected',
   'DraftArrayLengthRejected',
   'DraftDefinePropertyUnsupported',
-  'DraftWrapperIdentityChanged',
-  'DraftWrapperIteratorMismatched',
   'FinalizationAccessorUnstable',
   'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
@@ -25,7 +23,6 @@ export const RECONCILE_ERROR_TYPES = [
   'PublicationRejected',
   'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible',
-  'SnapshotWrapperKeyDuplicated',
 ] as const
 
 /** The `type` of a {@link ReconcileError}: one of {@link RECONCILE_ERROR_TYPES}. */
@@ -71,18 +68,6 @@ export interface ReconcileErrorMetadata {
    */
   DraftDefinePropertyUnsupported: { property: PropertyKey }
   /**
-   * A reactive proxy of a `Map` or `Set` reported a different raw object while the recipe was
-   * adding an entry to its draft.
-   */
-  // eslint-disable-next-line typescript/no-empty-object-type
-  DraftWrapperIdentityChanged: {}
-  /**
-   * A reactive proxy of a `Map` or `Set` reported keys or members that do not include exactly the
-   * one just added.
-   */
-  // eslint-disable-next-line typescript/no-empty-object-type
-  DraftWrapperIteratorMismatched: {}
-  /**
    * A getter that ran after the recipe returned added a new getter to a part of the result that
    * `produce` had already visited, so `produce` cannot call it. `property` is the new getter's key.
    */
@@ -94,8 +79,7 @@ export interface ReconcileErrorMetadata {
   FinalizationChildInvalid: { child: unknown; index: number }
   /**
    * No consistent result exists: the new objects cannot be created in any order, or a `Map` or
-   * `Set` would hold one new object as two keys or members, as when it holds a Vue proxy and its
-   * raw object and the recipe changes that object.
+   * `Set` would hold one new object as two keys or members.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   FinalizationConstructionImpossible: {}
@@ -122,12 +106,6 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   SnapshotURLSearchParamsMemoIncompatible: {}
-  /**
-   * A `Map` or `Set` in the value holds a raw object and a Vue proxy of it, or two Vue proxies of
-   * one raw object, as two keys or members; they are one object, so a copy cannot hold both.
-   */
-  // eslint-disable-next-line typescript/no-empty-object-type
-  SnapshotWrapperKeyDuplicated: {}
 }
 
 /** The `cause` of a {@link ReconcileError}: its `type` and that type's properties. */
@@ -220,18 +198,6 @@ export const draftDefinePropertyUnsupported = (property: PropertyKey) =>
     `Draft property ${key(property)} cannot be defined; use assignment instead.`,
   )
 
-export const draftWrapperIdentityChanged = () =>
-  new ReconcileError(
-    { type: 'DraftWrapperIdentityChanged' },
-    'A reactive Map or Set proxy reported a different raw object while an entry was added.',
-  )
-
-export const draftWrapperIteratorMismatched = () =>
-  new ReconcileError(
-    { type: 'DraftWrapperIteratorMismatched' },
-    'A reactive Map or Set proxy did not return exactly the key or member just added.',
-  )
-
 export const finalizationAccessorUnstable = (property: PropertyKey) =>
   new ReconcileError(
     { property, type: 'FinalizationAccessorUnstable' },
@@ -263,12 +229,6 @@ export const snapshotURLSearchParametersMemoIncompatible = () =>
   new ReconcileError(
     { type: 'SnapshotURLSearchParamsMemoIncompatible' },
     "The seen map supplies a copy of a URL's searchParams but not of the URL.",
-  )
-
-export const snapshotWrapperKeyDuplicated = () =>
-  new ReconcileError(
-    { type: 'SnapshotWrapperKeyDuplicated' },
-    'A Map or Set holds a Vue proxy and its raw object as two keys or members.',
   )
 
 export const deserializeInputInvalid = (reason: string) =>

@@ -1,5 +1,4 @@
 import { assert, it } from 'vitest'
-import { reactive } from 'vue'
 
 import { produce } from '../index'
 import { greatestRetainedSubset, hasEdge } from './fixtures/public-api-fuzz'
@@ -11,63 +10,29 @@ interface Node {
   e2?: Node
 }
 
-// A Vue proxy is a view of its raw object: the two are one object, which `produce` keeps at every
-// position as each held it, or replaces at all of them with one new object.
-it.each([false, true])(
-  'keeps many parallel edges and a Vue proxy as one object (undo: %s)',
-  (undo) => {
-    const child = { value: 0 }
-    const current = {
-      aliases: Array.from({ length: 140_000 }, () => child),
-      wrapped: reactive(child),
-    }
-    const next = produce(current, (draft) => {
-      draft.aliases[0].value = 1
-      if (undo) draft.aliases[0].value = 0
-      return draft
-    })
-
-    if (undo) {
-      assert.equal(next, current)
-      assert.equal(next.wrapped, current.wrapped)
-    } else {
-      assert.notEqual(next.aliases, current.aliases)
-      assert.notEqual(next.aliases[0], child)
-      assert.equal(next.wrapped, next.aliases[0])
-    }
-    assert.equal(next.aliases.length, current.aliases.length)
-    for (const alias of next.aliases) assert.equal(alias, next.aliases[0])
-    for (const alias of current.aliases) assert.equal(alias, child)
-    assert.equal(next.aliases[0].value, undo ? 0 : 1)
-    assert.equal(child.value, 0)
-  },
-)
-
-it('keeps a raw object and its Vue proxy whatever the recipe writes back', () => {
-  for (const reverse of [false, true]) {
-    for (let touched = 0; touched < 16; touched += 1) {
-      const raw = { value: 0 }
-      const parent = { child: raw, value: 0 }
-      const wrapped = reactive(raw)
-      const current = reverse
-        ? { ...{ right: wrapped }, left: parent, value: 0 }
-        : { left: parent, right: wrapped, value: 0 }
-      const next = produce(current, (draft) => {
-        for (let id = 0; id < 4; id += 1) {
-          if ((touched & (1 << id)) === 0) continue
-          const node =
-            id === 0 ? draft : id === 1 ? draft.left : id === 2 ? draft.left.child : draft.right
-          node.value = 1
-          node.value = 0
-        }
-        return draft
-      })
-      assert.equal(next, current)
-      assert.equal(next.left.child, raw)
-      assert.equal(next.right, wrapped)
-      assert.equal(raw.value, 0)
-    }
+// One object at many positions is kept at every position, or replaced at all of them with one
+// new object.
+it.each([false, true])('keeps many parallel edges as one object (undo: %s)', (undo) => {
+  const child = { value: 0 }
+  const current = {
+    aliases: Array.from({ length: 140_000 }, () => child),
   }
+  const next = produce(current, (draft) => {
+    draft.aliases[0].value = 1
+    if (undo) draft.aliases[0].value = 0
+    return draft
+  })
+
+  if (undo) assert.equal(next, current)
+  else {
+    assert.notEqual(next.aliases, current.aliases)
+    assert.notEqual(next.aliases[0], child)
+  }
+  assert.equal(next.aliases.length, current.aliases.length)
+  for (const alias of next.aliases) assert.equal(alias, next.aliases[0])
+  for (const alias of current.aliases) assert.equal(alias, child)
+  assert.equal(next.aliases[0].value, undo ? 0 : 1)
+  assert.equal(child.value, 0)
 })
 
 it('retains the greatest compatible subset across all three-node graphs and edit masks', () => {
@@ -125,7 +90,7 @@ function assertRetainedNode(
 }
 
 it.each(['object', 'array', 'map key', 'map value', 'set'] as const)(
-  'keeps an untouched %s subtree and a Vue proxy of an object in it',
+  'keeps an untouched %s subtree holding an object changed back elsewhere',
   (kind) => {
     const raw = { n: 0 }
     const leaf =
@@ -141,7 +106,7 @@ it.each(['object', 'array', 'map key', 'map value', 'set'] as const)(
     const untouched = { leaf, self: undefined as unknown }
     untouched.self = untouched
     const sibling = { stable: true }
-    const current = { flag: 0, left: untouched, repeated: untouched, right: reactive(raw), sibling }
+    const current = { flag: 0, left: untouched, repeated: untouched, right: raw, sibling }
     const next = produce(current, (draft) => {
       draft.flag = 1
       draft.right.n = 1
@@ -159,42 +124,45 @@ it.each(['object', 'array', 'map key', 'map value', 'set'] as const)(
   },
 )
 
-it.each([false, true])('keeps two untouched views of one object (unrelated undo: %s)', (undo) => {
-  const raw = { n: 0 }
-  const left = { child: raw, self: undefined as unknown }
-  left.self = left
-  const sibling = { n: 0 }
-  const current = { flag: 0, left, repeated: left, right: reactive(raw), sibling }
-  const next = produce(current, (draft) => {
-    draft.flag = 1
-    if (undo) {
-      draft.sibling.n = 1
-      draft.sibling.n = 0
-    }
-    return draft
-  })
-  assert.equal(current.flag, 0)
-  assert.equal(raw.n, 0)
-  assert.equal(next.flag, 1)
-  assert.equal(next.left, left)
-  assert.equal(next.left, next.repeated)
-  assert.equal(next.left.self, next.left)
-  assert.equal(next.sibling, sibling)
-  assert.equal(next.right, current.right)
-})
+it.each([false, true])(
+  'keeps two untouched positions of one object (unrelated undo: %s)',
+  (undo) => {
+    const raw = { n: 0 }
+    const left = { child: raw, self: undefined as unknown }
+    left.self = left
+    const sibling = { n: 0 }
+    const current = { flag: 0, left, repeated: left, right: raw, sibling }
+    const next = produce(current, (draft) => {
+      draft.flag = 1
+      if (undo) {
+        draft.sibling.n = 1
+        draft.sibling.n = 0
+      }
+      return draft
+    })
+    assert.equal(current.flag, 0)
+    assert.equal(raw.n, 0)
+    assert.equal(next.flag, 1)
+    assert.equal(next.left, left)
+    assert.equal(next.left, next.repeated)
+    assert.equal(next.left.self, next.left)
+    assert.equal(next.sibling, sibling)
+    assert.equal(next.right, current.right)
+  },
+)
 
-it.each(['draft', 'replacement'] as const)('keeps both views for a %s return', (mode) => {
+it.each(['draft', 'replacement'] as const)('keeps both positions for a %s return', (mode) => {
   const raw = { n: 0 }
-  const current = { left: raw, right: reactive(raw) }
+  const current = { left: raw, right: raw }
   const next = produce(current, (draft) => (mode === 'draft' ? draft : { ...current }))
   if (mode === 'draft') assert.equal(next, current)
   assert.equal(next.left, raw)
   assert.equal(next.right, current.right)
 })
 
-it('preserves explicit cancellation of a change through one view', () => {
+it('preserves explicit cancellation of a change through one position', () => {
   const raw = { n: 0 }
-  const current = { left: raw, right: reactive(raw) }
+  const current = { left: raw, right: raw }
   const next = produce(current, (draft) => {
     draft.left.n = 1
     return current
@@ -203,10 +171,9 @@ it('preserves explicit cancellation of a change through one view', () => {
   assert.equal(raw.n, 0)
 })
 
-it('gives every view of a changed object one new object', () => {
+it('gives every position of a changed object one new object', () => {
   const raw = { value: 0 }
-  const wrapped = reactive(raw)
-  const current = { first: raw, second: { child: wrapped }, third: { child: raw } }
+  const current = { first: raw, second: { child: raw }, third: { child: raw } }
   const result = produce(current, (draft) => {
     draft.second.child.value = 1
     return draft

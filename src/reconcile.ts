@@ -27,8 +27,8 @@ import { publicationTypes } from './types/builtins'
  * text, including parameter order and duplicate names, and a URL keeps its own `searchParams`
  * object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The
  * contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written
- * with the built-in methods, so an override on a subclass or on the instance never runs; a Vue
- * reactive `Map` or `Set` is used through Vue's methods. Arrays, `Map`, `Set`, dates, binary data,
+ * with the built-in methods, so an override on a subclass or on the instance never runs. Arrays,
+ * `Map`, `Set`, dates, binary data,
  * URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own
  * properties, such as fields that a subclass declares, are not updated on a kept object and are not
  * copied to a new one.
@@ -51,8 +51,7 @@ import { publicationTypes } from './types/builtins'
  * inside `current` blocked a change, for example through a setter that does not store its value,
  * `reconcile` replaces that object and tries again; each retry runs the getter at most once more.
  * These counts leave out reading `next`, which also runs the getters of any object of `current`
- * that `next` holds, and reads that a proxy trap makes, such as Vue's when a write replaces a
- * value.
+ * that `next` holds, and reads that a proxy trap makes.
  *
  * `next` is read completely before `current` changes. When both arguments are objects that are not
  * kept by reference, a successful call returns `current`. When either is a primitive, a function or
@@ -65,12 +64,6 @@ import { publicationTypes } from './types/builtins'
  * final state is the same as if it had been updated. This does not apply to an object that refers
  * to `current` or `next` at any depth, or to a key, value or member of a `Map` or `Set` that is not
  * itself in place, or anything inside one; such an object is updated like any other.
- *
- * Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for
- * one object at two positions applies to them. When `current` holds both and `next` holds, at each
- * of their positions, either that object or one and the same new object, `reconcile` keeps the
- * object and writes the same one of the two at each position. It writes neither when `next` holds
- * at every position the one `current` already holds there and that one stays in place, as above.
  *
  * @example
  * ```ts
@@ -92,10 +85,8 @@ import { publicationTypes } from './types/builtins'
  * a getter without a setter, a setter that does not store its value, a proxy trap that refuses the
  * assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would
  * have to move to reach the key order of `next`, or a value that another property's setter changes
- * during the call. Inside `current`, such an object is replaced by a new one instead. At any depth,
- * the call also throws when a new object it creates would inherit, from its prototype, Vue's
- * reactive markers for the same raw object as another kept or new object. Writes made before the
- * failure are not rolled back.
+ * during the call. Inside `current`, such an object is replaced by a new one instead. Writes made
+ * before the failure are not rolled back.
  * @throws Errors thrown by getters, setters or proxy traps propagate unchanged, also without
  * rollback.
  */

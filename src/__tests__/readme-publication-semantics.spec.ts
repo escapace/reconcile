@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { isReactive, reactive } from 'vue'
 
 import { produce, reconcile, snapshot } from '../index'
 
@@ -300,31 +299,6 @@ describe('README publication semantics', () => {
       assert.notEqual(detached.changed, next.changed)
       assert.notEqual(detached.untouched, untouched)
       assert.deepEqual(detached, next)
-    })
-  })
-
-  describe('wrapper compatibility', () => {
-    it('applies the same identity-reuse rules to Vue reactive proxies', () => {
-      const current = reactive({
-        nested: { count: 0 },
-        sibling: { keep: true },
-      })
-      const nestedReference = current.nested
-      const siblingReference = current.sibling
-
-      const result = reconcile(
-        current,
-        produce(current, (draft) => {
-          draft.nested.count = 4
-          return draft
-        }),
-      )
-
-      assert.equal(result, current)
-      assert.equal(isReactive(result), true)
-      assert.equal(result.nested, nestedReference)
-      assert.equal(result.sibling, siblingReference)
-      assert.equal(result.nested.count, 4)
     })
   })
 })

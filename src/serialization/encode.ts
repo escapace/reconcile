@@ -8,7 +8,6 @@ import { filledArray } from '../standard-prototypes'
 // decode_encode_document / renumber_first_use.
 export function encodeGraph(value: unknown): unknown[] {
   const context: EncodeContext = {
-    alias: -1,
     bigints: undefined,
     boundaries: [],
     descriptors: [],
@@ -19,13 +18,11 @@ export function encodeGraph(value: unknown): unknown[] {
     payloads: [],
     plain: undefined,
     scalars: undefined,
-    scans: undefined,
     scratch: [],
     shapeRoot: radixTrie(),
     shapes: [],
     stack: [],
     top: 0,
-    views: undefined,
   }
   const { descriptors, payloads, stack } = context
   const literal = enter(value, context)
@@ -69,7 +66,7 @@ function enter(value: unknown, context: EncodeContext): unknown[] | undefined {
     node(value, context)
     return undefined
   }
-  const root = frame(-1, -1, undefined, value, false)
+  const root = frame(-1, -1, undefined, value)
   root.row = []
   slot(root, value, context)
   if (!root.reference) return root.row

@@ -9,7 +9,7 @@ object's prototype once and decides both its kind (`Types.RecognitionPlain.recog
 the plain-object fallback, whether it is an atom (`Types.Atoms.classify`), from that one read; a
 separate atom split reads it again. The callers that meet the object first, capture, the snapshot
 walk and draft creation, then hand the same prototype to its later readers before the first write:
-discovery, the preflight's inherited-accessor check, the Vue marker walk and a draft's target.
+discovery, the preflight's inherited-accessor check and a draft's target.
 
 Both classifiers take the chain as input, so sharing the first read changes no decision; this
 module states that the shared ingress decides as the two separate ones and counts the reads it

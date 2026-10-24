@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
 import { produce, reconcile, ReconcileError, snapshot } from '../index'
 import {
   randomSource,
@@ -19,39 +18,32 @@ import {
 // Split from one file so both test workers share the fuzz corpus; every case, seed and
 // deadline is unchanged.
 describe('deterministic public API fuzz regressions', () => {
-  it.each([false, true])(
-    'matches native edit sequences with Vue wrapping = %s',
-    (wrapped) => {
-      const random = randomSource(0x92_01_73, 8)
-      const trials = wrapped ? 2000 : 5000
-      for (let trial = 0; trial < trials; trial += 1) {
-        checkCase({ seed: random.seed, trial, wrapped }, () => {
-          const operations = Array.from({ length: 25 }, () => [
-            random.next(24),
-            random.next(10),
-            random.next(20),
-          ])
-          const raw = sequenceFixture()
-          const current = wrapped ? reactive(raw) : raw
-          const before = wrapped ? snapshot(current) : structuredClone(current)
-          const expected = (
-            wrapped ? snapshot(current) : structuredClone(current)
-          ) as typeof current
-          runSequence(expected, operations)
-          const result = produce(current, (draft) => runSequence(draft, operations))
-          assert.isTrue(graphsEqual(before, wrapped ? snapshot(current) : current))
-          assert.isTrue(graphsEqual(expected, result))
-          assert.isTrue(graphsEqual(expected, snapshot(result)))
-          const published = reconcile(current, result)
-          assert.equal(published, current)
-          assert.isTrue(graphsEqual(expected, published))
-        })
-      }
-    },
-    60_000,
-  )
+  it('matches native edit sequences', () => {
+    const random = randomSource(0x92_01_73, 8)
+    for (let trial = 0; trial < 5000; trial += 1) {
+      checkCase({ seed: random.seed, trial }, () => {
+        const operations = Array.from({ length: 25 }, () => [
+          random.next(24),
+          random.next(10),
+          random.next(20),
+        ])
+        const raw = sequenceFixture()
+        const current = raw
+        const before = structuredClone(current)
+        const expected = structuredClone(current)
+        runSequence(expected, operations)
+        const result = produce(current, (draft) => runSequence(draft, operations))
+        assert.isTrue(graphsEqual(before, current))
+        assert.isTrue(graphsEqual(expected, result))
+        assert.isTrue(graphsEqual(expected, snapshot(result)))
+        const published = reconcile(current, result)
+        assert.equal(published, current)
+        assert.isTrue(graphsEqual(expected, published))
+      })
+    }
+  }, 60_000)
 
-  it('matches 2,000 native Vue sequences of 30 raw, wrapped, and draft-key operations', () => {
+  it('matches 2,000 native sequences of 30 raw and draft-key operations', () => {
     const random = randomSource(438_772, 8)
     for (let trial = 0; trial < 2000; trial += 1) {
       checkCase({ seed: random.seed, trial }, () => {
@@ -80,115 +72,111 @@ describe('deterministic public API fuzz regressions', () => {
     }
   }, 60_000)
 
-  // Compare recipe-time reflection and failures against an independently mutated
-  // native counterpart, wrapped in Vue in the Vue lane. Array metadata outside
-  // indexed elements is tested here as draft state, not as a finalization promise.
-  it.each([false, true])(
-    'matches 90,000 native descriptor transitions and reentrant truncations with Vue wrapping = %s',
-    (wrapped) => {
-      const random = randomSource(0x27_18_28_18)
-      let operations = 0
-      for (let trial = 0; trial < 3000; trial += 1) {
-        operations += checkCase({ seed: random.seed, trial, wrapped }, () => {
-          const array = trial % 2 === 0
-          const base: object = array ? new Array<unknown>(5) : (Object.create(null) as object)
-          for (let index = 0; index < 5; index += 1) {
-            if (random.next(3) !== 0) {
-              // Keep PRNG draws in the original writable/configurable/enumerable order.
-              const writable = Boolean(random.next(2))
-              const configurable = Boolean(random.next(2))
-              const enumerable = Boolean(random.next(2))
-              Object.defineProperty(base, array ? String(index) : `k${index}`, {
-                configurable,
-                enumerable,
-                value: index,
-                writable,
-              })
-            }
+  // Compare recipe-time reflection and failures against an independently mutated native
+  // counterpart. Array metadata outside indexed elements is tested here as draft state, not as a
+  // finalization promise.
+  it('matches 90,000 native descriptor transitions and reentrant truncations', () => {
+    const random = randomSource(0x27_18_28_18)
+    let operations = 0
+    for (let trial = 0; trial < 3000; trial += 1) {
+      operations += checkCase({ seed: random.seed, trial }, () => {
+        const array = trial % 2 === 0
+        const base: object = array ? new Array<unknown>(5) : (Object.create(null) as object)
+        for (let index = 0; index < 5; index += 1) {
+          if (random.next(3) !== 0) {
+            // Keep PRNG draws in the original writable/configurable/enumerable order.
+            const writable = Boolean(random.next(2))
+            const configurable = Boolean(random.next(2))
+            const enumerable = Boolean(random.next(2))
+            Object.defineProperty(base, array ? String(index) : `k${index}`, {
+              configurable,
+              enumerable,
+              value: index,
+              writable,
+            })
           }
-          if (array && random.next(4) === 0)
-            Object.defineProperty(base, 'length', { writable: false })
-          const copy = physicalCopy(base)
-          const native = wrapped ? reactive(copy) : copy
-          const current = wrapped ? reactive(base) : base
-          const before = observedDescriptors(current)
-          produce(current, (draft) => {
-            for (let step = 0; step < 30; step += 1) {
-              const keys = array
-                ? ['0', '1', '2', '3', '4', '5', 'length', '-0', '01', '4294967295', '__proto__']
-                : ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', '__proto__', '0', 'length']
-              const key = keys[random.next(keys.length)]
-              const remove = random.next(4) === 0
-              const value =
-                key === 'length' && array
-                  ? [0, 1, 2, 3, 5, 7, -1, 2.5, Number.NaN, '2', undefined, 0n][random.next(12)]
-                  : random.next(20)
-              // An array draft refuses own properties an array result cannot carry
-              // (DraftSurface.admits); `__proto__` reaches the inherited accessor first.
-              const refused = array && !remove && ['-0', '01', '4294967295'].includes(key)
-              const expected = refused
-                ? operationOutcome(() => false)
-                : operationOutcome(() =>
-                    remove ? Reflect.deleteProperty(native, key) : Reflect.set(native, key, value),
-                  )
-              const actual = operationOutcome(() =>
-                remove ? Reflect.deleteProperty(draft, key) : Reflect.set(draft, key, value),
-              )
-              assert.deepEqual(actual, expected, `outcome step=${step} key=${key}`)
-              assert.deepEqual(
-                observedDescriptors(draft),
-                observedDescriptors(native),
-                `state step=${step} key=${key}`,
-              )
-            }
-            return draft
-          })
-          assert.deepEqual(observedDescriptors(current), before)
-          assert.deepEqual(observedDescriptors(base), before)
-          return 30
-        })
-      }
-      assert.equal(operations, 90_000)
-      for (const index of [undefined, 0, 1]) {
-        const base = [1, 2, 3]
-        if (index !== undefined) Object.defineProperty(base, index, { configurable: false })
+        }
+        if (array && random.next(4) === 0)
+          Object.defineProperty(base, 'length', { writable: false })
         const copy = physicalCopy(base)
-        const native = wrapped ? reactive(copy) : copy
-        const current = wrapped ? reactive(base) : base
-        const before = observedDescriptors(base)
-        let actualReads = 0
-        let expectedReads = 0
-        const expected = operationOutcome(() =>
-          Reflect.set(native, 'length', {
-            valueOf() {
-              expectedReads += 1
-              Reflect.set(native, '3', 4)
-              return 0
-            },
-          }),
-        )
+        const native = copy
+        const current = base
+        const before = observedDescriptors(current)
         produce(current, (draft) => {
-          const actual = operationOutcome(() =>
-            Reflect.set(draft, 'length', {
-              valueOf() {
-                actualReads += 1
-                draft[3] = 4
-                return 0
-              },
-            }),
-          )
-          assert.deepEqual(actual, expected)
-          assert.equal(actualReads, expectedReads)
-          assert.equal(actualReads, 2)
-          assert.deepEqual(observedDescriptors(draft), observedDescriptors(native))
+          for (let step = 0; step < 30; step += 1) {
+            const keys = array
+              ? ['0', '1', '2', '3', '4', '5', 'length', '-0', '01', '4294967295', '__proto__']
+              : ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', '__proto__', '0', 'length']
+            const key = keys[random.next(keys.length)]
+            const remove = random.next(4) === 0
+            const value =
+              key === 'length' && array
+                ? [0, 1, 2, 3, 5, 7, -1, 2.5, Number.NaN, '2', undefined, 0n][random.next(12)]
+                : random.next(20)
+            // An array draft refuses own properties an array result cannot carry
+            // (DraftSurface.admits); `__proto__` reaches the inherited accessor first.
+            const refused = array && !remove && ['-0', '01', '4294967295'].includes(key)
+            const expected = refused
+              ? operationOutcome(() => false)
+              : operationOutcome(() =>
+                  remove ? Reflect.deleteProperty(native, key) : Reflect.set(native, key, value),
+                )
+            const actual = operationOutcome(() =>
+              remove ? Reflect.deleteProperty(draft, key) : Reflect.set(draft, key, value),
+            )
+            assert.deepEqual(actual, expected, `outcome step=${step} key=${key}`)
+            assert.deepEqual(
+              observedDescriptors(draft),
+              observedDescriptors(native),
+              `state step=${step} key=${key}`,
+            )
+          }
           return draft
         })
         assert.deepEqual(observedDescriptors(current), before)
         assert.deepEqual(observedDescriptors(base), before)
-      }
-    },
-    60_000,
-  )
+        return 30
+      })
+    }
+    assert.equal(operations, 90_000)
+    for (const index of [undefined, 0, 1]) {
+      const base = [1, 2, 3]
+      if (index !== undefined) Object.defineProperty(base, index, { configurable: false })
+      const copy = physicalCopy(base)
+      const native = copy
+      const current = base
+      const before = observedDescriptors(base)
+      let actualReads = 0
+      let expectedReads = 0
+      const expected = operationOutcome(() =>
+        Reflect.set(native, 'length', {
+          valueOf() {
+            expectedReads += 1
+            Reflect.set(native, '3', 4)
+            return 0
+          },
+        }),
+      )
+      produce(current, (draft) => {
+        const actual = operationOutcome(() =>
+          Reflect.set(draft, 'length', {
+            valueOf() {
+              actualReads += 1
+              draft[3] = 4
+              return 0
+            },
+          }),
+        )
+        assert.deepEqual(actual, expected)
+        assert.equal(actualReads, expectedReads)
+        assert.equal(actualReads, 2)
+        assert.deepEqual(observedDescriptors(draft), observedDescriptors(native))
+        return draft
+      })
+      assert.deepEqual(observedDescriptors(current), before)
+      assert.deepEqual(observedDescriptors(base), before)
+    }
+  }, 60_000)
 
   it('matches 10,978 native minimum-deletion and fixed-property feasibility cases', () => {
     let cases = 0
@@ -210,7 +198,6 @@ describe('deterministic public API fuzz regressions', () => {
       const width = 140_000
       const current = {
         parents: Array.from({ length: width }, () => ({ child: shared })),
-        wrapped: reactive(shared),
       }
       const next = produce(current, (draft) => {
         draft.parents[0].child.value = 1
@@ -225,9 +212,6 @@ describe('deterministic public API fuzz regressions', () => {
         assert.equal(next.parents[index] === current.parents[index], undo)
       }
       assert.equal(next.parents[0].child.value, undo ? 0 : 1)
-      // A Vue proxy is a view of its raw object: an undone graph keeps the proxy with every
-      // parent, and a changed child is one new object at the proxy's position too.
-      assert.equal(next.wrapped, undo ? current.wrapped : next.parents[0].child)
     },
     60_000,
   )

@@ -2,7 +2,6 @@
 // remain runtime-tested boundaries; this checks graph values, aliases and reuse.
 import assert from 'node:assert/strict'
 import type { Oracle } from './lean-oracle'
-import { reactive } from 'vue'
 import { produce } from '../src/produce'
 import {
   checkGraphFixtures,
@@ -22,31 +21,12 @@ interface Fixture {
   name: string
   undo: boolean
   untouched?: boolean[]
-  wrappedOf?: Array<number | null>
 }
 
-/** A wrapper node shares its leaf target's values and has no children of its own. */
-function checkWrapped(fixture: Fixture, wrappedOf: Array<number | null>, id: number, raw: number) {
-  assert.ok(raw >= 0)
-  assert.ok(raw < fixture.before.length)
-  assert.ok(raw !== id)
-  assert.equal(wrappedOf[raw] ?? null, null)
-  assert.equal(fixture.children[raw].length, 0)
-  assert.equal(fixture.children[id].length, 0)
-  assert.equal(fixture.before[id], fixture.before[raw])
-  assert.equal(fixture.after[id], fixture.after[raw])
-}
-
-/** The input graph, with each wrapped node replaced by a reactive wrapper of its target. */
+/** The input graph. */
 function inputGraph(fixture: Fixture): GraphNode[] {
   const size = fixture.before.length
   const current: GraphNode[] = fixture.before.map((value) => ({ value }))
-  const wrappedOf = fixture.wrappedOf ?? []
-  for (const [id, raw] of wrappedOf.entries()) {
-    if (raw === null) continue
-    checkWrapped(fixture, wrappedOf, id, raw)
-    current[id] = reactive(current[raw])
-  }
   assert.ok(fixture.children.flat().every((child) => child >= 0 && child < size))
   linkChildren(current, (id) => fixture.children[id])
   return current
@@ -86,14 +66,9 @@ function observeCaptured(fixture: Fixture): GraphObservation {
     return draft
   })
   const resultNodes = fixture.before.map((_, id) => at(result, id))
-  // Only a wrapper and its raw object, one object, can become one new object.
-  const raw = (id: number): number => fixture.wrappedOf?.[id] ?? id
+  // Distinct nodes stay distinct objects.
   resultNodes.forEach((node, id) => {
-    assert.equal(
-      raw(resultNodes.indexOf(node)),
-      raw(id),
-      `${fixture.name}: distinct nodes collapsed`,
-    )
+    assert.equal(resultNodes.indexOf(node), id, `${fixture.name}: distinct nodes collapsed`)
   })
   const identity = identityLabels(current, resultNodes, size, fixture.name)
   checkInputKept(fixture, current, resultNodes)

@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive, shallowReadonly, toRaw } from 'vue'
 import { produce } from '../index'
 
 // A Map or Set draft iterates its working copy natively: object values come back as drafts, writes
@@ -83,16 +82,6 @@ describe('Map and Set drafts iterate like native collections', () => {
     assert.strictEqual(result.copy.get('a'), current.map.get('a'))
     assert.deepEqual(result.keys, ['a'])
   })
-
-  it('iterates a Vue reactive Map draft without changing the state', () => {
-    const state = reactive({ map: new Map([['a', { n: 1 }]]) })
-    const result = produce(state, (draft) => {
-      for (const value of draft.map.values()) value.n = 2
-      return draft
-    })
-    assert.equal(result.map.get('a')!.n, 2)
-    assert.equal(toRaw(state).map.get('a')!.n, 1)
-  })
 })
 
 // Lists a Set's members with each draft replaced by its original, for comparison with native.
@@ -137,19 +126,6 @@ describe('Set drafts combine and compare like native Sets', () => {
         return draft
       })
     })
-
-  it('counts a Vue reactive member and its raw object as one member', () => {
-    const member = { n: 1 }
-    const members: object[] = [member, { n: 2 }]
-    const state = reactive({ tags: new Set(members) })
-    produce(state, (draft) => {
-      // eslint-disable-next-line baseline-js/use-baseline -- the draft's own Set methods
-      assert.equal(draft.tags.intersection(new Set([member])).size, 1)
-      // eslint-disable-next-line baseline-js/use-baseline -- the draft's own Set methods
-      assert.isTrue(draft.tags.isSupersetOf(new Set([member])))
-      return draft
-    })
-  })
 
   it('returns object members as their drafts, so a change through one is kept', () => {
     const current = { tags: new Set([{ n: 1 }]) }
@@ -281,21 +257,6 @@ describe('Set draft methods follow the native algorithms', () => {
       return draft
     })
   })
-
-  it('finds the raw object of a Vue proxy, and a proxy only in Vue reactive state', () => {
-    const member = { n: 1 }
-    const proxy = reactive(member)
-    produce({ proxied: new Set([proxy]), tags: new Set([member]) }, (draft) => {
-      assert.isTrue(draft.tags.has(proxy))
-      assert.isFalse(draft.proxied.has(member))
-      return draft
-    })
-    produce(reactive({ tags: new Set([member]) }), (draft) => {
-      assert.isTrue(draft.tags.has(proxy))
-      assert.equal(draft.tags.intersection(new Set([proxy])).size, 1)
-      return draft
-    })
-  })
 })
 /* eslint-enable baseline-js/use-baseline */
 
@@ -422,19 +383,6 @@ describe('Set draft methods keep native results in corner cases', () => {
     assert.equal(member.n, 1)
     assert.deepEqual([...Set.prototype.values.call(result.tags)], [{ n: 2 }])
   })
-
-  it('find a member added in Vue reactive state after a walk', () => {
-    const first = { n: 1 }
-    const second = { n: 2 }
-    produce(reactive({ tags: new Set<object>([first]) }), (draft) => {
-      for (const _ of draft.tags);
-      draft.tags.delete(first)
-      draft.tags.add(shallowReadonly(second))
-      assert.isTrue(draft.tags.has(second))
-      assert.isTrue(draft.tags.isSupersetOf(new Set([second])))
-      return draft
-    })
-  })
 })
 /* eslint-enable baseline-js/use-baseline */
 
@@ -540,7 +488,7 @@ const bind = <T extends object>(target: T): T =>
   })
 
 describe('Map and Set subclass drafts', () => {
-  // A proxy of a Map or Set, other than Vue's, holds no entries of its own, so the built-in
+  // A proxy of a Map or Set holds no entries of its own, so the built-in
   // methods that read and write collections reject it, even when the proxy binds its methods.
   it("reject a proxy of a Set or Map with the built-ins' native TypeError", () => {
     class Tags extends Set<unknown> {}
@@ -591,24 +539,5 @@ describe('Map and Set subclass drafts', () => {
     })
     assert.notEqual(result, current)
     assert.deepEqual([...result.numbers], [2])
-  })
-
-  // A draft writes its working copy with the built-ins, so a subclass's `set` never runs on it.
-  it("never run a subclass's set on the working copy in Vue reactive state", () => {
-    const first = { n: 1 }
-    const derived = { n: 2 }
-    class Linked extends Map<object, unknown> {
-      override set(key: object, value: unknown): this {
-        if (this.size === 1) super.set(derived, 'derived')
-        return super.set(key, value)
-      }
-    }
-    produce(reactive({ links: new Linked([[first, 1]]) }), (draft) => {
-      for (const _ of draft.links);
-      draft.links.set(first, 2)
-      assert.equal(draft.links.get(reactive(derived)), undefined)
-      assert.equal(draft.links.get(first), 2)
-      return draft
-    })
   })
 })

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
-import { reactive, readonly, toRaw } from 'vue'
 import { RequirementClosure } from '../src/graph/requirements'
 
 interface History {
@@ -68,13 +67,12 @@ const opaque = (): object =>
     },
   )
 
-/** Distinct native facts: two wrappers sharing one target, an opaque proxy, then functions. */
+/** Distinct native facts: two forwarding proxies of one target, an opaque proxy, then functions. */
 function factObjects(size: number): object[] {
   const owner = {}
-  const left = reactive(owner)
-  const right = readonly(owner)
+  const left = new Proxy(owner, {})
+  const right = new Proxy(owner, {})
   assert.notEqual(left, right)
-  assert.equal(toRaw(left), toRaw(right))
   return Array.from({ length: size }, (_, id) =>
     id === 0 ? left : id === 1 ? right : id === 2 ? opaque() : () => undefined,
   )
@@ -160,8 +158,8 @@ function replayHistory(index: number, history: History, totals: Totals): void {
 /** An iterator that finished on an empty closure stays finished after a later admission. */
 function checkFinishedIterator(): void {
   const owner = {}
-  const left = reactive(owner)
-  const right = readonly(owner)
+  const left = new Proxy(owner, {})
+  const right = new Proxy(owner, {})
   const closure = new RequirementClosure<object>()
   const finished = closure.facts.values()
   assert.equal(finished.next().done, true)

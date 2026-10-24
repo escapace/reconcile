@@ -2,13 +2,11 @@ import { atomValue, isNode } from './graph/edge'
 import { recognize } from './adapters/recognition'
 import { smallAdd, smallHas, smallSet, type SmallSet } from './graph/small-set'
 import { finalizationConstructionImpossible } from './error'
-import { storageIdentity } from './adapters/vue'
 import { constructionOrder } from './graph/construction'
 import { constructionDependencies } from './graph/construction-facts'
 import { immutableHead, immutableSelections } from './graph/immutable-selection'
 import { closeRequirements } from './graph/requirements'
-import { isObject, markLike } from './object-property'
-import { OBJECT_KIND } from './constants'
+import { isObject } from './object-property'
 import { MAP_KIND } from './types/map'
 import { SET_KIND } from './types/set'
 import { builtinMapSize, builtinSetSize } from './standard-prototypes'
@@ -28,8 +26,7 @@ const NO_FACTS: ReadonlySet<number> = /* @__PURE__ */ new Set()
 
 /**
  * An edge to a registered node. `view` is the object the slot held when it is another view of the
- * node's storage than the node's target, such as a Vue proxy of its raw object: a kept node keeps
- * that view at that slot (P2).
+ * node's target: a kept node keeps that view at that slot.
  */
 interface ViewEdge {
   readonly node: number
@@ -38,8 +35,6 @@ interface ViewEdge {
 
 /** Facts finalization read in this call, which compilation takes instead of reading again. */
 export interface FinalizationFacts {
-  /** The prototype recognition read for an object (Types.Ingress). */
-  readonly prototypes: ReadonlyMap<object, object | null> | undefined
   /** The complete object-child list of an object a walk visited to the end
    * (Produce.SettledChildren). */
   readonly walked: ReadonlyMap<object, readonly object[]> | undefined
@@ -71,12 +66,9 @@ export function compileImmutable(
   const locallyReusable: boolean[] = []
   const parents: number[][] = []
   const storages: object[] = []
-  // The edge of each node by storage. A Vue proxy is a view of its raw object, so the views of
-  // one storage are one node, which a slot holding another view reaches with that view (P2); a
-  // fixed subtree that reaches an object registered elsewhere resolves to its node.
+  // The edge of each node by its object; a fixed subtree that reaches an object registered
+  // elsewhere resolves to its node.
   const nodes = new Map<object, ViewEdge>()
-  const storageOf = (target: object): object =>
-    storageIdentity(target, facts?.prototypes?.get(target))
   // The edge to `node` from a slot that holds `target`.
   const viewed = (node: ViewEdge, target: object): ViewEdge =>
     records[node.node].target === target ? node : { node: node.node, view: target }
@@ -90,13 +82,13 @@ export function compileImmutable(
     parents[index] = []
     return reference
   }
-  const special = (target: object, storage = storageOf(target)): ViewEdge => {
+  const special = (target: object): ViewEdge => {
     const previous = specials?.get(target)
     if (previous !== undefined) return previous
-    const registered = nodes.get(storage)
+    const registered = nodes.get(target)
     const reference =
       registered === undefined
-        ? register(storage, { edges: [], payload: undefined, settled: undefined, target })
+        ? register(target, { edges: [], payload: undefined, settled: undefined, target })
         : viewed(registered, target)
     ;(specials ??= new Map()).set(target, reference)
     if (registered === undefined) fixed.push(reference)
@@ -136,8 +128,7 @@ export function compileImmutable(
     if (record.collectedBy === mark) return record.collectedAs as ViewEdge
     record.collectedBy = mark
     const target = record.target
-    const storage = storageOf(target)
-    const registered = nodes.get(storage)
+    const registered = nodes.get(target)
     if (registered !== undefined) return (record.collectedAs = viewed(registered, target))
     const edges: Edge[] = []
     const entry = {
@@ -146,7 +137,7 @@ export function compileImmutable(
       settled: undefined as boolean | undefined,
       target,
     }
-    const reference = register(storage, entry)
+    const reference = register(target, entry)
     record.collectedAs = reference
     const index = reference.node
     const children = record.children
@@ -181,12 +172,7 @@ export function compileImmutable(
             ? ((expected as ViewEdge).view ?? records[expected.node].target)
             : atomValue(expected)
           // Another view of the object the slot holds is that object (StorageViews).
-          return (
-            Object.is(actual, wanted) ||
-            (isNode(expected) &&
-              isObject(actual) &&
-              storageOf(actual) === storageOf(wanted as object))
-          )
+          return Object.is(actual, wanted)
         }))
     locallyReusable[index] = reusable
     // A failed parent is already a closure seed; only omit implications into it.
@@ -208,7 +194,6 @@ export function compileImmutable(
       { facts, fold, kindOf, parents, records, storages, types },
       fixed,
       nodes,
-      storageOf,
       special,
       fixedStorage,
     )
@@ -254,15 +239,13 @@ interface FixedState {
  * whether a storage was claimed twice. A child already registered, or any child without `fold`,
  * becomes an edge; with `fold`, an object first met inside a fixed subtree gets no node: its
  * storage joins the fixed storages and its children become the fixed node's
- * (Produce.FoldedLeaves). Objects are told apart by storage, so the views of one storage are one
- * registered node or one folded object.
+ * (Produce.FoldedLeaves).
  */
 function registerFixed(
   state: FixedState,
   fixed: readonly ViewEdge[],
   nodes: ReadonlyMap<object, ViewEdge>,
-  storageOf: (value: object) => object,
-  special: (value: object, storage: object) => ViewEdge,
+  special: (value: object) => ViewEdge,
   fixedStorage: SmallSet<object>,
 ): boolean {
   const { facts, fold, kindOf, parents, records, storages, types } = state
@@ -279,15 +262,14 @@ function registerFixed(
   const unvisited: object[] = []
   const child = (value: unknown): boolean => {
     if (!isObject(value)) return false
-    const storage = storageOf(value)
-    const known = nodes.get(storage)
+    const known = nodes.get(value)
     if (known !== undefined || !fold) {
-      const reference = known ?? special(value, storage)
+      const reference = known ?? special(value)
       edges.push(reference)
       parents[reference.node].push(owner)
-    } else if (!(folded ??= new Set()).has(storage)) {
-      folded.add(storage)
-      claim(storage)
+    } else if (!(folded ??= new Set()).has(value)) {
+      folded.add(value)
+      claim(value)
       unvisited.push(value)
     }
     return false
@@ -347,9 +329,6 @@ function publishFresh(
     const node = records[index].payload!
     const target = types.policies[node.layout.kind].allocate(node, resolve, owners)
     if (target === undefined) return undefined
-    // A copy keeps the `markRaw` marker of the value it copies; an object's is one of its
-    // properties.
-    if (node.layout.kind !== OBJECT_KIND) markLike(target, records[index].target)
     targets[index] = target
   }
   for (let index = 0; index < records.length; index += 1)
@@ -368,8 +347,8 @@ function fill(
   const policy = types.policies[node.layout.kind]
   for (let slot = 0; slot < node.edges.length; slot += 1)
     policy.freshWrite(node, target, slot, resolve)
-  // A Vue proxy and its raw object that a `Map` or `Set` holds as two keys or members are one
-  // node, which a new copy holds once: no plan that copies it can be built.
+  // A `Map` or `Set` that holds one node as two keys or members, as when two keys share one
+  // special copy, cannot be copied: no plan that copies it can be built.
   if (collapses(node, target)) return false
   // A copy of a frozen, sealed or otherwise non-extensible object is non-extensible too; with
   // the attributes its properties keep, a copy of a frozen object is frozen.

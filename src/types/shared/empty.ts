@@ -18,7 +18,6 @@ export const same = <T>(node: T): T => node
 export const independentBindings = /* @__PURE__ */ freeze({ tag: 'independent' } as const)
 
 /** Shared readonly configuration; these objects never contain native values or call state. */
-export const ordinaryExposure = /* @__PURE__ */ freeze({ tag: 'ordinary' } as const)
 export const independentDraft = /* @__PURE__ */ freeze({
   links: /* @__PURE__ */ freeze({ tag: 'independent' }),
   tag: 'copy',

@@ -1,5 +1,4 @@
 import { freeze } from './shared/empty'
-import { ordinaryExposure } from './shared/empty'
 import { ARRAY_BUFFER_KIND } from './array-buffer'
 import { copyDataView } from './shared/binary-native'
 import { defineType } from './registry'
@@ -33,7 +32,6 @@ export const dataViewImmutable = /* @__PURE__ */ (() => ({
   .../* @__PURE__ */ viewImmutable<typeof DATA_VIEW_KIND>(copyDataView),
 }))()
 export const dataViewDraft = viewDraft
-export const dataViewExposure = ordinaryExposure
 const dataViewRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof DataView,
@@ -53,7 +51,6 @@ export interface DataViewLayout {
 
 export const dataViewType = /* @__PURE__ */ defineType<DataViewLayout>({
   draft: dataViewDraft,
-  exposure: dataViewExposure,
   kind: DATA_VIEW_KIND,
   name: 'data-view',
   policy: dataViewPolicy,

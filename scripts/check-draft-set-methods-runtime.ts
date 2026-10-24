@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { reactive } from 'vue'
 import { jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { produce } from '../src/produce'
 
@@ -56,9 +55,9 @@ function operandForms(
   }
 }
 
-/** Runs every method of one Lean row on a `Set` draft, plain or Vue reactive, unwritten or with a
- * working copy, against each operand form, and compares the identities of the results. */
-function checkRow(row: Record<string, unknown>, vue: boolean, copied: boolean): number {
+/** Runs every method of one Lean row on a `Set` draft, unwritten or with a working copy, against
+ * each operand form, and compares the identities of the results. */
+function checkRow(row: Record<string, unknown>, copied: boolean): number {
   const a = { name: 'a' }
   const b = { name: 'b' }
   const raw = [a, b, 7]
@@ -68,18 +67,16 @@ function checkRow(row: Record<string, unknown>, vue: boolean, copied: boolean): 
     s: new Set((row.members as unknown[]).map(value)),
     t: new Set((row.keys as unknown[]).map(value)),
   }
-  const current = vue ? reactive(plain) : plain
-  const label = `${vue ? 'vue' : 'plain'} ${copied ? 'copied' : 'unwritten'}`
+  const current = plain
+  const label = copied ? 'copied' : 'unwritten'
   let checked = 0
   produce(current, (draft) => {
     const drafts = [draft.pool[0], draft.pool[1], 7]
-    // Every form an object can take here: itself, its draft and, in Vue state, its proxy.
+    // Every form an object can take here: itself and its draft.
     const identities = new Map<unknown, number>([
       [7, 2],
       [a, 0],
       [b, 1],
-      [current.pool[0], 0],
-      [current.pool[1], 1],
       [drafts[0], 0],
       [drafts[1], 1],
     ])
@@ -111,11 +108,9 @@ export async function checkDraftSetMethodsRuntime(oracle: Oracle): Promise<void>
     jsonObject(JSON.parse(line)),
   )
   let checked = 0
-  for (const row of rows)
-    for (const vue of [false, true])
-      for (const copied of [false, true]) checked += checkRow(row, vue, copied)
+  for (const row of rows) for (const copied of [false, true]) checked += checkRow(row, copied)
   console.log(
-    `Draft-set-methods Lean/native bridge: ${checked} Set method calls on plain and Vue ` +
-      'reactive Set drafts, with four operand forms, give the members Lean does',
+    `Draft-set-methods Lean/native bridge: ${checked} Set method calls on Set drafts, with four ` +
+      'operand forms, give the members Lean does',
   )
 }

@@ -1,4 +1,4 @@
-import type { EncodeContext, Frame, KeyScan } from './contracts'
+import type { EncodeContext, Frame } from './contracts'
 // Inline.lean inline_step_refines / inline_matches_recursive: containers write children in
 // place and yield after a child pushed its frame. Positional.lean sparse_roundtrip covers the
 // incremental presence runs. Dynamic observations and IteratorClose are runtime obligations
@@ -9,14 +9,7 @@ import { leafCaptures } from './leaf'
 import { lengths } from './layout'
 import { node, slot } from './emit'
 import { intern } from './radix'
-import { withoutRawMarker } from '../object-property'
-import {
-  openBuiltin,
-  closeIteratorAfterThrow,
-  entryPair,
-  hasElement,
-  nativeMapEntries,
-} from '../standard-prototypes'
+import { openBuiltin, closeIteratorAfterThrow, hasElement } from '../standard-prototypes'
 
 const object = (value: unknown): value is Record<PropertyKey, unknown> =>
   value !== null && (typeof value === 'object' || typeof value === 'function')
@@ -61,14 +54,6 @@ function array(frame: Frame, context: EncodeContext) {
   }
   return true
 }
-function iterator(frame: Frame, iterable: Iterable<unknown>) {
-  const current: unknown = Reflect.apply(iterable[Symbol.iterator], iterable, [])
-  if (!object(current)) throw new TypeError('iterator is not an object')
-  frame.iterator = current as Frame['iterator']
-  frame.next = current.next as Frame['next'] // GetIterator caches next once, without testing callability.
-  frame.step = undefined
-  frame.active = false
-}
 // Opens the built-in iterator of a `Map`'s entries or a `Set`'s members, stepped by the built-in
 // `next`; its steps are fresh native results, which nothing can observe.
 function builtinIterator(frame: Frame, collection: object, map: boolean) {
@@ -84,16 +69,8 @@ function leaf(frame: Frame, context: EncodeContext) {
 function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
-    // The built-in iterator, fresh and native; a wrapper, such as a Vue reactive proxy, is walked
-    // as `for...of` over its `entries()` walks it.
-    if (frame.wrapped) {
-      const method = (frame.value as { entries?: unknown }).entries
-      frame.native = method === nativeMapEntries
-      iterator(frame, Reflect.apply(method as () => Iterable<unknown>, frame.value, []))
-    } else {
-      builtinIterator(frame, frame.value, true)
-      frame.native = true
-    }
+    // The built-in iterator, fresh and native.
+    builtinIterator(frame, frame.value, true)
     frame.phase = 1
   } else if (frame.phase === 2) {
     frame.phase = 1
@@ -101,20 +78,10 @@ function map(frame: Frame, context: EncodeContext) {
     if (pushed(frame, context)) return false
   }
   while (next(frame)) {
-    // A native Map iterator yields fresh [key, value] arrays, read by index. Any other entry is
-    // destructured as `const [key, value] = entry` would, closing its iterator before either child
-    // is traversed.
-    let key: unknown
-    let value: unknown
-    if (frame.native) {
-      key = (frame.child as readonly unknown[])[0]
-      value = (frame.child as readonly unknown[])[1]
-    } else {
-      const pair = entryPair(frame.child)
-      key = pair[0]
-      value = pair[1]
-    }
-    member(frame, key, context, 2)
+    // A native Map iterator yields fresh [key, value] arrays, read by index.
+    const key = (frame.child as readonly unknown[])[0]
+    const value = (frame.child as readonly unknown[])[1]
+    slot(frame, key, context)
     if (pushed(frame, context)) {
       frame.mapValue = value
       frame.phase = 2
@@ -140,12 +107,10 @@ function next(frame: Frame) {
 }
 function record(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
-    let names = Object.getOwnPropertyNames(frame.value)
-    const enumerable = Object.keys(frame.value).length
-    // Vue's `markRaw` marker is metadata, not data, and is not encoded. deserialize restores
-    // enumerable properties only, so any other hidden property is rejected, not revealed.
-    if (enumerable !== names.length) names = withoutRawMarker(frame.value, names)
-    if (enumerable !== names.length) fail('non-enumerable property')
+    const names = Object.getOwnPropertyNames(frame.value)
+    // deserialize restores enumerable properties only, so a hidden property is rejected, not
+    // revealed.
+    if (Object.keys(frame.value).length !== names.length) fail('non-enumerable property')
     frame.keys = names
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
@@ -164,50 +129,14 @@ function record(frame: Frame, context: EncodeContext) {
 function set(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
-    if (frame.wrapped) iterator(frame, (frame.value as Set<unknown>).values())
-    else builtinIterator(frame, frame.value, false)
+    builtinIterator(frame, frame.value, false)
     frame.phase = 1
   }
   while (next(frame)) {
-    member(frame, frame.child, context, 1)
+    slot(frame, frame.child, context)
     if (pushed(frame, context)) return false
   }
   return true
-}
-// Encodes a key of a Map, whose entries are `width` 2 slots wide, or a member of a Set, `width` 1.
-function member(frame: Frame, value: unknown, context: EncodeContext, width: number): void {
-  context.alias = -1
-  slot(frame, value, context)
-  if (context.alias >= 0) heldTwice(frame, context, width)
-}
-// A Vue proxy is a view of its raw object, so the two are one node; a Map or Set that holds both as
-// two keys or members, which deserialize cannot restore, is rejected. The key just encoded is the
-// node `context.alias`; an earlier key is the same node when it is a reference slot with that id.
-// Each frame's row is scanned once, from where the last check stopped.
-function heldTwice(frame: Frame, context: EncodeContext, width: number): void {
-  const { boundaries, top } = context
-  const row = frame.row
-  const scans = (context.scans ??= new Map<Frame, KeyScan>())
-  let scan = scans.get(frame)
-  if (scan === undefined) {
-    scan = {
-      boundary: frame.runs < 0 ? top : frame.runs,
-      held: new Set(),
-      reference: false,
-      scanned: 0,
-    }
-    scans.set(frame, scan)
-  }
-  const end = row.length - 1
-  for (let index = scan.scanned; index < end; index += 1) {
-    while (scan.boundary < top && boundaries[scan.boundary] <= index) {
-      scan.reference = !scan.reference
-      scan.boundary += 1
-    }
-    if (scan.reference && index % width === 0) scan.held.add(row[index])
-  }
-  scan.scanned = end
-  if (scan.held.has(context.alias)) fail('Vue proxy and its raw object as two keys or members')
 }
 function startArray(frame: Frame) {
   if (!Array.isArray(frame.value)) fail('array brand')

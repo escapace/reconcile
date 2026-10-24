@@ -47,9 +47,6 @@ export interface Decoder {
   allocate: (payload: Row, layout: number, context: DecodeContext, index: number) => unknown
 }
 export interface EncodeContext {
-  // The node the last `node` call found for an object that shares it with another view of its
-  // storage, such as a Vue proxy and its raw object, or -1.
-  alias: number
   bigints: Map<bigint, number> | undefined
   boundaries: number[]
   descriptors: number[]
@@ -60,17 +57,11 @@ export interface EncodeContext {
   payloads: Array<Row | undefined>
   plain: number[][] | undefined
   scalars: number[] | undefined
-  // How far `heldTwice` has scanned each Map or Set frame that holds such a shared node; created on
-  // the first.
-  scans: Map<Frame, KeyScan> | undefined
   scratch: number[]
   shapeRoot: RadixNode<string>
   shapes: string[][]
   stack: Frame[]
   top: number
-  // The objects whose node another view of their storage shares, such as a Vue proxy and its raw
-  // object; created on the first.
-  views: Set<object> | undefined
 }
 export interface Frame {
   active: boolean
@@ -85,7 +76,6 @@ export interface Frame {
   keys: string[]
   length: number
   mapValue: unknown
-  native: boolean
   phase: number
   reference: boolean
   row: Row
@@ -99,20 +89,10 @@ export interface Frame {
   }
   tag: number
   value: object
-  // Whether `value` is a wrapper, such as a Vue reactive proxy, as `node` probed it.
-  wrapped: boolean
   detail?: number
   next: (...arguments_: unknown[]) => unknown
   // The built-in step of a fresh native iterator, called with the iterator; undefined otherwise.
   step: ((iterator: object) => unknown) | undefined
-}
-/** The reference keys or members a frame's row holds before `scanned`, and where the scan of the
- * frame's runs stands. */
-export interface KeyScan {
-  boundary: number
-  readonly held: Set<unknown>
-  reference: boolean
-  scanned: number
 }
 export type Leaf = (value: object, context: EncodeContext, kind?: number) => Row
 export type Row = unknown[]

@@ -1,12 +1,7 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
-
 import { produce, reconcile } from '../index'
 
-describe.each([
-  ['plain', <T extends object>(value: T): T => value],
-  ['Vue', reactive],
-] as const)('%s aligned retention', (_name, wrap) => {
+describe('aligned retention', () => {
   // Exhaustive small fixed-alignment oracle. This enumerates assignments independently
   // of the runtime traversal and never calls snapshot or its graph verifier.
   it('maximizes compatible identities across all three-slot alias patterns', () => {
@@ -19,8 +14,8 @@ describe.each([
       for (const after of patterns) {
         const oldNodes = Array.from({ length: 3 }, () => ({ n: 0 }))
         const newNodes = Array.from({ length: 3 }, (_, n) => ({ n: n + 1 }))
-        const current = wrap(before.map((n) => oldNodes[n]))
-        const next = wrap(after.map((n) => newNodes[n]))
+        const current = before.map((n) => oldNodes[n])
+        const next = after.map((n) => newNodes[n])
         // Count exposed JavaScript identities, not raw backing identities.
         const oldImages = Array.from(current)
         const targets = [...new Set(after)]
@@ -60,7 +55,7 @@ describe.each([
           n: 0,
         }))
         for (let index = 0; index < size; index += 1) nodes[index].next = nodes[(index + 1) % size]
-        const current = wrap({ nodes })
+        const current = { nodes }
         const oldImages = Array.from(current.nodes)
         const result = produce(current, (draft) => {
           draft.nodes[edited].n = 1

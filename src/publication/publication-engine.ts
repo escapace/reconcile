@@ -1,8 +1,6 @@
 import { atomValue, isNode } from '../graph/edge'
-import { matchesKind, recognize } from '../adapters/recognition'
-import { ExposurePalette, REACTIVE_MODE, storageIdentity, unwrappedKey } from '../adapters/vue'
+import { matchesKind } from '../adapters/recognition'
 import { EXPOSURE_MODES } from '../constants'
-import { isObject, markCopy } from '../object-property'
 import type {
   Adapter,
   Binding,
@@ -11,7 +9,6 @@ import type {
   Domains,
   Edge,
   Execution,
-  ExposureObservation,
   Selection,
   PublicationRegistry,
   NativeOwners,
@@ -25,21 +22,37 @@ import { constructionDependencies } from '../graph/construction-facts'
 import { continueExecution, execute, scoreOf, type HeadOutcome } from '../graph/driver'
 import { completeExecution, startExecution } from '../graph/execution'
 import { headSelection } from '../graph/selection'
-import { denseArray, indexIn } from '../standard-prototypes'
+import { denseArray } from '../standard-prototypes'
 
-// Claims a fresh target's storage against every old storage and the earlier fresh ones;
-// undefined on a collision. The set of old storages is built on the first fresh target.
+// Whether no object is a retained choice at two nodes, so that selection need not compare the
+// objects of the choices it takes.
+function distinctCandidates(domains: Domains): boolean {
+  const seen = new Set<unknown>()
+  for (let node = 0; node < domains.length; node += 1) {
+    const domain = domains[node]
+    for (let index = 0; index < domain.length; index += 1) {
+      const choice = domain[index]
+      if (!choice.retained) continue
+      if (seen.has(choice.storage)) return false
+      seen.add(choice.storage)
+    }
+  }
+  return true
+}
+
+// Claims a fresh target against every old object and the earlier fresh ones; undefined on a
+// collision. The set of old objects is built on the first fresh target.
 function claimFresh(
   domains: Domains,
   taken: Set<unknown> | undefined,
-  storage: object,
+  target: object,
 ): Set<unknown> | undefined {
   if (taken === undefined) {
     taken = new Set()
     for (const domain of domains) for (const old of domain) if (old.retained) taken.add(old.storage)
   }
-  if (taken.has(storage)) return undefined
-  taken.add(storage)
+  if (taken.has(target)) return undefined
+  taken.add(target)
   return taken
 }
 
@@ -92,8 +105,8 @@ function stale(
 }
 
 // Publishes every node that is not pinned; the first one refused, or -1. New objects are filled
-// before kept ones, which link them: code that a write into a kept object runs, such as a
-// synchronous Vue effect, finds each new object complete.
+// before kept ones, which link them: code that a write into a kept object runs, such as a setter,
+// finds each new object complete.
 function publishFreshFirst(
   state: Execution,
   records: CapturedGraph['nodes'],
@@ -110,22 +123,8 @@ function publishFreshFirst(
   return -1
 }
 
-/** The object that holds a binding's contents: its storage, or for a fresh choice, which its
- * node number labels, the object the call allocated. */
-const rawOf = (binding: Binding): object =>
-  typeof binding.storage === 'number' ? (binding.writer as object) : binding.storage
-
 /** Reads the live object currently exposed at a node of one attempt. */
 const exposed = (state: Execution, index: number): object => state.bindings[index].exposed as object
-
-// Removes `value` from `pending` and returns true when it is there.
-function consumed(pending: object[], value: object): boolean {
-  const index = indexIn(pending, value)
-  if (index === -1) return false
-  pending[index] = pending[pending.length - 1]
-  pending.length -= 1
-  return true
-}
 
 // The finite driver owns all selection/revision/retry decisions. This adapter
 // translates native observations to outcomes without changing an active image.
@@ -138,40 +137,9 @@ export function publishGraph(
 ): boolean {
   const records = graph.nodes
   const size = records.length
-  // A copy keeps the `markRaw` marker of the value it copies.
-  const marks = graph.marks
-  const mark = (index: number, target: object): void => {
-    const marker = marks?.get(index)
-    if (marker !== undefined) markCopy(target, marker)
-  }
   const policies = types.policies
   // Construction dependencies are sealed facts, listed on the first preparation.
   let dependencies: Array<readonly number[]> | undefined
-  // Storage identity is stable for the duration of one call; probe each object once. While no
-  // probe repeats an object or resolves a wrapper, every probed object is its own storage and
-  // no two probes share one.
-  const storages = new Map<object, object>()
-  let unshared = true
-  // Objects a collection's aligned walk probed, to ask whether each is a wrapper, before
-  // discovery's own probe of it: that probe takes the kept result and is not a repeat.
-  let early: object[] | undefined
-  const storage = (value: object, prototype?: object | null): object => {
-    let owner = storages.get(value)
-    if (owner === undefined) {
-      storages.set(value, (owner = storageIdentity(value, prototype)))
-      if (owner !== value) unshared = false
-    } else if (early === undefined || !consumed(early, value)) unshared = false
-    return owner
-  }
-  const wrapper = (value: object, prototype?: object | null): boolean => {
-    let owner = storages.get(value)
-    if (owner === undefined) {
-      storages.set(value, (owner = storageIdentity(value, prototype)))
-      if (owner !== value) unshared = false
-      ;(early ??= []).push(value)
-    }
-    return owner !== value
-  }
   // The channel between this call's preflights and publications, and the facts a passing
   // preflight read, by node.
   const note: PublicationNote = {
@@ -181,26 +149,14 @@ export function publishGraph(
     prototype: undefined,
     reads: undefined,
     unchanged: false,
-    wrapped: false,
   }
   const preflight = denseArray<PreflightFacts | undefined>(size)
-  const domains = candidates(types, records, root, graph, storage, note, preflight, wrapper)
-  // Retained choices take their storage from these probes and fresh ones their own node number,
-  // so when discovery shared nothing no two choices share storage.
-  const distinctStorages = unshared
-  // Created on the first wrapper: an ordinary object is its own storage and its own mode-0
-  // handle, which the palette would answer without recording it.
-  let palette: ExposurePalette | undefined
-  const observe = (value: object, kind: symbol): ExposureObservation | undefined =>
-    storage(value) === value
-      ? { mode: 0, storage: value }
-      : (palette ??= new ExposurePalette(
-          (wrapper) => types.exposures[recognize(types, wrapper)],
-          storage,
-        )).observe(value, types.exposures[kind])
-  // Observes each selected target once and binds it to its choice; undefined when two
-  // targets share storage, a fresh target reuses old storage or a construction edge names
-  // another target.
+  const domains = candidates(types, records, root, graph, note, preflight)
+  // Retained choices are their objects and fresh ones their own node number, so two choices
+  // share a label only when one object is a candidate at two nodes.
+  const distinctStorages = distinctCandidates(domains)
+  // Binds each selected target to its choice; undefined when a fresh target reuses an old object
+  // or a construction edge names another target.
   const bind = (choices: readonly Choice[], targets: readonly object[]): Binding[] | undefined => {
     const fixed = fixedNodes(choices)
     const bindings = denseArray<Binding>(size)
@@ -214,10 +170,8 @@ export function publishGraph(
       const target = targets[index]
       const node = records[index]
       const choice = choices[index]
-      const observed = observe(target, node.layout.kind)
-      if (observed === undefined) return undefined
       if (!choice.retained) {
-        taken = claimFresh(domains, taken, observed.storage)
+        taken = claimFresh(domains, taken, target)
         if (taken === undefined) return undefined
       }
       // A retained choice's requirements already name the selected targets; dependent
@@ -230,9 +184,9 @@ export function publishGraph(
         construction: read === undefined ? choice.required : [...choice.required, ...read],
         exposed: target,
         fixed: isFixed(fixed, index),
-        mode: observed.mode,
+        mode: 0,
         palette: EXPOSURE_MODES,
-        storage: observed.storage,
+        storage: target,
         writer: target,
       }
     }
@@ -241,18 +195,8 @@ export function publishGraph(
   // The attempt being published or read back; the callbacks below read it instead of closing
   // over each revision.
   let active: Execution | undefined
-  // Whether the node being published is a new object exposed through a deep reactive proxy. It is
-  // filled through its raw writer, so it stores what a write through that proxy would: Vue keeps
-  // a deep reactive value as its raw object, and reading it back through the proxy gives the same
-  // proxy again. A key whose value the proxy returns unwrapped keeps the proxy itself.
-  let unwrapsReactive = false
-  const resolve = (edge: Edge, key?: PropertyKey): unknown => {
-    if (!isNode(edge)) return atomValue(edge)
-    const child = active!.bindings[edge.node]
-    return unwrapsReactive && child.mode === REACTIVE_MODE && !unwrappedKey(key)
-      ? child.storage
-      : child.exposed
-  }
+  const resolve = (edge: Edge): unknown =>
+    isNode(edge) ? active!.bindings[edge.node].exposed : atomValue(edge)
   const writer = (index: number): object => active!.bindings[index].writer as object
   // Construction bindings already observed native ownership at prepare. URL child
   // identity is fixed for its owner's lifetime, so this lookup performs no live read.
@@ -270,26 +214,8 @@ export function publishGraph(
     }
     return owners.get(child)
   }
-  // The rebind the current readback comparison found, if any.
-  let outcome: Readback = REJECT
-  const compare = (actual: unknown, wanted: Edge): boolean => {
-    if (!isNode(wanted)) return Object.is(actual, atomValue(wanted))
-    const state = active!
-    const child = wanted.node
-    if (actual === exposed(state, child)) return true
-    if (isObject(actual) && storage(actual) === state.bindings[child].storage) {
-      const observed = observe(actual, records[child].layout.kind)
-      if (observed !== undefined)
-        outcome = {
-          exposed: actual,
-          kind: 'rebind',
-          mode: observed.mode,
-          node: child,
-          storage: observed.storage,
-        }
-    }
-    return false
-  }
+  const compare = (actual: unknown, wanted: Edge): boolean =>
+    isNode(wanted) ? actual === exposed(active!, wanted.node) : Object.is(actual, atomValue(wanted))
   // Candidate discovery already ran the requirement scan on every retained candidate while no
   // write had happened; it is the preflight. The engine repeats it only after this call's own
   // writes, and never on a fresh target, which is private until it is published.
@@ -325,17 +251,13 @@ export function publishGraph(
   }
   const publishNode = (index: number): boolean => {
     const binding = active!.bindings[index]
-    // Facts serve only the object they were read from, exposed as itself; a wrapper's
-    // descriptors hold its raw contents, so it reads its own.
+    // Facts serve only the object they were read from.
     const facts = preflight[index]
-    note.facts =
-      first && facts?.current === binding.choice && binding.mode === 0 ? facts : undefined
+    note.facts = first && facts?.current === binding.choice ? facts : undefined
     note.unchanged = false
     note.fresh = typeof binding.choice === 'number'
-    note.wrapped = binding.writer !== rawOf(binding)
     // What capture or discovery read at the object's slots serves its first publication.
     note.reads = first ? alignedReads(graph, index, binding.choice) : seen(index, binding)
-    unwrapsReactive = note.fresh && binding.mode === REACTIVE_MODE
     const node = records[index]
     const accepted = policies[node.layout.kind].publish(
       node,
@@ -377,7 +299,6 @@ export function publishGraph(
           owners,
         )
         if (target === undefined) return undefined
-        mark(index, target)
         targets[index] = target
       }
     }
@@ -399,7 +320,6 @@ export function publishGraph(
     const refused = publishFreshFirst(state, records, publishNode)
     note.facts = undefined
     note.fresh = false
-    note.wrapped = false
     note.reads = undefined
     // A refused publication wrote without a readback after it; the next one reads afresh.
     checked = refused === -1 ? state : undefined
@@ -410,15 +330,12 @@ export function publishGraph(
   }
   const readback = (state: Execution, index: number): Readback => {
     const node = records[index]
-    // Bind and rebind store the memoized storage of the exposed object, so it always equals
-    // the binding's storage here, and no storage check is needed.
     if (node.pinned !== undefined || confirmed) {
       matching = index + 1
       return MATCH
     }
     const target = exposed(state, index)
     active = state
-    outcome = REJECT
     const matches =
       matchesKind(types, target, node.layout.kind) &&
       policies[node.layout.kind].matches(
@@ -426,10 +343,8 @@ export function publishGraph(
         target,
         compare,
         typeof state.bindings[index].choice === 'number' && target === writer(index),
-        // A target exposed through a wrapper, such as Vue's, is read through the wrapper.
-        target !== rawOf(state.bindings[index]),
       )
-    if (!matches) return outcome
+    if (!matches) return REJECT
     matching = index + 1
     return MATCH
   }

@@ -27,8 +27,7 @@ it('reads each fact of an unchanged subtree once while keeping it', () => {
     return draft
   })
   assert.strictEqual(result.deep, deep)
-  // One key list (names, then symbols), one descriptor and value per key, one prototype, and the
-  // Vue marker's own descriptor and read.
+  // One key list (names, then symbols), one descriptor and value per key and one prototype.
   for (const [name, key] of [
     ['deep', 'x'],
     ['inner', 'y'],

@@ -1,6 +1,6 @@
 # @escapace/reconcile
 
-Updates objects in place, builds updated copies from ordinary mutations, makes deep copies and converts values to and from JSON text. Works with plain objects, arrays, `Map`, `Set`, class instances, dates, binary data, URLs and Temporal values, keeps shared references and cycles, and supports Vue reactive state.
+Updates objects in place, builds updated copies from ordinary mutations, makes deep copies and converts values to and from JSON text. Works with plain objects, arrays, `Map`, `Set`, class instances, dates, binary data, URLs and Temporal values and keeps shared references and cycles.
 
 ## Install
 
@@ -35,7 +35,7 @@ const next = produce(state, (draft) => {
 reconcile(state, next) // state.tags is still the same array, now ['a', 'b']
 ```
 
-For Vue, see [Vue reactive state](#vue-reactive-state). Reference: [Supported values](#supported-values), [Object identity](#object-identity), [Size limit](#size-limit), [Errors](#errors) and [Limitations](#limitations).
+Reference: [Supported values](#supported-values), [Object identity](#object-identity), [Size limit](#size-limit), [Errors](#errors) and [Limitations](#limitations).
 
 ## Update objects in place
 
@@ -137,7 +137,6 @@ copy.user.name = 'Grace' // state.user.name is still 'Ada'
 | Properties with symbol keys                                           | Copied                                                        | Dropped                               |
 | Non-enumerable properties                                             | Copied, still non-enumerable                                  | Dropped                               |
 | Properties other than indexes on arrays, such as `list.label`         | Dropped; see [Limitations › All functions](#all-functions)    | Copied                                |
-| Vue reactive proxies                                                  | Copied                                                        | Throws                                |
 
 The rows on symbol keys and non-enumerable properties apply to plain objects and class instances. For private fields and other limits, see [Limitations › All functions](#all-functions).
 
@@ -194,31 +193,6 @@ if (result instanceof type.errors) throw new Error(result.summary)
 The validator is needed because `deserialize` checks the format of the data, not its shape: two properties can hold the same object, and any supported type can appear at any position, including values plain JSON cannot carry: `undefined`, `NaN`, `Infinity`, `-0`, a `bigint` or a hole. Choose a validator that checks a shared object once per schema, not once per reference, and that rejects cycles or handles them in bounded time; otherwise a small message that references one object many times can take a long time to validate.
 
 For the errors `deserialize` throws, see [Errors](#errors).
-
-## Vue reactive state
-
-`reconcile`, `produce`, `snapshot` and `serialize` accept Vue 3 reactive state: the `.value` of a `ref()`, or a proxy from `reactive()`, `shallowReactive()` or `readonly()` that holds objects, arrays, maps or sets. They read and write through the proxy in the same way as ordinary property access, so Vue tracks their reads and triggers on their writes. `reconcile` cannot write through a `readonly()` proxy; see [Vue limitations](#vue-limitations). The library recognizes Vue proxies without importing Vue, and `vue` is not a dependency.
-
-```ts
-import { reconcile } from '@escapace/reconcile'
-import { ref } from 'vue'
-
-const state = ref({ user: { name: 'Ada', role: 'admin' }, items: [] as string[] })
-
-reconcile(state.value, { user: { name: 'Grace', role: 'admin' }, items: ['a'] })
-// state.value.user is the same proxy; watchers of name are triggered, watchers of role are not
-```
-
-Each function treats reactive state as follows:
-
-- `reconcile(state.value, next)` updates the state in place. Nested objects keep their proxies, so components and watchers that hold them observe the changes, and only the dependents of changed or moved values are triggered. Objects that `reconcile` adds become deeply reactive, as with any write through a reactive proxy, except copies of objects marked with `markRaw`.
-- `produce(state.value, recipe)` returns plain objects for the changed parts and the state's own proxies for the unchanged parts; when the recipe returns the draft and changes nothing, it returns `state.value` itself, unless a getter returns a draft; see [`produce`](#function-produce-). Mutating an unchanged part mutates the state and triggers its dependents. `reconcile(state.value, produce(state.value, recipe))` applies the changes in place and keeps the objects that components hold, matched by position; see [Update objects in place](#update-objects-in-place).
-- `snapshot(state.value)` returns a detached, non-reactive copy. Mutating the copy triggers nothing, and `reactive(copy)` creates a new proxy with no dependents.
-- `serialize(state.value)` encodes the current contents of the state, and `deserialize` returns plain, non-reactive objects.
-
-A copy that `reconcile`, `produce` or `snapshot` makes of an object marked with `markRaw` keeps the mark; `reconcile` neither adds nor removes the mark on an object it keeps, and `serialize` does not encode it.
-
-Tracked reads, raw objects, shallow proxies, drafts and refs need care; see [Vue limitations](#vue-limitations).
 
 ## Supported values
 
@@ -299,11 +273,11 @@ Each function keeps or replaces objects as follows:
 | `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                                                          |
 
 - **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents once, as part of `next`, and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth, or a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one: such an object is updated like any other.
-- **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members. A search for a Vue proxy also finds its raw object. In Vue reactive state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one.
+- **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
 - **One object at two positions.** When `current` holds one object at two positions and `next` holds different objects there, `reconcile` keeps the object at one of them, chosen deterministically, and gives the others new objects.
-- **Proxies.** A Vue reactive proxy and its raw object hold the same contents, so a write through one changes the other, and every function treats them as one object: a recipe gets one draft for them, and `snapshot` and `serialize` copy them as one object; see [`produce`](#function-produce-) and [`reconcile`](#function-reconcile-) for what the results hold. The same holds for two Vue proxies of one raw object, such as `reactive(raw)` and `readonly(raw)`, and for a proxy that passes on Vue's flags, such as a plain `Proxy` of a Vue proxy. Every function treats any other proxy and its target as separate objects.
+- **Proxies.** Every function treats a proxy and its target as separate objects.
 
 ## Size limit
 
@@ -385,7 +359,7 @@ Error messages can change between versions; branch on `cause.type`. After `isRec
 
 - `reconcile` throws `PublicationRejected` when `current` cannot be made to match `next`; see [`reconcile` limitations](#reconcile-limitations).
 - `produce` throws `DraftDefinePropertyUnsupported` when a recipe defines a property on an object or array draft. Its other types are rare; see [`produce`](#function-produce-).
-- `snapshot` throws a `ReconcileError` only when its optional `seen` map holds the `searchParams` of a URL in `value` but not the URL (`SnapshotURLSearchParamsMemoIncompatible`), or when a `Map` or `Set` in `value` holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members (`SnapshotWrapperKeyDuplicated`); see [`snapshot`](#function-snapshot-).
+- `snapshot` throws a `ReconcileError` only when its optional `seen` map holds the `searchParams` of a URL in `value` but not the URL (`SnapshotURLSearchParamsMemoIncompatible`); see [`snapshot`](#function-snapshot-).
 - `serialize` throws `SerializeValueUnsupported` for any value listed in [`serialize` and `deserialize` limitations](#serialize-and-deserialize-limitations).
 - `deserialize` and `requiredMaxBytes` throw:
   - `DeserializeLimitInvalid` when `maxBytes` is missing or is neither a non-negative safe integer nor `Infinity`.
@@ -405,14 +379,13 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
   - In `produce`, only an array draft shows them. No draft or copy can set or delete them, and a changed value loses them in the result.
   - `serialize` ignores them, including symbol-keyed and non-enumerable ones, and does not call their getters.
 - **Freezing does not protect contents.** Freezing a `Map`, `Set`, `Date`, buffer, view, `URL` or `URLSearchParams` value protects its properties, not its entries, time, bytes or text. `reconcile` and `produce` handle such a value as if it were not frozen: `reconcile` updates its contents in `current`, and a recipe changes them in a copy, which the result holds.
-- **Overrides of built-in methods do not run.** Every function reads and writes the entries, time, bytes or text of a `Map`, `Set`, `Date`, buffer, view, `URL` or `URLSearchParams` with the built-in methods in place when this library was imported, except for a Vue reactive `Map` or `Set`. No function calls a getter or method that a subclass or the instance defines instead of a built-in one, such as a `Map` subclass's `set` or an `entries` method on the instance, and a draft's methods do not call one either. For a change to a standard prototype, see [Standard prototypes](#standard-prototypes).
-  - A Vue reactive `Map` or `Set` is used through Vue's methods, which call the raw object's methods, so the raw object's overrides run.
+- **Overrides of built-in methods do not run.** Every function reads and writes the entries, time, bytes or text of a `Map`, `Set`, `Date`, buffer, view, `URL` or `URLSearchParams` with the built-in methods in place when this library was imported. No function calls a getter or method that a subclass or the instance defines instead of a built-in one, such as a `Map` subclass's `set` or an `entries` method on the instance, and a draft's methods do not call one either. For a change to a standard prototype, see [Standard prototypes](#standard-prototypes).
   - A subclass that keeps its entries elsewhere and overrides the methods that read them, such as an Immer draft of a `Map`, reads as empty in `snapshot`, `reconcile` and `produce`.
   - In a recipe, a method called on a copy of a `Date`, buffer, view, `URL` or `URLSearchParams` is the one the copy inherits, as in any call, so a subclass's override runs.
   - A `Set` draft method, such as `union`, reads its operand's `size`, `has` and `keys` as the built-in method does, so the operand's overrides run; see [`produce` limitations](#produce-limitations).
-  - A proxy of a `Map`, `Set`, `Date`, buffer, view, `URL` or `URLSearchParams`, other than a Vue reactive `Map` or `Set`, has no contents of its own, so the functions throw a `TypeError` when they read its contents. The exception is a proxy of a typed array in `snapshot`, `reconcile` and `produce`, which handle it as a class instance.
+  - A proxy of a `Map`, `Set`, `Date`, buffer, view, `URL` or `URLSearchParams` has no contents of its own, so the functions throw a `TypeError` when they read its contents. The exception is a proxy of a typed array in `snapshot`, `reconcile` and `produce`, which handle it as a class instance.
 - **Sparse arrays.** `reconcile`, `produce`, `snapshot` and `serialize` can take time proportional to a sparse array's length, not to the number of elements it holds.
-- **Proxies that wrap every read.** A proxy that wraps each object it returns in a new proxy turns a cycle in its data into endless nesting, which `snapshot`, `produce` and `serialize` cannot copy: they exceed the call stack or do not return. Vue's proxies return the same proxy for an object each time.
+- **Proxies that wrap every read.** A proxy that wraps each object it returns in a new proxy turns a cycle in its data into endless nesting, which `snapshot`, `produce` and `serialize` cannot copy: they exceed the call stack or do not return.
 - **Private fields.** `reconcile`, `produce` and `snapshot` lose the private fields of class instances that they rebuild or copy. A getter, setter or method that uses a private field throws on such a copy and on a `produce` draft, which is not the instance that holds the field. The built-in objects listed in [Objects kept by reference](#objects-kept-by-reference) are kept by reference instead.
 - **Unrecognized built-in values.** A built-in value created in another JavaScript environment, such as an iframe or a Node.js `vm` context, a Temporal value from a polyfill that is not installed globally, and a built-in object that [Supported values](#supported-values) does not list, such as an `Intl.NumberFormat` or a `Headers`, are not recognized and are handled as class instances:
   - `reconcile` can leave the value's entries, time or bytes unchanged without an error, or throw `PublicationRejected`.
@@ -425,7 +398,7 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 - **Matched by position, not by identifier.** Array elements and `Map` and `Set` entries are matched by index and insertion order, even when `next` moves an object of `current`; see [Update objects in place](#update-objects-in-place).
 - **Not rolled back.** A failed call is not rolled back: writes made before the failure stay, so `current` can hold some of the new values. This applies to `PublicationRejected` and to errors from getters, setters and proxy traps.
 - **`current` itself must be updatable.** `reconcile` throws `PublicationRejected` when it cannot update `current` itself: for example, when `current` and `next` have different types, such as an object and an array, when `current` is a Temporal value that changed, or when `current` blocks a change, as described below. For more causes, see [`reconcile`](#function-reconcile-).
-- **Objects that block a change are replaced.** A change to a property is blocked by a frozen or non-extensible object, a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, or a proxy trap that refuses the assignment. A setter or a synchronous watcher, such as a Vue `watch` with `flush: 'sync'`, that changes another value during the call can also block a change; `reconcile` then replaces the object that holds the value or the object whose setter made the change. An object inside `current` that blocks a change is replaced by a new copy, so code that holds the old object does not see the change.
+- **Objects that block a change are replaced.** A change to a property is blocked by a frozen or non-extensible object, a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, or a proxy trap that refuses the assignment. A setter or trap that changes another value during the call can also block a change; `reconcile` then replaces the object that holds the value or the object whose setter made the change. An object inside `current` that blocks a change is replaced by a new copy, so code that holds the old object does not see the change.
 - **Getters must not change values.** `reconcile` decides what to write from values it read earlier in the call, and checks the result only when it wrote something. A getter or proxy trap in `current` or `next` that changes a value of `current` during the call can therefore leave `current` different from `next` without an error.
 - **Inherited getters and setters.** `reconcile` never writes to or overrides a getter or setter that an object inherits, such as `get fullName()` in a class or one on `Object.prototype`. When `next` has such a key as an own property and the object lacks it, `reconcile` cannot update the object in place: an object inside `current` is replaced by a new copy, and `current` itself makes `reconcile` throw `PublicationRejected` before any write. To apply data through a class setter, assign it in a `produce` recipe and reconcile the result, as in [Apply a recipe in place](#apply-a-recipe-in-place).
 - **Getters and setters keep their place in key order.** A getter or setter defined on the object itself keeps its place, because JavaScript can move a property only by deleting and recreating it. Other keys are reordered around it; when the key order of `next` cannot be reached that way, the object is replaced, or `reconcile` throws when it is `current` itself, as for an inherited getter or setter.
@@ -435,17 +408,16 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 - **Synchronous recipes only.** A returned `Promise` is kept as it is, and the draft it resolves to is never finished. A draft kept after the recipe returns still accepts writes, but they reach neither `current` nor the result.
 - **Frozen objects and read-only properties.** Because a draft follows its object's property attributes and extensibility, `produce` cannot change a property of a frozen object or a read-only property of `current`, delete a non-configurable property, or add a property to a non-extensible object, such as a sealed one. To change frozen state, pass `snapshot(state)`, whose copies are writable.
 - **Assignment only.** Defining a property on an object or array draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws `DraftDefinePropertyUnsupported`; use assignment instead. `Object.freeze`, `Object.seal` and `Object.preventExtensions` throw a `TypeError` on such a draft, as does `Object.setPrototypeOf` with a different prototype.
-- **`Map` keys are not drafts.** Iterating a `Map` draft yields each key as the `Map` yields it, which in Vue reactive state is Vue's proxy of the stored key; only values are drafts. Changing a key object in a recipe changes `current`. To change a key, delete the entry and set a new one; the entry then moves to the end.
+- **`Map` keys are not drafts.** Iterating a `Map` draft yields each key as the `Map` yields it; only values are drafts. Changing a key object in a recipe changes `current`. To change a key, delete the entry and set a new one; the entry then moves to the end.
 - **`Set` methods are fixed at import.** A `Set` draft implements only the `Set` methods that the runtime's `Set` had when this library was imported. A method added to `Set.prototype` later runs with the draft as `this`, so one that calls a built-in `Set` method on `this`, as a polyfill does, throws a `TypeError`; install a polyfill before importing the library.
-- **A custom `has` receives drafts.** In `Set` draft methods that look members up in their operand, such as `isSubsetOf` and `difference`, a custom `has` on the operand, such as a subclass override, receives drafts and must recognize them itself. A `Set` or `Map` operand that uses the built-in `has`, or a Vue reactive proxy of one, finds a member whether it holds the object or its draft.
+- **A custom `has` receives drafts.** In `Set` draft methods that look members up in their operand, such as `isSubsetOf` and `difference`, a custom `has` on the operand, such as a subclass override, receives drafts and must recognize them itself. A `Set` or `Map` operand that uses the built-in `has` finds a member whether it holds the object or its draft.
 - **Changed dates, buffers and URLs are not extensible.** A `Date`, buffer, view, `URL` or `URLSearchParams` value that a recipe changes is a new, non-extensible copy in the result: adding a property to it throws a `TypeError` in strict-mode code. To add properties, copy it first, for example with `new Date(value)` or `new URL(value)`.
 
 ### `serialize` and `deserialize` limitations
 
 - **Supported values only.** `serialize` accepts plain and `null`-prototype objects, arrays, `Map`, `Set`, `Date`, fixed-length `ArrayBuffer`, typed arrays, `DataView`, `URL`, `URLSearchParams`, Temporal values and primitives other than symbols. It throws `SerializeValueUnsupported` for everything else, including:
   - class instances, and instances of subclasses of built-in types, such as a Node.js `Buffer` (see [Dates and binary data](#dates-and-binary-data))
-  - symbols, and symbol-keyed or non-enumerable properties of plain and `null`-prototype objects, other than a non-enumerable `__v_skip`, which Vue's `markRaw` adds
-  - a `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members (see [Vue limitations](#vue-limitations))
+  - symbols, and symbol-keyed or non-enumerable properties of plain and `null`-prototype objects
   - functions and other [objects kept by reference](#objects-kept-by-reference)
   - resizable buffers and views over a `SharedArrayBuffer`
 - **No custom codecs or revivers.** Convert other values, such as class instances, to supported values before calling `serialize`.
@@ -454,31 +426,16 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 - **Data built by other means.** Data that does not come from `JSON.parse` or `serialize` must contain only plain arrays without extra properties and plain objects with only data properties, and must not contain the same array at more than one place. Under a finite `maxBytes`, a value of a type that `JSON.parse` cannot produce, such as `undefined`, a typed array, a `Map` or a `bigint`, is rejected.
 - **The limit does not bound everything.** `maxBytes` does not bound `JSON.parse` or code that walks the result as a tree; see [What the limit covers](#what-the-limit-covers).
 
-### Vue limitations
-
-- **Reads are tracked.** These functions read through the proxy, so inside a `computed` or a watcher getter, Vue tracks every property they read, at every depth. `snapshot(toRaw(state.value))` copies without tracking: the raw object has the same contents.
-- **Dates, buffers and URLs are not tracked.** Vue does not track the time, bytes or text of a `Date`, buffer, view, `URL` or `URLSearchParams`, so `reconcile` triggers nothing when it updates one in place.
-- **Only the proxy is reactive.** `reconcile` on the raw object changes the contents but triggers nothing. A `readonly()` proxy rejects the writes: Vue logs a warning, and `reconcile` throws `PublicationRejected`.
-- **Shallow proxies track only the top level.** With `shallowRef()`, only `.value` is tracked, so `reconcile(state.value, next)` changes the contents but triggers nothing; assign `state.value = produce(state.value, recipe)` instead. With `shallowReactive()`, only root-level properties trigger updates.
-- **A draft is not reactive.** `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such as `forEach` give the recipe drafts, so the recipe never changes the state.
-- **A ref object is a class instance.** Pass `.value`, not the ref: `snapshot` copies a ref's internal fields, so Vue still treats the copy as a ref, and writing its `value` can run the original's effects; `serialize` rejects a ref. The same applies to a ref inside a reactive array or `Map`, which Vue does not unwrap. A ref that is a property of a reactive object is unwrapped, and `reconcile` writes through it.
-- **Synchronous watchers see each write.** `reconcile` writes one value at a time, so a watcher with `flush: 'sync'` can run while the state is partly updated: after an array's new length and before its new elements, or while reordered keys or entries are deleted and not yet added back. An object that `reconcile` adds is complete when it appears, but an object inside it that is also in `current` can still be updated afterwards.
-- **A proxy and its raw object are one object.** See [Object identity](#object-identity). A `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members cannot be copied, because the copy would hold one object as two keys: `snapshot` throws `SnapshotWrapperKeyDuplicated` and `serialize` throws `SerializeValueUnsupported`. `reconcile` throws `PublicationRejected` when `next` holds such a collection, unless it is an [object already in place](#object-identity). `produce` throws `FinalizationConstructionImpossible` when the recipe changes, through a draft, the object behind the two keys.
-- **`hasOwnProperty` reads as Vue's method.** For the key `hasOwnProperty`, a `reactive()` or `shallowReactive()` proxy returns Vue's own method, and the functions read through the proxy, so they read that method instead of the property's value. `reconcile` throws `PublicationRejected` when it would store that key through such a proxy.
-- **`__v_raw` is read.** To recognize Vue proxies, the functions read `__v_raw` from the objects they visit, so a getter of that name runs, possibly more than once in a call.
-- **A reactive `Map` or `Set` makes the functions throw under SES.** The iterator that Vue returns for a reactive `Map` or `Set` inherits the built-in `next` method, and Vue assigns its own `next` method to it. After SES `lockdown()`, with any `overrideTaming`, that assignment throws a `TypeError`. The functions read the entries of such a `Map` or `Set` through Vue's iterator, so they throw that error when they visit one: `snapshot` and `serialize` for a value that holds one, `reconcile` when `next` holds one, even one already in place, or when `current` holds one where `next` holds a `Map` or `Set`, and `produce` when its result holds one, even one the recipe did not read.
-
 ### Standard prototypes
 
 Apart from the cases below, data properties, getters and setters that other code adds to `Object.prototype` or `Array.prototype` do not change the results, and objects the functions create hold their own data instead of inheriting it. The following changes are not supported:
 
 - **Array indices.** Do not define a getter, setter or read-only property at an array index of either prototype. Native array methods such as `push` run or respect it, so any function can throw or return a wrong result. Data at an index is supported: a hole stays a hole.
-- **Vue's flags.** Do not add the flags that Vue reads, such as `__v_raw`, `__v_isReactive` or `__v_skip`, to either prototype. Vue and the functions read them through the prototype, so ordinary objects would look like reactive proxies or like objects marked with `markRaw`.
 - **Replaced methods.** A built-in method replaced before this library is imported takes the built-in's place in the reads and writes that [Overrides of built-in methods do not run](#all-functions) describes. The functions also call built-in methods on their own maps, arrays and strings during each call, such as `Map.prototype.get` and the global `btoa`, so a replacement that behaves differently, installed at any time, can change any result. Do not modify built-ins or prototypes during a call to `serialize` or `deserialize`, including inside getters.
 
-Recipes, options and native code see the prototypes as ordinary JavaScript does. In a recipe, an assignment runs or respects what `Object.prototype` holds for the key, and a native array method such as `splice` reads an index that a prototype holds. Inherited properties of an options object count. Native code, and proxies such as Vue's, read the prototypes themselves and behave as they do without the library. `reconcile` treats a getter or setter on `Object.prototype` as any [inherited getter or setter](#reconcile-limitations).
+Recipes, options and native code see the prototypes as ordinary JavaScript does. In a recipe, an assignment runs or respects what `Object.prototype` holds for the key, and a native array method such as `splice` reads an index that a prototype holds. Inherited properties of an options object count. Native code and proxies read the prototypes themselves and behave as they do without the library. `reconcile` treats a getter or setter on `Object.prototype` as any [inherited getter or setter](#reconcile-limitations).
 
-**Hardened environments.** SES `lockdown()` and `node --frozen-intrinsics` are supported, and this library can be imported before or after `lockdown()`; for a Vue reactive `Map` or `Set`, see [Vue limitations](#vue-limitations). They make some properties of `Object.prototype` read-only or replace them with a getter and setter, and an assignment in a recipe then behaves as on an ordinary object:
+**Hardened environments.** SES `lockdown()` and `node --frozen-intrinsics` are supported, and this library can be imported before or after `lockdown()`. They make some properties of `Object.prototype` read-only or replace them with a getter and setter, and an assignment in a recipe then behaves as on an ordinary object:
 
 - **Read-only property**, such as `constructor` after `Object.freeze(Object.prototype)` or after SES `lockdown()` with its default `overrideTaming`: in strict-mode code, such as a module, the assignment throws a `TypeError`. `reconcile` still adds such a key from `next`.
 - **Getter and setter**, such as `toString` after SES `lockdown()` or every method under `node --frozen-intrinsics`: the assignment adds the key. `reconcile` treats it as an [inherited getter or setter](#reconcile-limitations), so use the result of `produce` instead of reconciling such a key into `current`.
@@ -535,7 +492,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as {
 // copy.owner === copy.members[0]; copy.owner !== user
 ```
 
-## function isReconcileError [↗](src/error.ts#L185-L186 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L163-L164 'isReconcileError')
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -549,7 +506,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L194-L197 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L172-L175 'isReconcileErrorOfType')
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
 
@@ -565,7 +522,7 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 | `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
 | `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
 
-## function produce [↗](src/produce.ts#L153-L155 'produce')
+## function produce [↗](src/produce.ts#L143-L145 'produce')
 
 Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
 
@@ -593,21 +550,19 @@ The value the recipe returned, with drafts replaced by ordinary values. A recipe
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) while the recipe runs: `DraftDefinePropertyUnsupported` for reflective property definition on an object or array draft, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real array could not have, and `DraftWrapperIdentityChanged` or `DraftWrapperIteratorMismatched` for a reactive proxy that reports inconsistent contents.
+1. [ReconcileError](#class-reconcileerror-) while the recipe runs: `DraftDefinePropertyUnsupported` for reflective property definition on an object or array draft, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real array could not have.
 2. [ReconcileError](#class-reconcileerror-) after the recipe returns: `FinalizationAccessorUnstable` can be thrown when a getter adds a getter to a part of the result that `produce` has already visited, and `FinalizationConstructionImpossible` when no consistent result exists. `FinalizationStorageMissing` and `FinalizationChildInvalid` indicate a bug in the library.
 3. Errors thrown by the recipe, getters, setters or proxy traps, and native errors, such as a `RangeError` for an invalid array length or the engine's error for nesting that exceeds the call stack, propagate unchanged.
 
 ### Remarks
 
-The draft behaves like `current` but records changes instead of applying them. The recipe returns the next value explicitly: the draft, a part of it or any other value. Drafts inside the returned value are turned back into ordinary values. A draft that the result holds only in a prototype, a closure, an object kept by reference such as a function or `Error`, a property that a built-in value does not carry, or a Vue proxy such as `reactive(draft)` stays a draft. If the recipe returns `current` itself, its draft changes are discarded. The recipe must be synchronous: a returned `Promise` is kept as it is, and the draft it resolves to is never finished. Writes to a draft after the recipe returns reach neither `current` nor the result.
+The draft behaves like `current` but records changes instead of applying them. The recipe returns the next value explicitly: the draft, a part of it or any other value. Drafts inside the returned value are turned back into ordinary values. A draft that the result holds only in a prototype, a closure, an object kept by reference such as a function or `Error`, or a property that a built-in value does not carry stays a draft. If the recipe returns `current` itself, its draft changes are discarded. The recipe must be synchronous: a returned `Promise` is kept as it is, and the draft it resolves to is never finished. Writes to a draft after the recipe returns reach neither `current` nor the result.
 
 The result reuses the parts of `current` the recipe left unchanged where it can, so it is not detached from `current`; use `snapshot(produce(...))` for a detached copy. `produce` does not freeze the result. An edit that is later undone restores the original object when its whole subtree ends up equal, including key order, holes, shared references and cycles. A new object the recipe creates stays distinct from an equal existing one. A value the recipe assigns or returns from outside `current` is kept as it is, unless the recipe changes it through the draft. When the recipe assigns or returns an object from `current`, including `current` itself inside another value, the result holds it with the changes made through its draft.
 
 Plain objects, arrays, `Map` and `Set` become drafts when the recipe reads them. Reading a `Date`, `ArrayBuffer`, `DataView` or typed array gives the recipe a writable copy; if the recipe does not change a copy, the result holds the original, and changed copies preserve their buffer sharing. A changed copy is itself the result's value, so changing it after the recipe returns changes the result. `URL` and `URLSearchParams` values are also copied when read; a URL's copy and the copy of its `searchParams` stay linked, whichever the recipe reads first. A buffer and its views, or a URL and its `searchParams`, are copied together only when the recipe changes one of them. A native method that changes the query text, such as `sort` turning `%20` into `+`, counts as a change even when the parameter entries stay equal. Temporal values are copied when read; they are immutable, so assign the value returned by their methods. A Temporal value the recipe reads but does not replace stays the original in the result.
 
 A changed array, `Map`, `Set`, `Date`, buffer, view, URL or `URLSearchParams` value keeps its source's prototype, so an instance of a subclass stays one. Other objects, such as class instances, are drafted like plain objects: an unchanged one is kept, and a changed one is rebuilt with the same prototype and own properties but without private fields. A getter, setter or method that uses a private field throws when it runs on the draft, which is not the instance that holds the field. Primitives, including bigints, and objects kept by reference are not drafted; they are read and assigned as they are, so a method that changes such a value, such as `WeakMap.prototype.set`, changes the original. Objects kept by reference are functions, a `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Blob` or `SharedArrayBuffer`, a boxed primitive and an instance of a subclass of one of them.
-
-Vue reactive proxies of objects, arrays, maps and sets are supported. Their drafts are not reactive: `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such as `forEach` called on a draft receive drafts. A Vue proxy and its raw object are one object and have one draft. When the recipe does not change the object, the result keeps the proxy and the raw object where each was; when it does, the result holds one new object at each of their positions.
 
 Reading a value or writing an equal value back does not count as a change. During the recipe, getters run on every read and assignments call setters with the draft as `this`; `Reflect.set` with an explicit receiver calls the setter with that receiver as `this`. Reflection, such as `Object.getOwnPropertyDescriptor` or `Object.values`, returns the same draft values as ordinary reads. Defining properties on an object or array draft with `Object.defineProperty`, `Object.defineProperties` or `Reflect.defineProperty` throws `DraftDefinePropertyUnsupported`; use assignment instead. `Object.freeze`, `Object.seal` and `Object.preventExtensions` throw a `TypeError` on such a draft, as does `Object.setPrototypeOf` with a different prototype.
 
@@ -617,11 +572,11 @@ A draft follows its object's property attributes and extensibility: a read-only 
 
 After the recipe returns, each own getter in the result is called once, in depth-first order. An object that the recipe did not change, and whose getters returned values the result keeps, stays the original object with its getters; a getter that returns a draft, such as one returning `this.items[0]`, makes its object new even when nothing changed. Otherwise the object is new, and each getter is replaced by a data property that holds the value it returned and has the getter's enumerability, or, in an array, is enumerable. Inside the getter, `this` is a draft of its object: writes through `this` become part of the result, and changes to other objects take effect immediately and are not undone.
 
-A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag` and `constructor` work as on the source. Its methods read the original until the first change and then read and write a working copy of the same class, always with the built-in methods, so an override on a subclass or on the instance never runs; a Vue reactive original is read through Vue's methods. A method a subclass adds runs with the draft as `this`: it can call the draft's methods, but the subclass's constructor never initializes the draft, so `super` calls to the built-in methods and private fields throw on it, and fields the constructor sets are missing from it. Array, `Map` and `Set` drafts iterate like native collections, including `for...of`, spreading and callback methods: object values come back as drafts, a write during a walk shows up in it, and a walk that changes nothing keeps the original. `Map` keys are not drafts: a walk gives the keys as the `Map` gives them, which in Vue reactive state is Vue's proxy of the stored key. Changing a key object changes `current`. To change a key, delete its entry and set a new one.
+A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag` and `constructor` work as on the source. Its methods read the original until the first change and then read and write a working copy of the same class, always with the built-in methods, so an override on a subclass or on the instance never runs. A method a subclass adds runs with the draft as `this`: it can call the draft's methods, but the subclass's constructor never initializes the draft, so `super` calls to the built-in methods and private fields throw on it, and fields the constructor sets are missing from it. Array, `Map` and `Set` drafts iterate like native collections, including `for...of`, spreading and callback methods: object values come back as drafts, a write during a walk shows up in it, and a walk that changes nothing keeps the original. `Map` keys are not drafts: a walk gives the keys as the `Map` gives them. Changing a key object changes `current`. To change a key, delete its entry and set a new one.
 
-Draft searches count an object and its draft as the same value: `includes`, `indexOf` and `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as `union` on a `Set` draft. A search for a Vue proxy also finds its raw object. In Vue reactive state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one. `===` in recipe code compares references, so compare such values with these methods or by a key.
+Draft searches count an object and its draft as the same value: `includes`, `indexOf` and `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as `union` on a `Set` draft. `===` in recipe code compares references, so compare such values with these methods or by a key.
 
-`Set` draft methods return this draft's members as drafts and an operand's values as the operand gives them. An operand whose `has` is the built-in `Set` or `Map` method, or a Vue reactive `Set` or `Map` of such an operand, finds a member whether it holds the object or its draft. Any other operand's `has`, including a subclass override, receives drafts and must recognize them itself. A draft has the `Set` methods that the runtime's `Set` has when this library is imported; install a polyfill for them before importing it.
+`Set` draft methods return this draft's members as drafts and an operand's values as the operand gives them. An operand whose `has` is the built-in `Set` or `Map` method finds a member whether it holds the object or its draft. Any other operand's `has`, including a subclass override, receives drafts and must recognize them itself. A draft has the `Set` methods that the runtime's `Set` has when this library is imported; install a polyfill for them before importing it.
 
 ### Examples
 
@@ -634,7 +589,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L102-L104 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L93-L95 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -655,7 +610,7 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. At any depth, the call also throws when a new object it creates would inherit, from its prototype, Vue's reactive markers for the same raw object as another kept or new object. Writes made before the failure are not rolled back.
+1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. Writes made before the failure are not rolled back.
 2. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
 
 ### Remarks
@@ -664,17 +619,15 @@ Values are matched by position: object properties by key, array elements by inde
 
 When `current` holds one object at two positions and `next` holds different objects there, the object is kept at one of them, chosen deterministically, and the others receive new objects. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
 
-Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's text, including parameter order and duplicate names, and a URL keeps its own `searchParams` object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written with the built-in methods, so an override on a subclass or on the instance never runs; a Vue reactive `Map` or `Set` is used through Vue's methods. Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own properties, such as fields that a subclass declares, are not updated on a kept object and are not copied to a new one.
+Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's text, including parameter order and duplicate names, and a URL keeps its own `searchParams` object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written with the built-in methods, so an override on a subclass or on the instance never runs. Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own properties, such as fields that a subclass declares, are not updated on a kept object and are not copied to a new one.
 
 A changed own property is written by assignment, as application code writes it, so an own setter runs and an own getter or setter is kept; a configurable read-only property is redefined with the next value and keeps its attributes. An own getter or setter keeps its place in the key order, and a getter without a setter must already hold its value. `reconcile` never writes or overrides an inherited getter or setter, such as a class getter or setter. When `next` has an own key that an object lacks, and assigning it would reach such a getter or setter, that object cannot be updated in place: inside `current`, it is replaced by a new object; if it is `current` itself, the call throws before any write. A `__proto__` key is always defined as an own data property, so data never replaces a prototype. A property that `reconcile` adds is writable and configurable and takes the enumerability of the property in `next`, so a non-enumerable one stays hidden from key listing, spread and JSON; a property it keeps has its own attributes.
 
-On an object that `reconcile` keeps and updates, an own getter for a key that `next` also has runs once when the call writes nothing and twice when it writes anything: once when `reconcile` compares its value and again when it checks the result. When the check finds that an object inside `current` blocked a change, for example through a setter that does not store its value, `reconcile` replaces that object and tries again; each retry runs the getter at most once more. These counts leave out reading `next`, which also runs the getters of any object of `current` that `next` holds, and reads that a proxy trap makes, such as Vue's when a write replaces a value.
+On an object that `reconcile` keeps and updates, an own getter for a key that `next` also has runs once when the call writes nothing and twice when it writes anything: once when `reconcile` compares its value and again when it checks the result. When the check finds that an object inside `current` blocked a change, for example through a setter that does not store its value, `reconcile` replaces that object and tries again; each retry runs the getter at most once more. These counts leave out reading `next`, which also runs the getters of any object of `current` that `next` holds, and reads that a proxy trap makes.
 
 `next` is read completely before `current` changes. When both arguments are objects that are not kept by reference, a successful call returns `current`. When either is a primitive, a function or another object kept by reference, the call returns `next` and changes nothing.
 
 An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the final state is the same as if it had been updated. This does not apply to an object that refers to `current` or `next` at any depth, or to a key, value or member of a `Map` or `Set` that is not itself in place, or anything inside one; such an object is updated like any other.
-
-Vue reactive proxies are supported. A proxy and its raw object are one object, so the rule for one object at two positions applies to them. When `current` holds both and `next` holds, at each of their positions, either that object or one and the same new object, `reconcile` keeps the object and writes the same one of the two at each position. It writes neither when `next` holds at every position the one `current` already holds there and that one stays in place, as above.
 
 ### Examples
 
@@ -725,7 +678,7 @@ deserialize(serialize(value), { maxBytes }) // restores the value
 deserialize(serialize(value), { maxBytes: maxBytes - 1 }) // throws DeserializeLimitExceeded
 ```
 
-## function serialize [↗](src/serialize.ts#L45-L47 'serialize')
+## function serialize [↗](src/serialize.ts#L42-L44 'serialize')
 
 Encodes a value as JSON data that [deserialize](#function-deserialize-) restores, preserving shared references and cycles.
 
@@ -750,9 +703,9 @@ New JSON data representing the value.
 
 ### Remarks
 
-Plain and null-prototype objects, arrays, `Map`, `Set`, `Date`, fixed-length `ArrayBuffer`, typed arrays, `DataView`, `URL`, `URLSearchParams` and Temporal values are supported. `serialize` rejects objects with other prototypes, such as a class instance, an instance of a subclass of `Array` or a Node.js `Buffer`, because [deserialize](#function-deserialize-) restores only standard prototypes. It also rejects functions and symbols, and the symbol keys and non-enumerable properties of plain and null-prototype objects, other than a non-enumerable `__v_skip`, which Vue's `markRaw` adds and `serialize` skips. A Vue proxy and its raw object are encoded as one object, and a `Map` or `Set` that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members is rejected. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over `buffer.buffer` can encode Node's whole allocation pool. Objects from another iframe or Node.js `vm` context are rejected, plain objects and arrays included.
+Plain and null-prototype objects, arrays, `Map`, `Set`, `Date`, fixed-length `ArrayBuffer`, typed arrays, `DataView`, `URL`, `URLSearchParams` and Temporal values are supported. `serialize` rejects objects with other prototypes, such as a class instance, an instance of a subclass of `Array` or a Node.js `Buffer`, because [deserialize](#function-deserialize-) restores only standard prototypes. It also rejects functions and symbols, and the symbol keys and non-enumerable properties of plain and null-prototype objects. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over `buffer.buffer` can encode Node's whole allocation pool. Objects from another iframe or Node.js `vm` context are rejected, plain objects and arrays included.
 
-`serialize` calls each getter once, in depth-first order, with the object being encoded as `this`. An array, `Map` or `Set` is encoded from its elements or entries; its other own properties, whatever their key or enumerability, are not encoded, and their getters are not called. A `Map` or `Set` is read with the built-in methods, never an override on the instance, or through Vue's methods when it is Vue reactive. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its built-in value; its own and overriding properties are not read and are not encoded. Callers must not modify standard built-ins or prototypes during the call, including inside getters.
+`serialize` calls each getter once, in depth-first order, with the object being encoded as `this`. An array, `Map` or `Set` is encoded from its elements or entries; its other own properties, whatever their key or enumerability, are not encoded, and their getters are not called. A `Map` or `Set` is read with the built-in methods, never an override on the instance. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its built-in value; its own and overriding properties are not read and are not encoded. Callers must not modify standard built-ins or prototypes during the call, including inside getters.
 
 The result holds only arrays, strings, finite numbers, booleans and `null`, so `JSON.stringify` writes it as text and `JSON.parse` reads it back. Only [deserialize](#function-deserialize-) restores the value from it. It carries no format version, so both sides must use the same version of this library.
 
@@ -766,7 +719,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as typeof no
 // copy.next === copy; copy.created is a Date
 ```
 
-## function snapshot [↗](src/snapshot.ts#L150-L155 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L122-L127 'snapshot')
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
@@ -779,10 +732,10 @@ export declare function snapshot(
 
 ### Parameters
 
-| Parameter | Type                                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`   | <pre>unknown</pre>                               | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `seen`    | <pre>WeakMap\<object, object> \| undefined</pre> | Copies to use for source objects. `snapshot` uses each entry as given, without checking it, and adds an entry for every object it copies. The result is detached only if every supplied entry is a detached copy of its source. Map a URL and its `searchParams` together, to a copy whose `searchParams` is the mapped entry, or map neither. Mapping only the `searchParams` of a URL in `value` throws `SnapshotURLSearchParamsMemoIncompatible`. Mapping only the URL leaves a copy of its `searchParams` elsewhere in the result unlinked from the mapped URL. An entry for a raw object also serves its Vue proxies; an entry for a proxy serves only that proxy. |
+| Parameter | Type                                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`   | <pre>unknown</pre>                               | The value to copy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `seen`    | <pre>WeakMap\<object, object> \| undefined</pre> | Copies to use for source objects. `snapshot` uses each entry as given, without checking it, and adds an entry for every object it copies. The result is detached only if every supplied entry is a detached copy of its source. Map a URL and its `searchParams` together, to a copy whose `searchParams` is the mapped entry, or map neither. Mapping only the `searchParams` of a URL in `value` throws `SnapshotURLSearchParamsMemoIncompatible`. Mapping only the URL leaves a copy of its `searchParams` elsewhere in the result unlinked from the mapped URL. |
 
 ### Returns
 
@@ -791,16 +744,15 @@ A copy of `value`, detached unless `seen` supplies entries that are not, or `val
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) with type `SnapshotURLSearchParamsMemoIncompatible` when `seen` maps the `searchParams` of a URL in `value` but not the URL.
-2. [ReconcileError](#class-reconcileerror-) with type `SnapshotWrapperKeyDuplicated` when a `Map` or `Set` in `value` holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members.
-3. Errors thrown by getters or proxy traps propagate unchanged.
+2. Errors thrown by getters or proxy traps propagate unchanged.
 
 ### Remarks
 
-The copy preserves plain-object key order and prototypes, sparse-array holes, shared references, cycles, the link between each URL and its `searchParams` object and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView`, typed arrays, `URL`, `URLSearchParams` and Temporal values are supported, including Vue reactive proxies of objects, arrays, maps and sets. A Vue proxy and its raw object are one object and get one copy. A copy of an object marked with Vue's `markRaw` keeps the mark.
+The copy preserves plain-object key order and prototypes, sparse-array holes, shared references, cycles, the link between each URL and its `searchParams` object and the sharing between buffers and their views. Plain objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`, `DataView`, typed arrays, `URL`, `URLSearchParams` and Temporal values are supported.
 
-Primitives, including bigints, are returned as they are. Objects kept by reference are shared with the original: functions, a `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Blob` or `SharedArrayBuffer`, a boxed primitive and an instance of a subclass of one of them. A view over a `SharedArrayBuffer` is copied over that same buffer. Temporal support uses the eight value classes on the current global `Temporal` namespace, without installing a polyfill. Other objects, such as class instances, are copied like plain objects. The copy has the same prototype and own properties, as writable, configurable data properties that keep their enumerability. It has no private fields, so a getter or method that uses one throws on the copy. The entries, time, bytes or text of a `Map`, `Set`, `Date`, buffer, view, URL or `URLSearchParams` are read, and its copy filled, with the built-in methods, so no override on a subclass or on the instance runs, such as a `Map` subclass's `set` or `entries`; a Vue reactive `Map` or `Set` is read through Vue's methods. A copy of an array, `Map`, `Set`, `Date`, buffer, view, URL, `URLSearchParams` or Temporal value also keeps its source's prototype, so an instance of a subclass stays one, but it holds only the elements, entries, time, bytes or text, without other own properties such as fields that a subclass declares.
+Primitives, including bigints, are returned as they are. Objects kept by reference are shared with the original: functions, a `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Blob` or `SharedArrayBuffer`, a boxed primitive and an instance of a subclass of one of them. A view over a `SharedArrayBuffer` is copied over that same buffer. Temporal support uses the eight value classes on the current global `Temporal` namespace, without installing a polyfill. Other objects, such as class instances, are copied like plain objects. The copy has the same prototype and own properties, as writable, configurable data properties that keep their enumerability. It has no private fields, so a getter or method that uses one throws on the copy. The entries, time, bytes or text of a `Map`, `Set`, `Date`, buffer, view, URL or `URLSearchParams` are read, and its copy filled, with the built-in methods, so no override on a subclass or on the instance runs, such as a `Map` subclass's `set` or `entries`. A copy of an array, `Map`, `Set`, `Date`, buffer, view, URL, `URLSearchParams` or Temporal value also keeps its source's prototype, so an instance of a subclass stays one, but it holds only the elements, entries, time, bytes or text, without other own properties such as fields that a subclass declares.
 
-A copied object that relies on functions, such as a Vue ref, can still run code that belongs to the original. A `__proto__` key is copied as an own data property. Built-in values from another iframe or Node.js `vm` context, such as a `Map`, `Date` or `RegExp`, are not recognized and are copied like class instances, so the copy's built-in methods throw. Arrays from another context are copied as arrays.
+A copied object that relies on functions can still run code that belongs to the original. A `__proto__` key is copied as an own data property. Built-in values from another iframe or Node.js `vm` context, such as a `Map`, `Date` or `RegExp`, are not recognized and are copied like class instances, so the copy's built-in methods throw. Arrays from another context are copied as arrays.
 
 ### Examples
 
@@ -811,7 +763,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L160-L178 'ReconcileError')
+## class ReconcileError [↗](src/error.ts#L138-L156 'ReconcileError')
 
 The error this library throws for every failure it detects.
 
@@ -868,7 +820,7 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L29 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L26 'RECONCILE_ERROR_TYPES')
 
 Every error type this library throws.
 
@@ -880,16 +832,13 @@ RECONCILE_ERROR_TYPES: readonly[
   'DraftArrayIndexRejected',
   'DraftArrayLengthRejected',
   'DraftDefinePropertyUnsupported',
-  'DraftWrapperIdentityChanged',
-  'DraftWrapperIteratorMismatched',
   'FinalizationAccessorUnstable',
   'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
   'FinalizationStorageMissing',
   'PublicationRejected',
   'SerializeValueUnsupported',
-  'SnapshotURLSearchParamsMemoIncompatible',
-  'SnapshotWrapperKeyDuplicated')
+  'SnapshotURLSearchParamsMemoIncompatible')
 ]
 ```
 
@@ -913,7 +862,7 @@ The largest size, in bytes, of the value `deserialize` may return: a non-negativ
 readonly maxBytes: number;
 ```
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L40-L131 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L37-L109 'ReconcileErrorMetadata')
 
 The properties of `cause` for each error type, in addition to `type`.
 
@@ -985,24 +934,6 @@ DraftDefinePropertyUnsupported: {
 }
 ```
 
-### ReconcileErrorMetadata.DraftWrapperIdentityChanged
-
-A reactive proxy of a `Map` or `Set` reported a different raw object while the recipe was adding an entry to its draft.
-
-```typescript
-DraftWrapperIdentityChanged: {
-}
-```
-
-### ReconcileErrorMetadata.DraftWrapperIteratorMismatched
-
-A reactive proxy of a `Map` or `Set` reported keys or members that do not include exactly the one just added.
-
-```typescript
-DraftWrapperIteratorMismatched: {
-}
-```
-
 ### ReconcileErrorMetadata.FinalizationAccessorUnstable
 
 A getter that ran after the recipe returned added a new getter to a part of the result that `produce` had already visited, so `produce` cannot call it. `property` is the new getter's key.
@@ -1026,7 +957,7 @@ FinalizationChildInvalid: {
 
 ### ReconcileErrorMetadata.FinalizationConstructionImpossible
 
-No consistent result exists: the new objects cannot be created in any order, or a `Map` or `Set` would hold one new object as two keys or members, as when it holds a Vue proxy and its raw object and the recipe changes that object.
+No consistent result exists: the new objects cannot be created in any order, or a `Map` or `Set` would hold one new object as two keys or members.
 
 ```typescript
 FinalizationConstructionImpossible: {
@@ -1071,16 +1002,7 @@ SnapshotURLSearchParamsMemoIncompatible: {
 }
 ```
 
-### ReconcileErrorMetadata.SnapshotWrapperKeyDuplicated
-
-A `Map` or `Set` in the value holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys or members; they are one object, so a copy cannot hold both.
-
-```typescript
-SnapshotWrapperKeyDuplicated: {
-}
-```
-
-## type ReconcileErrorCause [↗](src/error.ts#L134-L135 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L112-L113 'ReconcileErrorCause')
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` and that type's properties.
 
@@ -1091,7 +1013,7 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L32 'ReconcileErrorType')
+## type ReconcileErrorType [↗](src/error.ts#L29 'ReconcileErrorType')
 
 The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
 

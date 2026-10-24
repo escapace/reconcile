@@ -146,19 +146,6 @@ export const snapshotTypes: SnapshotRegistry = /* @__PURE__ */ (() =>
 export const publicationTypes: PublicationRegistry = /* @__PURE__ */ (() =>
   freeze({
     ...recognition,
-    exposures: table([
-      array.arrayExposure,
-      date.dateExposure,
-      map.mapExposure,
-      set.setExposure,
-      arrayBuffer.arrayBufferExposure,
-      dataView.dataViewExposure,
-      typedArray.typedArrayExposure,
-      temporal.temporalExposure,
-      url.urlExposure,
-      urlSearchParameters.urlSearchParametersExposure,
-      object.objectExposure,
-    ]),
     policies: table([
       array.arrayPublication,
       date.datePublication,

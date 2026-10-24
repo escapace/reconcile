@@ -9,9 +9,8 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
   serves every phase up to readback; a kind, prototype, key list or descriptor read then may too.
   Readback reads every node again after any write, so a getter of `current` runs at most once
   without writes, twice with them and once more per retried plan, apart from reading `next`.
-  Library reads run any other getter once per call, apart from a `__v_raw` getter, which runs once
-  per storage probe. The exact trace is otherwise internal and must stay deterministic. Equal
-  values do not prove separate storage, and one storage can back distinct wrappers.
+  Library reads run any other getter once per call. The exact trace is otherwise internal and
+  must stay deterministic.
 - Prove a changed finite algorithm in Lean before its runtime. Keep theorem statements, bridges
   and counterexamples, and state the runtime's obligations; an axiom audit alone proves nothing.
 - Library code must not read or write through `Object.prototype` or `Array.prototype`. Use
@@ -20,7 +19,7 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 - Per-call state is allowed; persistent caches and shape-specific fast paths are not. Normal
   control flow does not throw, and application and native errors keep their identity.
 - Treat a semantic rule or fix as library-wide: check every function and value kind, including
-  subclasses, Vue proxies and linked URL and buffer pairs. Decide from what each function's
+  subclasses and linked URL and buffer pairs. Decide from what each function's
   users need; fix all consistently or none.
 - Keep the frozen workloads unchanged: those in `perf/` and the small ones in
   `scripts/bench-workloads.ts`. Freeze a control and the counted-work hypothesis before optimizing.

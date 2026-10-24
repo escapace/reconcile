@@ -2,7 +2,6 @@ import type {
   CopyType,
   DraftState,
   DraftStrategy,
-  ExposureFacet,
   ModuleInput,
   ModuleShape,
   NativePolicy,
@@ -32,7 +31,6 @@ export function defineType<L extends { readonly kind: symbol }, S extends DraftS
         ? { ...module.draft, links: Object.freeze({ ...module.draft.links }) }
         : { ...module.draft },
     ),
-    exposure: Object.freeze({ ...module.exposure }),
     [MODULE_BRAND]: true as const,
     policy: Object.freeze({
       ...module.policy,
@@ -68,7 +66,6 @@ export function registerTypes<const M extends readonly ModuleShape[]>(modules: M
   const entries = [...modules]
   const policies: Record<symbol, NativePolicy> = {}
   const drafts: Record<symbol, DraftStrategy> = {}
-  const exposures: Record<symbol, ExposureFacet> = {}
   const structural: Record<symbol, Extract<NativePolicy['immutable'], { tag: 'structural' }>> = {}
   const specials: Record<symbol, SpecialPolicy | undefined> = {}
   for (const module of entries) {
@@ -78,11 +75,9 @@ export function registerTypes<const M extends readonly ModuleShape[]>(modules: M
     if (policy.immutable.tag === 'structural') structural[module.kind] = policy.immutable
     else specials[module.kind] = policy.immutable.operations
     drafts[module.kind] = draft
-    exposures[module.kind] = module.exposure
   }
   return Object.freeze({
     drafts: Object.freeze(drafts),
-    exposures: Object.freeze(exposures),
     policies: Object.freeze(policies),
     specials: Object.freeze(specials),
     structural: Object.freeze(structural),

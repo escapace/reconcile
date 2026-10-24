@@ -1,7 +1,6 @@
 import { OBJECT_KIND, OBSERVED_ACCESSOR, UNREAD } from '../constants'
 import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { freeze, independentBindings, yes } from './shared/empty'
-import { ordinaryExposure } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturedNode,
@@ -14,15 +13,7 @@ import type {
   DraftStrategy,
   Recognition,
 } from '../types'
-import {
-  hasOwn,
-  hiddenNames,
-  isEnumerable,
-  isObject,
-  ownKeys,
-  RAW_MARKER,
-  withoutRawMarker,
-} from '../object-property'
+import { hasOwn, hiddenNames, isEnumerable, isObject, ownKeys } from '../object-property'
 import { setOwnProperty, standardPrototype } from '../set-own-property'
 import type { Edge } from '../types'
 import { defineType } from './registry'
@@ -43,58 +34,17 @@ import {
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
-import { defineData, hide, isDataDescriptor } from '../standard-prototypes'
+import { defineData, hide, isDataDescriptor, restoreAttributes } from '../standard-prototypes'
 
 /** Stable global identity owned by the object module. */
 /** Stable global identity owned by the object module. */
 export { OBJECT_KIND }
 
-/**
- * The own keys of a kept object that publication manages: all of them except Vue's `markRaw`
- * marker, which `reconcile` neither deletes from nor adds to a kept object, so the object stays
- * reactive or raw as it was.
- */
-const managedKeys = (current: object): PropertyKey[] => withoutRawMarker(current, ownKeys(current))
-
-/**
- * The node as it is published into a kept object: without `next`'s `markRaw` marker, which a new
- * copy carries but a kept object does not gain. A node without the marker is itself.
- */
-function keptNode(node: CapturedNode<ObjectLayout>): CapturedNode<ObjectLayout> {
-  if (node.layout.hidden?.has(RAW_MARKER) !== true) return node
-  const keys: PropertyKey[] = []
-  const edges: Edge[] = []
-  const attributes: number[] | undefined = node.attributes === undefined ? undefined : []
-  for (let index = 0; index < node.keys.length; index += 1)
-    if (node.keys[index] !== RAW_MARKER) {
-      keys.push(node.keys[index])
-      edges.push(node.edges[index])
-      attributes?.push(node.attributes![index])
-    }
-  return { ...node, attributes, edges, keys }
-}
-
-/**
- * `reads`, the values the call read at the captured node's edges, for the kept node `keptNode`
- * makes of it: without the read at the marker's edge.
- */
-function keptReads(
-  captured: CapturedNode<ObjectLayout>,
-  node: CapturedNode<ObjectLayout>,
-  reads: readonly unknown[] | undefined,
-): readonly unknown[] | undefined {
-  if (node === captured || reads === undefined) return reads
-  const kept: unknown[] = []
-  for (let index = 0; index < captured.keys.length; index += 1)
-    if (captured.keys[index] !== RAW_MARKER) kept.push(index < reads.length ? reads[index] : UNREAD)
-  return kept
-}
-
 const objectSurface: PropertySurface<ObjectLayout> = {
   compatible: yes,
-  keys: managedKeys,
+  keys: ownKeys,
   ordered: true,
-  desired: (node) => keptNode(node).keys,
+  desired: (node) => node.keys,
   // The layout is private to this call's capture; the index is built on first demand.
   slots: (node) =>
     node.layout.slots ??
@@ -165,8 +115,8 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
 
 /** Writes each requested property in order. A property this write adds takes next's
  * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes, and so
- * does one `deleteUnrequested` deleted to move it (`moved`): it is assigned, so a reactive proxy
- * observes the write, and then takes its attributes again. `known` holds the preflight's
+ * does one `deleteUnrequested` deleted to move it (`moved`): it is assigned, as application code
+ * writes it, and then takes its attributes again. `known` holds the preflight's
  * descriptor for each requested key the target already had in the same position. Returns
  * `REFUSED`, `WROTE`, or `UNCHANGED` when no key was written. */
 // fallow-ignore-next-line complexity -- a dispatch helper per key slowed reconcile 3%
@@ -205,7 +155,7 @@ function writeProperties(
     if (
       before !== undefined &&
       (before.enumerable !== true || before.writable !== true) &&
-      !defineData(target, key, value, before.enumerable, true, before.writable)
+      !restoreAttributes(target, key, before.enumerable === true, before.writable === true)
     )
       return REFUSED
   }
@@ -215,7 +165,7 @@ function writeProperties(
 /** Deletes the current keys the requested order does not keep: past the requested count in the
  * aligned order, otherwise unrequested or configurable and out of order. Returns `REFUSED`,
  * `WROTE` when it deleted a key, or `UNCHANGED`; each requested key it deleted is added to
- * `removed`, when given, and its attributes to `moved` when they are not the defaults. */
+ * `removed`, when given, and with its data descriptor to `moved`. */
 function deleteUnrequested(
   target: object,
   previous: readonly PropertyKey[],
@@ -244,8 +194,7 @@ function deleteUnrequested(
 const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
 
 /** Deletes a requested key that is out of order so that it can move, recording it in `removed`
- * and, as a key followed by its descriptor, in `moved` when its attributes are not the ones an
- * assignment gives; a non-configurable key stays. */
+ * and, followed by its data descriptor, in `moved`; a non-configurable key stays. */
 function moveKey(
   target: object,
   key: PropertyKey,
@@ -256,12 +205,7 @@ function moveKey(
   if (descriptor?.configurable === false) return UNCHANGED
   if (!Reflect.deleteProperty(target, key)) return REFUSED
   removed?.push(key)
-  if (
-    descriptor !== undefined &&
-    isDataDescriptor(descriptor) &&
-    (descriptor.enumerable !== true || descriptor.writable !== true)
-  )
-    moved?.push(key, descriptor)
+  if (descriptor !== undefined && isDataDescriptor(descriptor)) moved?.push(key, descriptor)
   return WROTE
 }
 
@@ -278,10 +222,8 @@ export const objectPublication = /* @__PURE__ */ (() =>
     ...objectConstruction,
     aligned: alignedProperties,
     compatible: yes,
-    matches(captured, current, visit, fresh) {
-      // A new copy holds every key; a kept object is read as publication manages it.
-      const node = fresh === true ? captured : keptNode(captured)
-      const keys = fresh === true ? ownKeys(current) : managedKeys(current)
+    matches(node, current, visit) {
+      const keys = ownKeys(current)
       if (keys.length !== node.keys.length) return false
       for (let index = 0; index < keys.length; index += 1) {
         const key = node.keys[index]
@@ -290,20 +232,18 @@ export const objectPublication = /* @__PURE__ */ (() =>
       }
       return true
     },
-    publish(captured, target, image, _owner, note) {
-      const node = note?.fresh === true ? captured : keptNode(captured)
+    publish(node, target, image, _owner, note) {
       const keys = node.keys
       // The first publication of an ordinary target reuses the preflight's key list.
       const facts = note?.facts
-      const previous = facts?.keys ?? (note?.fresh === true ? ownKeys(target) : managedKeys(target))
+      const previous = facts?.keys ?? ownKeys(target)
       // Own keys are duplicate-free, so when they start with the requested order exactly the
       // first keys.length of them are requested (PropertyOrder.aligned_mem), and requested key
       // i holds edge i.
       const properties = alignedPrefix(previous, keys) ? undefined : objectSurface.slots(node)
-      // The reads, capture's or a previous readback's, follow the captured node's edges, from
-      // which a kept node drops the marker's; a requested key moved into the requested order is
-      // deleted first, and its read no longer holds.
-      const reads = keptReads(captured, node, note?.reads)
+      // The reads, capture's or a previous readback's, follow the node's edges; a requested key
+      // moved into the requested order is deleted first, and its read no longer holds.
+      const reads = note?.reads
       // The fixed slots a preflight of this publication read, by key.
       const held = note?.held?.get(target)
       const removed =
@@ -478,8 +418,6 @@ export const objectDraft = /* @__PURE__ */ freeze({
   state: (base, context) => new PropertyDraftState(base, context, objectDraftRules),
 }) satisfies DraftStrategy<PropertyDraftState<typeof OBJECT_KIND>>
 
-export const objectExposure = ordinaryExposure
-
 const objectRecognition = /* @__PURE__ */ freeze({
   tag: 'fallback',
 }) satisfies Recognition
@@ -489,7 +427,6 @@ export const objectType = /* @__PURE__ */ defineType<
   PropertyDraftState<typeof OBJECT_KIND>
 >({
   draft: objectDraft,
-  exposure: objectExposure,
   kind: OBJECT_KIND,
   name: 'object',
   policy: objectPolicy,

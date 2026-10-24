@@ -1,83 +1,6 @@
 import { assert, it } from 'vitest'
-import { reactive, readonly, toRaw } from 'vue'
 
-import { reconcile, ReconcileError, snapshot } from '../index'
-
-it.each([false, true])(
-  'keeps fresh shells writable after readonly exposure (detached next: %s)',
-  (detached) => {
-    const oldSet = new Set<object>()
-    const oldArray: object[] = []
-    oldArray.push(readonly(oldArray))
-    const oldMap = new Map<object, object>([
-      [readonly(oldSet), oldArray],
-      // eslint-disable-next-line perfectionist/sort-maps -- Entry order determines aligned candidates.
-      [oldSet, oldSet],
-    ])
-    const current = { child: { set: oldSet }, map: readonly(oldMap) }
-    const set = new Set<object>()
-    const array = [readonly(set)]
-    const object = { set: readonly(set) }
-    const map = new Map<object, object>([
-      [readonly(set), array],
-      // eslint-disable-next-line perfectionist/sort-maps -- Match the current Map's candidate order.
-      [object, array],
-    ])
-    set.add(array)
-    set.add(map)
-    const source = { child: object, map: readonly(map) }
-    const expected = snapshot(source) as typeof source
-    const next = detached ? (snapshot(source) as typeof source) : source
-
-    const result = reconcile(current, next)
-    assert.equal(result, current)
-    assert.deepEqual(snapshot(result), expected)
-    assert.deepEqual(snapshot(source), expected)
-    const images = new Map<object, object>()
-    const storage = new Set<object>()
-    const edges = (value: object): unknown[] =>
-      value instanceof Map
-        ? [...value].flat()
-        : value instanceof Set
-          ? [...value]
-          : Object.values(value)
-    const check = (before: object, after: object): void => {
-      if (images.has(before)) {
-        assert.equal(after, images.get(before))
-        return
-      }
-      assert.isFalse(storage.has(toRaw(after)))
-      images.set(before, after)
-      storage.add(toRaw(after))
-      const children = edges(after)
-      edges(before).forEach((child, index) => check(child as object, children[index] as object))
-    }
-    check(expected, result)
-  },
-)
-
-it('republishes cyclic edges before checking nodes after a wrapper rebind', () => {
-  const shared = reactive({})
-  const left = { next: shared }
-  const current = { left, right: shared }
-  const a: { next?: object } = {}
-  const b = { next: a }
-  a.next = b
-  const next = { left: { next: a }, right: { next: b } }
-
-  const result = reconcile(current, next)
-  assert.equal(result, current)
-  assert.equal(result.left, left)
-  assert.equal(result.left.next.next, result.right.next)
-  assert.equal(result.right.next.next, result.left.next)
-  const nodes = [result, result.left, result.right, result.left.next, result.right.next]
-  assert.equal(new Set(nodes).size, nodes.length)
-  assert.equal(new Set(nodes.map((node) => toRaw(node))).size, nodes.length)
-  assert.equal(next.left.next, a)
-  assert.equal(next.right.next, b)
-  assert.equal(a.next, b)
-  assert.equal(b.next, a)
-})
+import { reconcile } from '../index'
 
 // These fixtures deliberately provide unusable publication operations. A successful
 // write result alone cannot certify publication; nested candidates can be replaced.
@@ -150,50 +73,6 @@ it('updates a kept Map or Set with the built-ins, never through a misbehaving ow
   assert.equal(calls, 0)
 })
 
-// Through a Vue reactive proxy, which Vue's methods forward to the raw object's own `set` or
-// `add`, a write that misbehaves is caught by readback and the position gets a new copy.
-it.each(['missing entry', 'wrong key', 'wrong value'] as const)(
-  'repairs a Vue reactive Map whose set operation leaves a %s',
-  (failure) => {
-    class Blocked extends Map<string, number> {
-      override set(key: string, value: number): this {
-        if (failure === 'missing entry') return this
-        return super.set(
-          failure === 'wrong key' ? 'wrong' : key,
-          failure === 'wrong value' ? 9 : value,
-        )
-      }
-    }
-    const blocked = reactive(new Blocked([['old', 0]]))
-    const current = { left: blocked, right: blocked }
-    const next = new Map([['wanted', 1]])
-    assert.equal(reconcile(current, { left: next, right: next }), current)
-    assert.notEqual(current.left, blocked)
-    assert.equal(current.left, current.right)
-    assert.deepEqual([...current.left], [['wanted', 1]])
-    assert.deepEqual([...next], [['wanted', 1]])
-  },
-)
-
-it.each(['missing member', 'wrong member'] as const)(
-  'repairs a Vue reactive Set whose add operation leaves a %s',
-  (failure) => {
-    class Blocked extends Set<number> {
-      override add(value: number): this {
-        return failure === 'missing member' ? this : super.add(value === 1 ? 9 : value)
-      }
-    }
-    const blocked = reactive(new Blocked([0]))
-    const current = { left: blocked, right: blocked }
-    const next = new Set([1])
-    assert.equal(reconcile(current, { left: next, right: next }), current)
-    assert.notEqual(current.left, blocked)
-    assert.equal(current.left, current.right)
-    assert.deepEqual([...current.left], [1])
-    assert.deepEqual([...next], [1])
-  },
-)
-
 // An object whose setter runs `effect` when publication writes its value: a write that changes
 // bytes the engine already published, so readback rejects them and the plan is repaired.
 function trigger(effect: () => void): { value: number; writes: () => number } {
@@ -229,20 +108,6 @@ it('repairs a buffer after a later publication changes its bytes', () => {
   assert.equal(current.buffer.byteLength, 4)
   assert.deepEqual([...new Uint8Array(current.buffer)], [1, 2, 3, 4])
   assert.deepEqual([...new Uint8Array(nextBuffer)], [1, 2, 3, 4])
-})
-
-it('throws rather than reporting success when a root Map cannot publish its entries', () => {
-  class Blocked extends Map<string, number> {
-    override set(): this {
-      return this
-    }
-  }
-  const raw = new Blocked([['old', 0]])
-  const current = reactive(raw)
-  const next = new Map([['wanted', 1]])
-  assert.throws(() => reconcile(current, next), ReconcileError)
-  assert.equal(raw.size, 0)
-  assert.deepEqual([...next], [['wanted', 1]])
 })
 
 it.each([false, true])(

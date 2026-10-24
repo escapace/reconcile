@@ -16,7 +16,6 @@ import Oracle.WriteFreeReadbackOracle
 import Oracle.DraftSurfaceOracle
 import Oracle.DraftClassOracle
 import Oracle.DraftIterationOracle
-import Oracle.DraftReadOracle
 import Oracle.DraftMembersOracle
 import Oracle.DraftSetMethodsOracle
 import Oracle.CopyPrototypeOracle
@@ -64,7 +63,6 @@ private def dispatch (request : Request) : IO Unit := do
   | "DraftSurface" => DraftSurfaceOracle.run
   | "DraftClass" => DraftClassOracle.run
   | "DraftIteration" => DraftIterationOracle.run
-  | "DraftRead" => DraftReadOracle.run
   | "SettledChildren" => SettledChildrenOracle.run
   | "DraftMembers" => DraftMembersOracle.run
   | "DraftSetMethods" => DraftSetMethodsOracle.run

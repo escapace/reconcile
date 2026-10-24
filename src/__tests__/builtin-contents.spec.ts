@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { reactive, toRaw } from 'vue'
 import { deserialize, produce, reconcile, serialize, snapshot } from '../index'
 
 // Every function reads and writes the contents of a Map, Set, Date, URL or URLSearchParams with
@@ -257,14 +256,6 @@ describe('built-in contents', () => {
     ])
     expect([...results[2].set]).toEqual([2, 3])
     expect([...results[4].map]).toEqual([['b', 2]])
-  })
-
-  it('of a Vue reactive Map are written through Vue, which calls the raw object own methods', () => {
-    const state = reactive({ map: new CountingMap([['a', 1]]) })
-    calls.length = 0
-    reconcile(state, { map: new Map([['a', 2]]) })
-    expect(calls).toContain('map.set')
-    expect([...Map.prototype.entries.call(toRaw(state.map))]).toEqual([['a', 2]])
   })
 })
 

@@ -1,5 +1,4 @@
 import { assert, it } from 'vitest'
-import { reactive } from 'vue'
 
 import { produce, reconcile, ReconcileError } from '../index'
 
@@ -108,12 +107,6 @@ it('propagates a root publication exception without rolling back earlier writes'
 
 it('propagates a nested setter, trap or method exception unchanged instead of replacing', () => {
   const failure = new Error('refused')
-  class Strict extends Map<string, number> {
-    override set(key: string, value: number): this {
-      if (key === 'b') throw failure
-      return super.set(key, value)
-    }
-  }
   const cases: Array<[object, object]> = [
     [
       {
@@ -136,15 +129,6 @@ it('propagates a nested setter, trap or method exception unchanged instead of re
         },
       ),
       { s: 1 },
-    ],
-    // A Map is written with the built-ins; through a Vue reactive proxy, Vue's `set` calls the
-    // raw object's own one.
-    [
-      reactive(new Strict([['a', 1]])),
-      new Map([
-        ['a', 1],
-        ['b', 2],
-      ]),
     ],
   ]
   for (const [inner, desired] of cases) {

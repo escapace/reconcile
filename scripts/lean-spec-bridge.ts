@@ -690,12 +690,12 @@ const GATE_OPTIONS: Options = {
 }
 
 /** The seeded batch `check-lean.ts` runs. Until the deterministic engine replaces the current
- * one, `reconcile` differences of the known classes are allowed: `attributes` (the attributes of a
- * moved key), `retention` and `rejection` (where the current engine's plan search keeps an object
- * the deterministic reference does not, or the reverse); getter counts are a report. Every other
- * difference, and any difference of `produce` or `snapshot`, fails. */
+ * one, `reconcile` differences of the known class are allowed: `retention` (where the current
+ * engine's plan search keeps an object the deterministic reference does not, or the reverse);
+ * getter counts are a report. Every other difference, and any difference of `produce` or
+ * `snapshot`, fails. */
 export async function checkSpecGate(oracle: Oracle): Promise<void> {
-  const allowed = new Set<Report['kind']>(['attributes', 'getters', 'rejection', 'retention'])
+  const allowed = new Set<Report['kind']>(['getters', 'retention'])
   const reconciled = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
   const failing = reconciled.reports.filter((r) => !allowed.has(r.kind))
   assert.deepEqual(

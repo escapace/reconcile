@@ -9,18 +9,15 @@ import { encodeGraph as encode } from './serialization/encode'
  * rejects objects with other prototypes, such as a class instance, an instance of a subclass of
  * `Array` or a Node.js `Buffer`, because {@link deserialize} restores only standard prototypes. It
  * also rejects functions and symbols, and the symbol keys and non-enumerable properties of plain
- * and null-prototype objects, other than a non-enumerable `__v_skip`, which Vue's `markRaw` adds and
- * `serialize` skips. A Vue proxy and its raw object are encoded as one object, and a `Map` or `Set`
- * that holds a raw object and a Vue proxy of it, or two Vue proxies of one raw object, as two keys
- * or members is rejected. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over
+ * and null-prototype objects. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over
  * `buffer.buffer` can encode Node's whole allocation pool. Objects from another iframe or Node.js
  * `vm` context are rejected, plain objects and arrays included.
  *
  * `serialize` calls each getter once, in depth-first order, with the object being encoded as
  * `this`. An array, `Map` or `Set` is encoded from its elements or entries; its other own
  * properties, whatever their key or enumerability, are not encoded, and their getters are not
- * called. A `Map` or `Set` is read with the built-in methods, never an override on the instance, or
- * through Vue's methods when it is Vue reactive. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its
+ * called. A `Map` or `Set` is read with the built-in methods, never an override on the instance. A
+ * `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its
  * built-in value; its own and overriding properties are not read and are not encoded. Callers must
  * not modify standard built-ins or prototypes during the call, including inside getters.
  *

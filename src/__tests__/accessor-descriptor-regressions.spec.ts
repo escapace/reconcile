@@ -1,5 +1,4 @@
 import { assert, it } from 'vitest'
-import { reactive } from 'vue'
 
 import { produce } from '../index'
 
@@ -176,22 +175,19 @@ it('preserves structural sharing after read-only enumeration and descriptors', (
   assert.equal(result, current)
 })
 
-it.each([['Vue', reactive]] as const)(
-  'preserves wrapper identities through descriptor mutations for %s',
-  (_name, wrap) => {
-    const shared = { n: 1 }
-    const current = wrap({ left: shared, right: shared })
-    const result = produce(current, (draft) => {
-      const value = Object.getOwnPropertyDescriptor(draft, 'left')!.value as { n: number }
-      assert.equal(value, draft.right)
-      value.n = 2
-      return draft
-    })
-    assert.equal(result.left, result.right)
-    assert.equal(result.left.n, 2)
-    assert.equal(current.left.n, 1)
-  },
-)
+it('preserves shared identities through descriptor mutations', () => {
+  const shared = { n: 1 }
+  const current = { left: shared, right: shared }
+  const result = produce(current, (draft) => {
+    const value = Object.getOwnPropertyDescriptor(draft, 'left')!.value as { n: number }
+    assert.equal(value, draft.right)
+    value.n = 2
+    return draft
+  })
+  assert.equal(result.left, result.right)
+  assert.equal(result.left.n, 2)
+  assert.equal(current.left.n, 1)
+})
 
 it('uses the draft receiver for inherited accessors', () => {
   const prototype = {

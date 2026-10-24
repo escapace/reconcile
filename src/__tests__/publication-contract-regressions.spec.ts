@@ -1,5 +1,4 @@
 import { assert, it } from 'vitest'
-import { reactive } from 'vue'
 
 import { produce, reconcile, ReconcileError } from '../index'
 
@@ -38,25 +37,6 @@ it('publishes root cycles through objects, Map keys, Map values, and Sets', () =
   assert.equal(current.map.get(current), current)
   assert.equal(current.set, set)
   assert.isTrue(current.set.has(current))
-})
-
-it.each([false, true])('separates known shared storage with equal payloads = %s', (equal) => {
-  const raw = { n: 0 }
-  const current = { left: raw, right: reactive(raw) }
-  const next = { left: { n: 1 }, right: { n: equal ? 1 : 2 } }
-  assert.equal(reconcile(current, next), current)
-  assert.deepEqual(current, next)
-  assert.equal(current.left, raw)
-  current.left.n = 9
-  assert.equal(current.right.n, equal ? 1 : 2)
-})
-
-it('rebinds shared children to the stable identity exposed by Vue', () => {
-  const current = { direct: { n: 0 }, wrapped: reactive({ child: { n: 0 } }) }
-  const shared = { n: 1 }
-  assert.equal(reconcile(current, { direct: shared, wrapped: { child: shared } }), current)
-  assert.equal(current.direct, current.wrapped.child)
-  assert.equal(current.direct.n, 1)
 })
 
 it('retains a mutable child behind a read-only root reference', () => {
@@ -213,37 +193,6 @@ it('rejects impossible key order on a non-extensible root before deleting keys',
   assert.throws(() => reconcile(current, next), ReconcileError)
   assert.deepEqual(Reflect.ownKeys(current), ['a', 'b'])
   assert.equal(current.a, 0)
-})
-
-it('keeps a raw object and its Vue proxy that the recipe changes back', () => {
-  const raw = { n: 0 }
-  const current = { left: raw, right: reactive(raw) }
-  const next = produce(current, (draft) => {
-    draft.left.n = 1
-    draft.left.n = 0
-    draft.right.n = 2
-    draft.right.n = 0
-    return draft
-  })
-  assert.equal(current.left.n, 0)
-  assert.equal(current.right.n, 0)
-  // A Vue proxy is a view of its raw object: one draft, kept at both positions as each held it.
-  assert.equal(next, current)
-})
-
-it('does not invoke application getters while inspecting wrapper identity', () => {
-  const current = {
-    n: 0,
-    get __v_isReactive() {
-      this.n += 1
-      return false
-    },
-  }
-  produce(current, (draft) => {
-    draft.n = 1
-    return draft
-  })
-  assert.equal(current.n, 0)
 })
 
 it('selects the aligned buffer that also retains compatible dependent views', () => {

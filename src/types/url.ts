@@ -1,5 +1,5 @@
 import { adoptPrototype } from './shared/prototype'
-import { freeze, noValue, same, yes, ordinaryExposure } from './shared/empty'
+import { freeze, noValue, same, yes } from './shared/empty'
 import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
 import {
@@ -164,11 +164,9 @@ export const urlDraft = /* @__PURE__ */ freeze({
   }),
   tag: 'copy',
 }) satisfies Extract<DraftStrategy, { tag: 'copy' }>
-export const urlExposure = ordinaryExposure
 const urlPolicy = /* @__PURE__ */ (() => ({ ...urlSnapshot, ...urlPublication, ...urlImmutable }))()
 export const urlType = /* @__PURE__ */ defineType<URLLayout>({
   draft: urlDraft,
-  exposure: urlExposure,
   kind: URL_KIND,
   name: 'url',
   policy: urlPolicy,

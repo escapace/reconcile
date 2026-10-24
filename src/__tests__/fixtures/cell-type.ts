@@ -103,7 +103,6 @@ export function createCellType<K extends symbol>(kind: K) {
         },
       }),
     },
-    exposure: { tag: 'ordinary' },
     kind,
     name: 'cell',
     policy,

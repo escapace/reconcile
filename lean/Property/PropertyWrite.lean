@@ -22,7 +22,7 @@ walk to return the descriptor `OrdinarySet` would consult. The walk reads a desc
 `Object.prototype` or `Array.prototype` only for a key that `in` reports there, and goes past
 either one only when it does not own that key; for any other key it stops there, since `in` has
 already searched the rest of the chain.
-A proxy whose traps forward to an ordinary object, such as a Vue reactive proxy, meets this; other
+A proxy whose traps forward to an ordinary object meets this; other
 exotic objects are outside the model. -/
 namespace Reconcile.PropertyWrite
 
@@ -375,13 +375,13 @@ def storing : Env Nat :=
     | _ => s,
    fun s _ => s⟩
 
-private def vue2 : Slot Nat := ⟨some (.accessor 0 true true true), .none, true⟩
+private def observedAccessor : Slot Nat := ⟨some (.accessor 0 true true true), .none, true⟩
 
-/-- A configurable own accessor, as Vue 2 defines: the alternative rule replaces it with a data
+/-- A configurable own accessor: the alternative rule replaces it with a data
 property without calling its setter, and `reconcileKey` assigns through the setter. -/
-example : reconcileOld storing vue2 1 false =
+example : reconcileOld storing observedAccessor 1 false =
     ⟨.done, ⟨some (.data 1 ⟨true, true, true⟩), .none, true⟩, []⟩ := rfl
-example : reconcileKey storing vue2 1 false =
+example : reconcileKey storing observedAccessor 1 false =
     ⟨.done, ⟨some (.accessor 1 true true true), .none, true⟩, [.ownSetter]⟩ := rfl
 
 private def classAccessor : Slot Nat := ⟨none, .accessor true, true⟩
@@ -405,7 +405,7 @@ example : (reconcileKey storing ⟨some (.accessor 0 false true true), .none, tr
     .rejectedBeforeWriting := rfl
 
 /-- A setter that ignores its value: the write runs the setter and fails the readback. -/
-example : (reconcileKey ⟨fun s _ => s, fun s _ => s⟩ vue2 1 false).status = .rejectedAfterWriting :=
+example : (reconcileKey ⟨fun s _ => s, fun s _ => s⟩ observedAccessor 1 false).status = .rejectedAfterWriting :=
   rfl
 
 /-! ### Writing a property of a new object

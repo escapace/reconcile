@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { reactive, shallowReactive } from 'vue'
 import { ring, type RingNode } from '../src/__tests__/fixtures/ring'
 import type { selections } from '../src/graph/selection'
 import type * as API from '../src/index'
@@ -25,7 +24,6 @@ export const diagnosticNames = [
   'diag-collection-capture',
   'diag-buffer',
   'diag-views',
-  'diag-vue',
   'diag-core-selection',
   'diag-core-requires',
   'diag-shared-cycle',
@@ -573,26 +571,6 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
           output.views.map((view) => [view.byteOffset, view.byteLength]),
           input.views.map((view) => [view.byteOffset, view.byteLength]),
         )
-      },
-    }
-  },
-  'diag-vue': ({ api }) => {
-    let last: unknown
-    const current = reactive({ map: new Map([[0, { n: 0 }]]) })
-    const next = [
-      reactive({ map: new Map([[0, { n: 1 }]]) }),
-      shallowReactive({ map: new Map([[0, { n: 0 }]]) }),
-    ]
-    let turn = 0
-    return {
-      state:
-        'alternating deep/shallow desired wrappers and scalar values; no input reset in timed work',
-      run: () => {
-        last = api.reconcile(current, next[turn++ % 2])
-      },
-      validate: () => {
-        assert.equal(last, current)
-        assert.equal(current.map.get(0)!.n, turn % 2)
       },
     }
   },

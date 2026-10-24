@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive, watch } from 'vue'
 import { deserialize, isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
 
 // reconcile writes a changed own property by assignment, so own setters run and own accessors
@@ -149,23 +148,6 @@ describe('reconcile and accessors', () => {
     reconcile(current, JSON.parse('{"__proto__": 1}') as object)
     assert.equal(Object.getPrototypeOf(current), Object.prototype)
     assert.equal(Object.getOwnPropertyDescriptor(current, '__proto__')?.value, 1)
-  })
-
-  it('assigns an own accessor through a Vue reactive proxy, triggering its watchers', () => {
-    const raw: Record<string, unknown> = {}
-    const log = storingAccessor(raw, 'value', 1)
-    const state = reactive(raw)
-    let fired = 0
-    watch(
-      () => state.value,
-      () => {
-        fired += 1
-      },
-      { flush: 'sync' },
-    )
-    reconcile(state, { value: 2 })
-    assert.deepEqual(log, [2])
-    assert.equal(fired, 1)
   })
 })
 

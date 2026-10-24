@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { reactive, shallowReactive } from 'vue'
-import { storageIdentity } from '../adapters/vue'
 import { immutableHead, immutableSelections } from '../graph/immutable-selection'
 import { selections } from '../graph/selection'
 import { produce } from '../produce'
@@ -163,17 +161,6 @@ describe('compact immutable selection', () => {
     })
     expect(result).toBe(current)
     expect(current.n).toBe(0)
-  })
-
-  it('keeps two Vue wrappers of one raw object, which are one object', () => {
-    const raw = { n: 0 }
-    const a = reactive(raw)
-    const b = shallowReactive(raw)
-    const current = { a, b }
-    const result = produce(current, (draft) => draft)
-    expect(result).toBe(current)
-    expect(storageIdentity(result.a)).toBe(storageIdentity(result.b))
-    expect(raw.n).toBe(0)
   })
 
   it('keeps unchanged settled Date identities', () => {

@@ -12,7 +12,7 @@ export const EMPTY_FACTS: readonly never[] = /* @__PURE__ */ Object.freeze([])
 /** Nonnegative signed-integer bits reserved for compact exposure claims. */
 export const CLAIM_BIT_COUNT = 31
 
-/** Finite exposure modes admitted by the built-in wrapper adapter. */
+/** Finite exposure modes of a binding; the engine uses mode 0, the object itself. */
 export const EXPOSURE_MODES: readonly number[] = /* @__PURE__ */ Object.freeze([
   0, 1, 2, 3, 4, 5, 6, 7, 8,
 ])

@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { isReactive, reactive } from 'vue'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { ReconcileError } from '../index'
@@ -1535,76 +1534,5 @@ describe('caller publication', () => {
 
     assertSameReference(result, current)
     assert.deepEqual(result, { wrapped: { count: 6 } })
-  })
-
-  it('remains compatible with Vue reactive roots', () => {
-    const current = reactive({
-      nested: { count: 0 },
-    })
-    const nestedReference = current.nested
-
-    const result = reconcile(
-      current,
-      produce(current, (draft) => {
-        draft.nested.count = 7
-        return draft
-      }),
-    )
-
-    assert.equal(result, current)
-    assert.equal(isReactive(result), true)
-    assert.equal(isReactive(result.nested), true)
-    assert.equal(result.nested, nestedReference)
-    assert.equal(result.nested.count, 7)
-  })
-
-  it('avoids redundant writes on Vue reactive no-op paths', () => {
-    let writes = 0
-    const rawNested = {
-      _value: 1,
-      get value() {
-        return this._value
-      },
-      set value(next: number) {
-        writes += 1
-        this._value = next
-      },
-    }
-    const current = reactive({
-      nested: rawNested,
-    })
-
-    const result = reconcile(
-      current,
-      produce(current, (draft) => {
-        assert.equal(draft.nested.value, 1)
-        return draft
-      }),
-    )
-
-    assert.equal(result, current)
-    assert.equal(writes, 0)
-  })
-
-  it('retains compatible parent and child identities under Vue reactive nested change', () => {
-    const current = reactive({
-      nested: { count: 0 },
-      sibling: { keep: true },
-    })
-    const nestedReference = current.nested
-    const siblingReference = current.sibling
-
-    const result = reconcile(
-      current,
-      produce(current, (draft) => {
-        draft.nested.count = 12
-        return draft
-      }),
-    )
-
-    assert.equal(result, current)
-    assert.equal(result.nested, nestedReference)
-    assert.equal(result.sibling, siblingReference)
-    assert.equal(result.nested.count, 12)
   })
 })

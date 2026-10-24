@@ -1,4 +1,3 @@
-import { storageIdentity } from '../../adapters/vue'
 import { hasOwn, isObject, ownKeys } from '../../object-property'
 import { draftDefinePropertyUnsupported } from '../../error'
 import { propertyDescriptor } from '../../object-property'
@@ -214,8 +213,8 @@ export class PropertyDraftState<K extends symbol = symbol>
       return !isObject(value) ? value : this.context.materializeChild(value)
     }
     // Before the first write an own property is read through the object; any other property
-    // comes from the prototype, before and after it, so a wrapper of the object never answers a
-    // property the object does not own (DraftRead.read).
+    // comes from the prototype, before and after it, so the handle never answers a property the
+    // object does not own.
     if (this.copy === undefined && hasOwn(this.base, property)) {
       const value = Reflect.get(this.base, property, receiver) as unknown
       return !isObject(value) ? value : this.context.materializeChild(value)
@@ -316,11 +315,7 @@ export class PropertyDraftState<K extends symbol = symbol>
     if (descriptor !== undefined && !isDataDescriptor(descriptor))
       return this.setThrough(descriptor, property, value, receiver, ownDescriptor === undefined)
     if (descriptor?.writable === false) return false
-    // A Vue proxy of this draft, such as `reactive(draft)`, passes itself as the receiver.
-    if (
-      receiver !== this.handle &&
-      (!isObject(receiver) || storageIdentity(receiver) !== this.handle)
-    ) {
+    if (receiver !== this.handle) {
       const receiverState = isObject(receiver)
         ? this.context.statesByIdentity.get(receiver)
         : undefined

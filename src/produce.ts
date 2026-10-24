@@ -12,8 +12,8 @@ import { produceTypes } from './types/builtins'
  * The draft behaves like `current` but records changes instead of applying them. The recipe returns
  * the next value explicitly: the draft, a part of it or any other value. Drafts inside the returned
  * value are turned back into ordinary values. A draft that the result holds only in a prototype, a
- * closure, an object kept by reference such as a function or `Error`, a property that a built-in
- * value does not carry, or a Vue proxy such as `reactive(draft)` stays a draft. If the recipe
+ * closure, an object kept by reference such as a function or `Error`, or a property that a
+ * built-in value does not carry stays a draft. If the recipe
  * returns `current` itself, its draft changes are discarded. The recipe must be synchronous: a
  * returned `Promise` is kept as it is, and the draft it resolves to is never finished. Writes to a
  * draft after the recipe returns reach neither `current` nor the result.
@@ -49,13 +49,6 @@ import { produceTypes } from './types/builtins'
  * `WeakMap.prototype.set`, changes the original. Objects kept by reference are functions, a
  * `RegExp`, `Error`, `Promise`, `WeakMap`, `WeakSet`, `WeakRef`, `FinalizationRegistry`, `Blob` or
  * `SharedArrayBuffer`, a boxed primitive and an instance of a subclass of one of them.
- *
- * Vue reactive proxies of objects, arrays, maps and sets are supported. Their drafts are not
- * reactive: `isReactive(draft)` is false, `toRaw(draft)` returns the draft, and array methods such
- * as `forEach` called on a draft receive drafts. A Vue proxy and its raw object are one object and
- * have one draft. When the recipe does not change the object, the result keeps the proxy and the
- * raw object where each was; when it does, the result holds one new object at each of their
- * positions.
  *
  * Reading a value or writing an equal value back does not count as a change. During the recipe,
  * getters run on every read and assignments call setters with the draft as `this`; `Reflect.set`
@@ -95,27 +88,25 @@ import { produceTypes } from './types/builtins'
  * A `Map` or `Set` draft is an instance of its source's class: `instanceof`, `Symbol.toStringTag`
  * and `constructor` work as on the source. Its methods read the original until the first change and
  * then read and write a working copy of the same class, always with the built-in methods, so an
- * override on a subclass or on the instance never runs; a Vue reactive original is read through
- * Vue's methods. A method a subclass adds runs with the draft as `this`: it can call the draft's
+ * override on a subclass or on the instance never runs. A method a subclass adds runs with the
+ * draft as `this`: it can call the draft's
  * methods, but the subclass's constructor never initializes the draft, so `super` calls to the
  * built-in methods and private fields throw on it, and fields the constructor sets are missing from
  * it. Array, `Map` and `Set` drafts
  * iterate like native collections,
  * including `for...of`, spreading and callback methods: object values come back as drafts, a write
  * during a walk shows up in it, and a walk that changes nothing keeps the original. `Map` keys are
- * not drafts: a walk gives the keys as the `Map` gives them, which in Vue reactive state is Vue's
- * proxy of the stored key. Changing a key object changes `current`. To change a key, delete its
- * entry and set a new one.
+ * not drafts: a walk gives the keys as the `Map` gives them. Changing a key object changes
+ * `current`. To change a key, delete its entry and set a new one.
  *
  * Draft searches count an object and its draft as the same value: `includes`, `indexOf` and
  * `lastIndexOf` on an array draft, key lookup on a `Map` draft, and `has` and methods such as
- * `union` on a `Set` draft. A search for a Vue proxy also finds its raw object. In Vue reactive
- * state a search for a raw object also finds a Vue proxy of it; elsewhere it can miss one. `===` in
- * recipe code compares references, so compare such values with these methods or by a key.
+ * `union` on a `Set` draft. `===` in recipe code compares references, so compare such values with
+ * these methods or by a key.
  *
  * `Set` draft methods return this draft's members as drafts and an operand's values as the operand
- * gives them. An operand whose `has` is the built-in `Set` or `Map` method, or a Vue reactive `Set`
- * or `Map` of such an operand, finds a member whether it holds the object or its draft. Any other
+ * gives them. An operand whose `has` is the built-in `Set` or `Map` method finds a member whether
+ * it holds the object or its draft. Any other
  * operand's `has`, including a subclass override, receives drafts and must recognize them itself. A
  * draft has the `Set` methods that the runtime's `Set` has when this library is imported; install a
  * polyfill for them before importing it.
@@ -140,8 +131,7 @@ import { produceTypes } from './types/builtins'
  * @throws {@link ReconcileError} while the recipe runs: `DraftDefinePropertyUnsupported` for
  * reflective property definition on an object or array draft, `DraftArrayLengthRejected` or
  * `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real
- * array could not have, and `DraftWrapperIdentityChanged` or `DraftWrapperIteratorMismatched` for a
- * reactive proxy that reports inconsistent contents.
+ * array could not have.
  * @throws {@link ReconcileError} after the recipe returns: `FinalizationAccessorUnstable` can be
  * thrown when a getter adds a getter to a part of the result that `produce` has already visited,
  * and `FinalizationConstructionImpossible` when no consistent result exists.

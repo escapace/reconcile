@@ -408,7 +408,7 @@ export const UNCHANGED = 2
  * @remarks
  * Unchanged values require no write. An own accessor is assigned, never redefined. A missing
  * key whose assignment would reach an accessor, including `__proto__`, becomes an own data
- * property. Other writes assign before defining an own property, so a reactive proxy observes
+ * property. Other writes assign before defining an own property, so a proxy's `set` trap observes
  * them. `PropertyWrite.publish` is this decision.
  *
  * @returns `REFUSED` when a native operation refused the write, `UNCHANGED` when nothing was
@@ -487,7 +487,7 @@ export function publishRead(
   )
 }
 
-// Assignment lets a reactive proxy observe the write; a definition follows when assignment left
+// Assignment lets a proxy's `set` trap observe the write; a definition follows when assignment left
 // no own property, or when it refused a key the object holds read-only. Any other refusal, such as
 // a proxy's `set` trap rejecting the value, stands (PropertyWrite.assignStrict_eq).
 function assignData(

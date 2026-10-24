@@ -22,7 +22,7 @@ for (const { mangle, ...value } of Object.values(constants.builds)) {
   await build({
     // Internal protocol and facet member names are renamed in the published bundle. The
     // allowlist contains no name that the library reads on application or native objects
-    // (descriptor fields, collection methods, Vue markers, Proxy traps and `in` keys stay).
+    // (descriptor fields, collection methods, Proxy traps and `in` keys stay).
     // Ordinary consumer minification does not rename properties; see docs/development.md.
     ...(mangle === undefined ? {} : { mangleProps: new RegExp(`^(?:${mangle.join('|')})$`) }),
     sourcemap: true,

@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
 import { isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
 
 // Values whose state lives in internal slots are atoms, like functions: every function keeps
@@ -124,13 +123,6 @@ describe('values the library cannot copy are kept by reference', () => {
     }
     assert.equal(copy.map.get(pattern), 1)
     assert.ok(copy.set.has(pattern))
-  })
-
-  it('a reactive WeakMap is kept by reference', () => {
-    const cache = reactive(new WeakMap<object, number>())
-    const current: Record<string, unknown> = { cache: 0 }
-    reconcile(current, { cache })
-    assert.strictEqual(current.cache, cache)
   })
 
   it('objects that inherit a listed prototype are atoms; plain and class objects are not', () => {

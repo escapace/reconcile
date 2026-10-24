@@ -1,5 +1,4 @@
 import { assert } from 'vitest'
-import { reactive } from 'vue'
 
 // Fixed seeds and counts preserve the temporary fuzzers' workloads. Each case
 // reports its starting PRNG state so a failure can be reproduced independently.
@@ -274,13 +273,13 @@ export function runSequence(draft: ReturnType<typeof sequenceFixture>, operation
 
 export function keyFixture() {
   const raw = [{ n: 0 }, { n: 1 }]
-  const root = reactive({
+  const root = {
     keys: raw,
     map: new Map<{ n: number }, { n: number } | undefined>([
       [raw[0], { n: 2 }],
       [raw[1], { n: 3 }],
     ]),
-  })
+  }
   return { raw, root }
 }
 
@@ -314,9 +313,9 @@ const keyOperations: Partial<Record<number, KeyOperation>> = {
   },
 }
 
-// Form 0 uses the raw key, form 1 its Vue wrapper and form 2 the draft's own key element.
+// Forms 0 and 1 use the raw key and form 2 the draft's own key element.
 function operationKey(draft: KeyRoot, raw: Array<{ n: number }>, index: number, form: number) {
-  return form === 0 ? raw[index] : form === 1 ? reactive(raw[index]) : draft.keys[index]
+  return form === 2 ? draft.keys[index] : raw[index]
 }
 
 export function runKeySequence(

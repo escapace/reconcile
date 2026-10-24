@@ -137,6 +137,29 @@ export function defineData(
   }
 }
 
+// The enumerability and writability `restoreAttributes` gives back, reused like `data`.
+const attributes = /* @__PURE__ */ (() =>
+  Object.setPrototypeOf({ enumerable: true, writable: true }, null) as {
+    enumerable: boolean
+    writable: boolean
+  })()
+
+/**
+ * Gives an own data property the enumerability and writability it had, and leaves its value and
+ * configurability as they are.
+ * @internal
+ */
+export function restoreAttributes(
+  target: object,
+  key: PropertyKey,
+  enumerable: boolean,
+  writable: boolean,
+): boolean {
+  attributes.enumerable = enumerable
+  attributes.writable = writable
+  return Reflect.defineProperty(target, key, attributes)
+}
+
 const hidden = /* @__PURE__ */ (() =>
   Object.freeze(Object.setPrototypeOf({ enumerable: false }, null) as { enumerable: boolean }))()
 
@@ -238,8 +261,7 @@ const collectionMethod = (prototype: object, key: PropertyKey) =>
 /**
  * The built-in operations on the contents of a `Map` or `Set`, read when the module loads and
  * called with an explicit receiver, so an override that a subclass, the instance or a patched
- * prototype holds is never called. Every function reads and writes collection contents with them,
- * except through a wrapper such as a Vue reactive proxy, which holds no contents of its own.
+ * prototype holds is never called. Every function reads and writes collection contents with them.
  * @internal
  */
 export const builtinMapGet = /* @__PURE__ */ (() =>
@@ -418,37 +440,6 @@ export function openBuiltin(
   return { iterator: open(collection), step: map ? mapStep : setStep }
 }
 
-/** Marks the end of an iteration in {@link stepIterator}; no iterator can yield it. */
-export const iterationDone: unique symbol = Symbol('iteration done')
-
-/**
- * One step of an iterator, taken as `for...of` takes it: the result must be an object, its
- * `done` is read and, when it is falsy, its `value`.
- * @internal
- */
-export function stepIterator(next: unknown, iterator: object): unknown {
-  const result: unknown = Reflect.apply(next as () => unknown, iterator, [])
-  if (!objectLike(result)) throw new TypeError('Iterator result is not an object')
-  // eslint-disable-next-line typescript/strict-boolean-expressions -- `done` is read as ToBoolean
-  if ((result as { done?: unknown }).done) return iterationDone
-  return (result as { value?: unknown }).value
-}
-
-/**
- * The iterator `@@iterator` returns, obtained as `for...of` obtains it; a caller that has read
- * `@@iterator` already passes it.
- * @internal
- */
-export function getIterator(
-  iterable: unknown,
-  method: unknown = (iterable as { [Symbol.iterator]?: unknown })[Symbol.iterator],
-): object {
-  const iterator: unknown = Reflect.apply(method as () => unknown, iterable, [])
-  if (!objectLike(iterator))
-    throw new TypeError('Result of the Symbol.iterator method is not an object')
-  return iterator
-}
-
 // Whether a property is held by the object or a prototype before `Object.prototype`.
 function heldBelowObjectPrototype(object: object, key: PropertyKey): boolean {
   for (let current: object | null = object; current !== null && current !== Object.prototype;)
@@ -489,22 +480,6 @@ export function closeIteratorAfterThrow(iterator: object): void {
   } catch {
     // The throw that left the loop is the outcome.
   }
-}
-
-/**
- * `const [key, value] = entry`, with the iterator protocol of {@link stepIterator} and
- * {@link closeIterator}.
- * @internal
- */
-export function entryPair(entry: unknown): readonly [unknown, unknown] {
-  const iterator = getIterator(entry)
-  const next = (iterator as { next?: unknown }).next
-  const key = stepIterator(next, iterator)
-  if (key === iterationDone) return [undefined, undefined]
-  const value = stepIterator(next, iterator)
-  if (value === iterationDone) return [key, undefined]
-  closeIterator(iterator)
-  return [key, value]
 }
 
 /**

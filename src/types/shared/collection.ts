@@ -1,87 +1,8 @@
 import { atomValue, isNode } from '../../graph/edge'
 import { isObject } from '../../object-property'
 import type { Compare, Edge, NativePolicy, Primitive } from '../../types'
-import {
-  closeIterator,
-  closeIteratorAfterThrow,
-  eachBuiltinEntry,
-  eachBuiltinMember,
-  entryPair,
-  getIterator,
-  iterationDone,
-  nativeMapEntries,
-  nativeSetValues,
-  stepIterator,
-} from '../../standard-prototypes'
 
 const identity = (edge: Edge): unknown => (isNode(edge) ? edge : atomValue(edge))
-
-/**
- * Steps an iterator as `for...of` steps it, calling `each` with each value until it returns true,
- * and closes it as `for...of` closes it when `each` stops early or throws.
- */
-function walkIterator(iterator: object, each: (value: unknown) => boolean): boolean {
-  const next = (iterator as { next?: unknown }).next
-  for (;;) {
-    const value = stepIterator(next, iterator)
-    if (value === iterationDone) return false
-    let stop: boolean
-    try {
-      stop = each(value)
-    } catch (error) {
-      closeIteratorAfterThrow(iterator)
-      throw error
-    }
-    if (stop) {
-      closeIterator(iterator)
-      return true
-    }
-  }
-}
-
-/**
- * Calls `each` with every value that `for (const value of iterable)` would give, until it returns
- * true; returns whether it did.
- *
- * @remarks
- * When `@@iterator` is the built-in `Set.prototype.values`, the iterator it returns is fresh and
- * native, so it is stepped by the built-in `next` and, having no `return`, is not closed.
- */
-export function eachMember(
-  iterable: Iterable<unknown>,
-  each: (value: unknown) => boolean,
-): boolean {
-  const method = (iterable as { [Symbol.iterator]?: unknown })[Symbol.iterator]
-  return method === nativeSetValues
-    ? eachBuiltinMember(iterable, each)
-    : walkIterator(getIterator(iterable, method), each)
-}
-
-/**
- * Calls `each` with every entry that `for (const [key, value] of iterable)` would give, until it
- * returns true; returns whether it did. When `@@iterator` is the built-in `Map.prototype.entries`,
- * the iterator is fresh and native: it is stepped by the built-in `next`, its `[key, value]` arrays
- * are read by index, which nothing can observe, and it has no `return` to close.
- */
-export function eachEntry(
-  iterable: Iterable<unknown>,
-  each: (key: unknown, value: unknown) => boolean,
-): boolean {
-  const method = (iterable as { [Symbol.iterator]?: unknown })[Symbol.iterator]
-  return method === nativeMapEntries
-    ? eachBuiltinEntry(iterable, each)
-    : eachIteratedEntry(getIterator(iterable, method), each)
-}
-
-function eachIteratedEntry(
-  iterator: object,
-  each: (key: unknown, value: unknown) => boolean,
-): boolean {
-  return walkIterator(iterator, (entry) => {
-    const pair = entryPair(entry)
-    return each(pair[0], pair[1])
-  })
-}
 
 /**
  * Normalizes native collection keys while retaining first insertion order and last values.
@@ -111,8 +32,7 @@ export const normalize = (edges: readonly Edge[], width: number): Edge[] => {
 const sameKey = (left: unknown, right: unknown): boolean =>
   left === right || (Number.isNaN(left) && Number.isNaN(right))
 
-/** How a collection's entries are read and written: with the built-in methods, or through the
- * object's own methods when it is a wrapper, such as a Vue reactive proxy. */
+/** How a collection's entries are read and written, with the built-in methods. */
 export interface CollectionAccess {
   /** Opens an iterator of the entries, as `[key, value]` pairs or members, that `step` advances. */
   open: (current: object) => object
@@ -128,24 +48,21 @@ export interface CollectionAccess {
  *
  * @remarks
  * A collection is read and written with `builtin`, so no override that a subclass or the instance
- * holds runs; a wrapper, such as a Vue reactive proxy, holds no entries of its own and uses `own`,
- * so its effects run.
+ * holds runs.
  *
- * @param operations - Type-owned entry shape and the two ways to access entries.
+ * @param operations - Type-owned entry shape and the access to entries.
  */
 export function collectionSurface(operations: {
   builtin: CollectionAccess
-  own: CollectionAccess
   readonly width: number
   read: (entry: unknown, slot: number, strict: boolean) => unknown
 }): Pick<NativePolicy, 'aligned' | 'matches' | 'publish'> {
-  const { width } = operations
+  const { builtin: access, width } = operations
   const walk = (
     node: readonly Edge[],
     current: object | undefined,
     visit: Compare,
     strict: boolean,
-    access: CollectionAccess,
   ): boolean => {
     const previous = current === undefined ? undefined : access.open(current)
     for (let index = 0; index < node.length; index += width) {
@@ -158,7 +75,7 @@ export function collectionSurface(operations: {
     return true
   }
   // The current entries, flattened as the edges are: key then value for a Map, member for a Set.
-  const entriesOf = (current: object, access: CollectionAccess): unknown[] => {
+  const entriesOf = (current: object): unknown[] => {
     const present: unknown[] = []
     const entries = access.open(current)
     for (let step = access.step(entries); step.done !== true; step = access.step(entries))
@@ -166,16 +83,11 @@ export function collectionSurface(operations: {
         present.push(operations.read(step.value, slot, true))
     return present
   }
-  const matches: NativePolicy['matches'] = (node, current, visit, _fresh, wrapped) => {
-    const access = wrapped === true ? operations.own : operations.builtin
-    return (
-      access.size(current) === node.edges.length / width &&
-      walk(node.edges, current, visit, true, access)
-    )
-  }
+  const matches: NativePolicy['matches'] = (node, current, visit) =>
+    access.size(current) === node.edges.length / width && walk(node.edges, current, visit, true)
   return {
     matches,
-    aligned: (node, current, visit, wrapped, prototype) => {
+    aligned: (node, current, visit) => {
       walk(
         node.edges,
         current,
@@ -184,15 +96,11 @@ export function collectionSurface(operations: {
           return true
         },
         false,
-        current !== undefined && wrapped?.(current, prototype) === true
-          ? operations.own
-          : operations.builtin,
       )
     },
     publish(node, current, resolve, _owner, note) {
       const edges = node.edges
-      const access = note?.wrapped === true ? operations.own : operations.builtin
-      const present = entriesOf(current, access)
+      const present = entriesOf(current)
       const count = present.length / width
       const wanted = edges.length / width
       // Entries match by position. Up to the first position whose key or member differs, each

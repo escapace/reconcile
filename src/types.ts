@@ -9,10 +9,8 @@ export type { PrototypeRead }
  * @internal
  */
 export interface DraftContext {
-  /** Each base and each handle, and each other view of a drafted object, mapped to its state. */
+  /** Each base and each handle of a drafted object, mapped to its state. */
   readonly statesByIdentity: WeakMap<object, DraftState>
-  /** The views of the object `state` drafts other than its base, such as its raw object. */
-  viewsOf: (state: DraftState) => readonly object[]
   /** Compares two values, treating a structural handle as its base. */
   isSameDraftValue: (currentValue: unknown, value: unknown) => boolean
   /** Returns the handle or special-value copy that a recipe read sees. */
@@ -67,11 +65,7 @@ export interface FinalizedReference<L extends Layout = Layout> {
   readonly leaf: boolean | undefined
   /** The mark of the identity compile that last discovered this reference. */
   discoveredBy: object | undefined
-  /**
-   * The reference of the object whose view, such as a Vue proxy or its raw object, `target` is,
-   * when the object's draft is another view's: the result shows `target` wherever it keeps the
-   * object.
-   */
+  /** The reference of the object `target` is a view of; unused since views were removed. */
   readonly viewOf: FinalizedReference | undefined
 }
 
@@ -168,16 +162,8 @@ export interface SpecialPolicy {
  * the finite Lean proofs do not establish these JavaScript premises.
  */
 export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
-  /** Visits the current object's children aligned with the node's edges. A collection asks
-   * `wrapped`, with `prototype` when capture read it, whether the object is a wrapper, such as a
-   * Vue reactive proxy, read through its own methods. */
-  readonly aligned: (
-    node: CapturedNode<L>,
-    current: object | undefined,
-    visit: Align,
-    wrapped?: (value: object, prototype?: object | null) => boolean,
-    prototype?: object | null,
-  ) => void
+  /** Visits the current object's children aligned with the node's edges. */
+  readonly aligned: (node: CapturedNode<L>, current: object | undefined, visit: Align) => void
   readonly compatible: (node: CapturedNode<L>, current: object) => boolean
   /** The preflight; a policy may leave in `note` the facts it read, for the first publication. */
   readonly requirements: (
@@ -238,14 +224,12 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     index: number,
     resolve: Resolve,
   ) => void
-  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`, and
-   * `wrapped` when `current` is a wrapper, such as a Vue reactive proxy. */
+  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`. */
   readonly matches: (
     node: CapturedNode<L>,
     current: object,
     visit: Compare,
     fresh?: boolean,
-    wrapped?: boolean,
   ) => boolean
   /**
    * Writes the node's contents; a policy may use the preflight facts in `note` and set
@@ -288,9 +272,6 @@ export interface PublicationNote {
   /** The prototype of the object being preflighted, when capture read it; undefined otherwise. */
   prototype: object | null | undefined
   unchanged: boolean
-  /** Whether the object being published is a wrapper, such as a Vue reactive proxy, written
-   * through its own methods; every other object's contents are written with the built-ins. */
-  wrapped: boolean
   /** What the call already read of the object being preflighted or published, by edge position:
    * before the first write, the occupants that aligned capture read, with `UNREAD` or no entry at
    * a position capture did not read; in a retried plan, what the previous readback saw, when that
@@ -324,8 +305,7 @@ export type ImmutableRegistry = NativeRegistry<ImmutablePolicy> &
 export type NativeRegistry<P> = {
   readonly policies: Readonly<Record<symbol, P>>
 } & RecognitionRegistry
-export type PublicationRegistry = NativeRegistry<PublicationPolicy> &
-  Pick<TypeRegistry, 'exposures'>
+export type PublicationRegistry = NativeRegistry<PublicationPolicy>
 export type RecognitionRegistry = Pick<TypeRegistry, 'matches' | 'recognize'>
 export type SnapshotRegistry = Pick<NativeRegistry<SnapshotPolicy>, 'policies' | 'recognize'>
 
@@ -360,16 +340,6 @@ export type DraftStrategy<S extends DraftState = DraftState> =
       readonly state: (base: object, context: DraftContext) => S
     }
 
-/** A type supplies isolated native storage for the supported wrapper protocol. */
-export type ExposureFacet =
-  | { readonly tag: 'collection'; readonly singleton: (value: object) => KeyedCollection }
-  | { readonly tag: 'ordinary' }
-
-/** Supplies native key iteration for isolated wrapper exposure probes. */
-export interface KeyedCollection {
-  keys: () => IterableIterator<unknown>
-}
-
 /** Probes may stop at a known-kind mismatch; later predicates need not run. */
 export type Recognition =
   | { readonly tag: 'fallback' }
@@ -381,7 +351,6 @@ export interface TypeModule<
   S extends DraftState = DraftState,
 > {
   readonly draft: DraftStrategy<S>
-  readonly exposure: ExposureFacet
   readonly kind: L['kind']
   readonly [MODULE_BRAND]: true
   readonly name: string
@@ -434,7 +403,6 @@ export interface ModuleShape extends Omit<TypeModule<Layout>, 'draft' | 'policy'
  */
 export interface TypeRegistry {
   readonly drafts: Readonly<Record<symbol, DraftStrategy>>
-  readonly exposures: Readonly<Record<symbol, ExposureFacet>>
   readonly policies: Readonly<Record<symbol, NativePolicy>>
   readonly specials: Readonly<Record<symbol, SpecialPolicy | undefined>>
   readonly structural: Readonly<
@@ -513,9 +481,6 @@ export interface CapturedGraph {
   readonly protectedStorage?: ReadonlySet<unknown>
   /** The prototype capture read of each node's aligned current object; undefined when unread. */
   readonly prototypes?: ReadonlyArray<object | null | undefined>
-  /** Vue's `markRaw` marker by node, for each node other than a plain object whose source holds
-   * one; a copy publication allocates defines it again. */
-  readonly marks?: ReadonlyMap<number, unknown>
 }
 
 /** Installs native layout state at the observer-defined begin boundary. */
@@ -770,10 +735,4 @@ export interface ImmutableProblem {
   readonly unavailable: ReadonlySet<number>
   /** A fixed node shares storage with another node, so leaves cannot stand in for records. */
   readonly conflict: boolean
-}
-
-/** Certifies one visible wrapper mode and its independently identified owning storage. */
-export interface ExposureObservation {
-  readonly mode: number
-  readonly storage: object
 }

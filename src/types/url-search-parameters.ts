@@ -9,7 +9,6 @@ import {
   noChildren,
   noDependencies,
   independentDraft,
-  ordinaryExposure,
 } from './shared/empty'
 import { defineType } from './registry'
 import {
@@ -133,7 +132,6 @@ export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
 }))() satisfies ImmutablePolicy<URLSearchParametersLayout>
 
 export const urlSearchParametersDraft = independentDraft
-export const urlSearchParametersExposure = ordinaryExposure
 const parametersPolicy = /* @__PURE__ */ (() => ({
   ...urlSearchParametersSnapshot,
   ...urlSearchParametersPublication,
@@ -141,7 +139,6 @@ const parametersPolicy = /* @__PURE__ */ (() => ({
 }))()
 export const urlSearchParametersType = /* @__PURE__ */ defineType<URLSearchParametersLayout>({
   draft: urlSearchParametersDraft,
-  exposure: urlSearchParametersExposure,
   kind: URL_SEARCH_PARAMS_KIND,
   name: 'url-search-params',
   policy: parametersPolicy,

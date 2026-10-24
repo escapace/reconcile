@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { reactive, toRaw } from 'vue'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { prototypeHolding } from './property-bridge-fixtures'
 import { isReconcileError } from '../src/error'
@@ -138,12 +137,8 @@ function outcome(current: object, next: object): string {
 
 type Wrap = (target: object) => object | undefined
 
-/** The ordinary object, a forwarding proxy and a Vue reactive proxy where Vue makes one. */
-const wraps: readonly Wrap[] = [
-  (target) => target,
-  (target) => new Proxy(target, {}),
-  (target) => (Object.isExtensible(target) ? reactive(target) : undefined),
-]
+/** The ordinary object and a forwarding proxy. */
+const wraps: readonly Wrap[] = [(target) => target, (target) => new Proxy(target, {})]
 
 /** Runs `reconcile` on one realization and compares it with the Lean outcome. */
 function checkRealization(row: Row, wrap: Wrap, onObject = false): boolean {
@@ -171,7 +166,7 @@ function compare(
     writable: true,
   })
   const status = outcome(current, next)
-  const after = describe(toRaw(current), key)
+  const after = describe(current, key)
   checkStatus(row, key, status, before, after)
   assert.deepEqual(after, expected(jsonObject(row.after)), `${key}: descriptor`)
   assert.equal(calls.ownSetter, integerIn(row.ownSetterCalls, 0, 1), `${key}: own setter`)
@@ -181,10 +176,7 @@ function compare(
     `${key}: inherited`,
   )
   // Object.prototype's own __proto__ setter would replace the prototype.
-  assert.equal(
-    Object.getPrototypeOf(toRaw(current)) === Object.prototype,
-    key === '__proto__' || onObject,
-  )
+  assert.equal(Object.getPrototypeOf(current) === Object.prototype, key === '__proto__' || onObject)
   return true
 }
 

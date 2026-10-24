@@ -12,24 +12,19 @@ import type {
   SnapshotPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import { resolveWrappedCollectionMember, storageIdentity, type WrappedIndex } from '../adapters/vue'
-import type { BaseDraftState, Edge, ExposureFacet, NativePolicy } from '../types'
+import type { BaseDraftState, Edge, NativePolicy } from '../types'
 import { defineType } from './registry'
 import { collectionSurface, normalize } from './shared/collection'
 import {
-  insertedCollectionValue,
   draftState,
   draftValue,
   adoptDraftClass,
   draftChild,
   draftCollectionBase,
   draftWalk,
-  eachSetMember,
-  forEachSetMember,
-  wrappedCollection,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { draftedForm, rawForm } from './shared/draft-members'
+import { draftedForm } from './shared/draft-members'
 import {
   closeIterator,
   Detached,
@@ -39,6 +34,7 @@ import {
   builtinSetHas,
   builtinSetSize,
   eachBuiltinMember,
+  forEachBuiltinMember,
   openBuiltin,
   openSetValues,
   setStep,
@@ -47,36 +43,16 @@ import {
 /** Stable global identity owned by the set module. */
 export const SET_KIND = Symbol.for('@escapace/reconcile/set')
 
-/** The members of a `Set`, in order. */
-function setMembers(set: object): unknown[] {
-  const members: unknown[] = []
-  eachSetMember(set, (member) => members.push(member) < 0)
-  return members
-}
-
 /** The members as the draft holds them now: its working copy, or its object until it has one. */
 const liveMembers = (state: SetDraftState): Set<unknown> => draftValue<Set<unknown>>(state)
 
-/** Whether the draft's object is Vue reactive state, read once per draft. */
-function vueState(state: SetDraftState): boolean {
-  return (state.members.vue ??= wrappedCollection(state.base))
-}
-
-/** Whether `members` is the draft's object and that is a wrapper, such as a Vue reactive proxy,
- * read through its own methods; every other `Set` is read with the built-ins. */
-const throughOwn = (state: SetDraftState, members: Set<unknown>): boolean =>
-  members === state.base && vueState(state)
-
-/** Whether `set` holds `value`: through its own `has` when `own`, otherwise with the built-in. */
-const holds = (set: object, own: boolean, value: unknown): boolean =>
-  own ? (set as Set<unknown>).has(value) : builtinSetHas(set, value)
 /** A native `Set` or `Map` operand and its `has`. */
 interface SetOperand {
   readonly set: object
   readonly has: (value: unknown) => boolean
 }
 /** Whether a native operand holds `value`, asked through its own `has`. */
-const operandHas = (operand: SetOperand, _: boolean, value: unknown): boolean =>
+const operandHas = (operand: SetOperand, value: unknown): boolean =>
   Boolean(Reflect.apply(operand.has, operand.set, [value]))
 
 const setPolicySurface = /* @__PURE__ */ collectionSurface({
@@ -86,17 +62,6 @@ const setPolicySurface = /* @__PURE__ */ collectionSurface({
     remove: builtinSetDelete,
     size: builtinSetSize,
     step: setStep,
-  },
-  own: {
-    open: (current) => (current as Set<unknown>).values(),
-    put: (current, key) => {
-      ;(current as Set<unknown>).add(key)
-    },
-    remove: (current, key) => {
-      ;(current as Set<unknown>).delete(key)
-    },
-    size: (current) => (current as Set<unknown>).size,
-    step: (iterator) => (iterator as Iterator<unknown>).next(),
   },
   width: 1,
   read: (entry) => entry,
@@ -108,15 +73,10 @@ const setCapture = {
   construction: noValue,
   observe(value, begin, edge) {
     const prototype = Object.getPrototypeOf(value) as object | null
-    const wrapped = wrappedCollection(value, prototype)
     begin({ kind: SET_KIND, prototype })
-    forEachSetMember(
-      value,
-      (child) => {
-        edge(child)
-      },
-      wrapped,
-    )
+    forEachBuiltinMember(value, (child) => {
+      edge(child)
+    })
   },
 } satisfies CapturePolicy<SetLayout>
 
@@ -163,33 +123,23 @@ export const setImmutable = /* @__PURE__ */ (() => ({
       const prototype = Object.getPrototypeOf(base ?? source) as object | null
       observer.begin({ kind: SET_KIND, prototype })
       const set = base as Set<unknown> | undefined
-      // The source is the base or, when it differs, the draft's working copy, a built-in `Set`;
-      // only an object from `current` or the recipe can be a wrapper.
-      const wrapped = wrappedCollection(base ?? source, prototype)
-      forEachSetMember(
-        source,
-        (value) => {
-          observer.edge(
-            value,
-            undefined,
-            isObject(value) &&
-              set !== undefined &&
-              (wrapped ? set.has(value) : builtinSetHas(set, value)),
-          )
-        },
-        source === (base ?? source) && wrapped,
-      )
+      // The source is the base or, when it differs, the draft's working copy, a built-in `Set`.
+      forEachBuiltinMember(source, (value) => {
+        observer.edge(
+          value,
+          undefined,
+          isObject(value) && set !== undefined && builtinSetHas(set, value),
+        )
+      })
     },
     reuse(node, current, visit) {
-      const wrapped = wrappedCollection(current)
-      const size = wrapped ? (current as Set<unknown>).size : builtinSetSize(current)
-      if (size !== node.edges.length) return false
+      if (builtinSetSize(current) !== node.edges.length) return false
       let index = 0
-      return !eachSetMember(current, (value) => !visit(value, edgeAt(node.edges, index++)), wrapped)
+      return !eachBuiltinMember(current, (value) => !visit(value, edgeAt(node.edges, index++)))
     },
   } satisfies ImmutablePolicy<SetLayout>['immutable']),
   someChild(source, _read, test) {
-    return eachSetMember(source, test)
+    return eachBuiltinMember(source, test)
   },
 }))() satisfies ImmutablePolicy<SetLayout>
 
@@ -203,11 +153,6 @@ export interface SetLayout {
   readonly prototype: object | null
 }
 
-export const setExposure: Extract<ExposureFacet, { tag: 'collection' }> = /* @__PURE__ */ freeze({
-  tag: 'collection',
-  singleton: (value) => new Set([value]),
-})
-
 export const setDraft = /* @__PURE__ */ freeze({
   tag: 'structural',
   handle: (state): object => new DraftSet(state),
@@ -217,7 +162,6 @@ export const setDraft = /* @__PURE__ */ freeze({
     copy: undefined,
     handle: undefined,
     kind: SET_KIND,
-    members: { built: undefined, revision: 0, vue: undefined },
     modified: false,
     properties: undefined,
     source() {
@@ -233,7 +177,6 @@ const setRecognition = /* @__PURE__ */ freeze({
 
 export const setType = /* @__PURE__ */ defineType<SetLayout, SetDraftState>({
   draft: setDraft,
-  exposure: setExposure,
   kind: SET_KIND,
   name: 'set',
   policy: setPolicy,
@@ -253,91 +196,39 @@ function prepareSetCopy(state: SetDraftState): Set<unknown> {
   // it is filled, and later read and written, with the built-ins.
   const base = state.base as Set<unknown>
   const copy = new Set<unknown>()
-  forEachSetMember(
-    base,
-    (member) => {
-      builtinSetAdd(copy, member)
-    },
-    vueState(state),
-  )
+  forEachBuiltinMember(base, (member) => {
+    builtinSetAdd(copy, member)
+  })
   state.copy = adoptPrototype(copy, Object.getPrototypeOf(base) as object, Set.prototype)
   return state.copy as Set<unknown>
 }
 
 /**
- * Resolves Set membership through stored identities and recognized wrapper equivalence.
+ * Resolves Set membership through stored identities.
  *
  * @remarks
  * The miss sentinel distinguishes absence from a stored `undefined`. Keep this result contract
  * separate from Map key resolution, which also supplies keys for insertion.
  */
-function resolveSetMember(
-  state: SetDraftState,
-  source: Set<unknown>,
-  value: unknown,
-  index: WrappedIndex = state.members,
-  // Membership is asked of `lookup`, through its own `has` when `own`, as `has` on the draft asks
-  // Vue reactive state; the built-in methods ask the raw object with the built-in `has`.
-  lookup: object = source,
-  own: boolean = throughOwn(state, source),
-): unknown {
-  if (holds(lookup, own, value)) return value
+function resolveSetMember(state: SetDraftState, source: Set<unknown>, value: unknown): unknown {
+  if (builtinSetHas(source, value)) return value
   if (!isObject(value)) return LOOKUP_MISS
-  const form = otherForm(state.context, value, lookup, own)
-  if (form !== LOOKUP_MISS) return form
-  return (
-    resolveWrappedCollectionMember(
-      source,
-      state.context.statesByIdentity.get(value)?.base ?? value,
-      state.base,
-      index,
-      setMembers,
-    ) ?? LOOKUP_MISS
-  )
+  return otherForm(state.context, value, source)
 }
 
 /**
- * The form of `value` that `set` holds, asked as `holds` asks, or `LOOKUP_MISS`: the object a
- * draft drafts or its handle, or the original or the copy of a special value, which a read of a
- * `Date`, buffer, view or URL makes and which counts as its original, as a draft does.
+ * The form of `value` that `set` holds, or `LOOKUP_MISS`: the object a draft drafts or its handle,
+ * or the original or the copy of a special value, which a read of a `Date`, buffer, view or URL
+ * makes and which counts as its original, as a draft does.
  */
-function otherForm(
-  context: BaseDraftState['context'],
-  value: object,
-  set: object,
-  own: boolean,
-): unknown {
+function otherForm(context: BaseDraftState['context'], value: object, set: object): unknown {
   const drafted = context.statesByIdentity.get(value)
   if (drafted !== undefined) {
-    const form = draftedForm(context, drafted, value, set, own, holds)
+    const form = draftedForm(drafted, value, set, builtinSetHas)
     if (form !== undefined) return form
   }
-  // A Vue proxy of a member the Set holds is that member, as Vue's methods count it, and so is a
-  // Vue proxy of an object whose draft the Set holds.
-  return rawForm(context, value, drafted, set, own, holds) ?? copyForm(context, value, set, own)
-}
-
-/** The original or the copy of a special value that `set` holds, or `LOOKUP_MISS`. */
-function copyForm(
-  context: BaseDraftState['context'],
-  value: object,
-  set: object,
-  own: boolean,
-): unknown {
   const form = context.copyBase(value) ?? context.copyOf(value)
-  return form !== undefined && holds(set, own, form) ? form : LOOKUP_MISS
-}
-
-/** Resolves a member as the built-in methods do: with the built-in `has`, on the raw object of
- * Vue reactive state, which holds the members without making a copy. */
-const builtinMember = (
-  state: SetDraftState,
-  members: Set<unknown>,
-  value: unknown,
-  index?: WrappedIndex,
-): unknown => {
-  const raw = throughOwn(state, members) ? storageIdentity(members) : members
-  return resolveSetMember(state, members, value, index, raw, false)
+  return form !== undefined && builtinSetHas(set, form) ? form : LOOKUP_MISS
 }
 
 type SetMethod =
@@ -379,23 +270,14 @@ function setRecord(other: unknown): SetRecord {
 }
 
 /** The number of members now. */
-const sizeOf = (state: SetDraftState): number => {
-  const members = liveMembers(state)
-  return throughOwn(state, members) ? members.size : builtinSetSize(members)
-}
+const sizeOf = (state: SetDraftState): number => builtinSetSize(liveMembers(state))
 
 /** A copy of the members as they are now, in order. */
 const membersOf = (state: SetDraftState): Set<unknown> => {
   const members = new Set<unknown>()
-  const live = liveMembers(state)
-  eachSetMember(
-    live,
-    (member) => {
-      builtinSetAdd(members, member)
-      return false
-    },
-    throughOwn(state, live),
-  )
+  forEachBuiltinMember(liveMembers(state), (member) => {
+    builtinSetAdd(members, member)
+  })
   return members
 }
 
@@ -403,76 +285,45 @@ const membersOf = (state: SetDraftState): Set<unknown> => {
  * One `Set` method call on a draft: its operand and the lookups it builds at most once.
  *
  * @remarks
- * An operand whose `has` is the built-in one, directly or under a Vue reactive proxy, cannot
- * observe its calls, so it is asked for each form of a member; any other operand's `has` receives
- * the member as this draft gives it. The operand's Vue markers are read only when an object member
- * or key needs them.
+ * An operand whose `has` is the built-in one cannot observe its calls, so it is asked for each
+ * form of a member; any other operand's `has` receives the member as this draft gives it.
  */
 class SetCall extends Detached {
   // Declared and assigned in the constructor, as every internal class's fields are: a parameter
   // property or field initializer becomes a defineProperty call with the unrenamed name, which
   // the build's renamed reads would miss.
-  declare private operand: SetOperand | undefined
-  declare private operandVue: boolean | undefined
+  declare private readonly operand: SetOperand | undefined
   declare readonly record: SetRecord
-  declare private readonly snapshot: WrappedIndex
   declare readonly state: SetDraftState
 
   constructor(state: SetDraftState, record: SetRecord) {
     super()
-    this.operand = undefined
-    this.operandVue = undefined
+    const { has, set } = record
+    this.operand = nativeHas(has) ? { has, set } : undefined
     this.record = record
-    this.snapshot = { built: undefined, revision: 0, vue: undefined }
     this.state = state
-  }
-
-  /** Whether the operand is Vue reactive state, which counts a Vue proxy as its raw object. */
-  private wrapped(): boolean {
-    if (this.operandVue !== undefined) return this.operandVue
-    const { has, set } = this.record
-    if (nativeHas(has)) {
-      this.operand = { has, set }
-      return (this.operandVue = false)
-    }
-    const raw = storageIdentity(set)
-    const rawHas = raw === set ? undefined : (Reflect.get(raw, 'has') as unknown)
-    if (nativeHas(rawHas)) this.operand = { has: rawHas, set: raw }
-    return (this.operandVue = raw !== set)
   }
 
   /** Whether the operand holds `member`. */
   inOperand(member: unknown): boolean {
-    const { record, state } = this
+    const { operand, record, state } = this
     if (!isObject(member)) return Boolean(Reflect.apply(record.has, record.set, [member]))
-    // Asking whether the operand is Vue reactive state settles `operand`.
-    this.wrapped()
-    const { operand } = this
     if (operand === undefined)
       return Boolean(Reflect.apply(record.has, record.set, [draftChild(state, member)]))
-    // The member, the forms of the object it drafts and, for a Vue proxy, its raw object.
-    if (operandHas(operand, false, member)) return true
+    // The member and the forms of the object it drafts.
+    if (operandHas(operand, member)) return true
     const drafted = state.context.statesByIdentity.get(member)
-    if (
-      drafted !== undefined &&
-      draftedForm(state.context, drafted, member, operand, false, operandHas) !== undefined
-    )
+    if (drafted !== undefined && draftedForm(drafted, member, operand, operandHas) !== undefined)
       return true
-    const base = drafted?.base ?? member
-    // The original or the copy of a special value counts as the value, as `copyForm` finds it.
+    // The original or the copy of a special value counts as the value, as `otherForm` finds it.
     const form = state.context.copyBase(member) ?? state.context.copyOf(member)
-    if (form !== undefined && Reflect.apply(operand.has, operand.set, [form])) return true
-    // The raw object of a Vue proxy, in any state, and the forms of its draft.
-    return rawForm(state.context, base, drafted, operand, false, operandHas) !== undefined
+    return form !== undefined && operandHas(operand, form)
   }
 
-  /** The member of `members`, this draft's live members or a `snapshot` of them, that `value` is a
-   * form of, or `LOOKUP_MISS`. A Vue reactive operand's keys count as their raw objects. */
-  memberOf(members: Set<unknown>, value: unknown, snapshot: boolean): unknown {
-    const index = snapshot ? this.snapshot : this.state.members
-    const member = builtinMember(this.state, members, value, index)
-    if (member !== LOOKUP_MISS || !isObject(value) || !this.wrapped()) return member
-    return builtinMember(this.state, members, storageIdentity(value), index)
+  /** The member of `members`, this draft's live members or a copy of them, that `value` is a form
+   * of, or `LOOKUP_MISS`. */
+  memberOf(members: Set<unknown>, value: unknown): unknown {
+    return resolveSetMember(this.state, members, value)
   }
 }
 
@@ -538,7 +389,7 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
       })
     } else
       everyKey(openKeys(record), (key) => {
-        const member = call.memberOf(members, key, true)
+        const member = call.memberOf(members, key)
         if (member !== LOOKUP_MISS) builtinSetDelete(result, draftChild(state, member))
         return true
       })
@@ -554,7 +405,7 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
       })
     else
       everyKey(openKeys(record), (key) => {
-        const member = call.memberOf(liveMembers(state), key, false)
+        const member = call.memberOf(liveMembers(state), key)
         if (member !== LOOKUP_MISS) builtinSetAdd(result, draftChild(state, member))
         return true
       })
@@ -564,10 +415,7 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
     const { record, state } = call
     return sizeOf(state) <= record.size
       ? everyMember(state, (member) => !call.inOperand(member))
-      : everyKey(
-          openKeys(record),
-          (key) => call.memberOf(liveMembers(state), key, false) === LOOKUP_MISS,
-        )
+      : everyKey(openKeys(record), (key) => call.memberOf(liveMembers(state), key) === LOOKUP_MISS)
   },
   isSubsetOf(call) {
     const { record, state } = call
@@ -579,23 +427,23 @@ const setMethods: Record<SetMethod, (call: SetCall) => unknown> = {
     if (sizeOf(state) < record.size) return false
     return everyKey(
       openKeys(record),
-      (key) => call.memberOf(liveMembers(state), key, false) !== LOOKUP_MISS,
+      (key) => call.memberOf(liveMembers(state), key) !== LOOKUP_MISS,
     )
   },
   symmetricDifference(call) {
     const { state } = call
     return withEveryKey(call, (key, members, result) => {
-      const member = call.memberOf(members, key, true)
+      const member = call.memberOf(members, key)
       const value = member === LOOKUP_MISS ? key : draftChild(state, member)
       const present = builtinSetHas(result, value)
-      if (call.memberOf(liveMembers(state), key, false) !== LOOKUP_MISS) {
+      if (call.memberOf(liveMembers(state), key) !== LOOKUP_MISS) {
         if (present) builtinSetDelete(result, value)
       } else if (!present) builtinSetAdd(result, key)
     })
   },
   union(call) {
     return withEveryKey(call, (key, members, result) => {
-      if (call.memberOf(members, key, true) === LOOKUP_MISS) builtinSetAdd(result, key)
+      if (call.memberOf(members, key) === LOOKUP_MISS) builtinSetAdd(result, key)
     })
   },
 }
@@ -708,14 +556,12 @@ const DraftSet = /* @__PURE__ */ (() => {
       const state = draftState<SetDraftState>(this)
       const source = liveMembers(state)
 
-      if (builtinMember(state, source, value) !== LOOKUP_MISS) {
+      if (resolveSetMember(state, source, value) !== LOOKUP_MISS) {
         // Duplicate add is a true no-op and does not mark the draft modified.
         return this
       }
 
-      const insertedValue = insertedCollectionValue(state, value, setExposure, false, builtinSetHas)
-      builtinSetAdd(prepareSetCopy(state), insertedValue)
-      state.members.revision += 1
+      builtinSetAdd(prepareSetCopy(state), value)
       state.modified = true
       return this
     }
@@ -730,7 +576,6 @@ const DraftSet = /* @__PURE__ */ (() => {
       }
 
       builtinSetClear(prepareSetCopy(state))
-      state.members.revision += 1
       state.modified = true
     }
 
@@ -747,14 +592,11 @@ const DraftSet = /* @__PURE__ */ (() => {
 
       const copy = prepareSetCopy(state)
       const removed = builtinSetDelete(copy, resolveSetMember(state, copy, target))
-      if (removed) {
-        state.members.revision += 1
-        state.modified = true
-      }
+      if (removed) state.modified = true
       return removed
     }
 
-    /** Tests membership using draft-base and wrapper identity rules. */
+    /** Tests membership using draft-base identity rules. */
     has(value: unknown): boolean {
       const state = draftState<SetDraftState>(this)
       const source = draftValue<Set<unknown>>(state)
@@ -773,6 +615,4 @@ const DraftSet = /* @__PURE__ */ (() => {
 // fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface SetDraftState extends BaseDraftState {
   readonly kind: typeof SET_KIND
-  /** The Vue lookup index of the members; changing the members bumps its revision. */
-  readonly members: WrappedIndex
 }

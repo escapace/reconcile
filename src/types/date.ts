@@ -2,7 +2,7 @@ import { builtinValue, uncurried } from '../standard-prototypes'
 import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings, same, yes } from './shared/empty'
 import type { SpecialPolicy } from '../types'
-import { ordinaryExposure, independentDraft } from './shared/empty'
+import { independentDraft } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -107,8 +107,6 @@ export interface DateLayout {
 
 export const dateDraft = independentDraft
 
-export const dateExposure = ordinaryExposure
-
 const dateRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof Date,
@@ -116,7 +114,6 @@ const dateRecognition = /* @__PURE__ */ freeze({
 
 export const dateType = /* @__PURE__ */ defineType<DateLayout>({
   draft: dateDraft,
-  exposure: dateExposure,
   kind: DATE_KIND,
   name: 'date',
   policy: datePolicy,

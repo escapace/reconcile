@@ -351,7 +351,6 @@ const entryTallies = new Map<string, ReadonlyMap<string, string>>([
       ['recognizeStructure', 'classification.full'],
     ]),
   ],
-  ['src/adapters/vue.ts', new Map([['storageIdentity', 'storage.probes']])],
   ['src/types/shared/property-publication.ts', new Map([['propertySlots', 'shape.indexBuilds']])],
   [
     SELECTION,
@@ -362,11 +361,7 @@ const entryTallies = new Map<string, ReadonlyMap<string, string>>([
   ],
 ])
 /** Entry counters that also count distinct `value` arguments. */
-const identityTallies = new Set([
-  'classification.expected',
-  'classification.full',
-  'storage.probes',
-])
+const identityTallies = new Set(['classification.expected', 'classification.full'])
 
 function entryKey(path: string, name: string | undefined): string | undefined {
   if (name === undefined) return undefined

@@ -1,15 +1,6 @@
 import { hasOwn, isObject } from '../../object-property'
-import { normalizeCollectionInsertion, storageIdentity } from '../../adapters/vue'
-import type { BaseDraftState, ExposureFacet } from '../../types'
-import {
-  defineData,
-  eachBuiltinEntry,
-  eachBuiltinMember,
-  forEachBuiltinEntry,
-  forEachBuiltinMember,
-  openBuiltin,
-} from '../../standard-prototypes'
-import { eachEntry, eachMember } from './collection'
+import type { BaseDraftState } from '../../types'
+import { defineData, openBuiltin } from '../../standard-prototypes'
 
 /**
  * Reads a collection's current working value, using its base until a copy exists.
@@ -42,29 +33,6 @@ class DraftStateHolder {
 /** The call-local state of a `Map` or `Set` draft. */
 export const draftState = <S extends BaseDraftState>(draft: object): S =>
   DraftStateHolder.of<S>(draft)
-
-// Supply draft identity information; the storage boundary owns collection policy. An object that
-// is neither a draft nor a Vue proxy, and that the collection's raw storage does not already hold
-// (`held`), is one the recipe adds: it is stored as itself, a read gives its draft, which a Vue
-// proxy of it shares, and the result holds it, with the drafts it holds finalized, as it holds any
-// object the recipe adds. An object the collection held is stored as Vue exposes it.
-export function insertedCollectionValue(
-  state: BaseDraftState,
-  value: unknown,
-  exposure: Extract<ExposureFacet, { tag: 'collection' }>,
-  unwrap: boolean,
-  held?: (raw: object, value: object) => boolean,
-): unknown {
-  if (!isObject(value)) return value
-  const resolved = state.context.statesByIdentity.get(value)?.base
-  if (
-    resolved === undefined &&
-    storageIdentity(value) === value &&
-    held?.(storageIdentity(state.base), value) !== true
-  )
-    return value
-  return normalizeCollectionInsertion(state.base, value, resolved, exposure, unwrap)
-}
 
 /** The walks every `Map` and `Set` draft inherits. */
 export interface DraftCollectionWalks {
@@ -149,62 +117,6 @@ export function draftCollectionBase(
   Reflect.deleteProperty(DraftCollection.prototype, 'constructor')
   return DraftCollection
 }
-
-/**
- * Whether a `Map` or `Set` is a wrapper, such as a Vue reactive proxy, which holds no contents of
- * its own: it is read and written through its own methods. Every other collection, including an
- * instance of a subclass, is read and written with the built-ins, so no override runs.
- */
-export const wrappedCollection = (collection: object, prototype?: object | null): boolean =>
-  storageIdentity(collection, prototype) !== collection
-
-/**
- * Calls `each` with the value and key of every entry of a `Map`, in order: through its own
- * iterator when it is a wrapper, otherwise with the built-in `forEach`.
- */
-export function forEachMapEntry(
-  map: object,
-  each: (value: unknown, key: unknown) => void,
-  wrapped: boolean,
-): void {
-  if (!wrapped) forEachBuiltinEntry(map, each)
-  else
-    eachEntry(map as Iterable<unknown>, (key, value) => {
-      each(value, key)
-      return false
-    })
-}
-
-/**
- * Calls `each` with every member of a `Set`, in order: through its own iterator when it is a
- * wrapper, otherwise with the built-in `forEach`.
- */
-export function forEachSetMember(
-  set: object,
-  each: (member: unknown) => void,
-  wrapped: boolean,
-): void {
-  if (!wrapped) forEachBuiltinMember(set, each)
-  else
-    eachMember(set as Iterable<unknown>, (member) => {
-      each(member)
-      return false
-    })
-}
-
-/** Calls `each` with each entry of a `Map` until it returns true; returns whether it did. */
-export const eachMapEntry = (
-  map: object,
-  each: (key: unknown, value: unknown) => boolean,
-  wrapped: boolean = wrappedCollection(map),
-): boolean => (wrapped ? eachEntry(map as Iterable<unknown>, each) : eachBuiltinEntry(map, each))
-
-/** Calls `each` with each member of a `Set` until it returns true; returns whether it did. */
-export const eachSetMember = (
-  set: object,
-  each: (member: unknown) => boolean,
-  wrapped: boolean = wrappedCollection(set),
-): boolean => (wrapped ? eachMember(set as Iterable<unknown>, each) : eachBuiltinMember(set, each))
 
 /** A value a draft yields: an object as its draft, as a read returns it. */
 export const draftChild = (state: BaseDraftState, value: unknown): unknown =>

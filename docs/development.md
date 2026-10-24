@@ -28,25 +28,24 @@ write may serve every phase up to readback, and readback reads each written obje
 that discipline the exact trace is internal: a change may drop, merge or reorder reads if the
 new trace is deterministic. A getter or trap that changes what the call already read before the
 first write is unsupported; readback still catches a write that such code undoes. Objects created
-during the call may differ in identity, as long as aliasing and storage sharing stay the same;
+during the call may differ in identity, as long as aliasing stays the same;
 private work can change freely.
 
-### Type modules and storage
+### Type modules
 
 Each built-in kind is a module in `src/types/`: plain object, array, `Map`, `Set`, `Date`,
 `ArrayBuffer`, typed arrays, `DataView`, `URL` (`url.ts`), `URLSearchParams`
 (`url-search-parameters.ts`) and the Temporal value classes (`temporal.ts`). A module, written
 with `defineType`, supplies one _facet_ per concern: recognition, capture, snapshot, publication,
-immutable reuse, draft rules and exposure. `types/builtins.ts` builds one registry per graph
+immutable reuse and draft rules. `types/builtins.ts` builds one registry per graph
 operation (`snapshotTypes`, `publicationTypes`, `produceTypes`), so each bundle contains only its
 own facets; `types/registry.ts` builds the full table that `createEngine` in `src/engine.ts`
 uses. Recognition tries kinds in order; the plain object is the fallback, which the built-in
 registries reach after one prototype read for an object whose prototype is `Object.prototype` or
 `null`.
 
-`src/adapters/vue.ts` maps Vue reactive wrappers to the raw object holding their data, their
-_storage_. Selection never lets two kept objects claim one storage, and typed-array views
-reference their buffers through explicit edges. `src/standard-prototypes.ts` holds the helpers
+Selection never lets two kept objects claim one object, and typed-array views reference their
+buffers through explicit edges. `src/standard-prototypes.ts` holds the helpers
 that keep internal objects and reads independent of `Object.prototype` and `Array.prototype`.
 
 ### The graph operations
@@ -99,7 +98,7 @@ unchanged objects.
    as soon as its walk ends unless a cycle leads back into the walk, and identity restoration takes
    each fixed leaf's children from those walks. A full _sealed_ pass runs instead when a special
    value (a `Date`, buffer or other kind `produce` copies) needs cloning, an accessor was observed
-   or leaves conflict over storage.
+   or two leaves claim one object.
 3. _Identity restoration_ (observes for readback; `restore-identities.ts`,
    `graph/immutable-selection.ts`) keeps the largest set of objects, treating each unchanged
    subtree it keeps whole as one choice, then allocates and writes the fresh ones in a fixed order.
@@ -160,7 +159,7 @@ A new kind changes every operation's contract and bundle.
    kept by reference today also changes `Types.Atoms` and `scripts/check-atoms-runtime.ts`.
    Extend the fixtures of the native-value and copy-prototype bridges.
 2. **Write the module** in `src/types/<kind>.ts` with `defineType`, supplying each facet in
-   [Type modules and storage](#type-modules-and-storage) and using `src/standard-prototypes.ts`
+   [Type modules and storage](#type-modules) and using `src/standard-prototypes.ts`
    for every internal object and read.
 3. **Register it** in `src/types/builtins.ts` at the same position in `builtinModules`, `KINDS`,
    every facet table and the unrolled `builtinRecognize`, `builtinFirstMatch` and
@@ -234,9 +233,6 @@ sides together.
   kinds MUST be made there too.
 - **Head shortcuts.** The driver tries `headSelection`'s plan, and identity restoration
   `immutableHead`'s mask, before searching, because the head theorems prove they come first.
-  `publishGraph` certifies distinct storages only while every discovery probe misses the storage
-  memo, so a new storage probe before `candidates` returns MUST use that memo; `bind` relies on
-  it.
 - **Mangle list.** A name in `scripts/constants.json` that is also read on an application or
   native object, or is public, breaks only the built package, which `pnpm test:lib` tests.
 - **Library tests.** `vitest-library.config.ts` redirects only imports of the entry modules it
@@ -416,7 +412,7 @@ Consumer bundlers drop code that no used export reaches (_tree shaking_). These 
 - Stable protocol identities use namespaced `Symbol.for` keys; attempt identities and lookup
   sentinels use private objects, because they must be fresh or must not collide.
 - The mangle list holds only protocol fields, facet members and private methods. Descriptor
-  fields, collection and iterator methods, Vue markers, proxy trap names and keys used with `in`
+  fields, collection and iterator methods, proxy trap names and keys used with `in`
   stay unrenamed.
 - Ordinary consumer minification renames identifiers, not properties. A consumer that enables
   opt-in property mangling must restrict it to its own private properties and keep library,

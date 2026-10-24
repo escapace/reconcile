@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
 import { produce, reconcile, ReconcileError } from '../index'
 import {
   randomSource,
@@ -106,38 +105,32 @@ describe('deterministic public API fuzz regressions', () => {
     60_000,
   )
 
-  it.each([false, true])(
-    'publishes 10,000 overlapping graphs with Vue wrapping = %s or rejects incompatible roots',
-    (wrapped) => {
-      const random = randomSource(18_345)
-      for (let trial = 0; trial < 10_000; trial += 1) {
-        checkCase({ seed: random.seed, trial, wrapped }, () => {
-          const { values } = mixedGraph(random, false)
-          // Vue leaves Date and binary objects raw; wrapping the containing array
-          // exercises its actual supported graph surface without pretending otherwise.
-          const exposed = wrapped ? reactive(values) : values
-          const currentIndex = random.next(values.length)
-          const nextIndex = random.next(values.length)
-          const current = exposed[currentIndex]
-          const next = exposed[nextIndex]
-          // This generator authors only raw nodes. Native cloning independently
-          // captures their topology, including cycles and shared binary storage.
-          const expected = structuredClone(values[nextIndex])
-          assert.isTrue(graphsEqual(expected, next))
-          if (current.constructor !== next.constructor) {
-            const before = structuredClone(values[currentIndex])
-            assert.throws(() => reconcile(current, next), ReconcileError)
-            assert.isTrue(graphsEqual(before, current))
-          } else {
-            const result = reconcile(current, next)
-            assert.equal(result, current)
-            assert.isTrue(graphsEqual(expected, result))
-          }
-        })
-      }
-    },
-    60_000,
-  )
+  it('publishes 10,000 overlapping graphs or rejects incompatible roots', () => {
+    const random = randomSource(18_345)
+    for (let trial = 0; trial < 10_000; trial += 1) {
+      checkCase({ seed: random.seed, trial }, () => {
+        const { values } = mixedGraph(random, false)
+        const exposed = values
+        const currentIndex = random.next(values.length)
+        const nextIndex = random.next(values.length)
+        const current = exposed[currentIndex]
+        const next = exposed[nextIndex]
+        // This generator authors only raw nodes. Native cloning independently
+        // captures their topology, including cycles and shared binary storage.
+        const expected = structuredClone(values[nextIndex])
+        assert.isTrue(graphsEqual(expected, next))
+        if (current.constructor !== next.constructor) {
+          const before = structuredClone(values[currentIndex])
+          assert.throws(() => reconcile(current, next), ReconcileError)
+          assert.isTrue(graphsEqual(before, current))
+        } else {
+          const result = reconcile(current, next)
+          assert.equal(result, current)
+          assert.isTrue(graphsEqual(expected, result))
+        }
+      })
+    }
+  }, 60_000)
 
   it('retains the independently computed fixed point in 2,000 twelve-node object/Map graphs', () => {
     const random = randomSource(93_127)

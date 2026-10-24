@@ -1,6 +1,5 @@
 import { isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
-import { storageIdentity } from '../adapters/vue'
 import { isObject } from '../object-property'
 import { EMPTY_FACTS, UNREAD } from '../constants'
 import type {
@@ -33,13 +32,10 @@ export function candidates(
     | 'prototypes'
     | 'sources'
   >,
-  storage: (value: object, prototype?: object | null) => object = storageIdentity,
   note?: PublicationNote,
   preflight?: Array<PreflightFacts | undefined>,
-  wrapper: (value: object, prototype?: object | null) => boolean = (value, prototype) =>
-    storageIdentity(value, prototype) !== value,
 ): Domains {
-  const aligned = collect(types, root, records, wrapper, alignment)
+  const aligned = collect(types, root, records, alignment)
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
   // a captured node whose own object lies inside one is already published: it is pinned to
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
@@ -52,7 +48,7 @@ export function candidates(
     records.forEach((node, index) => {
       if (index === 0 || node.pinned !== undefined) return
       const source = sources?.[index]
-      if (source !== undefined && source !== root && protectedStorage.has(storage(source)))
+      if (source !== undefined && source !== root && protectedStorage.has(source))
         (node as { pinned?: object }).pinned = source
     })
   }
@@ -65,15 +61,14 @@ export function candidates(
   ): Choice | undefined => {
     const prototype = ingressOf(types, node, index, candidate, alignment)
     if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
-    if (index !== 0 && protectedStorage?.has(storage(candidate, prototype)) === true)
-      return undefined
+    if (index !== 0 && protectedStorage?.has(candidate) === true) return undefined
     // What capture or discovery read at the candidate's slots serves its fixed slots.
     const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)
     if (required === undefined) return undefined
     // The first passing candidate's facts serve the publication that retains it.
     if (note?.facts !== undefined) preflight![index] ??= note.facts
-    return { identity: candidate, required, retained: true, storage: storage(candidate, prototype) }
+    return { identity: candidate, required, retained: true, storage: candidate }
   }
   return records.map((node, index): Choice[] => {
     if (node.pinned !== undefined)
@@ -82,7 +77,7 @@ export function candidates(
           identity: node.pinned,
           required: EMPTY_FACTS,
           retained: true,
-          storage: storage(node.pinned),
+          storage: node.pinned,
         },
       ]
     const policy = types.policies[node.layout.kind]
@@ -122,16 +117,6 @@ export const alignedReads = (
     : candidate === alignment.currents?.[index]
       ? alignment.occupants?.[index]
       : alignment.candidateReads?.[index]?.get(candidate)
-
-// The prototype capture read of the object aligned with node `index`, when `candidate` is it.
-const capturedPrototype = (
-  alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
-  index: number,
-  candidate: object | undefined,
-): object | null | undefined =>
-  candidate !== undefined && candidate === alignment?.currents?.[index]
-    ? alignment.prototypes?.[index]
-    : undefined
 
 // A candidate of another kind than its node's.
 const MISMATCH: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)
@@ -196,11 +181,7 @@ function collect(
   types: PublicationRegistry,
   old: unknown,
   records: readonly CapturedNode[],
-  wrapper: (value: object, prototype?: object | null) => boolean,
-  alignment?: Pick<
-    CapturedGraph,
-    'candidateReads' | 'currents' | 'kinds' | 'occupants' | 'prototypes'
-  >,
+  alignment?: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'kinds' | 'occupants'>,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
@@ -237,15 +218,7 @@ function collect(
     reading = index
     readingObject = alignment === undefined ? undefined : candidate
     read = undefined
-    // A collection asks whether its object is a wrapper, with the prototype capture read, as
-    // discovery's later probe of the same object passes it.
-    types.policies[node.layout.kind].aligned(
-      node,
-      candidate,
-      visit,
-      wrapper,
-      capturedPrototype(alignment, index, candidate),
-    )
+    types.policies[node.layout.kind].aligned(node, candidate, visit)
     reading = outer
     readingObject = outerObject
     read = outerRead

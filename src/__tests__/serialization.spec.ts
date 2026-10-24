@@ -192,14 +192,11 @@ describe('serialization', () => {
     )
     expect(log).toEqual([
       'proto root',
-      // The probe for a Vue proxy, which is one node with its raw object.
-      'get root.__v_raw',
       // Names, then the enumerable keys that tell whether any name is hidden.
       'ownKeys root',
       'ownKeys root',
       'get root.a',
       'proto list',
-      'get list.__v_raw',
       'get list.length',
       'get list.length',
       'has list.0',
@@ -210,7 +207,6 @@ describe('serialization', () => {
       'has list.2',
       'get list.2',
       'proto inner',
-      'get inner.__v_raw',
       'ownKeys inner',
       'ownKeys inner',
       'get inner.b',
@@ -270,7 +266,6 @@ describe('serialization', () => {
     )
     expect(log).toEqual([
       'proto list',
-      'get list.__v_raw',
       'get list.length',
       'get list.length',
       'has list.0',

@@ -1,4 +1,4 @@
-import { isObject, markLike } from './object-property'
+import { isObject } from './object-property'
 import { ATOM_KIND, OBSERVED_ACCESSOR } from './constants'
 import { recognize } from './adapters/recognition'
 import type { DraftSession } from './draft-session'
@@ -59,9 +59,6 @@ export class Finalization extends Detached {
   // How many times a walk met an object its question visited but has not settled.
   declare private guards: number
   declare private phase: ObservationPhase
-  // The prototype each recognition read, for identity restoration's storage check; it lives
-  // as long as `kinds` (Types.Ingress).
-  declare private prototypes: Map<object, object | null> | undefined
   declare private readonly read: PrototypeRead
   declare readonly session: DraftSession
   // The current question's pending negative answers; created on the first.
@@ -77,7 +74,6 @@ export class Finalization extends Detached {
     this.kinds = undefined
     this.guards = 0
     this.unsettled = undefined
-    this.prototypes = undefined
     this.read = { known: false, prototype: null }
     this.phase = {
       kind: 'probe',
@@ -103,7 +99,6 @@ export class Finalization extends Detached {
         const read = this.read
         read.known = false
         kind = recognize(this.session.types, value, read)
-        if (read.known) (this.prototypes ??= new Map()).set(value, read.prototype)
       }
       ;(this.kinds ??= new Map()).set(value, kind)
     }
@@ -179,7 +174,7 @@ export class Finalization extends Detached {
 
   /** What this finalization read that identity restoration would otherwise read again. */
   private facts(): FinalizationFacts {
-    return { prototypes: this.prototypes, walked: this.walked }
+    return { walked: this.walked }
   }
 
   /**
@@ -456,9 +451,8 @@ export class Finalization extends Detached {
       (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
       this.phase,
     )
-    // A copy keeps the `markRaw` marker of the value it copies and, like a copy a read made, is not
-    // extensible; a value that is its own copy, such as a `SharedArrayBuffer`, belongs to `current`.
-    markLike(clone, value)
+    // A copy, like a copy a read made, is not extensible; a value that is its own copy, such as a
+    // `SharedArrayBuffer`, belongs to `current`.
     if (clone !== value) Reflect.preventExtensions(clone)
     return this.recordLeaf(clone, value)
   }
@@ -497,15 +491,11 @@ export class Finalization extends Detached {
   }
 
   /**
-   * The reference of a slot that holds `value`, drafted as `state`. A Vue proxy and its raw object
-   * share one draft; a slot that holds another view of the drafted object than its base keeps that
-   * view where the result keeps the object.
+   * The reference of a slot that holds `value`, drafted as `state`: its base or its handle, which
+   * both stand for the object.
    */
-  private materializeDrafted(value: object, state: DraftState): object {
-    const reference = this.materializeState(state)
-    return value === state.base || value === state.handle
-      ? reference
-      : viewReference(value, reference as FinalizedReference)
+  private materializeDrafted(_value: object, state: DraftState): object {
+    return this.materializeState(state)
   }
 
   /** Captures one draft state and records whether its slots need semantic resolution. */
@@ -576,7 +566,6 @@ export class Finalization extends Detached {
   /** Runs an accessor once per base and key through the draft receiver, then reuses its result. */
   private observeAccessor(value: object, key: PropertyKey, knownState?: DraftState): unknown {
     const receiver = knownState?.handle ?? this.session.materializeChild(value)
-    // A Vue proxy of a draft, such as `reactive(draft)`, stands for that draft.
     const state = knownState ?? this.session.statesByIdentity.get(receiver)!
     this.accessorObservations ??= new WeakMap()
     let observations = this.accessorObservations.get(state.base)
@@ -586,12 +575,8 @@ export class Finalization extends Detached {
     }
     if (observations.has(key)) return observations.get(key)
     if (this.phase.kind === 'sealed') throw finalizationAccessorUnstable(key)
-    // A getter read through a Vue proxy returns a draft wrapped in a Vue proxy; it stands for the
-    // draft, as a recipe read gives it.
-    let observed = state.properties!.read(key, receiver)
-    if (isObject(observed)) observed = this.session.wrappedDraft(observed) ?? observed
+    const observed = state.properties!.read(key, receiver)
     this.kinds = undefined
-    this.prototypes = undefined
     observations.set(key, observed)
     if (this.materializationPlan !== undefined) this.materializationPlan.closure.require(state.base)
     return observed
@@ -748,12 +733,3 @@ class DraftObservation extends Detached implements PendingActivation {
     return this.finalization.readTraversalProperty(value, key, this.state)
   }
 }
-
-/** A slot's view of an object whose reference another view holds (FinalizedReference.viewOf). */
-const viewReference = (target: object, of: FinalizedReference): FinalizedReference => ({
-  discoveredBy: undefined,
-  layout: undefined,
-  leaf: undefined,
-  target,
-  viewOf: of,
-})

@@ -2,7 +2,6 @@ import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { arraySearches } from './shared/draft-members'
 import { freeze, independentBindings, yes } from './shared/empty'
-import { ordinaryExposure } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -388,8 +387,6 @@ export const arrayDraft = /* @__PURE__ */ freeze({
   state: (base, context) => new PropertyDraftState(base, context, arrayDraftRules),
 }) satisfies DraftStrategy<PropertyDraftState<typeof ARRAY_KIND>>
 
-export const arrayExposure = ordinaryExposure
-
 export const arrayRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: Array.isArray,
@@ -400,7 +397,6 @@ export const arrayType = /* @__PURE__ */ defineType<
   PropertyDraftState<typeof ARRAY_KIND>
 >({
   draft: arrayDraft,
-  exposure: arrayExposure,
   kind: ARRAY_KIND,
   name: 'array',
   policy: arrayPolicy,

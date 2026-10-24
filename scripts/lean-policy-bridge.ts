@@ -51,7 +51,6 @@ import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
 import { checkDraftSurfaceRuntime } from './check-draft-surface-runtime'
 import { checkDraftClassRuntime } from './check-draft-class-runtime'
 import { checkDraftIterationRuntime } from './check-draft-iteration-runtime'
-import { checkDraftReadRuntime } from './check-draft-read-runtime'
 import { checkDraftMembersRuntime } from './check-draft-members-runtime'
 import { checkDraftSetMethodsRuntime } from './check-draft-set-methods-runtime'
 import { checkKeyOrderRuntime } from './check-key-order-runtime'
@@ -817,7 +816,6 @@ export async function checkPolicyRuntime(oracle: Oracle): Promise<void> {
   await checkDraftSurfaceRuntime(oracle)
   await checkDraftClassRuntime(oracle)
   await checkDraftIterationRuntime(oracle)
-  await checkDraftReadRuntime(oracle)
   await checkDraftMembersRuntime(oracle)
   await checkDraftSetMethodsRuntime(oracle)
   await checkCopyPrototypeRuntime(oracle)

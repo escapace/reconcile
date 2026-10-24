@@ -26,7 +26,6 @@ it('projects the same native callbacks into each public registry', () => {
       }
     }
     expect(produceTypes.drafts[module.kind]).toEqual(module.draft)
-    expect(publicationTypes.exposures[module.kind]).toEqual(module.exposure)
   }
 })
 

@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive, toRaw } from 'vue'
 import { produce } from '../index'
 
 describe('finalization dependency propagation', () => {
@@ -85,17 +84,15 @@ for (const kind of ['date', 'buffer', 'typed array', 'data view'] as const) {
                 ? new Uint8Array(buffer)
                 : new DataView(buffer)
         const raw = { child: wrapSpecial[container](special), n: 0 }
-        const wrapped = reactive(raw)
         const result = produce({}, () =>
-          reverse ? { ...{ right: wrapped }, left: raw } : { left: raw, right: wrapped },
+          reverse ? { ...{ right: raw }, left: raw } : { left: raw, right: raw },
         )
         const left = readSpecial[container](result.left.child)
         const right = readSpecial[container](result.right.child)
         assert.equal(left, right)
         assert.equal(left, special)
-        // A Vue proxy is a view of its raw object, so the result keeps both.
         assert.equal(result.left, raw)
-        assert.equal(result.right, wrapped)
+        assert.equal(result.right, raw)
       },
     )
   }
@@ -112,7 +109,7 @@ it('keeps unchanged outside specials and their buffer aliases when another subtr
     date,
     left: raw,
     repeated: view,
-    right: reactive(raw),
+    right: raw,
     trigger: draft,
     view,
   }))
@@ -124,9 +121,8 @@ it('keeps unchanged outside specials and their buffer aliases when another subtr
   assert.equal(result.view.buffer, result.buffer)
   assert.equal(result.view.byteOffset, 1)
   assert.equal(result.view.byteLength, 2)
-  // A Vue proxy is a view of its raw object, so the result keeps both.
   assert.equal(result.left, raw)
-  assert.equal(toRaw(result.right), raw)
+  assert.equal(result.right, raw)
 })
 
 it('keeps changed draft specials during ownership expansion', () => {
@@ -136,7 +132,7 @@ it('keeps changed draft specials during ownership expansion', () => {
   const result = produce(current, (draft) => {
     draft.date.setTime(3)
     draft.view[1] = 7
-    return { left: raw, right: reactive(raw), root: draft }
+    return { left: raw, right: raw, root: draft }
   })
   assert.equal(result.root.date.getTime(), 3)
   assert.equal(result.root.view[1], 7)
@@ -147,7 +143,7 @@ it('keeps changed draft specials during ownership expansion', () => {
   assert.equal(current.date.getTime(), 0)
   assert.equal(current.view[1], 0)
   assert.equal(result.left, raw)
-  assert.equal(toRaw(result.right), raw)
+  assert.equal(result.right, raw)
 })
 
 it('keeps outside dates in a dormant container without extra container reads', () => {

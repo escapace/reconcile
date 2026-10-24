@@ -1,5 +1,4 @@
 import { freeze } from './shared/empty'
-import { ordinaryExposure } from './shared/empty'
 import { ARRAY_BUFFER_KIND } from './array-buffer'
 import { copyTypedArray } from './shared/binary-native'
 import { defineType } from './registry'
@@ -34,7 +33,6 @@ export const typedArrayImmutable = /* @__PURE__ */ (() => ({
   .../* @__PURE__ */ viewImmutable<typeof TYPED_ARRAY_KIND>(copyTypedArray),
 }))()
 export const typedArrayDraft = viewDraft
-export const typedArrayExposure = ordinaryExposure
 const typedArrayRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => ArrayBuffer.isView(value) && !(value instanceof DataView),
@@ -54,7 +52,6 @@ export interface TypedArrayLayout {
 
 export const typedArrayType = /* @__PURE__ */ defineType<TypedArrayLayout>({
   draft: typedArrayDraft,
-  exposure: typedArrayExposure,
   kind: TYPED_ARRAY_KIND,
   name: 'typed-array',
   policy: typedArrayPolicy,

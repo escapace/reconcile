@@ -7,7 +7,6 @@ import {
   noChildren,
   noDependencies,
   noValue,
-  ordinaryExposure,
   same,
 } from './shared/empty'
 import type {
@@ -210,7 +209,6 @@ const temporalPolicy = /* @__PURE__ */ (() => ({
 }))()
 
 export const temporalDraft = independentDraft
-export const temporalExposure = ordinaryExposure
 const temporalRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => temporalClass(value) !== undefined,
@@ -218,7 +216,6 @@ const temporalRecognition = /* @__PURE__ */ freeze({
 
 export const temporalType = /* @__PURE__ */ defineType<TemporalLayout>({
   draft: temporalDraft,
-  exposure: temporalExposure,
   kind: TEMPORAL_KIND,
   name: 'temporal',
   policy: temporalPolicy,

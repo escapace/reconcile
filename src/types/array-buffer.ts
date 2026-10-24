@@ -1,6 +1,6 @@
 import { freeze, independentBindings, same } from './shared/empty'
 import type { SpecialPolicy } from '../types'
-import { ordinaryExposure, independentDraft } from './shared/empty'
+import { independentDraft } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -95,8 +95,6 @@ export interface ArrayBufferLayout {
 
 export const arrayBufferDraft = /* @__PURE__ */ independentDraft
 
-export const arrayBufferExposure = ordinaryExposure
-
 const arrayBufferRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
   test: (value: object) => value instanceof ArrayBuffer,
@@ -104,7 +102,6 @@ const arrayBufferRecognition = /* @__PURE__ */ freeze({
 
 export const arrayBufferType = /* @__PURE__ */ defineType<ArrayBufferLayout>({
   draft: arrayBufferDraft,
-  exposure: arrayBufferExposure,
   kind: ARRAY_BUFFER_KIND,
   name: 'array-buffer',
   policy: arrayBufferPolicy,

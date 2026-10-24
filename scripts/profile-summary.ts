@@ -32,7 +32,7 @@ type MetricRead = (
   operations: number,
 ) => number | undefined
 
-const IDENTITY_COUNTERS = ['classification.full', 'classification.expected', 'storage.probes']
+const IDENTITY_COUNTERS = ['classification.full', 'classification.expected']
 
 function recordLine(log: string, prefix: string, message: string): unknown {
   const line = log.split('\n').find((line) => line.startsWith(prefix))

@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { markRaw } from 'vue'
 import { isReconcileError, reconcile } from '../index'
 
 /** A proxy over `target` that records `ownKeys` and write traps. */
@@ -177,17 +176,6 @@ describe('a getter of current runs once without writes and twice with them', () 
     reconcile(current, { root: { g: 1, other: 1 }, stubborn: { g: 2, other: 1 } })
     assert.notStrictEqual(current.stubborn, stubborn)
     assert.deepEqual(calls, { reads: 3, writes: 0 })
-  })
-
-  it("runs it as often when next carries Vue's markRaw marker", () => {
-    for (const [other, reads] of [
-      [1, 1],
-      [2, 2],
-    ] as const) {
-      const { calls, root } = counting(child)
-      reconcile({ root }, { root: markRaw({ g: child, other }) })
-      assert.equal(calls.reads, reads)
-    }
   })
 
   it('reads a getter of another object aligned with one node once before the first write', () => {

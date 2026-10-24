@@ -1,45 +1,38 @@
 import assert from 'node:assert/strict'
-import { reactive, shallowReactive } from 'vue'
 import { jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { produce } from '../src/produce'
 
 const searches = ['includes', 'indexOf', 'lastIndexOf'] as const
 
 /** The scenarios of `DraftMembersOracle`: the array draft each searches. */
-const scenarios = ['plain', 'plain, proxy drafted first', 'plain, searched first', 'vue'] as const
+const scenarios = ['plain', 'plain, searched first'] as const
 
-/** The objects `a` and `b` and the state whose array draft `scenario` searches. */
-function scenarioState(scenario: string) {
+/** The objects `a` and `b` and the state whose array draft a scenario searches. */
+function scenarioState() {
   const a = { name: 'a' }
   const b = { name: 'b' }
-  const vue = scenario === 'vue'
-  const list: unknown[] = [scenario === 'plain' || vue ? a : reactive(a), b, a, 7]
-  return { a, b, state: vue ? reactive({ list }) : { list } }
+  const list: unknown[] = [a, b, a, 7]
+  return { a, b, state: { list } }
 }
 
 /** One search of the array draft of `scenario` for the form `query` names. In the searched-first
  * scenario each search runs in a recipe of its own, which reads no element before it except to
  * get a draft form; otherwise the recipe reads the first element first and then the second. */
 function search(scenario: string, query: string, method: (typeof searches)[number]): unknown {
-  const { a, b, state } = scenarioState(scenario)
+  const { a, b, state } = scenarioState()
   const fresh = scenario === 'plain, searched first'
   const readFirst = !fresh || query === 'a draft'
   const readSecond = !fresh || query === 'b draft'
   return produce(state, (draft) => {
     const first = readFirst ? draft.list[0] : a
     const second = readSecond ? draft.list[1] : b
-    // A Vue proxy of an element is what the reactive state hands out; a plain array holds the
-    // element itself, and its proxy is one of its own.
     const forms: Record<string, unknown> = {
       '7': 7,
       '8': 8,
       a,
       'a draft': first,
-      'a proxy': reactive(a),
-      'a shallow proxy': shallowReactive(a),
       b,
       'b draft': second,
-      'b proxy': reactive(b),
       'other': { name: 'a' },
     }
     return (draft.list[method] as (value: unknown) => unknown)(forms[query])
@@ -63,15 +56,15 @@ function checkArray(rows: ReadonlyArray<Record<string, unknown>>, scenario: stri
 
 /** Compares array draft searches with Lean's `DraftMembers`. */
 export async function checkDraftMembersRuntime(oracle: Oracle): Promise<void> {
-  // Ten searched values in each of four scenarios: four forms of one object, three of another,
+  // Seven searched values in each of two scenarios: two forms of one object, two of another,
   // another object and two numbers.
-  const rows = (await oracleCorpus(oracle, 'DraftMembers', 40, 64 * 1024)).map((line) =>
+  const rows = (await oracleCorpus(oracle, 'DraftMembers', 14, 64 * 1024)).map((line) =>
     jsonObject(JSON.parse(line)),
   )
   let checked = 0
   for (const scenario of scenarios) checked += checkArray(rows, scenario)
   console.log(
-    `Draft-members Lean/native bridge: ${checked} searches of plain and Vue reactive array ` +
-      'drafts find an object in any of its forms where Lean does',
+    `Draft-members Lean/native bridge: ${checked} searches of array drafts find an object in ` +
+      'any of its forms where Lean does',
   )
 }

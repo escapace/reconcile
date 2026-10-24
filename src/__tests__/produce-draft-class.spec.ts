@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { reactive } from 'vue'
 import { produce } from '../index'
 
 // A Map or Set draft is an instance of its source's class: its prototype chain is the draft's
@@ -73,13 +72,5 @@ describe('Map and Set drafts are instances of their source class', () => {
     assert.instanceOf(result.value, Defaults)
     assert.equal(result.value.get('missing'), 0)
     assert.isFalse(current.value.has('b'))
-  })
-
-  it('makes a Vue reactive Map draft an instance of Map', () => {
-    const state = reactive({ map: new Map([['a', { n: 1 }]]) })
-    produce(state, (draft) => {
-      assert.instanceOf(draft.map, Map)
-      return draft
-    })
   })
 })

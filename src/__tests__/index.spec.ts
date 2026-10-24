@@ -1,5 +1,4 @@
 import { assert, describe, it } from 'vitest'
-import { isReactive, reactive } from 'vue'
 import { reconcile, ReconcileError, snapshot as takeSnapshot } from '../index'
 
 const returnOne = () => 1
@@ -386,29 +385,10 @@ const createPlainObjectExpectationCase = (
 
 const createPlainLive = <T extends object>(value: T): T => value
 
-const createVueLive = <T extends object>(value: T): T => {
-  const live: unknown = reactive(value)
-  return live as T
-}
-
 const objectSurfaceCases: ObjectSurfaceCase[] = [
   {
     createLive: createPlainLive,
     name: 'plain objects',
-  },
-  {
-    createLive: createVueLive,
-    name: 'vue reactive objects',
-    verifyLiveValue: (value) => {
-      assert.equal(isReactive(value), true)
-      assert.equal(isReactive(value.nested), true)
-      assert.equal(isReactive(value.list), true)
-    },
-    verifySnapshotValue: (value) => {
-      assert.equal(isReactive(value), false)
-      assert.equal(isReactive(value.nested), false)
-      assert.equal(isReactive(value.list), false)
-    },
   },
 ]
 

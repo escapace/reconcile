@@ -17,7 +17,6 @@ structure ReuseFixture where
   after : Array Nat
   children : Array (Array Nat)
   undo : Bool
-  wrappedOf : Option (Array (Option Nat))
   deriving FromJson
 
 structure ReuseObservation where
@@ -91,16 +90,11 @@ private def runCanonical (name : String) (before after : Array Nat) (children : 
       | _ => throw "missing output payload"
     return ((ids.map image).toArray, values, edges)
 
-/-- A wrapper is a view of its raw object (`StorageViews`): the core runs on the graph with each
-wrapper merged into its raw object, one node per storage. A kept node is reported at each position
-as the view that position held, and a new node as the first position that holds it, as the runtime
-labels them. -/
+/-- Runs the core on the fixture's graph. A kept node is reported at its position, and a new node
+as the first position that holds it, as the runtime labels them. -/
 private def runFixture (fixture : ReuseFixture) : Except String ReuseObservation := do
   let size := fixture.before.size
-  let wrappedOf := fixture.wrappedOf.getD #[]
-  if wrappedOf.any (fun value => value.any (· >= size)) then
-    throw s!"{fixture.name}: dangling storage reference"
-  let canon := fun r => ((wrappedOf[r]?).join).getD r
+  let canon := fun (r : Nat) => r
   let ids := List.range size
   let raws := (ids.filter fun i => canon i = i).toArray
   let position := fun r => (raws.findIdx? (· = canon r)).getD 0
