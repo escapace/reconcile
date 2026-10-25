@@ -17,8 +17,10 @@ theorem shows the reference keeps it on every input, not only the generated ones
 - `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
   key always (`objectWrites_set_iff`); a kept object keeps the attributes of every property it had
   and adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
-  demotion forbids only an object whose writes block (`mem_blockedObjects`); a node that keeps
-  nothing holds a fresh copy and its origin is none (`publish_origins`, `publish_fresh`).
+  demotion forbids only an object whose writes block (`mem_blockedObjects`) and never one an
+  earlier pass forbade, so every pass that continues forbids a new current object
+  (`blocked_fresh`); a node that keeps nothing holds a fresh copy and its origin is none
+  (`publish_origins`, `publish_fresh`).
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`kept_closed`, `kept_greatest`).
 - `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,
@@ -367,6 +369,154 @@ theorem mem_blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Opt
         exact ⟨by simpa using hpin, hi', hw⟩
       · simp at hf
     · simp at hf
+
+
+/-- A left fold keeps a property that its start has and that every step keeps. -/
+theorem foldl_inv {α γ : Type} (P : γ → Prop) (f : γ → α → γ) :
+    ∀ (l : List α) (init : γ), P init → (∀ acc a, a ∈ l → P acc → P (f acc a)) →
+      P (l.foldl f init)
+  | [], _, h, _ => h
+  | a :: l, init, h, hs =>
+    foldl_inv P f l (f init a) (hs init a (List.mem_cons_self ..) h)
+      (fun acc b hb => hs acc b (List.mem_cons_of_mem _ hb))
+
+/-- Every pair `establish` reserves passed its checks, so none reserves a forbidden object. -/
+theorem establish_fresh (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (written : List Requirement) (kept : Array (Option Nat)) (decided : Array Bool)
+    (required : Array (Option Nat)) (used : List Nat) :
+    ∀ fuel chain c x r,
+      establish input candidatesOf forbidden written kept decided required used fuel chain c x =
+        some r →
+      (∀ p ∈ chain, forbidden.contains p.2 = false) → ∀ p ∈ r, forbidden.contains p.2 = false := by
+  intro fuel
+  induction fuel with
+  | zero => intro chain c x r h; simp [establish] at h
+  | succ fuel ih =>
+    intro chain c x r h hchain
+    simp only [establish] at h
+    split at h
+    · cases h; exact hchain
+    split at h
+    · simp at h
+    split at h
+    · split at h
+      · cases h; exact hchain
+      · simp at h
+    split at h
+    · split at h
+      · cases h; exact hchain
+      · simp at h
+    split at h
+    · simp at h
+    rename_i hcond
+    split at h
+    · simp at h
+    have hx : forbidden.contains x = false := by
+      simp only [Bool.or_eq_true, not_or] at hcond
+      exact Bool.eq_false_iff.mpr hcond.1.1
+    revert r
+    refine foldl_inv
+      (fun (o : Option (List Requirement)) => ∀ r, o = some r →
+        ∀ p ∈ r, forbidden.contains p.2 = false) _ _ _ ?_ ?_
+    · intro r hr p hp
+      cases hr
+      simp only [List.mem_cons] at hp
+      rcases hp with rfl | hp
+      · exact hx
+      · exact hchain p hp
+    · intro acc ⟨cv, nv⟩ _ hacc r hr
+      cases acc with
+      | none => simp at hr
+      | some ch =>
+        simp only [Option.bind_some] at hr
+        cases cv <;> cases nv <;> simp only at hr
+        · split at hr
+          · obtain rfl := Option.some.inj hr; exact hacc _ rfl
+          · simp at hr
+        · simp at hr
+        · simp at hr
+        · exact ih _ _ _ r hr (hacc ch rfl)
+
+/-- What a decision state never holds: a forbidden object kept at an unpinned node, or required
+at any node. -/
+abbrev freshDecision (pin : Array Bool) (forbidden : List Nat) (d : Decision) : Prop :=
+  (∀ j x : Nat, pin[j]?.getD false = false → d.kept[j]?.bind id = some x →
+    forbidden.contains x = false) ∧
+  (∀ c x : Nat, d.required[c]?.bind id = some x → forbidden.contains x = false)
+
+theorem setIfInBounds_bind {xs : Array (Option Nat)} {i j x y : Nat}
+    (h : (xs.setIfInBounds i (some x))[j]?.bind id = some y) :
+    (i = j ∧ y = x) ∨ xs[j]?.bind id = some y := by
+  rw [Array.getElem?_setIfInBounds] at h
+  split at h
+  · split at h
+    · simp only [Option.bind_some, id, Option.some.injEq] at h
+      exact Or.inl ⟨by assumption, h.symm⟩
+    · simp at h
+  · exact Or.inr h
+
+/-- A decision never keeps a forbidden object at a node that is not pinned. -/
+theorem decide_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
+    (written : List Requirement) (j x : Nat) (hpin : pin[j]?.getD false = false)
+    (h : (decide input al pin forbidden written)[j]?.bind id = some x) :
+    forbidden.contains x = false := by
+  unfold decide at h
+  revert h
+  apply (show ∀ d : Decision, freshDecision pin forbidden d →
+      d.kept[j]?.bind id = some x → forbidden.contains x = false from
+    fun d hd => hd.1 j x hpin)
+  apply foldl_inv
+  · constructor
+    · intro k y hk hy
+      simp only [Array.getElem?_map, Array.getElem?_range] at hy
+      split at hy
+      · simp only [Option.map_some, Option.bind_some, id] at hy
+        rw [hk] at hy
+        simp at hy
+      · simp at hy
+    · intro c y hy
+      simp only [Array.getElem?_replicate] at hy
+      split at hy <;> simp at hy
+  · intro d k _ hd
+    dsimp only
+    split
+    · exact hd
+    split
+    · rename_i x0 hreq
+      refine ⟨fun k' y hk' hy => ?_, hd.2⟩
+      rcases setIfInBounds_bind hy with ⟨rfl, rfl⟩ | hy
+      · exact hd.2 _ _ hreq
+      · exact hd.1 k' y hk' hy
+    split
+    · exact ⟨hd.1, hd.2⟩
+    rename_i pairs hfind
+    obtain ⟨x0, _, hest⟩ := List.exists_of_findSome?_eq_some hfind
+    have hpairs := establish_fresh _ _ _ _ _ _ _ _ _ _ _ _ _ hest (by simp)
+    refine foldl_inv (freshDecision pin forbidden) _ pairs _ ⟨hd.1, hd.2⟩ ?_
+    intro d' p hp hd'
+    obtain ⟨c, y⟩ := p
+    have hy : forbidden.contains y = false := hpairs (c, y) hp
+    dsimp only
+    split
+    · refine ⟨fun k' z hk' hz => ?_, hd'.2⟩
+      rcases setIfInBounds_bind hz with ⟨rfl, rfl⟩ | hz
+      · exact hy
+      · exact hd'.1 k' z hk' hz
+    · refine ⟨hd'.1, fun c' z hz => ?_⟩
+      rcases setIfInBounds_bind hz with ⟨rfl, rfl⟩ | hz
+      · exact hy
+      · exact hd'.2 c' z hz
+
+/-- A pass never finds blocked an object an earlier pass forbade: every blocked object is kept at
+an unpinned node (`mem_blockedObjects`), and the decision keeps no forbidden object there. So each
+pass that does not end the run forbids a current object no earlier pass forbade, and the passes
+end within one more than the number of current objects, whatever the budget. -/
+theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
+    (written : List Requirement) (i : Nat)
+    (h : i ∈ blockedObjects input pin (decide input al pin forbidden written)) :
+    forbidden.contains i = false := by
+  obtain ⟨j, _, hpin, hkept, _⟩ := mem_blockedObjects input pin _ i h
+  exact decide_fresh input al pin forbidden written j i hpin hkept
 
 /-! ## Fresh copies -/
 
