@@ -853,7 +853,8 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
   writesMode = true
   const written = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
   assert.deepEqual(written.reports, [], `Spec writes: ${written.reports.length} differences`)
-  // Hazards: more dropping setters and reorders below the root, so demotion passes are common.
+  // Hazards: more accessors and dropping setters below the root, also through the recording
+  // proxies, so demotion passes are common.
   const hazardous = await checkSpec(reconcileCheck, oracle, seeds(3000), {
     ...GATE_OPTIONS,
     hazards: true,

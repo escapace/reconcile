@@ -142,10 +142,10 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   behavior; [Checks and failures](lean.md#checks-and-failures) says how to resolve a mismatch.
 - **Finite algorithm or new feature.** Work proof first, following [Adding or changing a
   model](lean.md#adding-or-changing-a-model); the reference models (`Spec.Reconcile`,
-  `scripts/lean-spec-bridge.ts`) are the worked example. Then implement, and run the public API
-  fuzz files (`src/__tests__/public-api-fuzz*.spec.ts`) and the invariants file
-  (`src/__tests__/public-api-invariants.spec.ts`, the documented contracts on graphs of up to 120
-  objects) early, because they catch unsound shortcuts.
+  `scripts/lean-spec-bridge.ts`) are the worked example. Then implement. Run the public API fuzz
+  files (`src/__tests__/public-api-fuzz*.spec.ts`) and the invariants file
+  (`src/__tests__/public-api-invariants.spec.ts`), which checks the documented contracts on graphs
+  of up to 120 objects, early, because they catch unsound shortcuts.
 - **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
   regenerates the README's API section. A new export also goes into `OPERATIONS` or `OTHERS` and the
   smoke `checks` in `scripts/bundle-size.ts`. Errors follow `src/error.ts`: one factory per

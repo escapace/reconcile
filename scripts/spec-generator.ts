@@ -45,8 +45,9 @@ export interface Options {
   accessors?: boolean
   /** Non-default attributes and extensibility levels. */
   attributes?: boolean
-  /** More accessors, dropping setters and reorders below the root, so that decision passes
-   * demote objects more often; the root takes no accessor, so a hazard rarely rejects the call. */
+  /** More accessors and dropping setters below the root, and fewer reorders, so that decision
+   * passes demote objects more often; the root takes no accessor, so a hazard rarely rejects the
+   * call. */
   hazards?: boolean
   /** Data and accessor slots on the class prototypes, and more objects labelled with one. */
   inherited?: boolean

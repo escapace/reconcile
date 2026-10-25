@@ -26,8 +26,9 @@ theorem shows the reference keeps it on every input, not only the generated ones
 - `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,
   `snapshot_fresh`).
 
-The counterexamples at the end of each section show, on one input each, a wrong definition the
-theorem rules out.
+Four counterexamples each show, on one input, a wrong definition that a theorem rules out:
+retaining only the common prefix, reading back after a write-free pass, writing every key and
+re-adding a moved key as plain data.
 -/
 
 namespace Reconcile.Spec.Reconcile

@@ -118,7 +118,8 @@ function runBridge(seeds: number, flags: readonly string[]): Verdict {
       '--strict',
       ...flags,
     ],
-    { encoding: 'utf8', timeout: 120_000 },
+    // A bridge run takes a few seconds; a mutant that loops is cut off well inside the round.
+    { encoding: 'utf8', timeout: 30_000 },
   )
   return verdictOf(result)
 }
@@ -158,7 +159,7 @@ function audit(mutant: Mutant, seeds: number): Verdict {
 }
 
 const { values } = parseArgs({
-  options: { only: { type: 'string' }, seeds: { default: '600', type: 'string' } },
+  options: { only: { type: 'string' }, seeds: { default: '1500', type: 'string' } },
 })
 const selected = MUTANTS.filter((m) => values.only === undefined || m.name === values.only)
 assert.ok(selected.length > 0, 'no mutant selected')
