@@ -239,6 +239,13 @@ sides together.
 - **Library tests.** `vitest-library.config.ts` redirects only imports of the entry modules it
   names to `lib/neutral/index.js`; a test that imports another source module tests the sources
   under `pnpm test:lib`.
+- **Poisoned project.** `vitest.config.poisoned.ts` runs the suite again with a proxy of
+  `Object.prototype` as the prototype of `Array.prototype`, which forwards everything and fails a
+  test in which library code reads an array key that neither the array nor `Array.prototype`
+  holds, a hole or an index past the end among them, or assigns a named key to an array.
+  `Object.prototype` takes no proxy: an accessor there is visible to `in`, and `reconcile` then
+  replaces objects as the README says, so `standard-prototypes.spec.ts` covers it in a child
+  process on its own cases.
 
 ## Checks and time budget
 

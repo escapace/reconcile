@@ -1,9 +1,10 @@
 import { defineConfig, mergeConfig } from 'vitest/config'
+import type { ViteUserConfig } from 'vitest/config'
 import { version } from './package.json' with { type: 'json' }
 import { builds } from './scripts/constants.json' with { type: 'json' }
 import configShared from './vitest.config.ts'
 
-export default mergeConfig(
+const config = mergeConfig(
   configShared,
   defineConfig({
     define: {
@@ -21,4 +22,9 @@ export default mergeConfig(
       },
     },
   }),
-)
+) as ViteUserConfig
+
+// Drop the shared workspace after merging: as a project, this file otherwise lists the projects
+// again, and the poisoned project builds on it.
+const { projects: _projects, ...test } = config.test ?? {}
+export default defineConfig({ ...config, test })

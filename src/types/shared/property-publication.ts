@@ -74,23 +74,36 @@ export class PropertyOrder extends Detached {
 
   /** Advances the order cursors and reports whether this current key can stay in place. */
   keep(key: PropertyKey): boolean {
+    const kept =
+      arrayIndex(key) !== undefined
+        ? this.properties.has(key)
+        : typeof key === 'symbol'
+          ? this.keepSymbol(key)
+          : this.keepName(key)
+    if (kept) this.retained += 1
+    return kept
+  }
+
+  // Whether the next desired string key is `key`, past any array indices, advancing to it.
+  private keepName(key: number | string): boolean {
     const desired = this.keys
-    if (arrayIndex(key) !== undefined) {
-      if (!this.properties.has(key)) return false
-    } else if (typeof key === 'symbol') {
-      if (desired[this.symbol] !== key) return false
-      this.symbol += 1
-    } else {
-      if (this.stale) {
-        while (this.cursor < desired.length && arrayIndex(desired[this.cursor]) !== undefined)
-          this.cursor += 1
-        this.stale = false
-      }
-      if (desired[this.cursor] !== key) return false
-      this.cursor += 1
-      this.stale = true
+    if (this.stale) {
+      while (this.cursor < desired.length && arrayIndex(desired[this.cursor]) !== undefined)
+        this.cursor += 1
+      this.stale = false
     }
-    this.retained += 1
+    if (this.cursor >= desired.length || desired[this.cursor] !== key) return false
+    this.cursor += 1
+    this.stale = true
+    return true
+  }
+
+  // Whether the next desired symbol key is `key`, advancing past it.
+  private keepSymbol(key: symbol): boolean {
+    const desired = this.keys
+    if (this.symbol < 0 || this.symbol >= desired.length || desired[this.symbol] !== key)
+      return false
+    this.symbol += 1
     return true
   }
 }

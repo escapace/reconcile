@@ -262,7 +262,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
       for (let index = 0; index < array.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(current, index)
         if (descriptor === undefined) continue
-        if (node.keys[position] !== String(index)) return false
+        if (position >= node.keys.length || node.keys[position] !== String(index)) return false
         // An own getter observed in this call stays as on objects (DraftSurface.keeps).
         if (
           isDataDescriptor(descriptor)

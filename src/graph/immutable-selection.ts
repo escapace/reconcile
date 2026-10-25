@@ -24,7 +24,7 @@ export function immutableHead({
       if (records[node].payload === undefined) return undefined
       continue
     }
-    const storage = storages[node] as object | undefined
+    const storage = node < storages.length ? (storages[node] as object | undefined) : undefined
     if (storage === undefined || smallHas(owners, storage)) return undefined
     smallAdd(owners, storage)
     if (!childrenKept(records[node].edges, keep)) return undefined
@@ -77,7 +77,7 @@ export function* immutableSelections({
     const fixed = records[node].payload === undefined
     if (fixed && !eligible) return
     if (eligible) {
-      const storage = storages[node]
+      const storage = node < storages.length ? storages[node] : undefined
       if (storage === undefined) throw finalizationStorageMissing(node)
       owners.add(storage)
     }
