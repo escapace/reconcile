@@ -158,7 +158,17 @@ original's place, possibly inside a new object. `Spec.Produce.snapshot` copies e
 - The decision passes are bounded by the number of node pairs, so no plan is searched
   (`passes_le`).
 - A retained key is written exactly when its value differs, and a moved or added key is always
-  written (`objectWrites_set_iff`).
+  written (`objectWrites_set_iff`, `objectWrites_delete_iff`). Array elements and lengths, `Map`
+  and `Set` entries, a date's time and a buffer's bytes follow the same rule, and a view takes no
+  write (`arraySlotWrites_set_iff`, `arraySlotWrites_delete_iff`, `arraySlotWrites_length_iff`,
+  `entryWrites_set_iff`, `entryWrites_delete_iff`, `entryWrites_fresh_iff`, `writesOf_date`,
+  `writesOf_buffer`, `writesOf_view`). No write reaches a slot that already holds `next`'s value
+  (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`). A kept node
+  takes no write exactly when its object already holds `next`'s contents under the decision's
+  identities, given distinct keys and identities that keep each object at one node
+  (`writesOf_nil_iff`). The theorems name array slots and `Map` and `Set` keys structurally
+  (`ArraySlot`, `EntryKey`), because a `Map` or `Set` write reports its key as text, which two
+  distinct keys can share.
 - A kept object keeps the attributes of every property it had and adds each other property
   writable and configurable, with `next`'s enumerability (`keptObject_attrs`).
 - A pass demotes only a blocked object: one with a write that reaches a fixed slot or a setter
@@ -192,7 +202,7 @@ runtime directly. A row whose _Theorems_ cell reads _tested only_ has no proof.
 | Keys and entries keep their place; the retained prefix is the longest                                            | `retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`                     | `Spec` (results; not moves inside a `Map` or `Set`), `PropertyOrder` | `reconcile-property-order.spec.ts`                                                                         |
 | An own getter of a kept object runs once without writes, twice with them and at most once more per demotion pass | `get_bound`, `read_once_before_write` (upper bounds)                                      | `Spec` (getter counts), `WriteFreeReadback`                          | `write-free-readback.spec.ts`                                                                              |
 | The decision passes are bounded, so no plan is searched                                                          | `passes_le`, `blocked_fresh`                                                              | `Spec --writes --hazards` (getter counts and writes of every pass)   | `public-api-invariants.spec.ts` (hostile setters)                                                          |
-| A changed property is written, an unchanged one left alone, a moved or added one written                         | `objectWrites_set_iff`                                                                    | `Spec --writes` (writes)                                             | `write-free-readback.spec.ts`, `reconcile-accessors.spec.ts`, `public-api-invariants.spec.ts` (write-free) |
+| A changed slot is written, an unchanged one left alone, a moved or added one written                             | `objectWrites_set_iff`, `writesOf_nil_iff`, `Types.NativeWrites.publish_nil_iff`          | `Spec --writes` (writes to objects and arrays)                       | `write-free-readback.spec.ts`, `reconcile-accessors.spec.ts`, `public-api-invariants.spec.ts` (write-free) |
 | A kept property keeps its attributes; an added one is writable and configurable with `next`'s enumerability      | `keptObject_attrs`                                                                        | `Spec` (descriptors), `PropertyWrite`                                | `public-api-invariants.spec.ts`, `property-enumerability.spec.ts`                                          |
 | An object that blocks a change is replaced; a pass demotes no other object                                       | `mem_blockedObjects`                                                                      | `Spec --writes --hazards` (results)                                  | `publication-readback-boundaries.spec.ts`, `publication-failure-boundaries.spec.ts`                        |
 | A node with several candidates keeps the first one read unless an admitted candidate's fixed slot needs another  | `demands_satisfiable`, `demands_pinned`; the order is the definition `orderedCandidates`  | `Spec` (identities)                                                  | `demanded-candidates.spec.ts`                                                                              |
@@ -347,6 +357,7 @@ is an object, array, `Map` or `Set`, which needs no other new object first, so b
 | `Types.Atoms`            | `classify_atomic`, `classify_reads`, `ingress_atom_iff`, `ingress_structural`             | `isAtomObject` in `src/object-property.ts`, `recognize` in `src/adapters/recognition.ts`                                                            | Atoms                                       | Recognition, Atoms          |
 | `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`                                                         | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; `prototypes` in `src/publication/capture.ts`, `createDraft`, the snapshot walk | Ingress                                     | Recognition, Atoms, Ingress |
 | `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`                      | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                   | NativeValue                                 | Native values               |
+| `Types.NativeWrites`     | `publish_nil_iff`, `publish_url`, `publish_parameters`, `publish_temporal`, `result_eq`   | `publish` in `src/types/url.ts`, `src/types/url-search-parameters.ts` and `src/types/temporal.ts`; `replaceNativeParameters`                        | proof-only                                  | Native writes               |
 | `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                         | ownership tables in `src/snapshot.ts` and finalization                                                                                              | imported by OwnedNativeChild                | Lazy ownership metadata     |
 | `Types.OwnedPublication` | `bulk_equivalent`, `bulk_identity`, `sealed_owner_sound`                                  | `src/types/shared/url-carrier.ts`                                                                                                                   | OwnedNativeChild; native differential check | URL ownership               |
 | `Types.OwnedNativeChild` | `adopt_consistent`, `admitted_iff`, `first_prepared_ranked`, `replay_owned_valid`         | `src/types/url.ts`, `src/types/url-search-parameters.ts`, `src/types/shared/url-carrier.ts`                                                         | OwnedNativeChild                            | URL ownership               |
@@ -381,6 +392,10 @@ immutable Temporal compatibility requires equal class, constructor label and exa
 clearing then appending parameter pairs keeps their order and duplicates. Each native object is one
 heap node with one atomic payload slot and no child references. These are facet and encoding claims,
 not a new instance of the public graph theorems; the URL scalar model has no `searchParams` edge.
+`Types.NativeWrites` extends write minimality to these kinds, which the `Spec` model lacks: a kept
+URL writes its `href`, and a kept `URLSearchParams` its entries, exactly when the text it compares
+differs from `next`'s (`publish_nil_iff`), and a Temporal value is never written: it is kept when
+equal and replaced otherwise (`publish_temporal`).
 `Types.LazyOwnership` proves that an absent table denotes an empty one under arbitrary writes, and
 `Types.OwnedPublication` that bulk replacement equals clear-and-append with identities preserved.
 
@@ -684,6 +699,14 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Native values.** Native brands, constructors, capture, cloning, publication and readback are
   faithful, and Temporal labels keep all ten Duration components and each class's calendar, time
   zone and reference-date distinctions. Lean proves neither native parsing nor `.equals`. `temporal.spec.ts` and `url-values.spec.ts` cover the values.
+- **Native writes.** `Types.NativeWrites` takes a URL as its `href`, a `URLSearchParams` as its
+  serialization and a Temporal value as its class and the fields its comparison reads. `publish` in
+  `src/types/url.ts` and `replaceNativeParameters` in `src/types/shared/url-carrier.ts` write only
+  after their comparison finds the text different, and a write must leave the value reading
+  `next`'s text, which holds for a text read from a native value. `temporalPublication` in
+  `src/types/temporal.ts` admits a current Temporal value only when `matches` finds it equal, and
+  its `publish` writes nothing. `write-free-readback.spec.ts`, `url-values.spec.ts` and
+  `temporal.spec.ts` cover these.
 - **Lazy ownership metadata.** Runtime maps stay scoped to their session, phase or attempt;
   construction callbacks still run, and overwriting a shared target clears obsolete metadata.
 - **URL ownership.** Ownership is fixed, allocation is fresh, carrier maps are per call, ordered

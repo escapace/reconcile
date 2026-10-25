@@ -69,6 +69,7 @@ roots = [
   "Graph.CollectionPlan",
   "Graph.Construction",
   "Types.NativeValue",
+  "Types.NativeWrites",
   "Types.LazyOwnership",
   "Types.OwnedPublication",
   "Types.OwnedNativeChild",

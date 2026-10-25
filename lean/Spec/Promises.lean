@@ -15,8 +15,15 @@ theorem shows the reference keeps it on every input, not only the generated ones
   and at most once when no pass writes (`get_bound`, `read_once_before_write`); the number of
   decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
 - `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
-  key always (`objectWrites_set_iff`); a kept object keeps the attributes of every property it had
-  and adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
+  key always (`objectWrites_set_iff`, `objectWrites_delete_iff`); an array index, a map or set
+  entry, a date's time and a buffer's bytes likewise, and a view takes none
+  (`arraySlotWrites_set_iff`, `arraySlotWrites_delete_iff`, `arraySlotWrites_length_iff`,
+  `entryWrites_set_iff`, `entryWrites_delete_iff`, `entryWrites_fresh_iff`, `writesOf_date`,
+  `writesOf_buffer`, `writesOf_view`); no write reaches a slot that already holds `next`'s value
+  (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`), and a kept
+  node takes no write exactly when its object already holds `next`'s contents
+  (`writesOf_nil_iff`); a kept object keeps the attributes of every property it had and adds the
+  rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
   demotion forbids only an object whose writes block (`mem_blockedObjects`) and never one an
   earlier pass forbade, so every pass that continues forbids a new current object
   (`blocked_fresh`); no demand asks a candidate's own node for another object, so a candidate
@@ -29,7 +36,8 @@ theorem shows the reference keeps it on every input, not only the generated ones
 
 Four counterexamples each show, on one input, a wrong definition that a theorem rules out:
 retaining only the common prefix, reading back after a write-free pass, writing every key and
-re-adding a moved key as plain data.
+re-adding a moved key as plain data. Two examples show that `writesOf_nil_iff` needs distinct keys
+and identities that keep each object at one node.
 -/
 
 namespace Reconcile.Spec.Reconcile
@@ -120,6 +128,53 @@ theorem retainPrefix_longest (cur next : List K) (p : List K) (hp : p.IsPrefix n
     exact (isSubseq_iff _ _).mpr hs)
   simp only [retainPrefix, List.length_take]
   exact Nat.le_min.mpr ⟨this, hk⟩
+
+/-- An order retains all of itself. -/
+theorem retainPrefix_self (l : List K) : retainPrefix l l = l := by
+  have h1 := retainLength_le l l l.length
+  have h2 := retainLength_maximal l l l.length l.length (Nat.le_refl _) (by
+    rw [List.take_length]
+    exact (isSubseq_iff _ _).mpr (List.Sublist.refl _))
+  simp only [retainPrefix]
+  rw [show retainLength l l l.length = l.length by omega, List.take_length]
+
+omit [DecidableEq K] in
+/-- A sublist of a duplicate-free list that holds each of its elements is the list. -/
+theorem sublist_eq_of_subset {l m : List K} (h : l.Sublist m) (hm : m.Nodup)
+    (hs : ∀ x ∈ m, x ∈ l) : l = m := by
+  induction h with
+  | slnil => rfl
+  | cons a h ih =>
+    have hn := List.nodup_cons.mp hm
+    exact absurd (h.subset (hs a List.mem_cons_self)) hn.1
+  | cons₂ a h ih =>
+    have hn := List.nodup_cons.mp hm
+    rw [ih hn.2 (fun x hx => ?_)]
+    rcases List.mem_cons.mp (hs x (List.mem_cons_of_mem _ hx)) with rfl | h'
+    · exact absurd hx hn.1
+    · exact h'
+
+omit [DecidableEq K] in
+/-- A prefix of a duplicate-free list that holds each of its elements is the list. -/
+theorem prefix_eq_of_subset {l m : List K} (h : l.IsPrefix m) (hm : m.Nodup)
+    (hs : ∀ x ∈ m, x ∈ l) : l = m := by
+  obtain ⟨t, rfl⟩ := h
+  cases t with
+  | nil => simp
+  | cons x t =>
+    have hx := hs x (by simp)
+    have := List.nodup_append.mp hm
+    exact absurd rfl (this.2.2 x hx x (by simp))
+
+/-- When neither order repeats a key and the retained prefix holds every key of both, the orders
+are equal. -/
+theorem retainPrefix_all {cur next : List K} (hc : cur.Nodup) (hn : next.Nodup)
+    (h1 : ∀ k ∈ cur, k ∈ retainPrefix cur next) (h2 : ∀ k ∈ next, k ∈ retainPrefix cur next) :
+    cur = next := by
+  have hp := prefix_eq_of_subset (retainPrefix_prefix cur next) hn h2
+  have hs := retainPrefix_sublist cur next
+  rw [hp] at hs h1
+  exact (sublist_eq_of_subset hs hc h1).symm
 
 /-- A rule that retains only the common prefix of the two orders. -/
 def commonPrefix (cur next : List K) : List K :=
@@ -312,6 +367,669 @@ theorem objectWrites_set_iff (identity : Nat → Option Nat)
       · rfl
     · rename_i hcs
       simp only [hcs]
+
+theorem exists_lookup_of_mem {k : String} {fields : List (String × Slot)}
+    (h : k ∈ fields.map Prod.fst) : ∃ cs, fields.lookup k = some cs := by
+  cases hl : fields.lookup k with
+  | some cs => exact ⟨cs, rfl⟩
+  | none =>
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp h
+    have := List.lookup_eq_none_iff.mp hl p hp
+    simp at this
+
+/-- A key of a kept object is deleted exactly when the object has it and it is not both a key of
+`next` and retained: a moved key is deleted and set again. -/
+theorem objectWrites_delete_iff (identity : Nat → Option Nat)
+    (cFields nFields : List (String × Slot)) (k : String) :
+    (k, "delete") ∈ (objectWrites identity cFields nFields).1 ↔
+      k ∈ cFields.map Prod.fst ∧
+        ¬(k ∈ nFields.map Prod.fst ∧
+          k ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst)) := by
+  simp only [objectWrites, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro (⟨⟨k', cs⟩, hmem, h⟩ | ⟨⟨k', ns⟩, _, h⟩)
+    · split at h
+      · simp at h
+      · rename_i hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, -⟩ := h
+        refine ⟨List.mem_map.mpr ⟨_, hmem, rfl⟩, ?_⟩
+        simpa using hc
+    · split at h
+      · split at h
+        · split at h
+          · simp only [Option.some.injEq, Prod.mk.injEq] at h
+            exact absurd h.2 (by decide)
+          · simp at h
+        · simp only [Option.some.injEq, Prod.mk.injEq] at h
+          exact absurd h.2 (by decide)
+      · simp only [Option.some.injEq, Prod.mk.injEq] at h
+        exact absurd h.2 (by decide)
+  · rintro ⟨hk, hn⟩
+    obtain ⟨⟨k', cs⟩, hmem, rfl⟩ := List.mem_map.mp hk
+    refine Or.inl ⟨(k', cs), hmem, ?_⟩
+    rw [if_neg (by simpa using hn)]
+
+/-- No write reaches a key that already holds `next`'s value: a retained key whose value does not
+differ under the identities is neither set nor deleted. -/
+theorem objectWrites_unchanged (identity : Nat → Option Nat)
+    (cFields nFields : List (String × Slot)) (k : String)
+    (hr : k ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst))
+    (hv : ∀ ns, (k, ns) ∈ nFields → ∀ cs, cFields.lookup k = some cs →
+      differs identity cs.value ns.value = false) :
+    (k, "set") ∉ (objectWrites identity cFields nFields).1 ∧
+      (k, "delete") ∉ (objectWrites identity cFields nFields).1 := by
+  constructor
+  · intro h
+    obtain ⟨ns, hmem, hw⟩ := (objectWrites_set_iff identity cFields nFields k).mp h
+    obtain ⟨cs, hcs⟩ := exists_lookup_of_mem ((retainPrefix_sublist _ _).subset hr)
+    simp [written, hcs, hv ns hmem cs hcs] at hw
+    exact hw hr
+  · intro h
+    have := (objectWrites_delete_iff identity cFields nFields k).mp h
+    exact this.2 ⟨(retainPrefix_prefix _ _).subset hr, hr⟩
+
+/-- A kept object, neither of whose key lists repeats a key, takes no write exactly when it
+already lists `next`'s keys in order, each with a value that does not differ. -/
+theorem objectWrites_nil_iff (identity : Nat → Option Nat)
+    (cFields nFields : List (String × Slot)) (hc : (cFields.map Prod.fst).Nodup)
+    (hn : (nFields.map Prod.fst).Nodup) :
+    (objectWrites identity cFields nFields).1 = [] ↔
+      cFields.map Prod.fst = nFields.map Prod.fst ∧
+        ∀ p ∈ nFields, ∀ cs, cFields.lookup p.1 = some cs →
+          differs identity cs.value p.2.value = false := by
+  simp only [objectWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
+  constructor
+  · rintro ⟨hd, hs⟩
+    have hsk : ∀ p ∈ nFields, ∃ cs, cFields.lookup p.1 = some cs ∧
+        p.1 ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) ∧
+        differs identity cs.value p.2.value = false := by
+      intro ⟨k, ns⟩ hp
+      have := hs (k, ns) hp
+      simp only at this
+      split at this
+      · rename_i cs hcs
+        split at this
+        · rename_i hr
+          split at this
+          · simp at this
+          · rename_i hd'
+            exact ⟨cs, hcs, by simpa using hr, by simpa using hd'⟩
+        · simp at this
+      · simp at this
+    have hkeys : cFields.map Prod.fst = nFields.map Prod.fst := by
+      apply retainPrefix_all hc hn
+      · intro k hk
+        obtain ⟨⟨k', cs⟩, hp, rfl⟩ := List.mem_map.mp hk
+        have := hd (k', cs) hp
+        simp only at this
+        split at this
+        · rename_i h
+          simp only [Bool.and_eq_true, List.contains_iff_mem] at h
+          exact h.2
+        · simp at this
+      · intro k hk
+        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hk
+        obtain ⟨_, _, hr, _⟩ := hsk p hp
+        exact hr
+    refine ⟨hkeys, fun p hp cs hcs => ?_⟩
+    obtain ⟨cs', hcs', _, hd'⟩ := hsk p hp
+    rw [hcs] at hcs'
+    cases hcs'
+    exact hd'
+  · rintro ⟨hkeys, hv⟩
+    have hr : retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) =
+        nFields.map Prod.fst := by
+      rw [hkeys, retainPrefix_self]
+    constructor
+    · intro ⟨k, cs⟩ hp
+      have hk : k ∈ nFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
+      simp only [hr, List.contains_iff_mem, hk, Bool.and_self, if_true]
+    · intro ⟨k, ns⟩ hp
+      have hk : k ∈ cFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
+      obtain ⟨cs, hcs⟩ := exists_lookup_of_mem hk
+      have hk' : k ∈ nFields.map Prod.fst := List.mem_map.mpr ⟨_, hp, rfl⟩
+      simp only [hcs, hr, List.contains_iff_mem, hk', if_true]
+      rw [if_neg (by simpa using hv (k, ns) hp cs hcs)]
+
+/-- Whether a slot holding `c` already holds `next`'s `n` under the identities: both are empty,
+or both hold values that do not differ. -/
+def slotHolds (identity : Nat → Option Nat) : Option Val → Option Val → Bool
+  | none, none => true
+  | some cv, some nv => !differs identity cv nv
+  | _, _ => false
+
+/-- The writes a kept array's index takes: a set where `next` has an element that the array lacks
+or holds differently under the identities, and a deletion where `next` has a hole below its
+length and the array an element. -/
+theorem mem_arraySlotWrites_index (identity : Nat → Option Nat) (ce ne : List (Option Val))
+    (i : Nat) (w : String) :
+    (ArraySlot.index i, w) ∈ arraySlotWrites identity ce ne ↔
+      (w = "set" ∧ ∃ nv, ne[i]?.bind id = some nv ∧
+        (ce[i]?.bind id = none ∨ ∃ cv, ce[i]?.bind id = some cv ∧ differs identity cv nv = true)) ∨
+      (w = "delete" ∧ i < ne.length ∧ ne[i]?.bind id = none ∧ (ce[i]?.bind id).isSome) := by
+  simp only [arraySlotWrites, List.mem_append, List.mem_filterMap, List.mem_range]
+  constructor
+  · rintro (h | ⟨j, hj, hf⟩)
+    · split at h <;> simp at h
+    · split at hf
+      · rename_i cv nv hc hn
+        split at hf
+        · rename_i hd
+          simp only [Option.some.injEq, Prod.mk.injEq, ArraySlot.index.injEq] at hf
+          obtain ⟨rfl, rfl⟩ := hf
+          exact Or.inl ⟨rfl, nv, hn, Or.inr ⟨cv, hc, hd⟩⟩
+        · simp at hf
+      · rename_i nv hc hn
+        simp only [Option.some.injEq, Prod.mk.injEq, ArraySlot.index.injEq] at hf
+        obtain ⟨rfl, rfl⟩ := hf
+        exact Or.inl ⟨rfl, nv, hn, Or.inl hc⟩
+      · rename_i cv hc hn
+        split at hf
+        · rename_i hl
+          simp only [Option.some.injEq, Prod.mk.injEq, ArraySlot.index.injEq] at hf
+          obtain ⟨rfl, rfl⟩ := hf
+          exact Or.inr ⟨rfl, hl, hn, by simp [hc]⟩
+        · simp at hf
+      · simp at hf
+  · rintro (⟨rfl, nv, hn, hc⟩ | ⟨rfl, hl, hn, hc⟩)
+    · refine Or.inr ⟨i, ?_, ?_⟩
+      · have : i < ne.length := by
+          cases h : ne[i]? with
+          | none => simp [h] at hn
+          | some _ => exact (List.getElem?_eq_some_iff.mp h).1
+        omega
+      · rcases hc with hc | ⟨cv, hc, hd⟩
+        · simp [hc, hn]
+        · simp [hc, hn, hd]
+    · refine Or.inr ⟨i, by omega, ?_⟩
+      obtain ⟨cv, hcv⟩ := Option.isSome_iff_exists.mp hc
+      rw [hcv, hn]
+      simp [hl]
+
+/-- An index of a kept array is set exactly when `next` has an element there and the array lacks
+one or holds a different one under the identities. -/
+theorem arraySlotWrites_set_iff (identity : Nat → Option Nat) (ce ne : List (Option Val))
+    (i : Nat) :
+    (ArraySlot.index i, "set") ∈ arraySlotWrites identity ce ne ↔
+      ∃ nv, ne[i]?.bind id = some nv ∧
+        (ce[i]?.bind id = none ∨ ∃ cv, ce[i]?.bind id = some cv ∧ differs identity cv nv = true) := by
+  rw [mem_arraySlotWrites_index]
+  constructor
+  · rintro (⟨-, h⟩ | ⟨h, -⟩)
+    · exact h
+    · exact absurd h (by decide)
+  · intro h
+    exact Or.inl ⟨rfl, h⟩
+
+/-- An index of a kept array is deleted exactly when `next` has a hole there below its length and
+the array an element. -/
+theorem arraySlotWrites_delete_iff (identity : Nat → Option Nat) (ce ne : List (Option Val))
+    (i : Nat) :
+    (ArraySlot.index i, "delete") ∈ arraySlotWrites identity ce ne ↔
+      i < ne.length ∧ ne[i]?.bind id = none ∧ (ce[i]?.bind id).isSome := by
+  rw [mem_arraySlotWrites_index]
+  constructor
+  · rintro (⟨h, -⟩ | ⟨-, h⟩)
+    · exact absurd h (by decide)
+    · exact h
+  · intro h
+    exact Or.inr ⟨rfl, h⟩
+
+/-- A kept array's length is set exactly when the lengths differ. -/
+theorem arraySlotWrites_length_iff (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
+    (ArraySlot.length, "set") ∈ arraySlotWrites identity ce ne ↔ ce.length ≠ ne.length := by
+  simp only [arraySlotWrites, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro (h | ⟨j, _, hf⟩)
+    · split at h <;> simp_all
+    · exfalso
+      split at hf <;> (try split at hf) <;> simp at hf
+  · intro h
+    left
+    simp [h]
+
+/-- No write reaches an index that already holds `next`'s element, or `next`'s hole. -/
+theorem arraySlotWrites_unchanged (identity : Nat → Option Nat) (ce ne : List (Option Val))
+    (i : Nat) (h : slotHolds identity (ce[i]?.bind id) (ne[i]?.bind id) = true) :
+    (ArraySlot.index i, "set") ∉ arraySlotWrites identity ce ne ∧
+      (ArraySlot.index i, "delete") ∉ arraySlotWrites identity ce ne := by
+  rw [arraySlotWrites_set_iff, arraySlotWrites_delete_iff]
+  constructor
+  · rintro ⟨nv, hn, hc | ⟨cv, hc, hd⟩⟩ <;> simp_all [slotHolds]
+  · rintro ⟨_, hn, hc⟩
+    obtain ⟨cv, hcv⟩ := Option.isSome_iff_exists.mp hc
+    simp [hn, hcv, slotHolds] at h
+
+/-- A kept array takes no write exactly when it already has `next`'s length and, at every index,
+`next`'s element or hole. -/
+theorem arraySlotWrites_nil_iff (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
+    arraySlotWrites identity ce ne = [] ↔
+      ce.length = ne.length ∧
+        ∀ i : Nat, slotHolds identity (ce[i]?.bind id) (ne[i]?.bind id) = true := by
+  simp only [arraySlotWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff, List.mem_range]
+  constructor
+  · rintro ⟨hl, hi⟩
+    have hlen : ce.length = ne.length := by
+      split at hl
+      · assumption
+      · simp at hl
+    refine ⟨hlen, fun i => ?_⟩
+    by_cases hlt : i < ne.length
+    · have := hi i (by omega)
+      revert this
+      cases hc : ce[i]?.bind id <;> cases hn : ne[i]?.bind id <;> simp [slotHolds, hlt]
+    · have h1 : ce[i]? = none := List.getElem?_eq_none (by omega)
+      have h2 : ne[i]? = none := List.getElem?_eq_none (by omega)
+      simp [h1, h2, slotHolds]
+  · rintro ⟨hlen, hs⟩
+    refine ⟨by simp [hlen], fun i hi => ?_⟩
+    have := hs i
+    have hlt : i < ne.length := by omega
+    revert this
+    cases hc : ce[i]?.bind id <;> cases hn : ne[i]?.bind id <;> simp [slotHolds, hlt]
+
+/-- The writes a kept map or set takes: a current key is deleted when it is not both a key of
+`next` and retained; it is set when a key of `next` stands for it and it is not retained or its
+value differs; a key of `next` that is a fresh node is set. -/
+theorem mem_entryWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (key : EntryKey) (w : String) :
+    (key, w) ∈ entryWrites identity cKeys nKeys cValue nValue ↔
+      (∃ ck, key = .current ck ∧ w = "delete" ∧ ck ∈ cKeys ∧
+        ¬(some ck ∈ nKeys.map (resolveKey identity) ∧
+          some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)))) ∨
+      (∃ ck, key = .current ck ∧ w = "set" ∧ ∃ k ∈ nKeys, resolveKey identity k = some ck ∧
+        (some ck ∉ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) ∨
+          ∃ cv nv, cValue ck = some cv ∧ nValue k = some nv ∧ differs identity cv nv = true)) ∨
+      (∃ k, key = .fresh k ∧ w = "set" ∧ k ∈ nKeys ∧ resolveKey identity k = none) := by
+  simp only [entryWrites, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro (⟨ck, hmem, h⟩ | ⟨k, hmem, h⟩)
+    · split at h
+      · simp at h
+      · rename_i hc
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        refine Or.inl ⟨ck, rfl, rfl, hmem, ?_⟩
+        simpa using hc
+    · split at h
+      · rename_i ck hres
+        split at h
+        · rename_i hr
+          split at h
+          · rename_i cv nv hcv hnv
+            split at h
+            · rename_i hd
+              simp only [Option.some.injEq, Prod.mk.injEq] at h
+              obtain ⟨rfl, rfl⟩ := h
+              exact Or.inr (Or.inl ⟨ck, rfl, rfl, k, hmem, hres, Or.inr ⟨cv, nv, hcv, hnv, hd⟩⟩)
+            · simp at h
+          · simp at h
+        · rename_i hr
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          obtain ⟨rfl, rfl⟩ := h
+          exact Or.inr (Or.inl ⟨ck, rfl, rfl, k, hmem, hres, Or.inl (by simpa using hr)⟩)
+      · rename_i hres
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        exact Or.inr (Or.inr ⟨k, rfl, rfl, hmem, hres⟩)
+  · rintro (⟨ck, rfl, rfl, hmem, hn⟩ | ⟨ck, rfl, rfl, k, hmem, hres, hw⟩ |
+      ⟨k, rfl, rfl, hmem, hres⟩)
+    · refine Or.inl ⟨ck, hmem, ?_⟩
+      rw [if_neg (by simpa using hn)]
+    · refine Or.inr ⟨k, hmem, ?_⟩
+      simp only [hres]
+      rcases hw with hr | ⟨cv, nv, hcv, hnv, hd⟩
+      · rw [if_neg (by simpa using hr)]
+      · split
+        · simp [hcv, hnv, hd]
+        · rfl
+    · refine Or.inr ⟨k, hmem, ?_⟩
+      simp only [hres]
+
+/-- A current key of a kept map or set is set exactly when a key of `next` stands for it and it
+is not in the retained prefix or its value differs. -/
+theorem entryWrites_set_iff (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (ck : Val) :
+    (EntryKey.current ck, "set") ∈ entryWrites identity cKeys nKeys cValue nValue ↔
+      ∃ k ∈ nKeys, resolveKey identity k = some ck ∧
+        (some ck ∉ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) ∨
+          ∃ cv nv, cValue ck = some cv ∧ nValue k = some nv ∧ differs identity cv nv = true) := by
+  rw [mem_entryWrites]
+  constructor
+  · rintro (⟨_, _, h, _⟩ | ⟨_, h1, _, h⟩ | ⟨_, h, _⟩)
+    · exact absurd h (by decide)
+    · cases h1
+      exact h
+    · cases h
+  · intro h
+    exact Or.inr (Or.inl ⟨ck, rfl, rfl, h⟩)
+
+/-- A key of a kept map or set is deleted exactly when the collection has it and it is not both a
+key of `next` and retained. -/
+theorem entryWrites_delete_iff (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (ck : Val) :
+    (EntryKey.current ck, "delete") ∈ entryWrites identity cKeys nKeys cValue nValue ↔
+      ck ∈ cKeys ∧ ¬(some ck ∈ nKeys.map (resolveKey identity) ∧
+        some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity))) := by
+  rw [mem_entryWrites]
+  constructor
+  · rintro (⟨_, h1, _, h⟩ | ⟨_, _, h, _⟩ | ⟨_, h, _⟩)
+    · cases h1
+      exact h
+    · exact absurd h (by decide)
+    · cases h
+  · intro h
+    exact Or.inl ⟨ck, rfl, rfl, h⟩
+
+/-- A key of `next` that is a fresh node is always set: its object is no current key. -/
+theorem entryWrites_fresh_iff (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (k : Val) :
+    (EntryKey.fresh k, "set") ∈ entryWrites identity cKeys nKeys cValue nValue ↔
+      k ∈ nKeys ∧ resolveKey identity k = none := by
+  rw [mem_entryWrites]
+  constructor
+  · rintro (⟨_, h, _⟩ | ⟨_, h, _⟩ | ⟨_, h1, _, h⟩)
+    · cases h
+    · cases h
+    · cases h1
+      exact h
+  · intro h
+    exact Or.inr (Or.inr ⟨k, rfl, rfl, h⟩)
+
+/-- No write reaches an entry that already holds `next`'s: a retained key whose value does not
+differ is neither set nor deleted. -/
+theorem entryWrites_unchanged (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (ck : Val)
+    (hr : some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)))
+    (hv : ∀ k ∈ nKeys, resolveKey identity k = some ck → ∀ cv nv, cValue ck = some cv →
+      nValue k = some nv → differs identity cv nv = false) :
+    (EntryKey.current ck, "set") ∉ entryWrites identity cKeys nKeys cValue nValue ∧
+      (EntryKey.current ck, "delete") ∉ entryWrites identity cKeys nKeys cValue nValue := by
+  rw [entryWrites_set_iff, entryWrites_delete_iff]
+  constructor
+  · rintro ⟨k, hk, hres, hw | ⟨cv, nv, hcv, hnv, hd⟩⟩
+    · exact hw hr
+    · rw [hv k hk hres cv nv hcv hnv] at hd
+      exact absurd hd (by decide)
+  · rintro ⟨_, hn⟩
+    exact hn ⟨(retainPrefix_prefix _ _).subset hr, hr⟩
+
+theorem resolveKey_inj {identity : Nat → Option Nat}
+    (hinj : ∀ a b x, identity a = some x → identity b = some x → a = b) {k k' ck : Val}
+    (h : resolveKey identity k = some ck) (h' : resolveKey identity k' = some ck) : k = k' := by
+  cases k with
+  | prim p =>
+    cases k' with
+    | prim q =>
+      simp only [resolveKey, Option.some.injEq] at h h'
+      rw [← h'] at h
+      cases h
+      rfl
+    | ref c =>
+      simp only [resolveKey, Option.some.injEq, Option.map_eq_some_iff] at h h'
+      obtain ⟨x, _, rfl⟩ := h'
+      cases h
+  | ref c =>
+    cases k' with
+    | prim q =>
+      simp only [resolveKey, Option.some.injEq, Option.map_eq_some_iff] at h h'
+      obtain ⟨x, _, rfl⟩ := h
+      cases h'
+    | ref d =>
+      simp only [resolveKey, Option.map_eq_some_iff] at h h'
+      obtain ⟨x, hx, rfl⟩ := h
+      obtain ⟨y, hy, hxy⟩ := h'
+      cases hxy
+      rw [hinj c d x hx hy]
+
+/-- Whether a map or set with keys `cKeys` already holds `next`'s: `next`'s keys, resolved under
+the identities, are the current keys in order, and no value differs. -/
+def collectionHolds (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) : Prop :=
+  nKeys.map (resolveKey identity) = cKeys.map some ∧
+    ∀ k ∈ nKeys, ∀ ck cv nv, resolveKey identity k = some ck → cValue ck = some cv →
+      nValue k = some nv → differs identity cv nv = false
+
+/-- A kept map or set takes no write exactly when it already holds `next`'s entries, given
+distinct keys on both sides and identities that keep each object at one node at most. -/
+theorem entryWrites_nil_iff (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (hc : cKeys.Nodup) (hn : nKeys.Nodup)
+    (hinj : ∀ a b x, identity a = some x → identity b = some x → a = b) :
+    entryWrites identity cKeys nKeys cValue nValue = [] ↔
+      collectionHolds identity cKeys nKeys cValue nValue := by
+  simp only [entryWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
+  constructor
+  · rintro ⟨hd, hs⟩
+    have hsk : ∀ k ∈ nKeys, ∃ ck, resolveKey identity k = some ck ∧
+        some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) ∧
+        ∀ cv nv, cValue ck = some cv → nValue k = some nv → differs identity cv nv = false := by
+      intro k hk
+      have := hs k hk
+      split at this
+      · rename_i ck hres
+        split at this
+        · rename_i hr
+          refine ⟨ck, hres, by simpa using hr, fun cv nv hcv hnv => ?_⟩
+          rw [hcv, hnv] at this
+          simpa using this
+        · simp at this
+      · simp at this
+    have hkeys : cKeys.map some = nKeys.map (resolveKey identity) := by
+      apply retainPrefix_all
+      · exact List.Pairwise.map _ (fun a b h e => h (Option.some.inj e)) hc
+      · rw [List.Nodup, List.pairwise_map]
+        refine List.Pairwise.imp_of_mem (fun ha _ hne heq => ?_) hn
+        obtain ⟨ca, hra, -, -⟩ := hsk _ ha
+        exact hne (resolveKey_inj hinj hra (heq ▸ hra))
+      · intro x hx
+        obtain ⟨ck, hck, rfl⟩ := List.mem_map.mp hx
+        have := hd ck hck
+        split at this
+        · rename_i h
+          simp only [Bool.and_eq_true, List.contains_iff_mem] at h
+          exact h.2
+        · simp at this
+      · intro x hx
+        obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hx
+        obtain ⟨ck, hres, hr, -⟩ := hsk k hk
+        rw [hres]
+        exact hr
+    refine ⟨hkeys.symm, fun k hk ck cv nv hres hcv hnv => ?_⟩
+    obtain ⟨ck', hres', -, hv⟩ := hsk k hk
+    rw [hres] at hres'
+    cases hres'
+    exact hv cv nv hcv hnv
+  · rintro ⟨hkeys, hv⟩
+    have hr : retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) =
+        nKeys.map (resolveKey identity) := by
+      rw [hkeys, retainPrefix_self]
+    constructor
+    · intro ck hck
+      have hm : some ck ∈ nKeys.map (resolveKey identity) :=
+        hkeys ▸ List.mem_map.mpr ⟨ck, hck, rfl⟩
+      simp only [hr, List.contains_iff_mem, hm, Bool.and_self, if_true]
+    · intro k hk
+      have hmem : resolveKey identity k ∈ cKeys.map some :=
+        hkeys ▸ List.mem_map.mpr ⟨k, hk, rfl⟩
+      obtain ⟨ck, _, hres⟩ := List.mem_map.mp hmem
+      have hm : some ck ∈ nKeys.map (resolveKey identity) := List.mem_map.mpr ⟨k, hk, hres.symm⟩
+      simp only [← hres, hr, List.contains_iff_mem, hm, if_true]
+      split
+      · rename_i cv nv hcv hnv
+        rw [if_neg (by simpa using hv k hk ck cv nv hres.symm hcv hnv)]
+      · rfl
+
+/-- A kept date sets its time exactly when the times differ. -/
+theorem writesOf_date (identity : Nat → Option Nat) (cms nms : Int) :
+    ("time", "set") ∈ (writesOf identity (.date cms) (.date nms)).1 ↔ cms ≠ nms := by
+  simp only [writesOf]
+  split <;> simp_all
+
+/-- A kept buffer sets its bytes exactly when the bytes differ. -/
+theorem writesOf_buffer (identity : Nat → Option Nat) (cb nb : List Nat) (cm nm : Option Nat) :
+    ("bytes", "set") ∈ (writesOf identity (.buffer cb cm) (.buffer nb nm)).1 ↔ cb ≠ nb := by
+  simp only [writesOf]
+  split <;> simp_all
+
+/-- A kept view takes no write: the decision keeps it only with `next`'s constructor, offset and
+length, and its buffer is a fixed slot. -/
+theorem writesOf_view (identity : Nat → Option Nat) (cc nc : String) (cb nb : Val)
+    (co cl no nl : Nat) :
+    (writesOf identity (.view cc cb co cl) (.view nc nb no nl)).1 = [] := rfl
+
+/-- Whether current object `c` already holds `next`'s contents `n` under the identities: an object
+`next`'s keys in order, with no value differing; an array `next`'s length and, at every index,
+`next`'s element or hole; a map or set `collectionHolds`; a date `next`'s time; a buffer `next`'s
+bytes; a view `next`'s constructor, offset and length. -/
+def holds (identity : Nat → Option Nat) : Obj → Obj → Prop
+  | .object _ cf _, .object _ nf _ =>
+    cf.map Prod.fst = nf.map Prod.fst ∧
+      ∀ p ∈ nf, ∀ cs, cf.lookup p.1 = some cs → differs identity cs.value p.2.value = false
+  | .array ce _, .array ne _ =>
+    ce.length = ne.length ∧
+      ∀ i : Nat, slotHolds identity (ce[i]?.bind id) (ne[i]?.bind id) = true
+  | .map ce, .map ne =>
+    collectionHolds identity (ce.map Prod.fst) (ne.map Prod.fst) (ce.lookup ·) (ne.lookup ·)
+  | .set cm, .set nm => collectionHolds identity cm nm (fun _ => none) (fun _ => none)
+  | .date cms, .date nms => cms = nms
+  | .buffer cb _, .buffer nb _ => cb = nb
+  | .view cc _ co cl, .view nc _ no nl => cc = nc ∧ co = no ∧ cl = nl
+  | _, _ => False
+
+/-- Whether neither node repeats a key: an object's keys, a map's keys, a set's members. -/
+def distinctKeys : Obj → Obj → Prop
+  | .object _ cf _, .object _ nf _ => (cf.map Prod.fst).Nodup ∧ (nf.map Prod.fst).Nodup
+  | .map ce, .map ne => (ce.map Prod.fst).Nodup ∧ (ne.map Prod.fst).Nodup
+  | .set cm, .set nm => cm.Nodup ∧ nm.Nodup
+  | _, _ => True
+
+/-- A kept node's write list is empty exactly when its object already holds `next`'s contents
+under the identities, for every kind. The node passes the static checks, as every kept node does;
+neither side repeats a key; and the identities keep each object at one node at most, as a
+decision does. -/
+theorem writesOf_nil_iff (classes : Array (List (String × Slot))) (identity : Nat → Option Nat)
+    (c n : Obj) (hadm : admitsStatic classes c n = true) (hkeys : distinctKeys c n)
+    (hinj : ∀ a b x, identity a = some x → identity b = some x → a = b) :
+    (writesOf identity c n).1 = [] ↔ holds identity c n := by
+  cases c <;> cases n <;> simp only [admitsStatic, Bool.false_eq_true] at hadm
+  case object.object => exact objectWrites_nil_iff identity _ _ hkeys.1 hkeys.2
+  case array.array =>
+    simp only [writesOf, holds, arrayWrites, List.map_eq_nil_iff]
+    exact arraySlotWrites_nil_iff identity _ _
+  case map.map =>
+    simp only [writesOf, holds, collectionWrites, List.map_eq_nil_iff]
+    exact entryWrites_nil_iff identity _ _ _ _ hkeys.1 hkeys.2 hinj
+  case set.set =>
+    simp only [writesOf, holds, collectionWrites, List.map_eq_nil_iff]
+    exact entryWrites_nil_iff identity _ _ _ _ hkeys.1 hkeys.2 hinj
+  case date.date =>
+    simp only [writesOf, holds]
+    split <;> simp_all
+  case buffer.buffer =>
+    simp only [writesOf, holds]
+    split <;> simp_all
+  case view.view =>
+    simp only [Bool.and_eq_true, beq_iff_eq] at hadm
+    simp [writesOf, holds, hadm]
+
+/-! ### Examples of writes by kind
+
+Each example shows a kept node that takes no write and one that does. A map's or set's write
+reports its key as text, which can repeat for distinct keys; `entryWrites` keeps them apart. -/
+
+section WriteExamples
+
+private def num (n : Int) : Val := .prim (.num n)
+private def str (t : String) : Val := .prim (.str t)
+
+example :
+    (writesOf (fun _ => none) (.object .object [("a", .data (num 1) Attrs.plain)] true)
+      (.object .object [("a", .data (num 1) Attrs.plain)] true)).1 = [] ∧
+    (writesOf (fun _ => none) (.object .object [("a", .data (num 1) Attrs.plain)] true)
+      (.object .object [("a", .data (num 2) Attrs.plain)] true)).1 = [("a", "set")] := by
+  decide
+
+example :
+    arraySlotWrites (fun _ => none) [some (num 1), some (num 2)] [some (num 1), some (num 2)] =
+      [] ∧
+    arraySlotWrites (fun _ => none) [some (num 1), some (num 2)] [some (num 1), some (num 3)] =
+      [(.index 1, "set")] ∧
+    arraySlotWrites (fun _ => none) [some (num 1), some (num 2)] [some (num 1), none] =
+      [(.index 1, "delete")] ∧
+    arraySlotWrites (fun _ => none) [some (num 1), some (num 2)] [some (num 1)] =
+      [(.length, "set")] ∧
+    arrayWrites (fun _ => none) [some (num 1), some (num 2)] [some (num 1), none] =
+      [("1", "delete")] := by
+  decide
+
+example :
+    (writesOf (fun _ => none) (.map [(str "a", num 1), (str "b", num 2)])
+      (.map [(str "a", num 1), (str "b", num 2)])).1 = [] ∧
+    (writesOf (fun _ => none) (.map [(str "a", num 1), (str "b", num 2)])
+      (.map [(str "a", num 1), (str "b", num 3)])).1 = [("b", "set")] ∧
+    (writesOf (fun _ => none) (.map [(str "a", num 1), (str "b", num 2)])
+      (.map [(str "b", num 2), (str "a", num 1)])).1 = [("a", "delete"), ("a", "set")] := by
+  decide
+
+example :
+    (writesOf (fun _ => none) (.set [str "a"]) (.set [str "a"])).1 = [] ∧
+    (writesOf (fun _ => none) (.set [str "a"]) (.set [str "b"])).1 =
+      [("a", "delete"), ("b", "set")] := by
+  decide
+
+/-- A member of `next` that is a node stands for the object the node keeps, and a fresh node's
+object is always added. -/
+example :
+    entryWrites (fun j => if j = 0 then some 3 else none) [.ref 3] [.ref 0] (fun _ => none)
+      (fun _ => none) = [] ∧
+    entryWrites (fun _ => none) [.ref 3] [.ref 0] (fun _ => none) (fun _ => none) =
+      [(.current (.ref 3), "delete"), (.fresh (.ref 0), "set")] := by
+  decide
+
+/-- The string `"ref 3"` and a reference to object 3 are distinct keys with one text. -/
+example :
+    entryWrites (fun _ => none) [.ref 3] [str "ref 3"] (fun _ => none) (fun _ => none) =
+      [(.current (.ref 3), "delete"), (.current (str "ref 3"), "set")] ∧
+    collectionWrites (fun _ => none) [.ref 3] [str "ref 3"] (fun _ => none) (fun _ => none) =
+      [("ref 3", "delete"), ("ref 3", "set")] := by
+  decide
+
+example :
+    (writesOf (fun _ => none) (.date 1) (.date 1)).1 = [] ∧
+    (writesOf (fun _ => none) (.date 1) (.date 2)).1 = [("time", "set")] := by
+  decide
+
+example :
+    (writesOf (fun _ => none) (.buffer [1, 2] none) (.buffer [1, 2] none)).1 = [] ∧
+    (writesOf (fun _ => none) (.buffer [1, 2] none) (.buffer [1, 3] none)).1 =
+      [("bytes", "set")] := by
+  decide
+
+/-- A view never takes a write, whatever buffer reference `next` holds. -/
+example :
+    (writesOf (fun _ => none) (.view "Uint8Array" (.ref 0) 0 2)
+      (.view "Uint8Array" (.ref 1) 0 2)).1 = [] := by
+  decide
+
+/-- `writesOf_nil_iff` needs distinct keys: a `next` that repeats a key the object holds unchanged
+needs no write, yet its key list differs from the object's. -/
+example :
+    (objectWrites (fun _ => none) [("a", .data (num 1) Attrs.plain)]
+      [("a", .data (num 1) Attrs.plain), ("a", .data (num 1) Attrs.plain)]).1 = [] ∧
+    ["a"] ≠ ["a", "a"] := by
+  decide
+
+/-- `writesOf_nil_iff` needs identities that keep each object at one node at most: two members of
+`next` that both stand for the set's one member need no write, yet the set holds one member. -/
+example :
+    entryWrites (fun j => if j < 2 then some 3 else none) [.ref 3] [.ref 0, .ref 1]
+      (fun _ => none) (fun _ => none) = [] ∧
+    [Val.ref 0, .ref 1].map (resolveKey (fun j => if j < 2 then some 3 else none)) ≠
+      [Val.ref 3].map some := by
+  decide
+
+end WriteExamples
 
 /-! ## Descriptors -/
 

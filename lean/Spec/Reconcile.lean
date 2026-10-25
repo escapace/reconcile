@@ -512,48 +512,90 @@ def objectWrites (identity : Nat → Option Nat) (cFields nFields : List (String
     | none => false
   (deletes ++ sets, blocked)
 
-/-- The writes a kept array needs. -/
-def arrayWrites (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
-    List (String × String) :=
-  let length := if ce.length = ne.length then [] else [("length", "set")]
+/-- A slot of a kept array that a write names: its length or an index. -/
+inductive ArraySlot where
+  | length
+  | index (i : Nat)
+  deriving DecidableEq, Repr
+
+/-- The key a write to an array slot reports. -/
+def ArraySlot.label : ArraySlot → String
+  | .length => "length"
+  | .index i => toString i
+
+/-- The writes a kept array needs, by slot: a set at an index where `next` has an element that the
+array lacks or holds differently, a deletion where `next` has a hole below its length and the
+array an element, and the length when it differs. -/
+def arraySlotWrites (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
+    List (ArraySlot × String) :=
+  let length := if ce.length = ne.length then [] else [(ArraySlot.length, "set")]
   let indices := (List.range (max ce.length ne.length)).filterMap fun i =>
     match ce[i]?.bind id, ne[i]?.bind id with
-    | some cv, some nv => if differs identity cv nv then some (toString i, "set") else none
-    | none, some _ => some (toString i, "set")
-    | some _, none => if i < ne.length then some (toString i, "delete") else none
+    | some cv, some nv => if differs identity cv nv then some (.index i, "set") else none
+    | none, some _ => some (.index i, "set")
+    | some _, none => if i < ne.length then some (.index i, "delete") else none
     | none, none => none
   length ++ indices
 
-/-- The writes a kept map or set needs under the retained prefix of its entries. A key of `next`
-that is a node stands for the object that node keeps; a fresh node's object is no current key. -/
-def collectionWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
-    (cValue nValue : Val → Option Val) : List (String × String) :=
-  let resolve : Val → Option Val
-    | .prim p => some (.prim p)
-    | .ref c => (identity c).map Val.ref
-  let resolved := nKeys.map resolve
+/-- The writes a kept array needs, by the key each one reports. -/
+def arrayWrites (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
+    List (String × String) :=
+  (arraySlotWrites identity ce ne).map fun (s, w) => (s.label, w)
+
+/-- The current key a key of `next` stands for: a primitive stands for itself and a node for the
+object it keeps; a fresh node's object is no current key. -/
+def resolveKey (identity : Nat → Option Nat) : Val → Option Val
+  | .prim p => some (.prim p)
+  | .ref c => (identity c).map Val.ref
+
+/-- A key that a write to a kept map or set names: a current key, or a key of `next` that is a
+fresh node, by its value in `next`. -/
+inductive EntryKey where
+  | current (k : Val)
+  | fresh (k : Val)
+  deriving DecidableEq, Repr
+
+/-- The text a write reports for a map or set key. Distinct keys can share a text: the string
+`"ref 3"` and a reference to node 3 both read `ref 3`, so theorems use `EntryKey`. -/
+def keyLabel : Val → String
+  | .prim .undef => "undefined"
+  | .prim .null => "null"
+  | .prim (.bool b) => toString b
+  | .prim (.num n) => toString n
+  | .prim (.str t) => t
+  | .prim (.atom id) => s!"atom {id}"
+  | .ref id => s!"ref {id}"
+
+/-- The text a write reports for a key. -/
+def EntryKey.label : EntryKey → String
+  | .current k => keyLabel k
+  | .fresh k => keyLabel k
+
+/-- The writes a kept map or set needs under the retained prefix of its entries, by key. A key of
+`next` that is a node stands for the object that node keeps (`resolveKey`). -/
+def entryWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) : List (EntryKey × String) :=
+  let resolved := nKeys.map (resolveKey identity)
   let retained := retainPrefix (cKeys.map some) resolved
-  let label : Val → String
-    | .prim .undef => "undefined"
-    | .prim .null => "null"
-    | .prim (.bool b) => toString b
-    | .prim (.num n) => toString n
-    | .prim (.str t) => t
-    | .prim (.atom id) => s!"atom {id}"
-    | .ref id => s!"ref {id}"
   let deletes := cKeys.filterMap fun k =>
     if resolved.contains (some k) && retained.contains (some k) then none
-    else some (label k, "delete")
+    else some (EntryKey.current k, "delete")
   let sets := nKeys.filterMap fun k =>
-    match resolve k with
+    match resolveKey identity k with
     | some ck =>
       if retained.contains (some ck) then
         match cValue ck, nValue k with
-        | some cv, some nv => if differs identity cv nv then some (label ck, "set") else none
+        | some cv, some nv =>
+          if differs identity cv nv then some (EntryKey.current ck, "set") else none
         | _, _ => none
-      else some (label ck, "set")
-    | none => some (label k, "set")
+      else some (EntryKey.current ck, "set")
+    | none => some (EntryKey.fresh k, "set")
   deletes ++ sets
+
+/-- The writes a kept map or set needs, by the text each one reports. -/
+def collectionWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) : List (String × String) :=
+  (entryWrites identity cKeys nKeys cValue nValue).map fun (k, w) => (k.label, w)
 
 /-- The writes of keeping `c` with contents `n`, and whether they block. -/
 def writesOf (identity : Nat → Option Nat) (c n : Obj) : List (String × String) × Bool :=
