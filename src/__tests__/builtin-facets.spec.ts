@@ -67,10 +67,9 @@ it('keeps registry configuration exposed through a collection draft frozen', () 
       const policy = state.context.types.policies[kind]
       const strategy = state.context.types.drafts[kind]
       expect(Object.isFrozen(policy)).toBe(true)
-      expect(Object.isFrozen(policy.bindings)).toBe(true)
       expect(Object.isFrozen(policy.immutable)).toBe(true)
       expect(Object.isFrozen(strategy)).toBe(true)
-      expect(Reflect.set(policy, 'allocate', policy.allocate)).toBe(false)
+      expect(Reflect.set(policy, 'someChild', policy.someChild)).toBe(false)
     }
     for (const operations of Object.getOwnPropertySymbols(produceTypes.specials).map(
       (kind) => produceTypes.specials[kind],

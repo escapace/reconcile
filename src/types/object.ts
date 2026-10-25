@@ -10,7 +10,7 @@ import type {
   DraftStrategy,
 } from '../types'
 import { hasOwn, hiddenNames, isObject, ownKeys } from '../object-property'
-import type { Edge } from '../types'
+import type { Edge, Resolve } from '../types'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { createPropertyHandle, PropertyDraftState, writeDataSlot } from './shared/draft-properties'
 import type { PropertySurface } from './shared/property-publication'
@@ -180,6 +180,14 @@ function movedFrom(moved: readonly unknown[], key: PropertyKey): PropertyDescrip
   return undefined
 }
 
+/** Whether `keys` lists exactly `expected`, in order. */
+function sameKeys(keys: readonly PropertyKey[], expected: readonly PropertyKey[]): boolean {
+  if (keys.length !== expected.length) return false
+  for (let index = 0; index < keys.length; index += 1)
+    if (keys[index] !== expected[index]) return false
+  return true
+}
+
 export const objectPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...objectCapture,
@@ -188,12 +196,9 @@ export const objectPublication = /* @__PURE__ */ (() =>
     // The key list must match before any value is read, so no key is read through the
     // prototype; every value is then read once, whether or not an earlier one matched.
     matches(node, current, visit) {
-      const keys = ownKeys(current)
-      if (keys.length !== node.keys.length) return false
-      for (let index = 0; index < keys.length; index += 1)
-        if (keys[index] !== node.keys[index]) return false
+      if (!sameKeys(ownKeys(current), node.keys)) return false
       let matched = true
-      for (let index = 0; index < keys.length; index += 1)
+      for (let index = 0; index < node.keys.length; index += 1)
         if (!visit(Reflect.get(current, node.keys[index]), node.edges[index])) matched = false
       return matched
     },
@@ -274,10 +279,45 @@ function observeSlot(
   )
 }
 
+// Writes one slot into a new copy.
+function writeSlot(
+  node: CapturedNode<ObjectLayout>,
+  target: object,
+  index: number,
+  resolve: Resolve,
+): void {
+  const attributes = node.attributes![index]
+  const key = node.keys[index]
+  const prototype = node.layout.prototype
+  // A fresh plain shell has no own keys yet, so assigning a key `Object.prototype` lacks
+  // creates the same own descriptor as the explicit definition (`PropertyWrite.constructOn`).
+  if (
+    (attributes & 7) === 7 &&
+    (prototype === Object.prototype || prototype === null) &&
+    !(key in Object.prototype)
+  ) {
+    ;(target as Record<PropertyKey, unknown>)[key] = resolve(node.edges[index])
+    return
+  }
+  defineData(
+    target,
+    key,
+    resolve(node.edges[index]),
+    (attributes & 2) !== 0,
+    (attributes & 1) !== 0,
+    (attributes & 4) !== 0,
+  )
+}
+
 export const objectImmutable = /* @__PURE__ */ (() => ({
-  ...objectConstruction,
   immutable: /* @__PURE__ */ freeze({
+    allocate: objectConstruction.allocate,
     tag: 'structural',
+    fill(node, target, resolve) {
+      for (let index = 0; index < node.edges.length; index += 1)
+        writeSlot(node, target, index, resolve)
+      return true
+    },
     observeDraft(source, observer) {
       const { base, properties } = observer
       const prototype =
@@ -317,35 +357,9 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
         )
           return false
       }
-      const keys = ownKeys(current)
-      return (
-        keys.length === node.keys.length && keys.every((key, index) => key === node.keys[index])
-      )
+      return sameKeys(ownKeys(current), node.keys)
     },
   } satisfies ImmutablePolicy<ObjectLayout>['immutable']),
-  freshWrite(node, target, index, resolve) {
-    const attributes = node.attributes![index]
-    const key = node.keys[index]
-    const prototype = node.layout.prototype
-    // A fresh plain shell has no own keys yet, so assigning a key `Object.prototype` lacks
-    // creates the same own descriptor as the explicit definition (`PropertyWrite.constructOn`).
-    if (
-      (attributes & 7) === 7 &&
-      (prototype === Object.prototype || prototype === null) &&
-      !(key in Object.prototype)
-    ) {
-      ;(target as Record<PropertyKey, unknown>)[key] = resolve(node.edges[index])
-      return
-    }
-    defineData(
-      target,
-      key,
-      resolve(node.edges[index]),
-      (attributes & 2) !== 0,
-      (attributes & 1) !== 0,
-      (attributes & 4) !== 0,
-    )
-  },
   someChild(source, read, test) {
     const keys = ownKeys(source)
     for (let index = 0; index < keys.length; index += 1)

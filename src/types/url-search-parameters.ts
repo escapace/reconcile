@@ -1,4 +1,3 @@
-import { adoptPrototype } from './shared/prototype'
 import {
   freeze,
   noValue,
@@ -11,8 +10,9 @@ import {
 } from './shared/empty'
 import {
   URL_KIND,
-  createURLCarrier,
   nativeURLSearchParameters,
+  carriedParameters,
+  parametersCarrier,
   replaceNativeParameters,
   nativeParametersText,
   urlCarrierResponse,
@@ -43,8 +43,7 @@ const urlSearchParametersCapture = {
   observe(value, begin) {
     const prototype = Object.getPrototypeOf(value) as object | null
     const text = nativeParametersText(value as URLSearchParams)
-    const carrier = createURLCarrier(text)
-    adoptPrototype(nativeURLSearchParameters(carrier), prototype, URLSearchParams.prototype)
+    const carrier = parametersCarrier(text, prototype)
     begin({ carrier, kind: URL_SEARCH_PARAMS_KIND, prototype, text })
   },
 } satisfies CapturePolicy<URLSearchParametersLayout>
@@ -59,16 +58,8 @@ export const urlSearchParametersSnapshot = /* @__PURE__ */ (() =>
 
 const parametersConstruction = {
   bindings: independentBindings,
-  allocate(node, _resolve, owners) {
-    const carrier = createURLCarrier(node.layout.text)
-    if (owners !== undefined)
-      (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
-    return adoptPrototype(
-      nativeURLSearchParameters(carrier),
-      node.layout.prototype,
-      URLSearchParams.prototype,
-    )
-  },
+  allocate: (node, _resolve, owners) =>
+    carriedParameters(node.layout.text, node.layout.prototype, owners),
 } satisfies ConstructionPolicy<URLSearchParametersLayout>
 
 export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
@@ -94,21 +85,13 @@ export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<URLSearchParametersLayout>
 
 export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
-  ...parametersConstruction,
-  freshWrite: noValue,
   immutable: freeze({
     operations: freeze({
       dependencies: noDependencies,
       copy(value, _resolve, owners) {
         const prototype = Object.getPrototypeOf(value) as object | null
-        const carrier = createURLCarrier(nativeParametersText(value as URLSearchParams))
-        if (owners !== undefined)
-          (owners.nativeOwners ??= new WeakMap()).set(nativeURLSearchParameters(carrier), carrier)
-        return adoptPrototype(
-          nativeURLSearchParameters(carrier),
-          prototype,
-          URLSearchParams.prototype,
-        )
+        const text = nativeParametersText(value as URLSearchParams)
+        return carriedParameters(text, prototype, owners)
       },
       equivalent: (base, candidate) =>
         nativeParametersText(base as URLSearchParams) ===

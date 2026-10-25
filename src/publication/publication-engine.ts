@@ -1,3 +1,4 @@
+import { EMPTY_FACTS } from '../constants'
 import { atomValue, isNode } from '../graph/edge'
 import { matchesKind } from '../adapters/recognition'
 import type {
@@ -9,11 +10,11 @@ import type {
   Edge,
   NativeOwners,
   PublicationNote,
+  PublicationPolicy,
   PublicationRegistry,
 } from '../types'
 import { alignedReads, candidates } from './candidates'
 import { constructionOrder } from '../graph/construction'
-import { constructionDependencies } from '../graph/construction-facts'
 import { denseArray } from '../standard-prototypes'
 
 /**
@@ -174,12 +175,24 @@ function decideNode(state: Decision, node: number): void {
   }
 }
 
-/** The pass under way: the target of each node, which the callbacks read, the native owners found
- * among them, and whether every publication so far wrote nothing a readback would reject. */
+/** One call's publication: what every pass shares, then the pass under way, with the object each
+ * node keeps, the target of each node, which the callbacks read, the native owners found among
+ * them, the previous passes, and whether every publication so far wrote nothing a readback would
+ * reject. */
 interface Run {
+  readonly compare: Compare
+  readonly domains: Candidates
+  readonly graph: CapturedGraph
+  kept: ReadonlyArray<object | undefined>
   nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
+  /** The channel between this call's preflights and publications. */
+  readonly note: PublicationNote
+  passes: Passes | undefined
   targets: readonly object[]
+  readonly types: PublicationRegistry
   unchanged: boolean
+  readonly owner: (child: object, kind: symbol) => object | undefined
+  readonly resolve: (edge: Edge) => unknown
 }
 
 /**
@@ -196,7 +209,6 @@ export function publishGraph(
   root: object,
 ): boolean {
   const records = graph.nodes
-  // The channel between this call's preflights and publications.
   const note: PublicationNote = {
     facts: undefined,
     prototype: undefined,
@@ -204,42 +216,43 @@ export function publishGraph(
     unchanged: false,
   }
   const domains = candidates(types, records, root, graph, note)
+  // Each pass sets `kept` and `targets` before anything reads them.
   const run: Run = {
+    domains,
+    graph,
+    kept: records,
     nativeOwners: undefined,
+    note,
+    passes: undefined,
     targets: records,
+    types,
     unchanged: false,
+    compare: (actual, wanted) =>
+      isNode(wanted) ? actual === run.targets[wanted.node] : Object.is(actual, atomValue(wanted)),
+    owner: (child, kind) => ownersIn(run, kind).get(child),
+    resolve: (edge) => (isNode(edge) ? run.targets[edge.node] : atomValue(edge)),
   }
-  const resolve = (edge: Edge): unknown => (isNode(edge) ? run.targets[edge.node] : atomValue(edge))
-  const compare: Compare = (actual, wanted) =>
-    isNode(wanted) ? actual === run.targets[wanted.node] : Object.is(actual, atomValue(wanted))
-  const owner = (child: object, kind: symbol): object | undefined =>
-    ownersIn(types, records, run, kind).get(child)
-  let passes: Passes | undefined
   for (;;) {
-    const kept = decide(records, domains, graph.reads, passes)
+    const kept = decide(records, domains, graph.reads, run.passes)
     if (kept[0] === undefined) return false
     const targets = allocate(types, records, kept)
     if (targets === undefined) return false
+    run.kept = kept
     run.targets = targets
     run.nativeOwners = undefined
-    const blocked = write(types, graph, domains, kept, run, note, passes, resolve, compare, owner)
+    const blocked = write(run)
     if (blocked === REJECTED) return false
     if (blocked === undefined) return true
-    passes = remember(records, kept, targets, blocked, passes)
+    run.passes = remember(records, kept, targets, blocked, run.passes)
   }
 }
 
 // The owner of each native child of one kind among the targets of the pass; URL child identity
 // is fixed for its owner's lifetime, so the lookup performs no live read.
-function ownersIn(
-  types: PublicationRegistry,
-  records: readonly CapturedNode[],
-  run: Run,
-  kind: symbol,
-): WeakMap<object, object> {
+function ownersIn(run: Run, kind: symbol): WeakMap<object, object> {
   let owners = run.nativeOwners?.get(kind)
   if (owners === undefined) {
-    owners = ownersOf(types, records, run.targets, kind)
+    owners = ownersOf(run.types, run.graph.nodes, run.targets, kind)
     ;(run.nativeOwners ??= new Map()).set(kind, owners)
   }
   return owners
@@ -266,9 +279,13 @@ function allocate(
     retained[index] = target !== undefined
     if (target !== undefined) targets[index] = target
   }
-  // Construction dependencies are sealed facts.
+  // Construction dependencies are sealed facts: only a dependent kind, a view or a URL's
+  // parameters, has any.
   const order = constructionOrder(
-    records.map((node) => constructionDependencies(types, node)),
+    records.map((node) => {
+      const bindings = types.policies[node.layout.kind].bindings
+      return bindings.tag === 'dependent' ? bindings.dependencies(node) : EMPTY_FACTS
+    }),
     retained,
   )
   if (order === undefined) return undefined
@@ -288,6 +305,8 @@ function allocate(
   return targets
 }
 
+type DependentBindings = Extract<PublicationPolicy['bindings'], { tag: 'dependent' }>
+
 // The owner of each native child among the targets of one kind: the target whose construction
 // edge names the child, which is the child's target.
 function ownersOf(
@@ -297,12 +316,12 @@ function ownersOf(
   kind: symbol,
 ): WeakMap<object, object> {
   const owners = new WeakMap<object, object>()
-  const bindings = types.policies[kind].bindings
-  if (bindings.tag !== 'dependent') return owners
+  // The only owner kind, a URL, has dependent bindings that read the children it owns.
+  const read = (types.policies[kind].bindings as DependentBindings).read!
   for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
     if (node.pinned !== undefined || node.layout.kind !== kind) continue
-    const edges = bindings.read(node, targets[index])
+    const edges = read(node, targets[index])
     for (let edge = 0; edge < edges.length; edge += 1)
       if (edges[edge].identity === targets[edges[edge].node])
         owners.set(edges[edge].identity, targets[index])
@@ -319,32 +338,14 @@ const WRITE_FREE = 'write-free'
  * Writes one pass: publishes every unpinned node and reads the written objects back. Returns the
  * blocked objects, undefined when there are none, or `REJECTED`.
  */
-function write(
-  types: PublicationRegistry,
-  graph: CapturedGraph,
-  domains: Candidates,
-  kept: ReadonlyArray<object | undefined>,
-  run: Run,
-  note: PublicationNote,
-  passes: Passes | undefined,
-  resolve: (edge: Edge) => unknown,
-  compare: Compare,
-  owner: (child: object, kind: symbol) => object | undefined,
-): object[] | typeof REJECTED | undefined {
-  const published = publishAll(types, graph, domains, kept, run, note, passes, resolve, owner)
+function write(run: Run): object[] | typeof REJECTED | undefined {
+  const published = publishAll(run)
   if (published === REJECTED) return REJECTED
   // A first pass that wrote nothing that a readback would reject is done: no setter or trap ran,
   // so each readback would observe what publication compared (Property.WriteFreeReadback). A
   // retry follows the call's own writes and is always read back (acceptsRetry).
-  if (published === WRITE_FREE && passes === undefined) return undefined
-  return readback(
-    types,
-    graph.nodes,
-    kept,
-    run.targets,
-    compare,
-    published === WRITE_FREE ? undefined : published,
-  )
+  if (published === WRITE_FREE && run.passes === undefined) return undefined
+  return readback(run, published === WRITE_FREE ? undefined : published)
 }
 
 /**
@@ -352,70 +353,28 @@ function write(
  * runs, such as a setter, finds each new object complete. Returns the objects whose preflight or
  * write was refused, undefined when there are none, `REJECTED` or `WRITE_FREE`.
  */
-function publishAll(
-  types: PublicationRegistry,
-  graph: CapturedGraph,
-  domains: Candidates,
-  kept: ReadonlyArray<object | undefined>,
-  run: Run,
-  note: PublicationNote,
-  passes: Passes | undefined,
-  resolve: (edge: Edge) => unknown,
-  owner: (child: object, kind: symbol) => object | undefined,
-): object[] | typeof REJECTED | typeof WRITE_FREE | undefined {
+function publishAll(run: Run): object[] | typeof REJECTED | typeof WRITE_FREE | undefined {
   run.unchanged = true
-  const fresh = publishPhase(types, graph, domains, kept, run, note, passes, resolve, owner, true)
-  if (fresh === REJECTED) return REJECTED
-  const blocked = publishPhase(
-    types,
-    graph,
-    domains,
-    kept,
-    run,
-    note,
-    passes,
-    resolve,
-    owner,
-    false,
-  )
-  note.facts = undefined
-  note.reads = undefined
+  if (publishPhase(run, true) === REJECTED) return REJECTED
+  const blocked = publishPhase(run, false)
+  run.note.facts = undefined
+  run.note.reads = undefined
   return run.unchanged ? WRITE_FREE : blocked
 }
 
 // Publishes the new or the kept unpinned nodes of a pass. Returns the kept objects whose
 // preflight or write was refused, undefined when there are none, or `REJECTED` when a new object
 // refused a write.
-function publishPhase(
-  types: PublicationRegistry,
-  graph: CapturedGraph,
-  domains: Candidates,
-  kept: ReadonlyArray<object | undefined>,
-  run: Run,
-  note: PublicationNote,
-  passes: Passes | undefined,
-  resolve: (edge: Edge) => unknown,
-  owner: (child: object, kind: symbol) => object | undefined,
-  fresh: boolean,
-): object[] | typeof REJECTED | undefined {
-  const records = graph.nodes
+function publishPhase(run: Run, fresh: boolean): object[] | typeof REJECTED | undefined {
+  const records = run.graph.nodes
+  const kept = run.kept
+  const note = run.note
   let blocked: object[] | undefined
   for (let index = 0; index < records.length; index += 1) {
     const target = kept[index]
     if (records[index].pinned !== undefined || (target === undefined) !== fresh) continue
     note.unchanged = false
-    const accepted = publishNode(
-      types,
-      graph,
-      domains,
-      index,
-      fresh,
-      run,
-      note,
-      passes,
-      resolve,
-      owner,
-    )
+    const accepted = publishNode(run, index, fresh)
     if (!note.unchanged) run.unchanged = false
     if (accepted) continue
     if (target === undefined) return REJECTED
@@ -426,25 +385,15 @@ function publishPhase(
 
 // Publishes one node into its target, after preparing a kept target; whether the preflight and
 // the write were accepted.
-function publishNode(
-  types: PublicationRegistry,
-  graph: CapturedGraph,
-  domains: Candidates,
-  index: number,
-  fresh: boolean,
-  run: Run,
-  note: PublicationNote,
-  passes: Passes | undefined,
-  resolve: (edge: Edge) => unknown,
-  owner: (child: object, kind: symbol) => object | undefined,
-): boolean {
+function publishNode(run: Run, index: number, fresh: boolean): boolean {
   const target = run.targets[index]
+  const note = run.note
   if (fresh) {
     note.facts = undefined
     note.reads = undefined
-  } else if (!prepareKept(types, graph, domains, index, target, note, passes)) return false
-  const node = graph.nodes[index]
-  return types.policies[node.layout.kind].publish(node, target, resolve, owner, note)
+  } else if (!prepareKept(run, index, target)) return false
+  const node = run.graph.nodes[index]
+  return run.types.policies[node.layout.kind].publish(node, target, run.resolve, run.owner, note)
 }
 
 /**
@@ -453,26 +402,20 @@ function publishNode(
  * writes, what the previous pass read back of it, which is what that pass wanted, and a preflight
  * run again. False when that preflight fails.
  */
-function prepareKept(
-  types: PublicationRegistry,
-  graph: CapturedGraph,
-  domains: Candidates,
-  index: number,
-  target: object,
-  note: PublicationNote,
-  passes: Passes | undefined,
-): boolean {
-  const node = graph.nodes[index]
+function prepareKept(run: Run, index: number, target: object): boolean {
+  const node = run.graph.nodes[index]
+  const note = run.note
+  const passes = run.passes
   if (passes?.writtenAt[index] !== target) {
-    note.reads = alignedReads(graph, index, target)
+    note.reads = alignedReads(run.graph, index, target)
     if (passes === undefined) {
-      note.facts = candidateOf(domains[index], target)?.facts
+      note.facts = candidateOf(run.domains[index], target)?.facts
       return true
     }
   } else note.reads = wantedReads(node, passes.previousTargets)
   note.prototype = undefined
   note.facts = undefined
-  return types.policies[node.layout.kind].requirements(node, target, note) !== undefined
+  return run.types.policies[node.layout.kind].requirements(node, target, note) !== undefined
 }
 
 // The value the previous pass wanted at each edge of `node`, which its readback saw there.
@@ -492,14 +435,11 @@ function wantedReads(node: CapturedNode, targets: readonly object[]): unknown[] 
  * blocked objects, undefined when there are none, or `REJECTED` when a new object does not hold
  * its contents, which no further pass can repair.
  */
-function readback(
-  types: PublicationRegistry,
-  records: readonly CapturedNode[],
-  kept: ReadonlyArray<object | undefined>,
-  targets: readonly object[],
-  compare: Compare,
-  blocked: object[] | undefined,
-): object[] | typeof REJECTED | undefined {
+function readback(run: Run, blocked: object[] | undefined): object[] | typeof REJECTED | undefined {
+  const types = run.types
+  const records = run.graph.nodes
+  const kept = run.kept
+  const targets = run.targets
   const found = blocked?.length ?? 0
   for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
@@ -508,7 +448,7 @@ function readback(
     const fresh = kept[index] === undefined
     if (
       matchesKind(types, target, node.layout.kind) &&
-      types.policies[node.layout.kind].matches(node, target, compare)
+      types.policies[node.layout.kind].matches(node, target, run.compare)
     )
       continue
     if (fresh) return REJECTED

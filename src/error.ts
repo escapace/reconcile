@@ -17,7 +17,6 @@ export const RECONCILE_ERROR_TYPES = [
   'DraftArrayLengthRejected',
   'DraftDefinePropertyUnsupported',
   'FinalizationAccessorUnstable',
-  'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
   'PublicationRejected',
   'SerializeValueUnsupported',
@@ -71,11 +70,6 @@ export interface ReconcileErrorMetadata {
    * `produce` had already visited, so `produce` cannot call it. `property` is the new getter's key.
    */
   FinalizationAccessorUnstable: { property: PropertyKey }
-  /**
-   * Internal error in `produce`, which indicates a bug in the library. `index` and `child` are
-   * diagnostic values for a bug report.
-   */
-  FinalizationChildInvalid: { child: unknown; index: number }
   /**
    * No consistent result exists: the new objects cannot be created in any order, or a `Map` or
    * `Set` would hold one new object as two keys or members.
@@ -196,12 +190,6 @@ export const finalizationAccessorUnstable = (property: PropertyKey) =>
   new ReconcileError(
     { property, type: 'FinalizationAccessorUnstable' },
     `A getter added getter ${key(property)} to a part of the result that produce had already visited.`,
-  )
-
-export const finalizationChildInvalid = (index: number, child: unknown) =>
-  new ReconcileError(
-    { child, index, type: 'FinalizationChildInvalid' },
-    `Internal error in produce: record ${index} has invalid child ${String(child)}. This is a bug in @escapace/reconcile.`,
   )
 
 export const finalizationConstructionImpossible = () =>

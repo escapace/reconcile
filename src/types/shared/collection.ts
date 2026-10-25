@@ -41,46 +41,52 @@ export interface CollectionAccess {
   put: (current: object, key: unknown, value: unknown) => void
   remove: (current: object, key: unknown) => void
   size: (current: object) => number
+  /** The edges an entry spans: a `Map` key and value, or a `Set` member. */
+  readonly width: number
+  /** Slot `slot` of an entry that `step` returned, undefined past the last entry. */
+  read: (entry: unknown, slot: number) => unknown
+}
+
+/**
+ * Whether `current` holds exactly the entries that `edges` lists, in order, with `visit` accepting
+ * each slot. The built-in iterator lists the entries, so nothing observes the walk.
+ */
+export function entriesMatch(
+  access: CollectionAccess,
+  edges: readonly Edge[],
+  current: object,
+  visit: Compare,
+): boolean {
+  const width = access.width
+  if (access.size(current) * width !== edges.length) return false
+  const entries = access.open(current)
+  for (let index = 0; index < edges.length; index += width) {
+    const entry: unknown = access.step(entries).value
+    for (let slot = 0; slot < width; slot += 1)
+      if (!visit(access.read(entry, slot), edges[index + slot])) return false
+  }
+  return true
 }
 
 /**
  * Builds the ordered collection walker of a Map or Set publication facet.
  *
  * @remarks
- * A collection is read and written with `builtin`, so no override that a subclass or the instance
+ * A collection is read and written with `access`, so no override that a subclass or the instance
  * holds runs.
  *
- * @param operations - Type-owned entry shape and the access to entries.
+ * @param access - Type-owned entry shape and the built-in access to entries.
  */
-export function collectionSurface(operations: {
-  builtin: CollectionAccess
-  readonly width: number
-  read: (entry: unknown, slot: number, strict: boolean) => unknown
-}): Pick<NativePolicy, 'aligned' | 'matches' | 'publish'> {
-  const { builtin: access, width } = operations
-  const walk = (
-    node: readonly Edge[],
-    current: object | undefined,
-    visit: Compare,
-    strict: boolean,
-  ): boolean => {
-    const previous = current === undefined ? undefined : access.open(current)
-    for (let index = 0; index < node.length; index += width) {
-      const entry: unknown = previous === undefined ? undefined : access.step(previous).value
-      for (let slot = 0; slot < width; slot += 1) {
-        if (!strict && !isNode(node[index + slot])) continue
-        if (!visit(operations.read(entry, slot, strict), node[index + slot])) return false
-      }
-    }
-    return true
-  }
+export function collectionSurface(
+  access: CollectionAccess,
+): Pick<NativePolicy, 'aligned' | 'matches' | 'publish'> {
+  const width = access.width
   // The current entries, flattened as the edges are: key then value for a Map, member for a Set.
   const entriesOf = (current: object): unknown[] => {
     const present: unknown[] = []
     const entries = access.open(current)
     for (let step = access.step(entries); step.done !== true; step = access.step(entries))
-      for (let slot = 0; slot < width; slot += 1)
-        present.push(operations.read(step.value, slot, true))
+      for (let slot = 0; slot < width; slot += 1) present.push(access.read(step.value, slot))
     return present
   }
   // Puts `value` at `key` unless the entry already holds it; whether it wrote.
@@ -89,21 +95,19 @@ export function collectionSurface(operations: {
     access.put(current, key, value)
     return true
   }
-  const matches: NativePolicy['matches'] = (node, current, visit) =>
-    access.size(current) === node.edges.length / width && walk(node.edges, current, visit, true)
   return {
-    matches,
-    aligned: (node, current, visit) => {
-      walk(
-        node.edges,
-        current,
-        (actual, edge) => {
-          if (isNode(edge)) visit(actual, edge)
-          return true
-        },
-        false,
-      )
+    aligned(node, current, visit) {
+      const edges = node.edges
+      const entries = current === undefined ? undefined : access.open(current)
+      for (let index = 0; index < edges.length; index += width) {
+        const entry: unknown = entries === undefined ? undefined : access.step(entries).value
+        for (let slot = 0; slot < width; slot += 1) {
+          const edge = edges[index + slot]
+          if (isNode(edge)) visit(access.read(entry, slot), edge)
+        }
+      }
     },
+    matches: (node, current, visit) => entriesMatch(access, node.edges, current, visit),
     publish(node, current, resolve, _owner, note) {
       const edges = node.edges
       const present = entriesOf(current)

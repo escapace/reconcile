@@ -1,4 +1,6 @@
 import { builtinValue, Detached, uncurried } from '../../standard-prototypes'
+import { adoptPrototype } from './prototype'
+import type { NativeOwners } from '../../types'
 /** Stable global identity shared by native URL ownership facets. */
 export const URL_KIND = Symbol.for('@escapace/reconcile/url')
 
@@ -143,6 +145,30 @@ export function createURLCarrier(text: string): URL {
   // The ignored empty query segment records whether a native mutator has serialized the list.
   return new URL(`https://reconcile.invalid/?&${text}`)
 }
+
+/** A fresh carrier holding `text`, its `URLSearchParams` on `prototype`. */
+export function parametersCarrier(text: string, prototype: object | null): URL {
+  const carrier = createURLCarrier(text)
+  adoptPrototype(nativeURLSearchParameters(carrier), prototype, URLSearchParams.prototype)
+  return carrier
+}
+
+/** A fresh `URLSearchParams` holding `text`, on `prototype`; `owners`, when given, maps it to its
+ * carrier. */
+export function carriedParameters(
+  text: string,
+  prototype: object | null,
+  owners: NativeOwners | undefined,
+): URLSearchParams {
+  const carrier = parametersCarrier(text, prototype)
+  const parameters = nativeURLSearchParameters(carrier)
+  if (owners !== undefined) (owners.nativeOwners ??= new WeakMap()).set(parameters, carrier)
+  return parameters
+}
+
+/** `carrier` as the URL `href` names, on `prototype`, keeping its captured parameter list. */
+export const ownedURL = (carrier: URL, href: string, prototype: object | null): URL =>
+  adoptPrototype(adoptURLCarrier(carrier, href), prototype, URL.prototype)
 
 /** Adopts later-observed owner state while retaining the earlier captured parameter list. */
 export function adoptURLCarrier(carrier: URL, href: string): URL {

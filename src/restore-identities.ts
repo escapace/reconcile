@@ -1,14 +1,9 @@
 import { atomValue, isNode } from './graph/edge'
 import { recognize } from './adapters/recognition'
 import { finalizationConstructionImpossible } from './error'
-import { constructionOrder } from './graph/construction'
-import { constructionDependencies } from './graph/construction-facts'
 import { immutableHead, immutableSelections } from './graph/immutable-selection'
 import { closeRequirements } from './graph/requirements'
 import { isObject } from './object-property'
-import { MAP_KIND } from './types/map'
-import { SET_KIND } from './types/set'
-import { builtinMapSize, builtinSetSize } from './standard-prototypes'
 import type {
   CapturedNode,
   Edge,
@@ -16,7 +11,6 @@ import type {
   ImmutableProblem,
   ImmutableRecord,
   ImmutableRegistry,
-  NativeOwners,
   NodeEdge,
   Primitive,
   ReuseNode,
@@ -239,68 +233,38 @@ function eachChild(
 }
 
 /**
- * Keeps the retained targets, allocates the fresh ones in construction order and writes their
- * captured edges once every target exists.
+ * Keeps the retained targets, allocates the fresh ones and writes their captured slots once every
+ * target exists; undefined when a copy cannot hold its slots.
+ *
+ * @remarks
+ * Every fresh node is an object, array, `Map` or `Set`, whose copy needs no other copy to exist
+ * first, so the fresh nodes are allocated in ascending order, the order
+ * `Construction.schedule_shells_only` gives for shells only.
  */
 function publishFresh(
   types: ImmutableRegistry,
   records: readonly ImmutableRecord[],
   retained: readonly boolean[],
-  order: readonly number[],
 ): object[] | undefined {
   const targets: object[] = []
-  // Native ownership found while allocating; a literal holds the field as its own data.
-  const owners: NativeOwners = { nativeOwners: undefined }
   const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : atomValue(value))
-  for (let index = 0; index < records.length; index += 1)
-    if (retained[index]) targets[index] = records[index].target
-  for (let position = 0; position < order.length; position += 1) {
-    const index = order[position]
-    const node = records[index].payload!
-    const target = types.policies[node.layout.kind].allocate(node, resolve, owners)
-    if (target === undefined) return undefined
-    targets[index] = target
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]
+    targets[index] = retained[index]
+      ? record.target
+      : types.structural[record.payload!.layout.kind].allocate(record.payload!)
   }
-  for (let index = 0; index < records.length; index += 1)
-    if (!retained[index] && !fill(types, records[index], targets[index], resolve)) return undefined
+  for (let index = 0; index < records.length; index += 1) {
+    if (retained[index]) continue
+    const record = records[index]
+    const node = record.payload!
+    const target = targets[index]
+    if (!types.structural[node.layout.kind].fill(node, target, resolve)) return undefined
+    // A copy of a frozen, sealed or otherwise non-extensible object is non-extensible too; with
+    // the attributes its properties keep, a copy of a frozen object is frozen.
+    if (!Object.isExtensible(record.target)) Object.preventExtensions(target)
+  }
   return targets
-}
-
-// Writes the captured edges of a fresh record's target; false when the target cannot hold them.
-function fill(
-  types: ImmutableRegistry,
-  record: ImmutableRecord,
-  target: object,
-  resolve: (value: Edge) => unknown,
-): boolean {
-  const node = record.payload!
-  const policy = types.policies[node.layout.kind]
-  for (let slot = 0; slot < node.edges.length; slot += 1)
-    policy.freshWrite(node, target, slot, resolve)
-  // A `Map` or `Set` that holds one node as two keys or members, as when two keys share one
-  // special copy, cannot be copied: no plan that copies it can be built.
-  if (collapses(node, target)) return false
-  // A copy of a frozen, sealed or otherwise non-extensible object is non-extensible too; with
-  // the attributes its properties keep, a copy of a frozen object is frozen.
-  if (!Object.isExtensible(record.target)) Object.preventExtensions(target)
-  return true
-}
-
-// Whether a new `Map` or `Set` holds fewer keys or members than its node has.
-const collapses = (node: CapturedNode, target: object): boolean =>
-  node.layout.kind === MAP_KIND
-    ? builtinMapSize(target) * 2 !== node.edges.length
-    : node.layout.kind === SET_KIND && builtinSetSize(target) !== node.edges.length
-
-// Publishes one plan in construction order; undefined when it cannot be constructed or built.
-function publishPlan(
-  types: ImmutableRegistry,
-  records: readonly ImmutableRecord[],
-  dependencies: ReadonlyArray<readonly number[]>,
-  retained: readonly boolean[],
-): object[] | undefined {
-  const order = constructionOrder(dependencies, retained)
-  return order === undefined ? undefined : publishFresh(types, records, retained, order)
 }
 
 /**
@@ -352,9 +316,8 @@ function publishFirst(
   head: boolean[] | undefined,
 ): object[] | undefined {
   const records = problem.records
-  const dependencies = records.map((record) => constructionDependencies(types, record.payload))
   if (head !== undefined) {
-    const targets = publishPlan(types, records, dependencies, head)
+    const targets = publishFresh(types, records, head)
     if (targets !== undefined) return targets
   }
   let skip = head !== undefined
@@ -363,7 +326,7 @@ function publishFirst(
       skip = false
       continue
     }
-    const targets = publishPlan(types, records, dependencies, selection)
+    const targets = publishFresh(types, records, selection)
     if (targets !== undefined) return targets
   }
   return undefined

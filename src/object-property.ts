@@ -83,25 +83,40 @@ export function arrayIndex(property: PropertyKey): number | undefined {
 export const hasOwn = (value: object, key: PropertyKey): boolean => Object.hasOwn(value, key)
 
 /**
- * The own string keys of `value` that are not enumerable, or `undefined` when every one is.
+ * The own string keys of `value` that are not enumerable, or `undefined` when every one is; with
+ * `first`, a set holding only the first such key.
  *
  * @remarks
- * One key listing decides the common case without reading a descriptor. Otherwise each listed
- * name's descriptor is read once: a name a proxy lists without a descriptor is absent, as
- * `Object.keys` treats it, and is removed from `names`, which the caller listed and reads again
- * only through this listing.
+ * One key listing decides the common case without reading a descriptor. Otherwise only the names
+ * that listing left out are read, each once: a name a proxy lists without a descriptor is absent,
+ * as `Object.keys` treats it, and is removed from `names`, which the caller listed and reads again
+ * only through this listing. With `first`, the caller does not read `names` again once a key is
+ * found.
  * @internal
  */
-export function hiddenNames(value: object, names: string[]): Set<PropertyKey> | undefined {
-  if (Object.keys(value).length === names.length) return undefined
+export function hiddenNames(
+  value: object,
+  names: string[],
+  first = false,
+): Set<PropertyKey> | undefined {
+  const keys = Object.keys(value)
+  if (keys.length === names.length) return undefined
   let hidden: Set<PropertyKey> | undefined
   let kept = 0
+  let listed = 0
   for (let index = 0; index < names.length; index += 1) {
     const key = names[index]
+    if (listed < keys.length && keys[listed] === key) {
+      listed += 1
+      names[kept++] = key
+      continue
+    }
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     if (descriptor === undefined) continue
-    if (descriptor.enumerable !== true) (hidden ??= new Set()).add(key)
     names[kept++] = key
+    if (descriptor.enumerable === true) continue
+    ;(hidden ??= new Set()).add(key)
+    if (first) return hidden
   }
   names.length = kept
   return hidden

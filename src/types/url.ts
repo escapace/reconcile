@@ -1,4 +1,3 @@
-import { adoptPrototype } from './shared/prototype'
 import { inChain, isObject } from '../object-property'
 import { freeze, noValue, same } from './shared/empty'
 import { finalizationConstructionImpossible } from '../error'
@@ -6,6 +5,7 @@ import {
   URL_KIND,
   adoptURLCarrier,
   carrierFromResponse,
+  ownedURL,
   nativeURLHref,
   nativeURLSearchParameters,
   setNativeURLHref,
@@ -54,7 +54,7 @@ const urlCapture = {
         ? new URL(href)
         : undefined)
     if (carrier === undefined) throw snapshotURLSearchParametersMemoIncompatible()
-    adoptPrototype(adoptURLCarrier(carrier, href), prototype, URL.prototype)
+    ownedURL(carrier, href, prototype)
     begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })
   },
 } satisfies CapturePolicy<URLLayout>
@@ -87,11 +87,7 @@ const urlConstruction = {
     const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
     return carrier === undefined
       ? undefined
-      : adoptPrototype(
-          adoptURLCarrier(carrier, node.layout.href),
-          node.layout.prototype,
-          URL.prototype,
-        )
+      : ownedURL(carrier, node.layout.href, node.layout.prototype)
   },
 } satisfies ConstructionPolicy<URLLayout>
 
@@ -119,8 +115,6 @@ export const urlPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<URLLayout>
 
 export const urlImmutable = /* @__PURE__ */ (() => ({
-  ...urlConstruction,
-  freshWrite: noValue,
   immutable: freeze({
     operations: freeze({
       ownsDependencies: true,
@@ -130,11 +124,7 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
         const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
         if (carrier === undefined) throw finalizationConstructionImpossible()
-        return adoptPrototype(
-          adoptURLCarrier(carrier, href),
-          Object.getPrototypeOf(url) as object | null,
-          URL.prototype,
-        )
+        return ownedURL(carrier, href, Object.getPrototypeOf(url) as object | null)
       },
       dependencies: (value, visit) =>
         visit(nativeURLSearchParameters(value as URL), URL_SEARCH_PARAMS_KIND),

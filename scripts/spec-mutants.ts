@@ -31,7 +31,7 @@ const MUTANTS: readonly Mutant[] = [
   },
   {
     file: ENGINE,
-    find: '  if (published === WRITE_FREE && passes === undefined) return undefined\n',
+    find: '  if (published === WRITE_FREE && run.passes === undefined) return undefined\n',
     name: 'readback-skipped',
     replace: '  return published === WRITE_FREE ? undefined : published\n',
   },
@@ -86,9 +86,9 @@ const MUTANTS: readonly Mutant[] = [
   },
   {
     file: 'src/types/object.ts',
-    find: '        if (keys[index] !== node.keys[index]) return false\n',
+    find: '    if (keys[index] !== expected[index]) return false\n',
     name: 'key-order-unchecked',
-    replace: '        if (keys[index] !== node.keys[index]) continue\n',
+    replace: '    if (keys[index] !== expected[index]) continue\n',
     survives: 'only a trap can reorder keys between capture and readback; proxies are not modelled',
   },
   {

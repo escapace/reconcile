@@ -142,13 +142,6 @@ describe('compact immutable selection', () => {
     expect(declined).toBeGreaterThan(300)
   })
 
-  it('rejects malformed child indices explicitly', () => {
-    for (const child of [-1, 1, 0.5])
-      expect(() => [...immutableSelections(fixture([{ children: [child] }]))]).toThrow(
-        'has invalid child',
-      )
-  })
-
   it('preserves maximal reuse after undo rather than treating dirty state as failure', () => {
     const current = { n: 0 }
     const result = produce(current, (draft) => {

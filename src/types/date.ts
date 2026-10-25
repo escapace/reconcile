@@ -57,8 +57,6 @@ export const datePublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<DateLayout>
 
 export const dateImmutable = /* @__PURE__ */ (() => ({
-  ...dateConstruction,
-  freshWrite: noValue,
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,

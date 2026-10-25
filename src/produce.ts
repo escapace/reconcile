@@ -134,7 +134,6 @@ import { produceTypes } from './types/builtins'
  * @throws {@link ReconcileError} after the recipe returns: `FinalizationAccessorUnstable` can be
  * thrown when a getter adds a getter to a part of the result that `produce` has already visited,
  * and `FinalizationConstructionImpossible` when no consistent result exists.
- * `FinalizationChildInvalid` indicates a bug in the library.
  * @throws Errors thrown by the recipe, getters, setters or proxy traps, and native errors, such as
  * a `RangeError` for an invalid array length or the engine's error for nesting that exceeds the
  * call stack, propagate unchanged.

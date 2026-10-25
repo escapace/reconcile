@@ -1,27 +1,30 @@
-import { edgeAt } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
   ConstructionPolicy,
-  DraftStrategy,
   ImmutablePolicy,
   PublicationPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import type { BaseDraftState, NativePolicy } from '../types'
-import { collectionSurface, normalize } from './shared/collection'
+import type { BaseDraftState } from '../types'
+import {
+  collectionSurface,
+  entriesMatch,
+  normalize,
+  type CollectionAccess,
+} from './shared/collection'
 import {
   draftState,
   draftValue,
-  adoptDraftClass,
+  collectionDraft,
   draftChild,
   draftCollectionBase,
   draftWalk,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { draftedForm } from './shared/draft-members'
+import { copiedForm, draftedForm } from './shared/draft-members'
 import {
   builtinMapClear,
   builtinMapDelete,
@@ -39,22 +42,16 @@ import {
 /** Stable global identity owned by the map module. */
 export const MAP_KIND = Symbol.for('@escapace/reconcile/map')
 
-const mapPolicySurface = /* @__PURE__ */ collectionSurface({
-  builtin: {
-    open: openMapEntries,
-    put: builtinMapSet,
-    remove: builtinMapDelete,
-    size: builtinMapSize,
-    step: mapStep,
-  },
+const mapAccess: CollectionAccess = {
+  open: openMapEntries,
+  put: builtinMapSet,
+  remove: builtinMapDelete,
+  size: builtinMapSize,
+  step: mapStep,
   width: 2,
-  read: (entry, slot, strict) =>
-    strict ? (entry as unknown[])[slot] : (entry as unknown[] | undefined)?.[slot],
-})
-const mapPolicyWrite: NativePolicy<MapLayout>['freshWrite'] = (node, target, index, resolve) => {
-  if (index % 2 === 1)
-    builtinMapSet(target, resolve(node.edges[index - 1]), resolve(node.edges[index]))
+  read: (entry, slot) => (entry as unknown[] | undefined)?.[slot],
 }
+const mapPolicySurface = /* @__PURE__ */ collectionSurface(mapAccess)
 const mapCapture = {
   construction: noValue,
   observe(value, begin, edge) {
@@ -83,10 +80,17 @@ export const mapPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<MapLayout>
 
 export const mapImmutable = /* @__PURE__ */ (() => ({
-  ...mapConstruction,
-  freshWrite: mapPolicyWrite,
   immutable: /* @__PURE__ */ freeze({
+    allocate: mapConstruction.allocate,
     tag: 'structural',
+    // A new `Map` that holds one object as two keys, as when two keys share one special copy,
+    // has fewer entries than its node: no plan that copies it can be built.
+    fill(node, target, resolve) {
+      const edges = node.edges
+      for (let index = 1; index < edges.length; index += 2)
+        builtinMapSet(target, resolve(edges[index - 1]), resolve(edges[index]))
+      return builtinMapSize(target) * 2 === edges.length
+    },
     observeDraft(source, observer) {
       const { base } = observer
       // The prototype is the base's, which a working copy keeps.
@@ -99,15 +103,7 @@ export const mapImmutable = /* @__PURE__ */ (() => ({
         observer.edge(value, undefined, present && Object.is(value, builtinMapGet(base, key)))
       })
     },
-    reuse(node, current, visit) {
-      if (builtinMapSize(current) * 2 !== node.edges.length) return false
-      let index = 0
-      return !eachBuiltinEntry(
-        current,
-        (key, value) =>
-          !visit(key, edgeAt(node.edges, index++)) || !visit(value, edgeAt(node.edges, index++)),
-      )
-    },
+    reuse: (node, current, visit) => entriesMatch(mapAccess, node.edges, current, visit),
   } satisfies ImmutablePolicy<MapLayout>['immutable']),
   someChild(source, _read, test) {
     return eachBuiltinEntry(source, (key, value) => test(key) || test(value))
@@ -121,22 +117,10 @@ export interface MapLayout {
   readonly prototype: object | null
 }
 
-export const mapDraft = /* @__PURE__ */ freeze({
-  tag: 'structural',
-  handle: (state): object => new DraftMap(state),
-  state: (base, context) => ({
-    base,
-    context,
-    copy: undefined,
-    handle: undefined,
-    kind: MAP_KIND,
-    modified: false,
-    properties: undefined,
-    source() {
-      return this.copy ?? this.base
-    },
-  }),
-}) satisfies DraftStrategy<MapDraftState>
+export const mapDraft = /* @__PURE__ */ collectionDraft<MapDraftState>(
+  MAP_KIND,
+  (state): object => new DraftMap(state),
+)
 
 /**
  * Captures a native Map once, preserving iterator order and key normalization.
@@ -175,10 +159,7 @@ function resolveMapKey(state: MapDraftState, source: Map<unknown, unknown>, key:
     if (form !== undefined) return form
     key = drafted.base
   }
-  // A copy that a read of a `Date`, buffer, view or URL made counts as its original, as a draft does.
-  const copied = context.copyBase(key as object) ?? context.copyOf(key as object)
-  if (copied !== undefined && builtinMapHas(source, copied)) return copied
-  return key
+  return copiedForm(context, key as object, source, builtinMapHas) ?? key
 }
 
 /**
@@ -196,14 +177,6 @@ const DraftMap = /* @__PURE__ */ (() => {
     // Keys are not drafts: a key is the object stored in the Map.
     (_state, key) => key,
   ) {
-    /** Binds the wrapper to its call-local draft state. */
-    constructor(state: MapDraftState) {
-      super(state)
-      adoptDraftClass(this, DraftMap.prototype, Map.prototype, state)
-      // A Map result carries only its entries, so the draft refuses new properties.
-      Object.preventExtensions(this)
-    }
-
     /** Reads the current collection size without allocating a copy. */
     get size(): number {
       return builtinMapSize(draftValue(draftState<MapDraftState>(this)))

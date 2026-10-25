@@ -1,5 +1,4 @@
 import { isNode } from './edge'
-import { finalizationChildInvalid } from '../error'
 import type { Edge, ImmutableProblem } from '../types'
 import { smallAdd, smallHas, smallSet } from './small-set'
 import { denseArray } from '../standard-prototypes'
@@ -113,8 +112,6 @@ export function* immutableSelections({
               const edge = edges[position]
               if (!isNode(edge)) continue
               const child = edge.node
-              if (!Number.isInteger(child) || child < 0 || child >= size)
-                throw finalizationChildInvalid(node, child)
               if (child < node && !retained[child]) {
                 compatible = false
                 break

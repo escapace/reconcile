@@ -18,6 +18,20 @@ export function draftedForm<C>(
 }
 
 /**
+ * The original or the copy of `value` that `holds` finds in `container`: a read of a `Date`,
+ * buffer, view or URL makes a copy, which counts as its original, as a draft does.
+ */
+export function copiedForm<C>(
+  context: DraftContext,
+  value: object,
+  container: C,
+  holds: (container: C, form: unknown) => boolean,
+): object | undefined {
+  const form = context.copyBase(value) ?? context.copyOf(value)
+  return form !== undefined && holds(container, form) ? form : undefined
+}
+
+/**
  * The identity a draft compares when it decides membership, its key: the object a drafted value
  * drafts, whichever of its forms the draft was made from; the original
  * of the copy a read of a `Date`, buffer, view or URL makes; and any other value itself. Each read

@@ -236,9 +236,15 @@ function observeElement(
 }
 
 export const arrayImmutable = /* @__PURE__ */ (() => ({
-  ...arrayConstruction,
   immutable: /* @__PURE__ */ freeze({
+    allocate: arrayConstruction.allocate,
     tag: 'structural',
+    fill(node, target, resolve) {
+      const prototype = node.layout.prototype
+      for (let index = 0; index < node.edges.length; index += 1)
+        fillElement(target, prototype, node.keys[index], resolve(node.edges[index]))
+      return true
+    },
     observeDraft(source, observer) {
       const properties = observer.properties
       const array = source as unknown[]
@@ -275,9 +281,6 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
       return position === node.keys.length
     },
   } satisfies ImmutablePolicy<ArrayLayout>['immutable']),
-  freshWrite(node, target, index, resolve) {
-    fillElement(target, node.layout.prototype, node.keys[index], resolve(node.edges[index]))
-  },
   someChild(source, read, test) {
     const array = source as unknown[]
     for (let index = 0; index < array.length; index += 1)

@@ -1,27 +1,30 @@
-import { edgeAt } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
   ConstructionPolicy,
-  DraftStrategy,
   ImmutablePolicy,
   PublicationPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import type { BaseDraftState, NativePolicy } from '../types'
-import { collectionSurface, normalize } from './shared/collection'
+import type { BaseDraftState } from '../types'
+import {
+  collectionSurface,
+  entriesMatch,
+  normalize,
+  type CollectionAccess,
+} from './shared/collection'
 import {
   draftState,
   draftValue,
-  adoptDraftClass,
+  collectionDraft,
   draftChild,
   draftCollectionBase,
   draftWalk,
 } from './shared/draft-collection'
 import { emptyEdges } from './shared/empty'
-import { draftedForm } from './shared/draft-members'
+import { copiedForm, draftedForm } from './shared/draft-members'
 import {
   closeIterator,
   Detached,
@@ -52,20 +55,16 @@ interface SetOperand {
 const operandHas = (operand: SetOperand, value: unknown): boolean =>
   Boolean(Reflect.apply(operand.has, operand.set, [value]))
 
-const setPolicySurface = /* @__PURE__ */ collectionSurface({
-  builtin: {
-    open: openSetValues,
-    put: builtinSetAdd,
-    remove: builtinSetDelete,
-    size: builtinSetSize,
-    step: setStep,
-  },
+const setAccess: CollectionAccess = {
+  open: openSetValues,
+  put: builtinSetAdd,
+  remove: builtinSetDelete,
+  size: builtinSetSize,
+  step: setStep,
   width: 1,
   read: (entry) => entry,
-})
-const setPolicyWrite: NativePolicy<SetLayout>['freshWrite'] = (node, target, index, resolve) => {
-  builtinSetAdd(target, resolve(node.edges[index]))
 }
+const setPolicySurface = /* @__PURE__ */ collectionSurface(setAccess)
 const setCapture = {
   construction: noValue,
   observe(value, begin, edge) {
@@ -92,10 +91,16 @@ export const setPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<SetLayout>
 
 export const setImmutable = /* @__PURE__ */ (() => ({
-  ...setConstruction,
-  freshWrite: setPolicyWrite,
   immutable: /* @__PURE__ */ freeze({
+    allocate: setConstruction.allocate,
     tag: 'structural',
+    // A new `Set` that holds one object as two members has fewer members than its node.
+    fill(node, target, resolve) {
+      const edges = node.edges
+      for (let index = 0; index < edges.length; index += 1)
+        builtinSetAdd(target, resolve(edges[index]))
+      return builtinSetSize(target) === edges.length
+    },
     observeDraft(source, observer) {
       const { base } = observer
       // The prototype is the base's, which a working copy keeps.
@@ -111,11 +116,7 @@ export const setImmutable = /* @__PURE__ */ (() => ({
         )
       })
     },
-    reuse(node, current, visit) {
-      if (builtinSetSize(current) !== node.edges.length) return false
-      let index = 0
-      return !eachBuiltinMember(current, (value) => !visit(value, edgeAt(node.edges, index++)))
-    },
+    reuse: (node, current, visit) => entriesMatch(setAccess, node.edges, current, visit),
   } satisfies ImmutablePolicy<SetLayout>['immutable']),
   someChild(source, _read, test) {
     return eachBuiltinMember(source, test)
@@ -129,22 +130,10 @@ export interface SetLayout {
   readonly prototype: object | null
 }
 
-export const setDraft = /* @__PURE__ */ freeze({
-  tag: 'structural',
-  handle: (state): object => new DraftSet(state),
-  state: (base, context) => ({
-    base,
-    context,
-    copy: undefined,
-    handle: undefined,
-    kind: SET_KIND,
-    modified: false,
-    properties: undefined,
-    source() {
-      return this.copy ?? this.base
-    },
-  }),
-}) satisfies DraftStrategy<SetDraftState>
+export const setDraft = /* @__PURE__ */ collectionDraft<SetDraftState>(
+  SET_KIND,
+  (state): object => new DraftSet(state),
+)
 
 const LOOKUP_MISS = {}
 /**
@@ -190,8 +179,7 @@ function otherForm(context: BaseDraftState['context'], value: object, set: objec
     const form = draftedForm(drafted, value, set, builtinSetHas)
     if (form !== undefined) return form
   }
-  const form = context.copyBase(value) ?? context.copyOf(value)
-  return form !== undefined && builtinSetHas(set, form) ? form : LOOKUP_MISS
+  return copiedForm(context, value, set, builtinSetHas) ?? LOOKUP_MISS
 }
 
 type SetMethod =
@@ -278,9 +266,7 @@ class SetCall extends Detached {
     const drafted = state.context.statesByIdentity.get(member)
     if (drafted !== undefined && draftedForm(drafted, member, operand, operandHas) !== undefined)
       return true
-    // The original or the copy of a special value counts as the value, as `otherForm` finds it.
-    const form = state.context.copyBase(member) ?? state.context.copyOf(member)
-    return form !== undefined && operandHas(operand, form)
+    return copiedForm(state.context, member, operand, operandHas) !== undefined
   }
 
   /** The member of `members`, this draft's live members or a copy of them, that `value` is a form
@@ -451,14 +437,6 @@ const DraftSet = /* @__PURE__ */ (() => {
     prepareSetCopy as (state: BaseDraftState) => Set<unknown>,
     draftChild,
   ) {
-    /** Binds the wrapper to its call-local draft state. */
-    constructor(state: SetDraftState) {
-      super(state)
-      adoptDraftClass(this, DraftSet.prototype, Set.prototype, state)
-      // A Set result carries only its members, so the draft refuses new properties.
-      Object.preventExtensions(this)
-    }
-
     /** Reads the current collection size without allocating a copy. */
     get size(): number {
       return sizeOf(draftState<SetDraftState>(this))

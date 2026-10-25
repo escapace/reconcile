@@ -492,7 +492,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as {
 // copy.owner === copy.members[0]; copy.owner !== user
 ```
 
-## function isReconcileError [↗](src/error.ts#L157-L158 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L151-L152 'isReconcileError')
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -506,7 +506,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L166-L169 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L160-L163 'isReconcileErrorOfType')
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
 
@@ -522,7 +522,7 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 | `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
 | `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
 
-## function produce [↗](src/produce.ts#L142-L160 'produce')
+## function produce [↗](src/produce.ts#L141-L159 'produce')
 
 Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
 
@@ -551,7 +551,7 @@ The value the recipe returned, with drafts replaced by ordinary values. A recipe
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) while the recipe runs: `DraftDefinePropertyUnsupported` for reflective property definition on an object or array draft, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real array could not have.
-2. [ReconcileError](#class-reconcileerror-) after the recipe returns: `FinalizationAccessorUnstable` can be thrown when a getter adds a getter to a part of the result that `produce` has already visited, and `FinalizationConstructionImpossible` when no consistent result exists. `FinalizationChildInvalid` indicates a bug in the library.
+2. [ReconcileError](#class-reconcileerror-) after the recipe returns: `FinalizationAccessorUnstable` can be thrown when a getter adds a getter to a part of the result that `produce` has already visited, and `FinalizationConstructionImpossible` when no consistent result exists.
 3. Errors thrown by the recipe, getters, setters or proxy traps, and native errors, such as a `RangeError` for an invalid array length or the engine's error for nesting that exceeds the call stack, propagate unchanged.
 
 ### Remarks
@@ -765,7 +765,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L132-L150 'ReconcileError')
+## class ReconcileError [↗](src/error.ts#L126-L144 'ReconcileError')
 
 The error this library throws for every failure it detects.
 
@@ -822,7 +822,7 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L25 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L24 'RECONCILE_ERROR_TYPES')
 
 Every error type this library throws.
 
@@ -835,7 +835,6 @@ RECONCILE_ERROR_TYPES: readonly[
   'DraftArrayLengthRejected',
   'DraftDefinePropertyUnsupported',
   'FinalizationAccessorUnstable',
-  'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
   'PublicationRejected',
   'SerializeValueUnsupported',
@@ -863,7 +862,7 @@ The largest size, in bytes, of the value `deserialize` may return: a non-negativ
 readonly maxBytes: number;
 ```
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L36-L103 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L35-L97 'ReconcileErrorMetadata')
 
 The properties of `cause` for each error type, in addition to `type`.
 
@@ -945,17 +944,6 @@ FinalizationAccessorUnstable: {
 }
 ```
 
-### ReconcileErrorMetadata.FinalizationChildInvalid
-
-Internal error in `produce`, which indicates a bug in the library. `index` and `child` are diagnostic values for a bug report.
-
-```typescript
-FinalizationChildInvalid: {
-  child: unknown
-  index: number
-}
-```
-
 ### ReconcileErrorMetadata.FinalizationConstructionImpossible
 
 No consistent result exists: the new objects cannot be created in any order, or a `Map` or `Set` would hold one new object as two keys or members.
@@ -993,7 +981,7 @@ SnapshotURLSearchParamsMemoIncompatible: {
 }
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L106-L107 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L100-L101 'ReconcileErrorCause')
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` and that type's properties.
 
@@ -1004,7 +992,7 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L28 'ReconcileErrorType')
+## type ReconcileErrorType [↗](src/error.ts#L27 'ReconcileErrorType')
 
 The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
 

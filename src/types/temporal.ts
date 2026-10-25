@@ -180,8 +180,6 @@ export const temporalPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<TemporalLayout>
 
 export const temporalImmutable = /* @__PURE__ */ (() => ({
-  ...temporalConstruction,
-  freshWrite: noValue,
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,

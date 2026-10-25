@@ -11,10 +11,3 @@ export const atomValue = (edge: Atom | Primitive): unknown =>
 /** A snapshot edge's value: a node's initialized target, or an atom's value. */
 export const snapshotValue = (edge: Edge): unknown =>
   isNode(edge) ? (edge as { readonly target?: object } & NodeEdge).target : atomValue(edge)
-
-const missing: Atom = /* @__PURE__ */ Object.freeze({ node: undefined, value: undefined })
-
-/** The edge at `index`, or an `undefined` atom past the end: never an element `Array.prototype`
- * supplies. */
-export const edgeAt = (edges: readonly Edge[], index: number): Edge =>
-  index < edges.length ? edges[index] : missing

@@ -114,18 +114,21 @@ describe('complete immutable graph compilation', () => {
     const source = record(current, 1)
     source.children[0] = record(child, 0)
     const allocated: object[] = []
-    const policy = produceTypes.policies[OBJECT_KIND]
+    let fills = 0
+    const structural = produceTypes.structural[OBJECT_KIND]
     const types: ImmutableRegistry = {
       ...produceTypes,
-      policies: {
-        ...produceTypes.policies,
+      structural: {
+        ...produceTypes.structural,
         [OBJECT_KIND]: {
-          ...policy,
-          // The first construction fails, so the eligibility mask (child kept) is rejected.
-          allocate(node, resolve, targets) {
+          ...structural,
+          allocate(node) {
             allocated.push(node)
-            return allocated.length === 1 ? undefined : policy.allocate(node, resolve, targets)
+            return structural.allocate(node)
           },
+          // The first copy cannot hold its slots, as a collapsing Map could not, so the
+          // eligibility mask (child kept) is rejected.
+          fill: (node, target, resolve) => ++fills !== 1 && structural.fill(node, target, resolve),
         },
       },
     }

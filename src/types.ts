@@ -200,6 +200,11 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
         /** Observes structural slots synchronously, retaining draft provenance and isolated reads. */
         readonly observeDraft: (source: object, observer: DraftObservationContext<L>) => void
         readonly reuse: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
+        /** Allocates the empty copy of a node; produce fills it once every copy exists. */
+        readonly allocate: (node: CapturedNode<L>) => object
+        /** Writes the node's slots into its copy; false when the copy cannot hold them, as when
+         * two keys of a `Map` resolve to one object. */
+        readonly fill: (node: CapturedNode<L>, target: object, resolve: Resolve) => boolean
       }
 
   readonly bindings:
@@ -207,7 +212,9 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
         readonly tag: 'dependent'
         /** Pure sealed node IDs required before allocating a fresh target. */
         readonly dependencies: (node: CapturedNode<L>) => readonly number[]
-        readonly read: (node: CapturedNode<L>, current: object) => readonly BoundEdge[]
+        /** The children a kept object owns; read only for the kind a publication asks its owner
+         * from, a URL. */
+        readonly read?: (node: CapturedNode<L>, current: object) => readonly BoundEdge[]
       }
     | { readonly tag: 'independent' }
   /**
@@ -219,13 +226,6 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     resolve: Resolve,
     owners?: NativeOwners,
   ) => object | undefined
-  /** Writes one immutable output slot; every selected target has already been allocated. */
-  readonly freshWrite: (
-    node: CapturedNode<L>,
-    target: object,
-    index: number,
-    resolve: Resolve,
-  ) => void
   /** Whether `current` holds the node's contents. */
   readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
   /**
@@ -280,8 +280,10 @@ export type ConstructionPolicy<L extends Layout = Layout> = Pick<
   NativePolicy<L>,
   'allocate' | 'bindings'
 >
-export type ImmutablePolicy<L extends Layout = Layout> = ConstructionPolicy<L> &
-  Pick<NativePolicy<L>, 'freshWrite' | 'immutable' | 'someChild'>
+export type ImmutablePolicy<L extends Layout = Layout> = Pick<
+  NativePolicy<L>,
+  'immutable' | 'someChild'
+>
 export type PublicationPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   ConstructionPolicy<L> &
   Pick<NativePolicy<L>, 'aligned' | 'matches' | 'publish' | 'requirements' | 'seal'>

@@ -1,5 +1,6 @@
 import { hasOwn, isObject } from '../../object-property'
-import type { BaseDraftState } from '../../types'
+import type { BaseDraftState, DraftStrategy } from '../../types'
+import { freeze } from './empty'
 import { defineData, openBuiltin, type Step } from '../../standard-prototypes'
 
 /**
@@ -72,6 +73,14 @@ export function draftCollectionBase(
     return draftWalk(opened.iterator as Iterator<never>, project, opened.step)
   }
   abstract class DraftCollection extends DraftStateHolder {
+    /** Binds the draft to its call-local state, on its source's class; a collection result carries
+     * only its entries or members, so the draft refuses new properties. */
+    constructor(state: BaseDraftState) {
+      super(state)
+      adoptDraftClass(this, new.target.prototype, builtin, state)
+      Object.preventExtensions(this)
+    }
+
     /** Walks the entries, each value as its draft. */
     entries(): IterableIterator<[unknown, unknown]> {
       const state = draftState(this)
@@ -121,6 +130,29 @@ export function draftCollectionBase(
   return DraftCollection
 }
 
+/** The draft strategy of a `Map` or `Set` kind, whose drafts `handle` constructs. */
+export const collectionDraft = <S extends BaseDraftState>(
+  kind: S['kind'],
+  handle: (state: S) => object,
+): DraftStrategy<S> =>
+  freeze({
+    handle,
+    tag: 'structural',
+    state: (base, context) =>
+      ({
+        base,
+        context,
+        copy: undefined,
+        handle: undefined,
+        kind,
+        modified: false,
+        properties: undefined,
+        source(this: BaseDraftState) {
+          return this.copy ?? this.base
+        },
+      }) as unknown as S,
+  })
+
 /** A value a draft yields: an object as its draft, as a read returns it. */
 export const draftChild = (state: BaseDraftState, value: unknown): unknown =>
   isObject(value) ? state.context.materializeChild(value) : value
@@ -163,7 +195,7 @@ export function draftWalk<T, R>(
  * working copy of the same class, with the built-in methods, so an override never runs. The
  * class's own `constructor` is removed, so `constructor` also resolves as on the source.
  */
-export function adoptDraftClass(
+function adoptDraftClass(
   draft: object,
   layer: object,
   builtin: object,

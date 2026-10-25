@@ -94,7 +94,7 @@ function record(frame: Frame, context: EncodeContext) {
     const names = Object.getOwnPropertyNames(frame.value)
     // deserialize restores enumerable properties only, so a hidden property is rejected, not
     // revealed.
-    if (hiddenNames(frame.value, names) !== undefined) fail('non-enumerable property')
+    if (hiddenNames(frame.value, names, true) !== undefined) fail('non-enumerable property')
     frame.keys = names
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
@@ -123,7 +123,6 @@ function set(frame: Frame, context: EncodeContext) {
   return true
 }
 function startArray(frame: Frame) {
-  if (!Array.isArray(frame.value)) fail('array brand')
   const initial = (frame.value as unknown[]).length
   if (!int(initial, maxArrayLength)) fail('array length or index invalid')
   frame.length = initial

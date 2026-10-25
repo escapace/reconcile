@@ -57,8 +57,6 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
   }))() satisfies PublicationPolicy<ArrayBufferLayout>
 
 export const arrayBufferImmutable = /* @__PURE__ */ (() => ({
-  ...arrayBufferConstruction,
-  freshWrite: noValue,
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,

@@ -47,7 +47,6 @@ export function viewConstruction<K extends symbol>(
 ): ConstructionPolicy<{ readonly kind: K; readonly sample: ArrayBufferView }> {
   return {
     bindings: /* @__PURE__ */ freeze({
-      read: viewBindings,
       tag: 'dependent',
       dependencies: (node) => (isNode(node.edges[0]) ? [node.edges[0].node] : []),
     } satisfies ConstructionPolicy<{
@@ -98,12 +97,8 @@ export function viewImmutable<K extends symbol>(
     ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>['immutable'],
     { tag: 'copy' }
   >
-} & Pick<
-  ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>,
-  'freshWrite' | 'someChild'
-> {
+} & Pick<ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>, 'someChild'> {
   return {
-    freshWrite: noValue,
     immutable: /* @__PURE__ */ freeze({
       operations: /* @__PURE__ */ freeze({
         copy: (value, resolve) =>

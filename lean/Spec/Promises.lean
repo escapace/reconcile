@@ -224,7 +224,7 @@ theorem fuelOf_normalized (input : Input) :
 decision passes of the budget. -/
 theorem run_passes (input : Input) : (run input).passes = 0 ∨
     (run input).passes = (demote (normalized input) (discover (normalized input))
-      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input))
+      (discover (normalized input)).pinned (fuelOf (normalized input))
       [] []).length := by
   simp only [run]
   split
@@ -240,7 +240,7 @@ theorem passes_le (input : Input) :
   rcases run_passes input with h | h <;> rw [h]
   · exact Nat.zero_le _
   · have := demote_length_le (normalized input) (discover (normalized input))
-      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input)) [] []
+      (discover (normalized input)).pinned (fuelOf (normalized input)) [] []
     have hf := fuelOf_normalized input
     omega
 

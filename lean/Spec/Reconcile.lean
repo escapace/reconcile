@@ -125,6 +125,7 @@ every position. A pinned node has no candidate. -/
 structure Discovery where
   order : List Nat
   first : Array (Option Nat)
+  pinned : Array Bool
   candidates : Array (List Nat)
 
 /-- The depth-first walk of `next`: per pending node the pinning alignment its edge offers. Returns
@@ -186,8 +187,8 @@ def keepable : Kind → Bool
 
 /-- Whether next node `j` is pinned: the current object at its own position, of a kind that can be
 kept as it is, whose subtree reaches neither root. The current root is never pinned. -/
-def pinnedAt (input : Input) (al : Discovery) (j : Nat) : Bool :=
-  match input.same[j]?.bind id, al.first[j]?.bind id with
+def pinnedAt (input : Input) (first : Array (Option Nat)) (j : Nat) : Bool :=
+  match input.same[j]?.bind id, first[j]?.bind id with
   | some i, some i' =>
     let reached := reach input.cur i
     let nextRootCur := input.next.root.refId.bind fun r => input.same[r]?.bind id
@@ -198,10 +199,11 @@ def pinnedAt (input : Input) (al : Discovery) (j : Nat) : Bool :=
         | none => false)
   | _, _ => false
 
-/-- The pinned next nodes: those pinned at their position and everything inside them, plus every
-next node that is a current object inside a pinned subtree. -/
-def pinned (input : Input) (al : Discovery) : Array Bool :=
-  let roots := al.order.filter (pinnedAt input al)
+/-- The pinned next nodes, from the visit order and the pinning alignments: those pinned at their
+position and everything inside them, plus every next node that is a current object inside a pinned
+subtree. -/
+def pinned (input : Input) (order : List Nat) (first : Array (Option Nat)) : Array Bool :=
+  let roots := order.filter (pinnedAt input first)
   let inside := roots.flatMap (reach input.next)
   let protectedCur := inside.filterMap fun j => input.same[j]?.bind id
   (Array.range input.next.nodes.size).map fun j =>
@@ -210,20 +212,20 @@ def pinned (input : Input) (al : Discovery) : Array Bool :=
       | some i => protectedCur.contains i
       | none => false
 
-/-- Discovers the visit order, the pinning alignments and the candidates of every next node from
-the roots. A pinned node, which capture keeps as it is, has no candidate. -/
+/-- Discovers the visit order, the pinning alignments, the pinned nodes and the candidates of every
+next node from the roots. A pinned node, which capture keeps as it is, has no candidate. -/
 def discover (input : Input) : Discovery :=
   let n := input.next.nodes.size
   match input.next.root with
-  | .prim _ => ⟨[], Array.replicate n none, Array.replicate n []⟩
+  | .prim _ => ⟨[], Array.replicate n none, Array.replicate n false, Array.replicate n []⟩
   | .ref r =>
     let root := input.cur.root.refId
     let (order, first) := visitStep input.cur input.next input.next.budget [(r, root)]
       (Array.replicate n false) (Array.replicate n none) []
-    let pin := pinned input ⟨order, first, Array.replicate n []⟩
+    let pin := pinned input order first
     let found := candidateStep input.cur input.next
       (input.next.budget * (input.cur.nodes.size + 1)) [(r, root)] (Array.replicate n [])
-    ⟨order, first, found.mapIdx fun j cs => if pin[j]?.getD false then [] else cs⟩
+    ⟨order, first, pin, found.mapIdx fun j cs => if pin[j]?.getD false then [] else cs⟩
 
 /-! ## Decide -/
 
@@ -700,7 +702,7 @@ def run (raw : Input) : Outcome :=
   match input.cur.root, input.next.root with
   | .ref _, .ref r =>
     let al := discover input
-    let pin := pinned input al
+    let pin := al.pinned
     let initial := decide input al pin [] []
     -- A root that cannot be kept rejects the call before any write.
     if (initial[r]?.bind id).isNone then rejected 0

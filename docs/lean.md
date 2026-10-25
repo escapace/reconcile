@@ -301,7 +301,7 @@ accepts exactly that definition, so the assignment has the object's outcome
 | `Requirements`, `RequirementAdmission`, `RequirementPropagation` | `close_least`, `admit_nodup`, `completed_insertion_order`                                                                   | `src/graph/requirements.ts` `closeRequirements`                                                                                                                                             | SeededRequirements, CompactImmutable | none                       |
 | `SeededRequirements`                                             | `close_eq`, `run_eq`, `scans_le`                                                                                            | `compileImmutable` in `src/restore-identities.ts`, `src/finalization.ts`                                                                                                                    | SeededRequirements                   | none                       |
 | `ClosureHistory`, `FactRenaming`                                 | `expandUnfolded_eq`, `execute_eq`, `observations_eq`                                                                        | `src/graph/requirements.ts` `RequirementClosure`                                                                                                                                            | FactRenaming                         | none                       |
-| `Construction`                                                   | `schedule_safe`, `schedule_complete`, `schedule_shells_only`                                                                | `src/graph/construction.ts` `constructionOrder`                                                                                                                                             | CompactImmutable                     | none                       |
+| `Construction`                                                   | `schedule_safe`, `schedule_complete`, `schedule_shells_only`                                                                | `src/graph/construction.ts` `constructionOrder`; `publishFresh` in `src/restore-identities.ts`                                                                                              | CompactImmutable                     | none                       |
 
 `GraphPolicy` defines domains, storage separation, identity requirements, feasible plans and the
 ranked stream, which keeps domain order within equal scores. Identity restoration chooses which
@@ -327,8 +327,11 @@ stream, and `expandUnfolded_eq` equates the runtime's admit-then-propagate `requ
 from the fact.
 
 `Construction` defines the construction schedule that the runtime's `constructionOrder` must
-equal; the CompactImmutable bridge checks that they agree, rejections included. Construction order
-also runs during `reconcile` publication, in `src/publication/publication-engine.ts`.
+equal; the CompactImmutable bridge checks that they agree, rejections included. `reconcile`
+publication runs it, in `src/publication/publication-engine.ts`. Every new object `produce` makes
+is an object, array, `Map` or `Set`, which needs no other new object first, so by
+`schedule_shells_only` the schedule is the new objects in ascending order; `publishFresh` in
+`src/restore-identities.ts` allocates them in that order, then fills each.
 
 ### Native type facets
 
