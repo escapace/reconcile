@@ -19,7 +19,10 @@ import { publicationTypes } from './types/builtins'
  *
  * When `current` holds one object at two positions and `next` holds different objects there, the
  * object is kept at the first of them in the order `reconcile` reads `next`, and the others
- * receive new objects.
+ * receive new objects. When `next` holds one object at two positions and `current` holds different
+ * objects there, `reconcile` keeps the one at the first position it reads, unless another object
+ * it keeps holds a different one of them in a read-only non-configurable property or a getter
+ * without a setter; then it keeps that one, so that the other object can be kept too.
  * Afterwards `current` has the key order, array lengths and holes, entry order, shared references
  * and cycles of `next`.
  *

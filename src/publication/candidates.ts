@@ -112,7 +112,8 @@ function promoteDemanded(domains: Candidate[][]): void {
 }
 
 // The objects the candidates' fixed slots require at each node that has a choice; undefined
-// when none.
+// when none. A candidate's demand on its own node for another object is left out: the candidate
+// could never be kept with it, so it does not reorder that node (Spec.Reconcile.demands).
 function demandedObjects(domains: Candidates): Array<Set<object> | undefined> | undefined {
   let demanded: Array<Set<object> | undefined> | undefined
   for (let node = 0; node < domains.length; node += 1) {
@@ -121,6 +122,7 @@ function demandedObjects(domains: Candidates): Array<Set<object> | undefined> | 
       const required = domain[at].required
       for (let edge = 0; edge < required.length; edge += 1) {
         const target = required[edge].node
+        if (target === node && required[edge].identity !== domain[at].identity) continue
         if (domains[target].length > 1)
           ((demanded ??= denseArray<Set<object> | undefined>(domains.length))[target] ??=
             new Set()).add(required[edge].identity)

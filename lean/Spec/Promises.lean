@@ -19,8 +19,9 @@ theorem shows the reference keeps it on every input, not only the generated ones
   and adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
   demotion forbids only an object whose writes block (`mem_blockedObjects`) and never one an
   earlier pass forbade, so every pass that continues forbids a new current object
-  (`blocked_fresh`); a node that keeps nothing holds a fresh copy and its origin is none
-  (`publish_origins`, `publish_fresh`).
+  (`blocked_fresh`); no demand asks a candidate's own node for another object, so a candidate
+  that can never be kept reorders nothing (`demands_satisfiable`); a node that keeps nothing holds
+  a fresh copy and its origin is none (`publish_origins`, `publish_fresh`).
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`kept_closed`, `kept_greatest`).
 - `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,
@@ -518,6 +519,40 @@ theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbi
     forbidden.contains i = false := by
   obtain ⟨j, _, hpin, hkept, _⟩ := mem_blockedObjects input pin _ i h
   exact decide_fresh input al pin forbidden written j i hpin hkept
+
+/-! ## Demands -/
+
+/-- No demand asks a candidate's own node for another object: every demand comes from an admitted
+candidate `x` of some node `c`, through a fixed slot, and names `c` only with `x` itself. -/
+theorem demands_satisfiable (input : Input) (al : Discovery) (c' x' : Nat)
+    (h : (c', x') ∈ demands input al) :
+    ∃ c x, x ∈ al.candidates[c]?.getD [] ∧ admitted input c x = true ∧
+      (Val.ref x', Val.ref c') ∈ fixedPairs (input.cur.node x) (input.next.node c) ∧
+      (c' = c → x' = x) := by
+  simp only [demands, List.mem_flatMap, List.mem_range] at h
+  obtain ⟨c, _, x, hx, hmem⟩ := h
+  split at hmem
+  · rename_i hadm
+    simp only [List.mem_filterMap] at hmem
+    obtain ⟨⟨cv, nv⟩, hpair, hsome⟩ := hmem
+    cases cv with
+    | prim p => cases nv <;> simp at hsome
+    | ref y =>
+      cases nv with
+      | prim q => simp at hsome
+      | ref d =>
+        simp only at hsome
+        split at hsome
+        · simp at hsome
+        · rename_i hcond
+          simp only [Option.some.injEq, Prod.mk.injEq] at hsome
+          obtain ⟨rfl, rfl⟩ := hsome
+          refine ⟨c, x, hx, hadm, hpair, fun hc => ?_⟩
+          subst hc
+          simp only [Bool.and_eq_true, decide_eq_true_eq, bne_iff_ne, ne_eq, not_and,
+            Decidable.not_not] at hcond
+          exact hcond trivial
+  · simp at hmem
 
 /-! ## Fresh copies -/
 

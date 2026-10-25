@@ -277,7 +277,7 @@ Each function keeps or replaces objects as follows:
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
 - **One object at two positions.** When `current` holds one object at two positions and `next` holds different objects there, `reconcile` keeps the object at the first of them in the order it reads `next`, and gives the others new objects.
-- **Proxies.** Every function treats a proxy and its target as separate objects.
+- **Proxies.** Every function treats a proxy and its target as separate objects. A key that a proxy lists without a descriptor counts as absent, as it does for `Object.keys`: copies leave it out, and `reconcile` never keeps a proxy that lists one. Inside `current`, such a proxy is replaced by a new object; as `current` itself, it makes the call throw `PublicationRejected`.
 
 ## Size limit
 
@@ -589,7 +589,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L94-L96 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L97-L99 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -617,7 +617,7 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when the next value has the same type, such as object, array or `Map`; otherwise the position receives the next value: a primitive or an object kept by reference, such as a function, `RegExp` or `Error`, as it is, and any other object as a new copy. A kept object keeps its prototype: a class instance updated from a plain object stays an instance of its class.
 
-When `current` holds one object at two positions and `next` holds different objects there, the object is kept at the first of them in the order `reconcile` reads `next`, and the others receive new objects. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
+When `current` holds one object at two positions and `next` holds different objects there, the object is kept at the first of them in the order `reconcile` reads `next`, and the others receive new objects. When `next` holds one object at two positions and `current` holds different objects there, `reconcile` keeps the one at the first position it reads, unless another object it keeps holds a different one of them in a read-only non-configurable property or a getter without a setter; then it keeps that one, so that the other object can be kept too. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
 
 Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's text, including parameter order and duplicate names, and a URL keeps its own `searchParams` object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written with the built-in methods, so an override on a subclass or on the instance never runs. Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own properties, such as fields that a subclass declares, are not updated on a kept object and are not copied to a new one.
 

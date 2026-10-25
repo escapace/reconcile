@@ -302,13 +302,14 @@ def admitted (input : Input) (c x : Nat) : Bool :=
     | _ => false
 
 /-- The requirements the admitted candidates of every node make: that the node at each fixed slot
-holding an object keeps that object. -/
+holding an object keeps that object. A demand that would have the candidate's own node keep another
+object is left out: the candidate could never be kept with it, so it must not reorder the node. -/
 def demands (input : Input) (al : Discovery) : List Requirement :=
   (List.range input.next.nodes.size).flatMap fun c =>
     (al.candidates[c]?.getD []).flatMap fun x =>
       if admitted input c x then
         (fixedPairs (input.cur.node x) (input.next.node c)).filterMap fun
-          | (.ref x', .ref c') => some (c', x')
+          | (.ref x', .ref c') => if c' = c && x' != x then none else some (c', x')
           | _ => none
       else []
 
