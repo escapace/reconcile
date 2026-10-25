@@ -14,8 +14,18 @@ theorem shows the reference keeps it on every input, not only the generated ones
 - `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
   and at most once when nothing is written (`get_bound`, `read_once_before_write`); the number of
   decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
+- `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
+  key always (`objectWrites_set_iff`); a kept object keeps the attributes of every property it had
+  and adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
+  demotion forbids only an object whose writes block (`mem_blockedObjects`); a node that keeps
+  nothing holds a fresh copy and its origin is none (`publish_origins`, `publish_fresh`).
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`kept_closed`, `kept_greatest`).
+- `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,
+  `snapshot_fresh`).
+
+The counterexamples at the end of each section show, on one input each, a wrong definition the
+theorem rules out.
 -/
 
 namespace Reconcile.Spec.Reconcile
@@ -209,6 +219,192 @@ theorem passes_le (input : Input) :
     have hf := fuelOf_normalized input
     omega
 
+/-! ## Writes -/
+
+/-- Whether `next`'s slot `(k, ns)` is written into a kept object: a key the object lacks or that
+moves is assigned, a retained key only when its value differs. -/
+def written (identity : Nat → Option Nat) (cFields : List (String × Slot))
+    (retained : List String) (k : String) (ns : Slot) : Bool :=
+  match cFields.lookup k with
+  | some cs => !retained.contains k || differs identity cs.value ns.value
+  | none => true
+
+/-- A key is set exactly when some slot of `next` at it is `written`: `reconcile` assigns a
+changed, moved or added property and leaves an unchanged retained one alone. -/
+theorem objectWrites_set_iff (identity : Nat → Option Nat)
+    (cFields nFields : List (String × Slot)) (k : String) :
+    (k, "set") ∈ (objectWrites identity cFields nFields).1 ↔
+      ∃ ns, (k, ns) ∈ nFields ∧
+        written identity cFields (retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst))
+          k ns = true := by
+  simp only [objectWrites, List.mem_append, List.mem_filterMap]
+  constructor
+  · rintro (⟨⟨k', cs⟩, _, h⟩ | ⟨⟨k', ns⟩, hmem, h⟩)
+    · split at h
+      · simp at h
+      · simp only [Option.some.injEq, Prod.mk.injEq] at h
+        exact absurd h.2 (by decide)
+    · refine ⟨ns, ?_, ?_⟩
+      · split at h
+        · split at h
+          · split at h
+            · simp only [Option.some.injEq, Prod.mk.injEq] at h
+              exact h.1 ▸ hmem
+            · simp at h
+          · simp only [Option.some.injEq, Prod.mk.injEq] at h
+            exact h.1 ▸ hmem
+        · simp only [Option.some.injEq, Prod.mk.injEq] at h
+          exact h.1 ▸ hmem
+      · simp only [written]
+        split at h
+        · rename_i cs hcs
+          split at h
+          · rename_i hr
+            split at h
+            · rename_i hd
+              simp only [Option.some.injEq, Prod.mk.injEq] at h
+              rw [← h.1, hcs]
+              simp [hd]
+            · simp at h
+          · rename_i hr
+            simp only [Option.some.injEq, Prod.mk.injEq] at h
+            rw [← h.1, hcs]
+            simp only [List.contains_iff_mem] at hr
+            simp [hr]
+        · rename_i hcs
+          simp only [Option.some.injEq, Prod.mk.injEq] at h
+          rw [← h.1, hcs]
+  · rintro ⟨ns, hmem, hw⟩
+    refine Or.inr ⟨(k, ns), hmem, ?_⟩
+    simp only [written] at hw
+    split at hw
+    · rename_i cs hcs
+      simp only [hcs]
+      split
+      · rename_i hr
+        simp only [hr, Bool.not_true, Bool.false_or] at hw
+        simp [hw]
+      · rfl
+    · rename_i hcs
+      simp only [hcs]
+
+/-! ## Descriptors -/
+
+def fieldsOf : Obj → List (String × Slot)
+  | .object _ fields _ => fields
+  | _ => []
+
+theorem attrsOf_slotWith (cs : Slot) (v : Val) : attrsOf (slotWith cs v) = attrsOf cs := by
+  cases cs <;> rfl
+
+/-- A kept object keeps the attributes of every property it had, retained or moved, and an added
+property is writable and configurable with `next`'s enumerability. -/
+theorem keptObject_attrs (proto : Proto) (cFields : List (String × Slot)) (extensible : Bool)
+    (nFields : List (String × Slot)) :
+    ∀ p ∈ fieldsOf (keptObject proto cFields extensible nFields),
+      ∃ ns, (p.1, ns) ∈ nFields ∧ attrsOf p.2 =
+        (match cFields.lookup p.1 with
+          | some cs => attrsOf cs
+          | none => ⟨true, ns.enumerable, true⟩) := by
+  intro p hp
+  simp only [keptObject, fieldsOf, List.mem_map] at hp
+  obtain ⟨⟨k, ns⟩, hmem, rfl⟩ := hp
+  refine ⟨ns, hmem, ?_⟩
+  simp only
+  split
+  · rename_i cs heq
+    rw [heq]
+    split
+    · exact attrsOf_slotWith cs _
+    · rfl
+  · rename_i heq
+    rw [heq]
+    simp [attrsOf]
+
+/-! ## Blockers -/
+
+/-- Demotion forbids only an object whose writes block: every object a pass finds blocked is kept
+by that pass's decision at an unpinned node, and one of its writes reaches a setter that drops
+its value or a fixed slot. -/
+theorem mem_blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Option Nat))
+    (i : Nat) (h : i ∈ blockedObjects input pin kept) :
+    ∃ j, j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧
+      kept[j]?.bind id = some i ∧
+      (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).2 = true := by
+  simp only [blockedObjects, List.mem_filterMap, List.mem_range] at h
+  obtain ⟨j, hj, hf⟩ := h
+  refine ⟨j, hj, ?_⟩
+  split at hf
+  · simp at hf
+  · rename_i hpin
+    split at hf
+    · rename_i i' hi'
+      split at hf
+      · rename_i hw
+        simp only [Option.some.injEq] at hf
+        subst hf
+        exact ⟨by simpa using hpin, hi', hw⟩
+      · simp at hf
+    · simp at hf
+
+/-! ## Fresh copies -/
+
+/-- The origins of a published result are the final decision: a node's origin is the object it
+keeps, and none when the node is a fresh copy. -/
+theorem publish_origins (input : Input) (al : Discovery) (pin : Array Bool)
+    (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r : Nat) :
+    (publish input al pin rounds kept r).origins = kept := rfl
+
+/-- A node the decision keeps nothing at holds a fresh copy of `next`'s node. -/
+theorem publish_fresh (input : Input) (al : Discovery) (pin : Array Bool)
+    (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r j : Nat)
+    (hj : j < input.next.nodes.size) (h : kept[j]?.bind id = none) :
+    (publish input al pin rounds kept r).nodes[j]? = some (freshCopy (input.next.node j)) := by
+  simp [publish, hj, h]
+
+/-! ## Counterexamples -/
+
+section Counterexamples
+
+/-- A rule that writes every key of `next`, equal or not. -/
+def objectWritesAll (nFields : List (String × Slot)) : List (String × String) :=
+  nFields.map fun (k, _) => (k, "set")
+
+/-- A rule that re-adds a moved key as a plain data property. -/
+def keptObjectNaive (proto : Proto) (cFields : List (String × Slot)) (extensible : Bool)
+    (nFields : List (String × Slot)) : Obj :=
+  .object proto (nFields.map fun (k, ns) =>
+    (k, match cFields.lookup k with
+      | some cs =>
+        if (retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst)).contains k then
+          slotWith cs ns.value
+        else .data ns.value ⟨true, cs.enumerable, true⟩
+      | none => .data ns.value ⟨true, ns.enumerable, true⟩)) extensible
+
+private def one : List (String × Slot) := [("a", .data (.prim .null) ⟨true, true, true⟩)]
+
+/-- Writing every key breaks the promise: `a` is retained and unchanged, so the reference does
+not write it. -/
+example : ("a", "set") ∉ (objectWrites (fun _ => none) one one).1 ∧
+    ("a", "set") ∈ objectWritesAll one := by
+  decide
+
+private def readOnlyFirst : List (String × Slot) :=
+  [("a", .data (.prim .null) ⟨false, true, false⟩), ("b", .data (.prim .null) ⟨true, true, true⟩)]
+private def swapped : List (String × Slot) :=
+  [("b", .data (.prim .null) ⟨true, true, true⟩), ("a", .data (.prim .null) ⟨false, true, false⟩)]
+
+/-- Re-adding a moved key as plain data breaks the promise: `a` moves and keeps its read-only,
+non-configurable attributes in the reference. -/
+example :
+    (fieldsOf (keptObject .object readOnlyFirst true swapped)).lookup "a" =
+      some (.data (.prim .null) ⟨false, true, false⟩) ∧
+    (fieldsOf (keptObjectNaive .object readOnlyFirst true swapped)).lookup "a" =
+      some (.data (.prim .null) ⟨true, true, true⟩) := by
+  decide
+
+end Counterexamples
+
 end Reconcile.Spec.Reconcile
 
 namespace Reconcile.Spec.Produce
@@ -319,5 +515,23 @@ theorem kept_closed (cur : Graph) (heap : Array Obj) :
   · intro x hx
     simp only [List.mem_filter, List.mem_range, decide_eq_true_eq] at hx
     exact hx
+
+/-! ## Snapshot -/
+
+/-- `snapshot` makes one copy per source node. -/
+theorem snapshot_size (cur : Graph) : (snapshot cur).nodes.size = cur.nodes.size := by
+  simp [snapshot]
+
+/-- Each copy is `copy` of its source node. -/
+theorem snapshot_copy (cur : Graph) (i : Nat) :
+    (snapshot cur).nodes[i]? = cur.nodes[i]?.map copy := by
+  simp [snapshot]
+
+/-- Every origin is fresh: the copy shares no object with the source. -/
+theorem snapshot_fresh (cur : Graph) : ∀ o ∈ (snapshot cur).origins, o = .fresh := by
+  intro o ho
+  simp only [snapshot, Array.mem_map] at ho
+  obtain ⟨_, _, rfl⟩ := ho
+  rfl
 
 end Reconcile.Spec.Produce

@@ -118,12 +118,12 @@ proof-only module is still built and audited. _Obligations_ names the
 
 ### Reference models
 
-| Module(s)        | Key theorems                                                                                                                       | Runtime                                                  | Bridge | Obligations    |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------ | -------------- |
-| `Spec.Graph`     | `Graph.normalize` (definition)                                                                                                     | the graphs the bridge builds and reads back              | Spec   | Spec agreement |
-| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions)                                                                | `src/reconcile.ts` `reconcile`                           | Spec   | Spec agreement |
-| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                                                                                 | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot` | Spec   | Spec agreement |
-| `Spec.Promises`  | `retainPrefix_sublist`, `retainPrefix_longest`, `get_bound`, `read_once_before_write`, `passes_le`, `kept_closed`, `kept_greatest` | the documented promises of `reconcile` and `produce`     | Spec   | Spec agreement |
+| Module(s)        | Key theorems                                                                                                                                                                                                    | Runtime                                                          | Bridge | Obligations    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------ | -------------- |
+| `Spec.Graph`     | `Graph.normalize` (definition)                                                                                                                                                                                  | the graphs the bridge builds and reads back                      | Spec   | Spec agreement |
+| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions)                                                                                                                                             | `src/reconcile.ts` `reconcile`                                   | Spec   | Spec agreement |
+| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                                                                                                                                                              | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`         | Spec   | Spec agreement |
+| `Spec.Promises`  | `retainPrefix_longest`, `get_bound`, `read_once_before_write`, `passes_le`, `objectWrites_set_iff`, `keptObject_attrs`, `mem_blockedObjects`, `publish_fresh`, `kept_closed`, `kept_greatest`, `snapshot_fresh` | the documented promises of `reconcile`, `produce` and `snapshot` | Spec   | Spec agreement |
 
 `Spec.Graph` is a heap of plain objects with ordered fields, each a data property with its attributes or an accessor with the value its getter returns and whether its setter stores, extensibility, and a prototype label; arrays with holes and an integrity level; maps, sets and dates; primitives and atoms. A `reconcile` input also carries the own slots of each class prototype, data or accessor, which an object labelled with the class inherits; an object that lacks a key `next` has, for which its class holds an accessor, cannot be kept. `Graph.normalize` reads an empty non-extensible array as sealed, as
 the integrity test does.
@@ -144,10 +144,29 @@ a subsequence of `current`'s and the longest such prefix (`retainPrefix_prefix`,
 `retainPrefix_sublist`, `retainPrefix_longest`); a getter of `current` runs at most once when its
 object is read and once per decision pass, and at most once when nothing is written (`get_bound`,
 `read_once_before_write`); the decision passes are
-bounded by the number of node pairs, so no plan is searched (`passes_le`); and `produce` keeps a
-current object exactly when its subtree is unchanged, `kept` being the greatest set closed under
-the keep conditions (`kept_closed`, `kept_greatest`). The runtime meets these promises exactly as
-far as the bridge shows it agrees with the reference.
+bounded by the number of node pairs, so no plan is searched (`passes_le`); a retained key is written exactly when its value differs and a moved or added key always (`objectWrites_set_iff`); a kept object keeps the attributes of every property it had and adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`); demotion forbids only an object whose writes block (`mem_blockedObjects`); a node that keeps nothing holds a fresh copy and its origin is none (`publish_origins`, `publish_fresh`); `produce` keeps a current object exactly when its subtree is unchanged, `kept` being the greatest set closed under the keep conditions (`kept_closed`, `kept_greatest`); and `snapshot` makes one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`, `snapshot_fresh`). Each section ends with a counterexample: a wrong definition, such as writing every key or re-adding a moved key as plain data, violates the theorem on one input. The runtime meets these promises exactly as far as the bridge shows it agrees with the reference.
+
+### Promises
+
+Each documented promise of the public functions, with the theorem that states it over the reference model, the bridge that carries it to the runtime, and the test that checks the runtime directly. A promise with no theorem is tested only; this table is that statement's one home.
+
+| README promise                                                                                              | Theorem                                                               | Bridge                                          | Tests                                                                               |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Keys and entries keep their place; the retained prefix makes the fewest moves                               | `retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest` | `Spec` (results), `PropertyOrder`               | `public-api-invariants.spec.ts`, `key-observation-order.spec.ts`                    |
+| A getter of a kept object runs once without writes, twice with, once more per retry                         | `get_bound`, `read_once_before_write`                                 | `Spec` (getter counts), `WriteFreeReadback`     | `reconcile-accessors.spec.ts`, `write-free-readback.spec.ts`                        |
+| No plan search: the decision passes are bounded                                                             | `passes_le`                                                           | `Spec` hazards batch (`passes`)                 | `public-api-invariants.spec.ts` (hostile setters)                                   |
+| A changed property is written, an unchanged one left alone, a moved or added one assigned                   | `objectWrites_set_iff`                                                | `Spec` recording-proxy batch (writes)           | `write-free-readback.spec.ts`, `public-api-invariants.spec.ts` (write-free)         |
+| A kept property keeps its attributes; an added one is writable and configurable with `next`'s enumerability | `keptObject_attrs`                                                    | `Spec` (descriptors), `PropertyWrite`           | `public-api-invariants.spec.ts`, `accessor-descriptor-regressions.spec.ts`          |
+| An object that blocks a change is replaced; nothing else is                                                 | `mem_blockedObjects`                                                  | `Spec` hazards batch                            | `publication-readback-boundaries.spec.ts`, `publication-failure-boundaries.spec.ts` |
+| Added objects are new copies; kept objects keep their identity at their position                            | `publish_origins`, `publish_fresh`                                    | `Spec` (identities)                             | `public-api-invariants.spec.ts`, `shared-identity-bug.spec.ts`                      |
+| `produce` keeps every unchanged subtree and nothing changed                                                 | `kept_closed`, `kept_greatest`                                        | `Spec` produce                                  | `produce-properties.spec.ts`, `public-api-invariants.spec.ts`                       |
+| `snapshot` is a detached copy, one new object per source object                                             | `snapshot_size`, `snapshot_copy`, `snapshot_fresh`                    | `Spec` snapshot                                 | `public-api-invariants.spec.ts`, `graph-capture.spec.ts`                            |
+| `next` is read once; an object already in place is read as part of `next` and not again                     | tested only                                                           | `Spec` (getter counts of held objects left out) | `ingress-reads.spec.ts`                                                             |
+| Each prototype is read once per object                                                                      | tested only                                                           | `Ingress`, `RecognitionPlain` (read counts)     | `builtin-recognition.spec.ts`                                                       |
+| `produce` calls each getter of the result once, depth first, and reads each draft once                      | tested only                                                           | `DraftSurface` (results)                        | `produce-reads.spec.ts`, `finalization-observation-boundaries.spec.ts`              |
+| `produce` and `snapshot` leave `current` unchanged                                                          | tested only (the models are pure)                                     | `Spec` (`current-changed` report)               | `reconcile-semantics.spec.ts`, `public-api-invariants.spec.ts`                      |
+| `serialize` calls each getter once, depth first                                                             | tested only                                                           | `SerializationCollection` (reads)               | `serialization.spec.ts`                                                             |
+| `deserialize` restores ordinary, extensible objects and rejects at exactly `requiredMaxBytes`               | tested only (`Serialization` models the format and the size)          | `Serialization`, `PropertyConstructOn`          | `public-api-invariants.spec.ts`, `deserialize-limit.spec.ts`                        |
 
 ### `snapshot`
 
@@ -678,6 +697,11 @@ Read the table with these limits:
 - A corpus bounds the test enumeration, not production graphs. "Strictly less work" marks cases
   where the optimized algorithm does less work than the reference, so the optimization is not
   vacuous.
+- A comparison of traces is stronger than one of outcomes. `PropertyOrder`, `PropertyWrite`,
+  `WriteFreeReadback`, `Atoms`, `Ingress`, `RecognitionPlain`, `SeededRequirements`, `FactRenaming`,
+  `SerializationCollection` and `Spec` compare reads, writes, setter calls or cursor traces; the
+  other rows compare results and rejections only, so a theorem about work they cover is carried
+  by its trace tests, not by the bridge.
 - The `Serialization` domain is records, null-prototype records, dense and sparse arrays, JSON
   literals and shared scalar nodes. Its hand-written JSON importer uses Lean numbers, so `-0` and
   overflowing literal roots are compared with `JSON.parse` at runtime only.
