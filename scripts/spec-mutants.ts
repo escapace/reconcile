@@ -80,9 +80,9 @@ const MUTANTS: readonly Mutant[] = [
   },
   {
     file: 'src/types/shared/property-publication.ts',
-    find: '    Object.is(read, value) &&',
+    find: '    if (Object.is(read, value) && present) return UNCHANGED\n',
     name: 'unchanged-without-presence',
-    replace: '    Object.is(read, value) ||',
+    replace: '    if (Object.is(read, value)) return UNCHANGED\n',
   },
   {
     file: 'src/types/object.ts',
