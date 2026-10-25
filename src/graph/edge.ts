@@ -7,7 +7,3 @@ export const isNode = <R extends { readonly node: number }>(edge: Edge<R>): edge
 /** An atom edge's value: a primitive is its own edge, an object atom is wrapped. */
 export const atomValue = (edge: Atom | Primitive): unknown =>
   typeof edge === 'object' && edge !== null ? edge.value : edge
-
-/** A snapshot edge's value: a node's initialized target, or an atom's value. */
-export const snapshotValue = (edge: Edge): unknown =>
-  isNode(edge) ? (edge as { readonly target?: object } & NodeEdge).target : atomValue(edge)

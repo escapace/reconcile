@@ -119,10 +119,9 @@ const recognition = /* @__PURE__ */ (() => {
   const positions = new Map<symbol, number>(KINDS.map((kind, index) => [kind, index]))
   return {
     recognize: builtinRecognize,
-    matches(kind: symbol, value: object): boolean {
-      const last = positions.get(kind)
-      return last !== undefined && builtinFirstMatch(value, last) === kind
-    },
+    // Callers ask only about the kinds of their nodes, which are built-in kinds.
+    matches: (kind: symbol, value: object): boolean =>
+      builtinFirstMatch(value, positions.get(kind)!) === kind,
   }
 })()
 

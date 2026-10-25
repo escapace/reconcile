@@ -63,9 +63,7 @@ const urlCapture = {
 export const urlSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...urlCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, layout.carrier, noValue)
-    },
+    snapshot: (layout) => layout.carrier,
   }))() satisfies SnapshotPolicy<URLLayout>
 
 function urlBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
@@ -85,7 +83,7 @@ const urlConstruction = {
   }),
   allocate(node, resolve, owners) {
     const parameters = resolve(node.edges[0]) as object
-    const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
+    const carrier = owners.nativeOwners?.get(parameters) as URL | undefined
     return carrier === undefined
       ? undefined
       : ownedURL(carrier, node.layout.href, node.layout.prototype)
@@ -128,7 +126,7 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
         const url = value as URL
         const href = nativeURLHref(url)
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
-        const carrier = owners?.nativeOwners?.get(parameters) as URL | undefined
+        const carrier = owners.nativeOwners?.get(parameters) as URL | undefined
         if (carrier === undefined) throw finalizationConstructionImpossible()
         return ownedURL(carrier, href, Object.getPrototypeOf(url) as object | null)
       },

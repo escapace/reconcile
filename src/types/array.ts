@@ -60,17 +60,13 @@ const arraySurface: PropertySurface<ArrayLayout> = {
       if (key === 'length' || arrayIndex(key) !== undefined) keys.push(key)
     return keys
   },
-  slots(node) {
-    if (node.layout.slots !== undefined) return node.layout.slots
-    const slots = propertySlots(node)
-    slots.set('length', node.layout.length)
-    return slots
-  },
+  // Capture seals every array node, which indexes its slots.
+  slots: (node) => node.layout.slots!,
 }
 
 const arrayCapture = {
   construction: noValue,
-  observe(value, begin, edge, mode) {
+  observe(value, begin, edge) {
     const array = value as unknown[]
     const length = array.length
     begin({
@@ -79,9 +75,8 @@ const arrayCapture = {
       prototype: Object.getPrototypeOf(array) as object | null,
       slots: undefined,
     })
-    // A snapshot only writes the element, and a numeric key names the same property.
     for (let index = 0; index < array.length; index += 1)
-      if (hasElement(array, index)) edge(array[index], mode === 'snapshot' ? index : String(index))
+      if (hasElement(array, index)) edge(array[index], String(index))
   },
 } satisfies CapturePolicy<ArrayLayout>
 
@@ -147,7 +142,10 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         const present = properties.has(key)
-        if (hasOwn(array, index) !== present || hasElement(array, index) !== present) return false
+        // An element must be own; a hole must be absent and filled by no prototype but the
+        // standard one, as hasElement reads it.
+        if (present ? !hasOwn(array, index) : hasOwn(array, index) || hasElement(array, index))
+          return false
         if (present && !visit(array[index], properties.get(key))) matched = false
       }
       return matched
@@ -273,7 +271,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
             ? reassignable(descriptor) !== slotBits(node.attributes, position) ||
               !visit(array[index], node.edges[position])
             : (slotBits(node.attributes, position) & OBSERVED_ACCESSOR) === 0 ||
-              !visit(node.observed?.[position], node.edges[position])
+              !visit(node.observed![position], node.edges[position])
         )
           return false
         position += 1

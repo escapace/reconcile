@@ -206,7 +206,8 @@ const DraftMap = /* @__PURE__ */ (() => {
       state.modified = true
     }
 
-    /** Deletes an existing Map entry after resolving its identity in the captured copy. */
+    /** Deletes an existing Map entry; the copy holds the source's keys, so the key resolved
+     * against the source names it there too. */
     delete(key: unknown): boolean {
       const state = draftState<MapDraftState>(this)
       const source = draftValue<Map<unknown, unknown>>(state)
@@ -217,8 +218,7 @@ const DraftMap = /* @__PURE__ */ (() => {
         return false
       }
 
-      const copy = prepareMapCopy(state)
-      builtinMapDelete(copy, resolveMapKey(state, copy, normalizedKey))
+      builtinMapDelete(prepareMapCopy(state), normalizedKey)
       state.modified = true
       return true
     }
@@ -229,10 +229,6 @@ const DraftMap = /* @__PURE__ */ (() => {
       const source = draftValue<Map<unknown, unknown>>(state)
       const normalizedKey = resolveMapKey(state, source, key)
       const value = builtinMapGet(source, normalizedKey)
-
-      if (value === undefined && !builtinMapHas(source, normalizedKey)) {
-        return undefined
-      }
 
       if (!isObject(value)) {
         return value
@@ -263,8 +259,8 @@ const DraftMap = /* @__PURE__ */ (() => {
         return this
       }
 
-      const copy = prepareMapCopy(state)
-      builtinMapSet(copy, resolveMapKey(state, copy, normalizedKey), value)
+      // The copy holds the source's keys, so the key resolved against the source names its entry.
+      builtinMapSet(prepareMapCopy(state), normalizedKey, value)
       state.modified = true
       return this
     }

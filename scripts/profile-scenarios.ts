@@ -315,10 +315,11 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
   'diag-module-date': ({ api }) => {
     let last: unknown
     const date = new Date(42)
+    const owners = { nativeOwners: undefined }
     return {
       layer: 'native module only',
       run: () => {
-        last = api.copyDate(date, identity)
+        last = api.copyDate(date, identity, owners)
       },
       validate: () => {
         assert.notEqual(last, date)
@@ -536,7 +537,11 @@ export function createDiagnostic(
     produce: typeof API.produce
     reconcile: typeof API.reconcile
     snapshot: typeof API.snapshot
-    copyDate: (value: object, resolve: (child: object) => object) => object
+    copyDate: (
+      value: object,
+      resolve: (child: object) => object,
+      owners: { nativeOwners: undefined },
+    ) => object
     sameBuffer: (left: ArrayBuffer, right: ArrayBuffer) => boolean
     /** The tree's serialization API, if any; only serialization scenarios need it. */
     deserialize?: typeof API.deserialize

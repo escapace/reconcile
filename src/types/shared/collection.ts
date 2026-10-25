@@ -21,9 +21,9 @@ export const normalize = (edges: readonly Edge[], width: number): Edge[] => {
     const index = entry[1]
     const first = edges[index]
     // A primitive key is the Map's canonical one (+0 for -0); an object atom is its own key.
+    // Capture delivers whole entries, so every slot of the entry exists.
     result.push(isNode(first) || isObject(first) ? first : (key as Primitive))
-    for (let slot = 1; slot < width && index + slot < edges.length; slot += 1)
-      result.push(edges[index + slot])
+    for (let slot = 1; slot < width; slot += 1) result.push(edges[index + slot])
   }
   return result
 }

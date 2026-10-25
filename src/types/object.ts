@@ -343,8 +343,9 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
         // returned does not match, so that object is rebuilt with data.
         if (!isDataDescriptor(descriptor)) {
           if (
-            ((node.attributes?.[index] ?? 0) & OBSERVED_ACCESSOR) === 0 ||
-            !visit(node.observed?.[index], node.edges[index])
+            // Finalization gives every slot of an object attributes, and an observed accessor's value.
+            (node.attributes![index] & OBSERVED_ACCESSOR) === 0 ||
+            !visit(node.observed![index], node.edges[index])
           )
             return false
           continue

@@ -161,9 +161,7 @@ const temporalConstruction = {
 export const temporalSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...temporalCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, layout.temporalValue, noValue)
-    },
+    snapshot: (layout) => layout.temporalValue,
   }))() satisfies SnapshotPolicy<TemporalLayout>
 
 export const temporalPublication = /* @__PURE__ */ (() =>
@@ -176,11 +174,11 @@ export const temporalPublication = /* @__PURE__ */ (() =>
     // A Temporal value is kept only when equal.
     matches: (node, current) => matches(node.layout, current),
     requirements: (node, current) => (matches(node.layout, current) ? EMPTY_FACTS : undefined),
-    // A Temporal value is never written: it is kept when equal, which readback would accept.
-    publish(node, current, _resolve, _owner, note) {
-      const kept = matches(node.layout, current)
-      if (note !== undefined) note.unchanged = kept
-      return kept
+    // A Temporal value is never written: a kept one passed the preflight's comparison, which
+    // every pass reruns, and a new one is a copy, so readback would accept either.
+    publish(_node, _current, _resolve, _owner, note) {
+      if (note !== undefined) note.unchanged = true
+      return true
     },
   }))() satisfies PublicationPolicy<TemporalLayout>
 

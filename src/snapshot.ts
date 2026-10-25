@@ -1,10 +1,9 @@
-import { atomValue, isNode, snapshotValue } from './graph/edge'
+import { atomValue, isNode } from './graph/edge'
 import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
 import { recognizeStructure } from './adapters/recognition'
-import { ATOM_KIND } from './constants'
 import { atomPrototype, hiddenNames, prototypeOf } from './object-property'
-import type { Edge, Layout, Primitive, PrototypeRead, SnapshotWrite } from './types'
+import type { Edge, Layout, Primitive, PrototypeRead } from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
 import {
@@ -34,30 +33,19 @@ import { Detached, defineData, hasElement } from './standard-prototypes'
 const objectPrototype = /* @__PURE__ */ (() => Object.prototype)()
 
 /**
- * Owns pending or initialized snapshot state on the canonical traversal reference.
- *
- * @remarks
- * Initialization completes before the target enters the public memo. There is no parallel
- * writer table: the reference is the writer's state.
+ * The canonical traversal reference of one copied object: its copy, set before the copy enters
+ * the public memo, and the layout of a value its kind's facet copied.
  */
 class SnapshotReference extends Detached {
   declare layout: Layout | undefined
   declare readonly node: number
   declare target: object | undefined
-  declare write: SnapshotWrite | undefined
 
   constructor(node: number) {
     super()
     this.node = node
     this.layout = undefined
     this.target = undefined
-    this.write = undefined
-  }
-
-  initialize(layout: Layout, target: object, write: SnapshotWrite): void {
-    this.layout = layout
-    this.target = target
-    this.write = write
   }
 }
 
@@ -176,40 +164,33 @@ class SnapshotWalk extends Detached {
     return target === undefined ? reference : { node: undefined, value: target }
   }
 
-  // Initializes the node's writer, records construction metadata, then writes the memo.
+  // Copies the node, records the construction answer of a copied URLSearchParams, the only facet
+  // that has one, then writes the memo.
   begin(layout: Layout): void {
     const reference = this.currentReference!
     const policy = snapshotTypes.policies[layout.kind]
-    policy.snapshot(layout, snapshotValue, reference)
-    if (policy.construction !== noValue) {
-      const response = policy.construction(layout)
-      if (response === reference.target) this.constructed?.delete(reference.target!)
-      else if (response !== undefined)
-        (this.constructed ??= new WeakMap()).set(reference.target!, response)
-    }
-    this.remember(this.currentSource!, reference.target!)
+    const target = policy.snapshot(layout)
+    reference.layout = layout
+    reference.target = target
+    if (policy.construction !== noValue)
+      (this.constructed ??= new WeakMap()).set(target, policy.construction(layout)!)
+    this.remember(this.currentSource!, target)
   }
 
-  // Delivers one slot of the node and answers a construction edge.
-  edge(value: unknown, key?: PropertyKey, knownKind?: symbol, construction?: boolean): unknown {
-    const reference = this.currentReference!
+  // Answers the only edge a facet delivers, a URL's construction edge to its `searchParams`.
+  edge(value: unknown, _key?: PropertyKey, knownKind?: symbol): unknown {
     const child = this.edgeOf(value, knownKind)
-    reference.write?.(child, key)
-    if (construction === true) {
-      if (isNode(child)) {
-        const layout = (child as SnapshotReference).layout
-        if (layout !== undefined) return snapshotTypes.policies[layout.kind].construction(layout)
-      } else {
-        const target = atomValue(child)
-        return (isObject(target) ? this.constructed?.get(target) : undefined) ?? target
-      }
+    if (isNode(child)) {
+      const layout = (child as SnapshotReference).layout
+      if (layout !== undefined) return snapshotTypes.policies[layout.kind].construction(layout)
+      return undefined
     }
-    return undefined
+    const target = atomValue(child)
+    return this.constructed?.get(target as object) ?? target
   }
 
-  // A slot's copied value, exactly as `snapshotValue(edgeOf(value))` resolves it, without
-  // allocating the edge: a primitive is itself, an object its caller-memo value or its
-  // reference's target.
+  // A slot's copied value, as `edgeOf(value)` resolves to it, without allocating the edge: a
+  // primitive is itself, an object its caller-memo value or its reference's target.
   slot(value: unknown): unknown {
     if (!isObject(value)) return value
     const seen = this.callerMemo
@@ -324,12 +305,9 @@ class SnapshotWalk extends Detached {
     this.callerMemo?.set(value, target)
   }
 
-  // An ArrayBuffer's construction answer is its copied bytes, which are its target, so its
-  // inline observation also clears that target's construction metadata as `begin` would.
   observeBuffer(reference: SnapshotReference, value: object): void {
     const target = copyBuffer(value)
     reference.target = target
-    this.constructed?.delete(target)
     this.callerMemo?.set(value, target)
   }
 
@@ -370,12 +348,6 @@ class SnapshotWalk extends Detached {
     const read = this.read
     read.known = false
     const known = kind ?? recognizeStructure(snapshotTypes, source, read)
-    if (known === ATOM_KIND) {
-      // An atom is kept by reference, as a function is.
-      reference.target = source
-      this.callerMemo?.set(source, source)
-      return reference
-    }
     if (known === OBJECT_KIND) {
       this.observeObject(reference, source)
       return reference
@@ -408,14 +380,14 @@ class SnapshotWalk extends Detached {
     return reference
   }
 
-  // Observes `source` through its kind's facet, which writes the copy through `begin` and `edge`.
+  // Observes `source` through its kind's facet, which copies it in `begin`; a URL first asks
+  // `edge` for its `searchParams`.
   observePolicy(reference: SnapshotReference, source: object, known: symbol): void {
     const policy = snapshotTypes.policies[known]
     const begin = (this.beginCallback ??= (layout) => {
       this.begin(layout)
     })
-    const edge = (this.edgeCallback ??= (value, key, knownKind, construction) =>
-      this.edge(value, key, knownKind, construction))
+    const edge = (this.edgeCallback ??= (value, key, knownKind) => this.edge(value, key, knownKind))
     const parent = this.currentReference
     const parentSource = this.currentSource
     this.currentReference = reference

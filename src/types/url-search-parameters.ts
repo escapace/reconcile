@@ -51,9 +51,7 @@ const urlSearchParametersCapture = {
 export const urlSearchParametersSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...urlSearchParametersCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, nativeURLSearchParameters(layout.carrier), noValue)
-    },
+    snapshot: (layout) => nativeURLSearchParameters(layout.carrier),
   }))() satisfies SnapshotPolicy<URLSearchParametersLayout>
 
 const parametersConstruction = {

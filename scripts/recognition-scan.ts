@@ -69,9 +69,7 @@ function firstMatch(value: object, last: number): symbol | undefined {
 
 /** The ordered scan: a test reference for built-in recognition and known-kind checks. */
 export const orderedScan = {
-  matches(kind: symbol, value: object): boolean {
-    const last = recognitionOrder.indexOf(kind)
-    return last !== -1 && firstMatch(value, last) === kind
-  },
+  matches: (kind: symbol, value: object): boolean =>
+    firstMatch(value, recognitionOrder.indexOf(kind)) === kind,
   recognize: (value: object): symbol => firstMatch(value, probes.length)!,
 }

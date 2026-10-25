@@ -56,17 +56,16 @@ function observe(
 
 /**
  * Prototype reads of the object by the built-in registries: the array probe and checks that stop
- * at it, or name no kind, read nothing, as the ordered scan does; any other check reads the object
- * once, where the ordered scan reads it once per probe.
+ * at it read nothing, as the ordered scan does; any other check reads the object once, where the
+ * ordered scan reads it once per probe.
  */
 function expectedReads(value: object, kind: symbol | undefined, scanned: number): number {
-  if (Array.isArray(value) || kind === ARRAY_KIND) return scanned
-  return kind !== undefined && !recognitionOrder.includes(kind) ? scanned : 1
+  return Array.isArray(value) || kind === ARRAY_KIND ? scanned : 1
 }
 
 it("reads the object once and keeps the ordered scan's results and errors", () => {
   const failure = new Error('prototype observation')
-  const kinds = [undefined, ...recognitionOrder, Symbol('unknown')]
+  const kinds = [undefined, ...recognitionOrder]
   for (const value of values())
     for (const kind of kinds) {
       const scanned = observe(orderedScan, value, kind, 0, failure)

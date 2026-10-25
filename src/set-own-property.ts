@@ -17,7 +17,7 @@ export function setOwnProperty(
   key: PropertyKey,
   value: unknown,
   standard: boolean,
-  enumerable = true,
+  enumerable: boolean,
 ): void {
   if (standard && enumerable && !(key in Object.prototype)) object[key] = value
   else defineData(object, key, value, enumerable)

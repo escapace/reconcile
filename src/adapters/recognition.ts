@@ -13,7 +13,7 @@ export function recognize(
   value: object,
   read?: PrototypeRead,
 ): symbol {
-  const kind = types.recognize(value, read)!
+  const kind = types.recognize(value, read)
   return kind === OBJECT_KIND && atomFrom(prototypeOf(value, read)) ? ATOM_KIND : kind
 }
 
@@ -23,7 +23,7 @@ export function recognizeStructure(
   value: object,
   read?: PrototypeRead,
 ): symbol {
-  return types.recognize(value, read)!
+  return types.recognize(value, read)
 }
 
 /** Live validation of a known module ID; later unrelated predicates need not run. */

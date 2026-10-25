@@ -134,17 +134,13 @@ function viewShape(actual: ArrayBufferView, sample: ArrayBufferView): boolean {
   )
 }
 
-// A view over a `SharedArrayBuffer` binds nothing.
-function viewBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
+// A view binds its buffer to the buffer's node. A view over a `SharedArrayBuffer` binds nothing,
+// and only a view over the same one can stand for it.
+function viewRequirements(node: Pick<CapturedNode, 'edges'>, current: object) {
   const edge = node.edges[0]
-  return isNode(edge) ? [{ identity: bufferOfView(current), node: edge.node }] : []
+  if (isNode(edge)) return [{ identity: bufferOfView(current), node: edge.node }]
+  return bufferOfView(current) === atomValue(edge) ? [] : undefined
 }
-
-// Only a view over the same `SharedArrayBuffer` can stand for a view over one.
-const viewRequirements = (node: Pick<CapturedNode, 'edges'>, current: object) =>
-  isNode(node.edges[0]) || bufferOfView(current) === atomValue(node.edges[0])
-    ? viewBindings(node, current)
-    : undefined
 
 /** Views own their backing-store observations, including rereads after constructor execution. */
 export const viewDraft: Extract<DraftStrategy, { tag: 'copy' }> = /* @__PURE__ */ freeze({

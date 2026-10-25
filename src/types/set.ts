@@ -531,10 +531,10 @@ const DraftSet = /* @__PURE__ */ (() => {
         return false
       }
 
-      const copy = prepareSetCopy(state)
-      const removed = builtinSetDelete(copy, resolveSetMember(state, copy, target))
-      if (removed) state.modified = true
-      return removed
+      // The copy holds the source's members, so the member found in the source is one of them.
+      builtinSetDelete(prepareSetCopy(state), target)
+      state.modified = true
+      return true
     }
 
     /** Tests membership using draft-base identity rules. */

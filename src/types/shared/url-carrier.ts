@@ -153,16 +153,16 @@ export function parametersCarrier(text: string, prototype: object | null): URL {
   return carrier
 }
 
-/** A fresh `URLSearchParams` holding `text`, on `prototype`; `owners`, when given, maps it to its
+/** A fresh `URLSearchParams` holding `text`, on `prototype`, which `owners` maps to its
  * carrier. */
 export function carriedParameters(
   text: string,
   prototype: object | null,
-  owners: NativeOwners | undefined,
+  owners: NativeOwners,
 ): URLSearchParams {
   const carrier = parametersCarrier(text, prototype)
   const parameters = nativeURLSearchParameters(carrier)
-  if (owners !== undefined) (owners.nativeOwners ??= new WeakMap()).set(parameters, carrier)
+  ;(owners.nativeOwners ??= new WeakMap()).set(parameters, carrier)
   return parameters
 }
 

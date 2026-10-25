@@ -136,7 +136,7 @@ export interface SpecialPolicy {
   copy: (
     value: object,
     resolve: (dependency: object, kind: symbol) => object,
-    owners?: NativeOwners,
+    owners: NativeOwners,
   ) => object
   equivalent: (base: object, candidate: object) => boolean
   /** Visits declared copy dependencies in native observation order, stopping on false. */
@@ -225,7 +225,7 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
   readonly allocate: (
     node: CapturedNode<L>,
     resolve: Resolve,
-    owners?: NativeOwners,
+    owners: NativeOwners,
   ) => object | undefined
   /** Whether `current` holds the node's contents. */
   readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
@@ -240,13 +240,8 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     owner?: (child: object, ownerKind: symbol) => object | undefined,
     note?: PublicationNote,
   ) => boolean
-  /**
-   * Initializes the supplied canonical reference before returning.
-   *
-   * @remarks
-   * Resolve receives canonical traversal edges; modules must not synthesize or copy references.
-   */
-  readonly snapshot: (layout: L, resolve: Resolve, writer: SnapshotInitializer<L>) => void
+  /** The copy of the value whose capture made `layout`; it has no children of its own. */
+  readonly snapshot: (layout: L) => object
 }
 
 /** The key list and own descriptors one property preflight read of `current`, in key order. */
@@ -313,23 +308,15 @@ export type NativeRegistry<P> = {
 } & RecognitionRegistry
 export type PublicationRegistry = NativeRegistry<PublicationPolicy>
 export interface RecognitionRegistry {
-  /** Reobserves the recognition prefix through a built-in kind; unknown kinds fail. */
+  /** Reobserves the recognition prefix through a built-in kind. */
   readonly matches: (kind: symbol, value: object) => boolean
   /**
    * Returns the first matching kind in recognition order. It takes the prototype from `read` when
    * it is known and reports there the one it read.
    */
-  readonly recognize: (value: object, read?: PrototypeRead) => symbol | undefined
+  readonly recognize: (value: object, read?: PrototypeRead) => symbol
 }
 export type SnapshotRegistry = Pick<NativeRegistry<SnapshotPolicy>, 'policies' | 'recognize'>
-
-/** Consumes one canonical edge at its native snapshot observation boundary. */
-export type SnapshotWrite = (edge: Edge, key: PropertyKey | undefined) => void
-
-/** Installs a complete writer on the canonical private reference before returning. */
-export interface SnapshotInitializer<L extends Layout = Layout> {
-  initialize: (layout: L, target: object, write: SnapshotWrite) => void
-}
 
 /** Recipe representation selected by the type module before the session allocates state. */
 export type DraftStrategy<S extends DraftState = DraftState> =
