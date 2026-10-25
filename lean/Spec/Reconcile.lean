@@ -13,9 +13,10 @@ graphs, in three phases that mirror the runtime's design:
    *pinned*: kept as it is, together with everything inside it, which no other position may keep.
 2. **Decide.** In visit order, a node is kept as its aligned object when the object is not
    protected or already kept, has the same kind and admits `next`'s contents statically: its
-   descriptors and extensibility allow the writes, and every key that cannot move lies in the
-   retained prefix of the key order (`retainPrefix`). Nothing is written before this phase ends;
-   a root that cannot be kept rejects the call.
+   descriptors and extensibility allow the writes, no key it lacks reaches a getter or setter on
+   its class prototype, and every key that cannot move lies in the retained prefix of the key
+   order (`retainPrefix`). Nothing is written before this phase ends; a root that cannot be kept
+   rejects the call.
 3. **Write.** Kept nodes take `next`'s contents, writing only what differs; fresh nodes are
    copies. A kept object whose write reaches a setter that drops its value is *blocked*: it is
    demoted to a fresh copy, and the pass repeats for the nodes that change as a consequence,
@@ -74,12 +75,14 @@ namespace Reconcile.Spec.Reconcile
 
 open Reconcile.Spec
 
-/-- The input: the current graph, the next graph, and for each next node the current node that is
-the same object, if any. -/
+/-- The input: the current graph, the next graph, for each next node the current node that is
+the same object, if any, and the own slots of each class prototype, which an object labelled
+`cls id` inherits. `Object.prototype` and `null` carry no slots in the model. -/
 structure Input where
   cur : Graph
   next : Graph
   same : Array (Option Nat)
+  classes : Array (List (String × Slot)) := #[]
 
 /-- Whether `l` is a subsequence of `m`. -/
 def isSubseq {K : Type} [DecidableEq K] : List K → List K → Bool
@@ -218,16 +221,29 @@ def _root_.Reconcile.Spec.Slot.fixed : Slot → Bool
   | .accessor _ none _ _ => true
   | .accessor _ (some _) _ _ => false
 
+/-- The own slots of the class prototype an object labelled `proto` inherits. -/
+def classSlots (classes : Array (List (String × Slot))) : Proto → List (String × Slot)
+  | .cls id => classes[id]?.getD []
+  | _ => []
+
+/-- Whether assigning `k` to an object that lacks it would reach an inherited getter or setter,
+which is never written or overridden: such an object cannot take the key in place. -/
+def reachesInheritedAccessor (inherited : List (String × Slot)) (k : String) : Bool :=
+  match inherited.lookup k with
+  | some (.accessor ..) => true
+  | _ => false
+
 /-- Whether a kept object can take `next`'s contents apart from the values of its fixed slots:
-keys `next` lacks are deletable, the object can grow when `next` adds keys, and every key that
-cannot move lies in the retained prefix. -/
+keys `next` lacks are deletable, the object can grow when `next` adds keys, no added key reaches
+an inherited accessor, and every key that cannot move lies in the retained prefix. -/
 def objectAdmits (cFields : List (String × Slot)) (extensible : Bool)
-    (nFields : List (String × Slot)) : Bool :=
+    (nFields : List (String × Slot)) (inherited : List (String × Slot)) : Bool :=
   let nKeys := nFields.map Prod.fst
   let cKeys := cFields.map Prod.fst
   let retained := retainPrefix cKeys nKeys
   -- A key that is absent or moves is added by assignment, which a non-extensible object refuses.
   nFields.all (fun (k, _) => extensible || retained.contains k) &&
+  nFields.all (fun (k, _) => cKeys.contains k || !reachesInheritedAccessor inherited k) &&
   cFields.all (fun (k, cs) => nKeys.contains k || cs.configurable) &&
   cFields.all (fun (k, cs) =>
     let immovable := match cs with
@@ -250,9 +266,9 @@ def arrayAdmits (cEntries : List (Option Val)) (ext : Ext) (nEntries : List (Opt
   | .frozen => noneAdded && noneLost && cEntries.length = nEntries.length
 
 /-- Whether current object `c` can be kept with next contents `n`, apart from its fixed slots. -/
-def admitsStatic (c n : Obj) : Bool :=
+def admitsStatic (classes : Array (List (String × Slot))) (c n : Obj) : Bool :=
   match c, n with
-  | .object _ cf ext, .object _ nf _ => objectAdmits cf ext nf
+  | .object p cf ext, .object _ nf _ => objectAdmits cf ext nf (classSlots classes p)
   | .array ce ext, .array ne _ => arrayAdmits ce ext ne
   | .map _, .map _ => true
   | .set _, .set _ => true
@@ -280,7 +296,7 @@ every fixed slot holding a primitive holds the value `next` has there. -/
 def admitted (input : Input) (c x : Nat) : Bool :=
   let cur := input.cur.node x
   let nxt := input.next.node c
-  admitsStatic cur nxt && (fixedPairs cur nxt).all fun
+  admitsStatic input.classes cur nxt && (fixedPairs cur nxt).all fun
     | (.prim p, .prim q) => p == q
     | (.ref _, .ref _) => true
     | _ => false
@@ -329,7 +345,7 @@ def establish (input : Input) (candidatesOf : Nat → List Nat) (forbidden : Lis
     else
       let cur := input.cur.node x
       let nxt := input.next.node c
-      if !admitsStatic cur nxt then none
+      if !admitsStatic input.classes cur nxt then none
       else
         (fixedPairs cur nxt).foldl (fun acc (cv, nv) =>
           acc.bind fun chain =>

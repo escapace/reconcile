@@ -26,12 +26,16 @@ export const byKind = <A extends unknown[], R>(
   ...rest: A
 ): R => (table[node.kind] as (node: GraphNode, ...rest: A) => R)(node, ...rest)
 
+/** The own slots of each class prototype, by class label. */
 export interface Case {
+  /** The slots the class prototypes hold; empty without the `inherited` option. */
+  classes: Classes
   cur: Graph
   next: Graph
   /** Per next node, the current node that is the same object. */
   same: Array<number | null>
 }
+export type Classes = Array<Array<[string, Slot]>>
 export interface Graph {
   nodes: GraphNode[]
   root: Value
@@ -44,6 +48,8 @@ export interface Options {
   /** More accessors, dropping setters and reorders below the root, so that decision passes
    * demote objects more often; the root takes no accessor, so a hazard rarely rejects the call. */
   hazards?: boolean
+  /** Data and accessor slots on the class prototypes, and more objects labelled with one. */
+  inherited?: boolean
   /** The largest graph. */
   nodes?: number
   /** Key and entry reorders in `next`. */
@@ -128,9 +134,33 @@ function slot(rng: Rng, references: readonly number[], options: Options): Slot {
   return { a: attributes(rng, options.attributes === true), v: value(rng, references, P_REFERENCE) }
 }
 
-function prototype(rng: Rng): Prototype {
+function prototype(rng: Rng, options: Options): Prototype {
   const r = rng.next()
-  return r < 0.75 ? 'object' : r < 0.85 ? 'null' : { cls: rng.int(CLASSES) }
+  const plain = options.inherited === true ? 0.5 : 0.75
+  return r < plain ? 'object' : r < plain + 0.1 ? 'null' : { cls: rng.int(CLASSES) }
+}
+
+/** A slot of a class prototype: a primitive data slot or an accessor over a primitive. */
+function classSlot(rng: Rng, options: Options): Slot {
+  if (rng.chance(0.5))
+    return {
+      c: rng.chance(0.8),
+      e: rng.chance(0.8),
+      get: prim(rng),
+      set: rng.pick([null, true, false]),
+    }
+  return { a: attributes(rng, options.attributes === true), v: prim(rng) }
+}
+
+/** The slots of each class prototype: up to two per class under the `inherited` option. */
+function genClasses(rng: Rng, options: Options): Classes {
+  return Array.from({ length: CLASSES }, () =>
+    options.inherited === true
+      ? shuffle(rng, [...KEYS])
+          .slice(0, rng.int(3))
+          .map((key): [string, Slot] => [key, classSlot(rng, options)])
+      : [],
+  )
 }
 
 const extensibility = (rng: Rng, allowed: boolean): Extensibility =>
@@ -148,7 +178,7 @@ function buildObject(rng: Rng, references: readonly number[], options: Options):
   const fields: Array<[string, Slot]> = keys.map((k) => [k, slot(rng, references, options)])
   const extensible = options.attributes !== true || !rng.chance(0.15)
   if (!extensible) harden(rng, fields)
-  return { extensible, fields, kind: 'object', proto: prototype(rng) }
+  return { extensible, fields, kind: 'object', proto: prototype(rng, options) }
 }
 
 function buildArray(rng: Rng, references: readonly number[], options: Options): NodeOf<'array'> {
@@ -237,14 +267,16 @@ const attachers: ByKind<[rng: Rng, missing: number], void> = {
 function genCurrent(rng: Rng, options: Options): Graph {
   const size = 1 + rng.int(options.nodes ?? 6)
   const ids = Array.from({ length: size }, (_, index) => index)
+  // The root takes a class prototype no more often than without `inherited`, and no accessor
+  // under `hazards`, so that a hazard rarely rejects the call.
+  const rootOptions: Options = {
+    ...options,
+    accessors: options.hazards === true ? false : options.accessors,
+    inherited: false,
+  }
   const nodes: GraphNode[] = ids.map((id) =>
     id === 0
-      ? node(
-          rng,
-          ids,
-          options.hazards === true ? { ...options, accessors: false } : options,
-          rng.pick(['object', 'object', 'array']),
-        )
+      ? node(rng, ids, rootOptions, rng.pick(['object', 'object', 'array']))
       : node(rng, ids, options),
   )
   // Make every node reachable: hang each unreachable node off a reachable node.
@@ -460,10 +492,11 @@ const remap = (o: GraphNode, sameNode: (c: number) => number): GraphNode =>
 
 export function genCase(seed: number, options: Options): Case {
   const rng = new Rng(seed)
+  const classes = genClasses(rng, options)
   const current = genCurrent(rng, options)
   const { next, same } = genNext(rng, current, options)
   assert.equal(same.length, next.nodes.length)
-  return { cur: current, next, same }
+  return { classes, cur: current, next, same }
 }
 
 /* ---------------------------------------------------------------- produce recipes */

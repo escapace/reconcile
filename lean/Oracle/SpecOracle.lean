@@ -14,6 +14,7 @@ structure Request where
   cur : Graph
   next : Graph := default
   same : Array (Option Nat) := #[]
+  classes : Array (List (String × Slot)) := #[]
   ops : Array Produce.Op := #[]
   returns : Val := .prim .undef
   returnsCurrent : Bool := false
@@ -30,15 +31,16 @@ instance : FromJson Request where
     let cur : Graph ← fromJson? (← j.getObjVal? "cur")
     let next : Graph ← field j "next" default
     let same : Array (Option Nat) ← field j "same" #[]
+    let classes : Array (List (String × Slot)) ← field j "classes" #[]
     let ops : Array Produce.Op ← field j "ops" #[]
     let returns : Val ← field j "returns" (.prim .undef)
     let returnsCurrent : Bool ← field j "returnsCurrent" false
-    pure { op, cur, next, same, ops, returns, returnsCurrent }
+    pure { op, cur, next, same, classes, ops, returns, returnsCurrent }
 
 def answer (request : Request) : Except String Json :=
   match request.op with
   | "reconcile" =>
-    pure (toJson (Reconcile.run ⟨request.cur, request.next, request.same⟩))
+    pure (toJson (Reconcile.run ⟨request.cur, request.next, request.same, request.classes⟩))
   | "produce" =>
     pure (toJson (Produce.run
       ⟨request.cur, request.ops.toList, request.returns, request.returnsCurrent⟩))

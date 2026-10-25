@@ -14,8 +14,9 @@ its extensibility. An array carries its entries with holes and an extensibility 
 sets carry their entries in insertion order; a date its time. Primitives include an `atom`, an
 object kept by reference, such as a function, identified by a label.
 
-Outside the model: prototypes with accessors, symbol keys, array index keys on objects, `-0`
-and `NaN`, buffers, views, URLs and Temporal values.
+The own slots of class prototypes are part of a `reconcile` input (`Reconcile.Input.classes`),
+not of a graph. Outside the model: slots on `Object.prototype`, symbol keys, array index keys on
+objects, `-0` and `NaN`, buffers, views, URLs and Temporal values.
 -/
 
 namespace Reconcile.Spec

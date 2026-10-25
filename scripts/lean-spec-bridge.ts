@@ -4,8 +4,8 @@
 // on the same case. Getter counts are compared as a report.
 //
 // Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts [--op reconcile|produce|snapshot]
-//   [--seeds N] [--from S] [--strict] [--dump SEED] [--no-same] [--no-reorder] [--no-accessors]
-//   [--no-attributes] [--nodes N]
+//   [--seeds N] [--from S] [--strict] [--dump SEED] [--writes] [--hazards] [--features]
+//   [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited] [--nodes N]
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
 import { isReconcileError, produce, reconcile, snapshot } from '../src/index'
@@ -14,6 +14,7 @@ import {
   atoms,
   construct,
   materialize,
+  materializeClasses,
   primitiveToJs,
   prototypeIndex,
   setterStores,
@@ -123,11 +124,14 @@ function encodeArray(o: unknown[], visit: Visit): GraphNode {
   return { entries, ext: arrayLevel(o), kind: 'array' }
 }
 
+/** The class labels of the prototypes in use: a reconcile case builds its own. */
+let classIndex: ReadonlyMap<object, number> = prototypeIndex
+
 function prototypeLabel(o: object): NodeOf<'object'>['proto'] {
   const prototype = Object.getPrototypeOf(o) as object | null
   if (prototype === null) return 'null'
   if (prototype === Object.prototype) return 'object'
-  const cls = prototypeIndex.get(prototype)
+  const cls = classIndex.get(prototype)
   assert.ok(cls !== undefined, 'unknown prototype in result')
   return { cls }
 }
@@ -228,6 +232,7 @@ interface Report {
     | 'current-changed'
     | 'error'
     | 'getters'
+    | 'prototype'
     | 'rejection'
     | 'result'
     | 'retention'
@@ -299,11 +304,13 @@ const errorReport = (seed: number, error: unknown): Report => ({
 })
 
 /** Runs `operation`; a rejected publication is a status, any other error is returned. */
-function attempt(operation: () => unknown): {
+interface Attempt {
   rejected: boolean
   error?: unknown
   result?: unknown
-} {
+}
+
+function attempt(operation: () => unknown): Attempt {
   try {
     return { rejected: false, result: operation() }
   } catch (error) {
@@ -461,9 +468,16 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const armed = { on: false }
   const wrap = (o: object, index: number): object =>
     writesMode && recorded(c.cur.nodes[index]) ? recordingProxy(o, writes, armed) : o
-  const current = materialize(c.cur, counters, undefined, wrap)
-  const next = materialize(c.next, new Map(), (index) =>
-    c.same[index] === null ? undefined : current[c.same[index]],
+  const prototypeCounters: Counters = new Map()
+  const classes = materializeClasses(c.classes, prototypeCounters)
+  classIndex = new Map(classes.map((p, index) => [p, index]))
+  const current = materialize(c.cur, counters, undefined, wrap, classes)
+  const next = materialize(
+    c.next,
+    new Map(),
+    (index) => (c.same[index] === null ? undefined : current[c.same[index]]),
+    undefined,
+    classes,
   )
   const held = new Set(c.same.flatMap((index) => (index === null ? [] : [current[index]])))
   const before = stable(recapture(current[0], current))
@@ -472,6 +486,23 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const run = attempt(() => reconcile(toJs(c.cur.root, current), toJs(c.next.root, next)))
   armed.on = false
   const gets = getterCounts(counters, current, held)
+  const reports = reconcileReports(seed, c, expected, run, current, held, before, gets, writes)
+  classIndex = prototypeIndex
+  return [...reports, ...prototypeReports(seed, prototypeCounters, classes)]
+}
+
+/** The reports of a run's outcome against the reference's. */
+function reconcileReports(
+  seed: number,
+  c: Case,
+  expected: Outcome,
+  run: Attempt,
+  current: readonly object[],
+  held: ReadonlySet<object>,
+  before: string,
+  gets: ReadonlyMap<string, number>,
+  writes: Writes,
+): Report[] {
   if ('error' in run) return [errorReport(seed, run.error)]
   if (run.rejected)
     return reportRejection(seed, expected, stable(recapture(current[0], current)) !== before)
@@ -481,6 +512,23 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   compareCaptured(seed, recapture(run.result, current), expected, reports)
   reportGetters(seed, gets, wantedGets(expected, current, held), reports)
   reportWrites(seed, c, current, writes, expected, reports)
+  return reports
+}
+
+const ran = (count: { get: number; set: number }): boolean => count.get > 0 || count.set > 0
+
+/** `reconcile` reads own properties only and never writes through an inherited accessor, so no
+ * getter or setter of a class prototype runs during the call. */
+function prototypeReports(seed: number, counters: Counters, classes: readonly object[]): Report[] {
+  const reports: Report[] = []
+  for (const [o, byKey] of counters)
+    for (const [key, count] of byKey)
+      if (ran(count))
+        reports.push({
+          detail: `class ${classes.indexOf(o)} key ${key}: ${count.get} gets, ${count.set} sets`,
+          kind: 'prototype',
+          seed,
+        })
   return reports
 }
 
@@ -595,8 +643,15 @@ interface Check<T> {
 const reconcileCheck: Check<Case> = {
   compare: compareReconcile,
   generate: genCase,
-  request: (c) => ({ cur: c.cur, next: c.next, op: 'reconcile', same: c.same }),
-  show: (c) => `cur  ${stable(c.cur)}\nnext ${stable(c.next)}\nsame ${JSON.stringify(c.same)}`,
+  request: (c) => ({
+    classes: c.classes,
+    cur: c.cur,
+    next: c.next,
+    op: 'reconcile',
+    same: c.same,
+  }),
+  show: (c) =>
+    `cur  ${stable(c.cur)}\nnext ${stable(c.next)}\nsame ${JSON.stringify(c.same)}\nclasses ${JSON.stringify(c.classes)}`,
 }
 
 const produceCheck: Check<Recipe> = {
@@ -742,6 +797,7 @@ const graphFeatures = (c: Case): Feature[] => [
   ['rootArray', c.cur.nodes[0].kind === 'array'],
   ['kindChange', c.cur.nodes.some((n, index) => c.next.nodes[index].kind !== n.kind)],
   ['reorder', reordered(c)],
+  ['inherited', c.classes.some((slots) => slots.length > 0)],
 ]
 
 /** The features of a reference outcome. */
@@ -779,6 +835,7 @@ async function features(
 const GATE_OPTIONS: Options = {
   accessors: true,
   attributes: true,
+  inherited: true,
   nodes: 6,
   reorder: true,
   same: true,
@@ -862,6 +919,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       features: { default: false, type: 'boolean' },
       from: { default: '1', type: 'string' },
       hazards: { default: false, type: 'boolean' },
+      inherited: { default: true, type: 'boolean' },
       nodes: { default: '6', type: 'string' },
       op: { default: 'reconcile', type: 'string' },
       reorder: { default: true, type: 'boolean' },
@@ -879,6 +937,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       accessors: values.accessors,
       attributes: values.attributes,
       hazards: values.hazards,
+      inherited: values.inherited,
       nodes: Number(values.nodes),
       reorder: values.reorder,
       same: values.same,

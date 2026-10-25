@@ -64,7 +64,6 @@ const MUTANTS: readonly Mutant[] = [
     find: '  promoteDemanded(domains)\n',
     name: 'promotion-skipped',
     replace: '\n',
-    survives: 'promotion links the candidates of a buffer and its views, which the model lacks',
   },
   {
     file: 'src/publication/capture.ts',
@@ -78,7 +77,6 @@ const MUTANTS: readonly Mutant[] = [
     find: '  hasOwn(current, key) ? Reflect.get(current, key) : undefined',
     name: 'own-value-through-prototype',
     replace: '  Reflect.get(current, key)',
-    survives: 'the prototypes the generator labels hold no slots, so nothing is inherited',
   },
   {
     file: 'src/types/shared/property-publication.ts',

@@ -9,6 +9,7 @@ import {
   isHole,
   isReference,
   type ByKind,
+  type Classes,
   type Extensibility,
   type Graph,
   type GraphNode,
@@ -17,8 +18,10 @@ import {
   type Value,
 } from './spec-generator'
 
-/** The prototype objects of the class labels. */
-const prototypes = Array.from({ length: CLASSES }, (): object => ({}))
+/** The prototype objects of the class labels: one object per label. */
+export type Prototypes = readonly object[]
+/** The slot-free prototypes a graph takes unless a case supplies its own. */
+const prototypes: Prototypes = Array.from({ length: CLASSES }, (): object => ({}))
 export const prototypeIndex = new Map(prototypes.map((p, index) => [p, index]))
 /** The functions the atom labels stand for. */
 export const atoms = Array.from({ length: ATOMS }, (_, index) => (): number => index)
@@ -36,18 +39,14 @@ export const primitiveToJs = (v: Exclude<Value, { ref: number }>): unknown =>
 export const toJs = (v: Value, objects: readonly object[]): unknown =>
   isReference(v) ? objects[v.ref] : primitiveToJs(v)
 
-const prototypeOf = (prototype: NodeOf<'object'>['proto']): object | null =>
-  prototype === 'object'
-    ? Object.prototype
-    : prototype === 'null'
-      ? null
-      : prototypes[prototype.cls]
+const prototypeOf = (prototype: NodeOf<'object'>['proto'], classes: Prototypes): object | null =>
+  prototype === 'object' ? Object.prototype : prototype === 'null' ? null : classes[prototype.cls]
 
-const shells: ByKind<[], object> = {
+const shells: ByKind<[classes: Prototypes], object> = {
   array: () => [],
   date: (node) => new Date(node.ms),
   map: () => new Map(),
-  object: (node) => Object.create(prototypeOf(node.proto)) as object,
+  object: (node, classes) => Object.create(prototypeOf(node.proto, classes)) as object,
   set: () => new Set(),
 }
 
@@ -107,21 +106,38 @@ const fillers: ByKind<
 
 /** Builds one object from a node without accessors, as a recipe creates it. */
 export function construct(node: GraphNode, resolve: Resolve): object {
-  const o = byKind(shells, node)
+  const o = byKind(shells, node, prototypes)
   byKind(fillers, node, o, resolve)
   return o
 }
 
-/** Builds the objects of a graph; `fixed(j)` supplies an existing object for node `j`, and `wrap`
- * replaces a new shell before it is filled. */
+/** Resolves the primitive values of class slots, which reference no node. */
+const resolvePrimitive: Resolve = (v) => toJs(v, [])
+
+/** Builds the prototype objects of a case's classes, with their slots; accessors count their
+ * calls in `counters`. */
+export function materializeClasses(classes: Classes, counters: Counters): object[] {
+  return classes.map((slots) => {
+    const o = {}
+    for (const [key, slot] of slots) {
+      if ('v' in slot) defineData(o, key, slot, resolvePrimitive)
+      else defineAccessor(o, key, slot, resolvePrimitive, counters)
+    }
+    return o
+  })
+}
+
+/** Builds the objects of a graph; `fixed(j)` supplies an existing object for node `j`, `wrap`
+ * replaces a new shell before it is filled, and `classes` are the prototypes of the class labels. */
 export function materialize(
   graph: Graph,
   counters: Counters,
   fixed: (index: number) => object | undefined = () => undefined,
   wrap: (o: object, index: number) => object = (o) => o,
+  classes: Prototypes = prototypes,
 ): object[] {
   const objects = graph.nodes.map(
-    (node, index) => fixed(index) ?? wrap(byKind(shells, node), index),
+    (node, index) => fixed(index) ?? wrap(byKind(shells, node, classes), index),
   )
   const resolve: Resolve = (v) => toJs(v, objects)
   const accessor = (o: object, key: string, slot: Accessor): void =>
