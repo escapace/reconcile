@@ -18,7 +18,7 @@ private structure Input where
   size : Nat
   swaps : List (Nat × Nat)
   actions : List (List Nat)
-  deriving FromJson, ToJson
+  deriving ToJson
 
 private structure Observation where
   input : Input
@@ -77,11 +77,6 @@ private def corpus : IO Unit := do
 def run (args : List String) : IO Unit := do
   match args with
   | [] => corpus
-  | [path] =>
-    let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
-    let inputs ← IO.ofExcept (fromJson? parsed : Except String (List Input))
-    IO.println inputs.length
-    for input in inputs do emit input
-  | _ => throw (IO.userError "Expected zero arguments or one bounded native-history file")
+  | _ => throw (IO.userError "Expected no argument")
 
 end Reconcile.FactRenamingOracle

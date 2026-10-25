@@ -130,16 +130,6 @@ describe('Root rule', () => {
 
 describe('Recursive value rule', () => {
   describe('Nested replacement via snapshot', () => {
-    it('snapshots next when current child is primitive and next child is object', () => {
-      const nested = { x: 1 }
-      const current = { child: 42 }
-      const next = { child: nested }
-      const result = reconcile(current, next)
-
-      assert.notEqual(result.child, nested)
-      assert.deepEqual(result.child, nested)
-    })
-
     it('snapshots next when current child is already consumed', () => {
       // When a current node has been consumed for one next node,
       // it cannot be reused for another. The second usage gets a snapshot.

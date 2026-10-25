@@ -8,8 +8,8 @@ import {
   viewImmutable,
 } from './shared/binary'
 
-/** Stable global identity owned by the typed-array module. */
-export const TYPED_ARRAY_KIND = Symbol.for('@escapace/reconcile/typed-array')
+/** The typed-array kind. */
+export const TYPED_ARRAY_KIND = Symbol('typed-array')
 
 const typedArrayCapture = /* @__PURE__ */ viewCapture(TYPED_ARRAY_KIND, copyTypedArray)
 const typedArrayConstruction =

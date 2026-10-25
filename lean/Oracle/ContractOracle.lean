@@ -4,7 +4,6 @@ import Lean
 /-! Oracle for the `Contract` family. It runs each graph in `reuse-fixtures.json` through
 `Policy.select` and the verified immutable core (`Immutable.publish`), checks the compiler facts,
 the readback and the unchanged input frame, and reports the selected identities, values and edges.
-A wrapper and its raw object are one node, as identity restoration registers them.
 -/
 
 namespace Reconcile.ContractOracle
@@ -30,8 +29,8 @@ private def fixtureNode (value : Nat) (children : Array Nat) : Node Nat Nat :=
   .plainObject ⟨0⟩ (⟨⟨0⟩, .atom value⟩ ::
     children.toList.zipIdx.map fun (child, index) => ⟨⟨index + 1⟩, .ref child⟩)
 
-/-- The verified core on a fixture whose wrappers are already merged into their raw objects:
-the selected identities, values and edges of each node, by node index. -/
+/-- The verified core on a fixture graph: the selected identities, values and edges of each node,
+by node index. -/
 private def runCanonical (name : String) (before after : Array Nat) (children : Array (Array Nat)) :
     Except String (Array Nat × Array Nat × Array (Array Nat)) := do
   let size := before.size
@@ -91,29 +90,20 @@ private def runCanonical (name : String) (before after : Array Nat) (children : 
     return ((ids.map image).toArray, values, edges)
 
 /-- Runs the core on the fixture's graph. A kept node is reported at its position, and a new node
-as the first position that holds it, as the runtime labels them. -/
+as the node count plus its position, as the runtime labels them. -/
 private def runFixture (fixture : ReuseFixture) : Except String ReuseObservation := do
   let size := fixture.before.size
-  let canon := fun (r : Nat) => r
-  let ids := List.range size
-  let raws := (ids.filter fun i => canon i = i).toArray
-  let position := fun r => (raws.findIdx? (· = canon r)).getD 0
-  let first := fun r => (ids.find? (fun j => canon j = canon r)).getD r
-  let pick := fun (values : Array Nat) => raws.map fun r => values[r]!
-  let children := raws.map fun r => fixture.children[r]!.map position
   let (images, values, edges) ←
-    runCanonical fixture.name (pick fixture.before) (pick fixture.after) children
-  let count := raws.size
-  -- A kept node keeps the view a position held; a new one is labelled by its first position.
-  let present := fun (original : Nat) (identity : Nat) =>
-    if identity < count then original else size + first original
+    runCanonical fixture.name fixture.before fixture.after fixture.children
+  let present := fun (original identity : Nat) =>
+    if identity < size then original else size + original
+  let ids := List.range size
   return {
     name := fixture.name
-    identities := (ids.map fun i => present i images[position i]!).toArray
-    values := (ids.map fun i => values[position i]!).toArray
+    identities := (ids.map fun i => present i images[i]!).toArray
+    values := (ids.map fun i => values[i]!).toArray
     edges := (ids.map fun i =>
-      if canon i ≠ i then #[]
-      else (fixture.children[i]!.zip edges[position i]!).map fun (c, r) => present c r).toArray
+      (fixture.children[i]!.zip edges[i]!).map fun (c, r) => present c r).toArray
   }
 
 def run (args : List String) : IO UInt32 := do

@@ -39,8 +39,8 @@ import {
   openMapEntries,
 } from '../standard-prototypes'
 
-/** Stable global identity owned by the map module. */
-export const MAP_KIND = Symbol.for('@escapace/reconcile/map')
+/** The `Map` kind. */
+export const MAP_KIND = Symbol('map')
 
 const mapAccess: CollectionAccess = {
   open: openMapEntries,

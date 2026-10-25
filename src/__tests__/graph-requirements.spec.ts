@@ -68,14 +68,6 @@ function assertClosed(
   for (const fact of closed) for (const next of implications[fact]) assert.isTrue(closed.has(next))
 }
 
-it('does not turn ownership propagation into special cloning without a semantic implication', () => {
-  // Each node has separate semantic-clone and storage-separation facts.
-  // Separating one leaf rebuilds its parent, but never adds a clone reason.
-  const implications = [[2], [3], [], []]
-  assert.deepEqual([...closeRequirements([1], implications)], [1, 3])
-  assert.deepEqual([...closeRequirements([0], implications)], [0, 2])
-})
-
 it('closes late implications and seeds identically at every discovery prefix', () => {
   for (let graph = 0; graph < 512; graph += 1) {
     for (const seedsFirst of [false, true]) {

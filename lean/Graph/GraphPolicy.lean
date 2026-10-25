@@ -171,50 +171,6 @@ theorem rankedPlans_exact (domains : Domains) (plan : Plan) :
     have hl := allowed_length h.1
     exact ⟨score plan, by omega, h, rfl⟩
 
--- Feedback changes domain order only after an entire score tier is exhausted.
--- Model the resulting per-tier preferences as supplied finite facts, not host code.
-def freshFirst (domain : List Choice) : List Choice :=
-  domain.filter (fun choice => !choice.retained) ++ domain.filter Choice.retained
-
-@[simp] theorem freshFirst_mem (domain : List Choice) (choice : Choice) :
-    choice ∈ freshFirst domain ↔ choice ∈ domain := by
-  cases hr : choice.retained <;> simp [freshFirst, hr]
-
-def orderedDomains : Domains → (Nat → Bool) → Nat → Domains
-  | [], _, _ => []
-  | domain :: rest, preferred, index =>
-    (if preferred index then freshFirst domain else domain) :: orderedDomains rest preferred (index + 1)
-
-@[simp] theorem orderedDomains_allowed (domains : Domains) (preferred : Nat → Bool)
-    (index : Nat) (plan : Plan) :
-    allowed (orderedDomains domains preferred index) plan ↔ allowed domains plan := by
-  induction domains generalizing plan index with
-  | nil => cases plan <;> simp [orderedDomains, allowed]
-  | cons domain rest ih =>
-    cases plan with
-    | nil => simp [orderedDomains, allowed]
-    | cons choice choices =>
-      simp only [orderedDomains, allowed]
-      rw [ih]
-      cases preferred index <;> simp
-
-def rankedPreferred (domains : Domains) (preferred : Nat → Nat → Bool) : List Plan :=
-  (List.range (domains.length + 1)).reverse.flatMap fun rank =>
-    (feasiblePlans (orderedDomains domains (preferred rank) 0)).filter fun plan => decide (score plan = rank)
-
-theorem rankedPreferred_exact (domains : Domains) (preferred : Nat → Nat → Bool) (plan : Plan) :
-    plan ∈ rankedPreferred domains preferred ↔ allowed domains plan ∧ feasible plan := by
-  simp only [rankedPreferred, List.mem_flatMap, List.mem_reverse, List.mem_range,
-    List.mem_filter, decide_eq_true_eq, feasiblePlans_exact, orderedDomains_allowed]
-  constructor
-  · rintro ⟨rank, _, hp, _⟩
-    exact hp
-  · intro h
-    have hs := score_le_length plan
-    have hl := allowed_length h.1
-    exact ⟨score plan, by omega, h, rfl⟩
-
-
 -- These are exactly the suffix score bounds used by the streaming selector.
 -- They depend only on finite domains, not on native object behavior.
 def minimumScore (domains : Domains) : Nat :=
@@ -331,93 +287,8 @@ theorem freshAssignment_feasible (rows : List (Nat × Option Choice))
     obtain ⟨row, _, rfl⟩ := List.mem_map.mp hc
     simp [freshChoice] at he
 
-theorem fallback_select_exists (rows : List (Nat × Option Choice))
-    (h : (rows.map Prod.fst).Nodup) :
-    ∃ plan, select (fallbackDomains rows) = some plan := by
-  cases hs : select (fallbackDomains rows) with
-  | none =>
-    exact False.elim ((select_complete _).mp hs
-      ⟨freshAssignment rows, freshAssignment_allowed rows, freshAssignment_feasible rows h⟩)
-  | some plan => exact ⟨plan, rfl⟩
-
-/-! The head plan: every node takes the first choice of its domain. When it is feasible and
-reaches the top score, it is the first plan of the ranked stream, so the driver may attempt
-it before starting the search and resume the stream after it. -/
-
-def headPlan : Domains → Option Plan
-  | [] => some []
-  | [] :: _ => none
-  | (choice :: _) :: rest => (headPlan rest).map (choice :: ·)
-
-/-- Each head is retained, or its domain offers no retained choice. -/
-def HeadsMaximal : Domains → Prop
-  | [] => True
-  | [] :: rest => HeadsMaximal rest
-  | (choice :: others) :: rest =>
-    (choice.retained = true ∨ ∀ other ∈ choice :: others, other.retained = false) ∧
-      HeadsMaximal rest
-
-theorem headPlan_first {domains : Domains} {plan : Plan} (h : headPlan domains = some plan) :
-    (assignments domains).head? = some plan := by
-  induction domains generalizing plan with
-  | nil => simp_all [headPlan, assignments]
-  | cons domain rest ih =>
-    cases domain with
-    | nil => simp [headPlan] at h
-    | cons choice others =>
-      obtain ⟨tail, ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      have first := ih ht
-      cases hr : assignments rest with
-      | nil => simp [hr] at first
-      | cons head more =>
-        rw [hr] at first
-        simp only [List.head?_cons, Option.some.injEq] at first
-        subst first
-        simp [assignments, hr]
-
-theorem headPlan_allowed {domains : Domains} {plan : Plan} (h : headPlan domains = some plan) :
-    allowed domains plan := by
-  have first := headPlan_first h
-  cases hr : assignments domains with
-  | nil => simp [hr] at first
-  | cons head more =>
-    rw [hr] at first
-    simp only [List.head?_cons, Option.some.injEq] at first
-    subst first
-    exact (assignments_allowed domains head).mp (by simp [hr])
-
-theorem headPlan_score {domains : Domains} {plan : Plan} (h : headPlan domains = some plan)
-    (maximal : HeadsMaximal domains) : score plan = maximumScore domains := by
-  induction domains generalizing plan with
-  | nil => simp_all [headPlan, score, maximumScore]
-  | cons domain rest ih =>
-    cases domain with
-    | nil => simp [headPlan] at h
-    | cons choice others =>
-      obtain ⟨tail, ht, rfl⟩ := Option.map_eq_some_iff.mp h
-      obtain ⟨top, more⟩ := maximal
-      have tailScore := ih ht more
-      simp only [score, maximumScore, List.map_cons, List.sum_cons] at tailScore ⊢
-      rw [tailScore]
-      congr 1
-      rcases top with retained | none
-      · have : (choice :: others).any Choice.retained = true :=
-          List.any_eq_true.mpr ⟨choice, List.mem_cons_self, retained⟩
-        simp [retained, this]
-      · have hc := none choice List.mem_cons_self
-        have : (choice :: others).any Choice.retained = false := by
-          rw [Bool.eq_false_iff]
-          intro hany
-          obtain ⟨other, hm, ho⟩ := List.any_eq_true.mp hany
-          simp [none other hm] at ho
-        simp [hc, this]
-
-theorem orderedDomains_none (domains : Domains) (index : Nat) :
-    orderedDomains domains (fun _ => false) index = domains := by
-  induction domains generalizing index with
-  | nil => rfl
-  | cons domain rest ih => simp [orderedDomains, ih]
-
+-- The head of a ranked stream is the head of its top nonempty score tier
+-- (`CompactImmutable.ranked_head`).
 theorem head_filter {α : Type} {plans : List α} {plan : α} {keep : α → Bool}
     (h : plans.head? = some plan) (hk : keep plan = true) :
     (plans.filter keep).head? = some plan := by
@@ -447,50 +318,5 @@ theorem head_ranks {α : Type} {f : Nat → List α} {s : Nat} (hs : f s ≠ [])
       | cons head more => simp
     · rw [above (n + 1) (by omega), List.nil_append]
       exact ih (by omega)
-
-/-- A feasible, maximal head plan heads the ranked stream when its own tier has no preference. -/
-theorem rankedPreferred_head {domains : Domains} {plan : Plan}
-    (preferred : Nat → Nat → Bool) (h : headPlan domains = some plan)
-    (maximal : HeadsMaximal domains) (feasibleHead : feasible plan)
-    (ordinary : ∀ index, preferred (score plan) index = false) :
-    (rankedPreferred domains preferred).head? = some plan := by
-  have allowedHead := headPlan_allowed h
-  have top := headPlan_score h maximal
-  let f := fun rank => (feasiblePlans (orderedDomains domains (preferred rank) 0)).filter
-    fun candidate => decide (score candidate = rank)
-  have own : (f (score plan)).head? = some plan := by
-    have same : preferred (score plan) = fun _ => false := funext ordinary
-    simp only [f, same, orderedDomains_none, feasiblePlans]
-    rw [List.filter_filter]
-    apply head_filter (headPlan_first h)
-    simp [(check_iff_feasible plan).mpr feasibleHead]
-  have nonempty : f (score plan) ≠ [] := by
-    intro empty
-    rw [empty] at own
-    simp at own
-  have above : ∀ r, score plan < r → f r = [] := by
-    intro r hr
-    rw [List.filter_eq_nil_iff]
-    intro candidate member
-    have exact := (feasiblePlans_exact _ candidate).mp member
-    rw [orderedDomains_allowed] at exact
-    have bound := (allowed_score_bounds exact.1).2
-    simp only [decide_eq_true_eq]
-    omega
-  have length : score plan ≤ domains.length := by
-    have := score_le_length plan
-    have := allowed_length allowedHead
-    omega
-  unfold rankedPreferred
-  rw [head_ranks nonempty above domains.length length, own]
-
--- Executable witness: a two-node head plan heads the stream; a later retained choice does not.
-example :
-    (rankedPreferred [[⟨10, 10, true, []⟩], [⟨20, 20, true, []⟩, ⟨1, 1, false, []⟩]]
-      (fun _ _ => false)).head? = some [⟨10, 10, true, []⟩, ⟨20, 20, true, []⟩] := by decide
-example :
-    headPlan [[⟨1, 1, false, []⟩, ⟨20, 20, true, []⟩]] = some [⟨1, 1, false, []⟩] ∧
-      (rankedPreferred [[⟨1, 1, false, []⟩, ⟨20, 20, true, []⟩]] (fun _ _ => false)).head? =
-        some [⟨20, 20, true, []⟩] := by decide
 
 end Reconcile.Policy

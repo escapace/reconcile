@@ -1,8 +1,8 @@
 import { builtinValue, Detached, uncurried } from '../../standard-prototypes'
 import { adoptPrototype } from './prototype'
 import type { NativeOwners } from '../../types'
-/** Stable global identity shared by native URL ownership facets. */
-export const URL_KIND = Symbol.for('@escapace/reconcile/url')
+/** The URL kind, shared by the URL ownership facets. */
+export const URL_KIND = Symbol('url')
 
 /** A built-in method as a function of its receiver, then its arguments. */
 type Call<Arguments extends unknown[], Result> = (

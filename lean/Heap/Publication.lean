@@ -321,8 +321,7 @@ theorem publishRecords_frame [DecidableEq J] (image : I → J) (proto)
     rw [Finmap.lookup_insert_of_ne _ (Ne.symm (outside (i, nd) (by simp)))]
     exact ih (fun entry hm => outside entry (by simp [hm]))
 
-/-- Finite stable readback check. The caller must finish any rebind before using
-    this check's result; the image is fixed throughout this observation. -/
+/-- Finite stable readback check; the image is fixed throughout this observation. -/
 def checkPublication [DecidableEq A] [DecidableEq J] (image : I → J) (proto : I → ProtoLabel → ProtoLabel)
     (records : List (I × Node A I)) (observed : Heap A J) : Bool :=
   records.all fun (i, nd) => decide (observed.lookup (image i) = some (nd.remap image (proto i)))

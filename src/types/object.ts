@@ -31,7 +31,7 @@ import {
 import { alignedProperties, backedProperty } from './shared/properties'
 import { defineData, hide, isDataDescriptor, restoreAttributes } from '../standard-prototypes'
 
-/** Stable global identity owned by the object module. */
+/** The plain-object fallback kind. */
 export { OBJECT_KIND }
 
 const objectSurface: PropertySurface<ObjectLayout> = {

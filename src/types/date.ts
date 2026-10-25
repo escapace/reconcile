@@ -21,8 +21,8 @@ const dateSetTime = /* @__PURE__ */ (() =>
 export const timeOf = /* @__PURE__ */ (() =>
   uncurried<[], number>(builtinValue(Date.prototype, 'getTime')))() as (value: object) => number
 
-/** Stable global identity owned by the date module. */
-export const DATE_KIND = Symbol.for('@escapace/reconcile/date')
+/** The `Date` kind. */
+export const DATE_KIND = Symbol('date')
 
 const dateCapture = {
   construction: noValue,

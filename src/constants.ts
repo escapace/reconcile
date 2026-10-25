@@ -12,8 +12,8 @@ export const SPECIAL_REPLACEMENT = /* @__PURE__ */ Object.freeze({
  * configurable data property with the getter's enumerability; a rebuilt array as an element. */
 export const OBSERVED_ACCESSOR = 8
 
-/** Stable global identity of the plain-object fallback kind. */
-export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
+/** The plain-object fallback kind. */
+export const OBJECT_KIND = Symbol('object')
 
 /**
  * Kind of an object whose state lives in internal slots that copying own properties loses: a
@@ -25,7 +25,7 @@ export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
  *
  * @internal
  */
-export const ATOM_KIND = Symbol.for('@escapace/reconcile/atom')
+export const ATOM_KIND = Symbol('atom')
 
 /**
  * Marks a slot whose value the call has not read, or whose read no longer holds, as for a key

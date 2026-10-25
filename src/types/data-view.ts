@@ -8,8 +8,8 @@ import {
   viewImmutable,
 } from './shared/binary'
 
-/** Stable global identity owned by the data-view module. */
-export const DATA_VIEW_KIND = Symbol.for('@escapace/reconcile/data-view')
+/** The `DataView` kind. */
+export const DATA_VIEW_KIND = Symbol('data-view')
 
 const dataViewCapture = /* @__PURE__ */ viewCapture(DATA_VIEW_KIND, copyDataView)
 const dataViewConstruction = /* @__PURE__ */ viewConstruction<typeof DATA_VIEW_KIND>(copyDataView)

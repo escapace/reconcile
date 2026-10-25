@@ -1,6 +1,6 @@
-// Shared plumbing for the captured and pruned graph bridges: both build numbered graphs whose
-// edges are `child<slot>` properties, ground every node at a path from the root and report
-// identities, values and edges in the vocabulary of the Lean contract oracle.
+// Plumbing for the captured graph bridge: it builds numbered graphs whose edges are
+// `child<slot>` properties, grounds every node at a path from the root and reports identities,
+// values and edges in the vocabulary of the Lean contract oracle.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { Oracle } from './lean-oracle'

@@ -57,12 +57,11 @@ def run : IO Unit := do
     for (query, key) in queries do
       let before := keyOf scenario.before
       let held := keyOf scenario.after
-      let targets := fun x => [before x]
       let elements := scenario.elements
       let row : Observation :=
-        { scenario := scenario.name, query, includes := includesBy held targets elements key,
-          indexOf := position (indexOfBy held targets elements key),
-          lastIndexOf := position (lastIndexOfBy held targets elements key) }
+        { scenario := scenario.name, query, includes := includesBy held before elements key,
+          indexOf := position (indexOfBy held before elements key),
+          lastIndexOf := position (lastIndexOfBy held before elements key) }
       IO.println (toJson row).compress
 
 end Reconcile.DraftMembersOracle

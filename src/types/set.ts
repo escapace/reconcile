@@ -40,8 +40,8 @@ import {
   setStep,
 } from '../standard-prototypes'
 
-/** Stable global identity owned by the set module. */
-export const SET_KIND = Symbol.for('@escapace/reconcile/set')
+/** The `Set` kind. */
+export const SET_KIND = Symbol('set')
 
 /** The members as the draft holds them now: its working copy, or its object until it has one. */
 const liveMembers = (state: SetDraftState): Set<unknown> => draftValue<Set<unknown>>(state)

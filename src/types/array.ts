@@ -33,8 +33,8 @@ import {
 import { alignedProperties, backedProperty } from './shared/properties'
 import { defineData, hasElement, isDataDescriptor } from '../standard-prototypes'
 
-/** Stable global identity owned by the array module. */
-export const ARRAY_KIND = Symbol.for('@escapace/reconcile/array')
+/** The array kind. */
+export const ARRAY_KIND = Symbol('array')
 
 const arraySurface: PropertySurface<ArrayLayout> = {
   desired: undefined,

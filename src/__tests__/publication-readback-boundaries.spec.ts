@@ -74,7 +74,7 @@ it('updates a kept Map or Set with the built-ins, never through a misbehaving ow
 })
 
 // An object whose setter runs `effect` when publication writes its value: a write that changes
-// bytes the engine already published, so readback rejects them and the plan is repaired.
+// bytes the engine already published, so readback rejects them and a later pass repairs them.
 function trigger(effect: () => void): { value: number; writes: () => number } {
   let stored = 0
   let writes = 0
@@ -153,7 +153,7 @@ it.each([false, true])(
     assert.deepEqual([...new Uint8Array(nextBuffer)], [1, 2, 3, 4])
     assert.equal(result.hook, hook)
     assert.equal(result.sibling, sibling)
-    // The repaired plan finds the hook's value already written.
+    // The later pass finds the hook's value already written.
     assert.equal(hook.writes(), 1)
   },
 )
@@ -202,7 +202,7 @@ it('repairs a view across multiple buffer rejections without extra repair attemp
     view: new Uint8Array(buffer),
   })
   assert.equal(result, current)
-  // The trigger corrupts both buffers once; the repaired plan keeps one of them for both keys.
+  // The trigger corrupts both buffers once; the later pass keeps one of them for both keys.
   assert.ok(result.first === first || result.first === second)
   assert.equal(result.first, result.second)
   assert.equal(result.view.buffer, result.first)

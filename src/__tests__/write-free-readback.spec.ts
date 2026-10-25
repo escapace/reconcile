@@ -160,9 +160,9 @@ describe('a getter of current runs once without writes and twice with them', () 
     }
   })
 
-  it('runs it once more for each retried plan', () => {
-    // A setter that does not store its value makes the readback reject the plan that keeps its
-    // object, and the retry replaces that object.
+  it('runs it once more for each later pass', () => {
+    // A setter that does not store its value makes the readback reject the pass that keeps its
+    // object, and the next pass replaces that object.
     const stubborn: Record<string, unknown> = {}
     Object.defineProperty(stubborn, 'g', {
       configurable: true,

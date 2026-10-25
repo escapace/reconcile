@@ -26,8 +26,8 @@ import type {
   SnapshotPolicy,
 } from '../types'
 
-/** Stable global identity owned by the URLSearchParams module. */
-export const URL_SEARCH_PARAMS_KIND = Symbol.for('@escapace/reconcile/url-search-params')
+/** The `URLSearchParams` kind. */
+export const URL_SEARCH_PARAMS_KIND = Symbol('url-search-params')
 
 /** Captures ordered parameter values and a private native owner. */
 export interface URLSearchParametersLayout {

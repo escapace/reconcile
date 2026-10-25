@@ -20,7 +20,6 @@ interface Fixture {
   children: number[][]
   name: string
   undo: boolean
-  untouched?: boolean[]
 }
 
 /** The input graph. */
@@ -34,10 +33,6 @@ function inputGraph(fixture: Fixture): GraphNode[] {
 
 /** Writes the fixture's final value, through an undone intermediate write when requested. */
 function rewrite(fixture: Fixture, id: number, node: () => GraphNode): void {
-  if (fixture.untouched?.[id] === true) {
-    assert.equal(fixture.after[id], fixture.before[id])
-    return
-  }
   const target = node()
   if (fixture.undo) target.value = fixture.after[id] + 1
   target.value = fixture.after[id]

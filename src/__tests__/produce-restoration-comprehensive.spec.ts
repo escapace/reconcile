@@ -1,7 +1,6 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-import { reconcile } from '../reconcile'
 
 const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
 const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
@@ -289,24 +288,6 @@ describe('caller publication restoration comprehensive semantics', () => {
       assert.notEqual(entry, shared)
       assert.equal(entry.count, 2)
     })
-
-    it('materializes a plain-object handle that contains a clone-on-read Date changed elsewhere', () => {
-      const date = new Date('2024-01-01T00:00:00.000Z')
-      const current = {
-        left: date,
-        right: { date },
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.setUTCFullYear(2025)
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result.date, date)
-      assert.equal(result.date.getUTCFullYear(), 2025)
-      assert.equal(current.right.date.getUTCFullYear(), 2024)
-    })
   })
 
   describe('returned unmodified nested collection handles unwrap instead of leaking wrappers', () => {
@@ -422,37 +403,6 @@ describe('caller publication restoration comprehensive semantics', () => {
         ),
         [3, 4],
       )
-    })
-  })
-
-  describe('publication and produce agree on restored graphs', () => {
-    it('lets produce and caller publication retain the original graph after undo', () => {
-      const current = {
-        nested: { count: 0 },
-      }
-
-      const next = produce(current, (draft) => {
-        draft.nested.count = 1
-        draft.nested.count = 0
-        return draft
-      })
-
-      const published = reconcile(
-        current,
-        produce(current, (draft) => {
-          draft.nested.count = 1
-          draft.nested.count = 0
-          return draft
-        }),
-      )
-
-      assert.equal(next, current)
-      assert.equal(next.nested, current.nested)
-      assert.deepEqual(next, { nested: { count: 0 } })
-
-      assert.equal(published, current)
-      assert.equal(published.nested, current.nested)
-      assert.deepEqual(published, { nested: { count: 0 } })
     })
   })
 

@@ -59,27 +59,10 @@ private def emitCorpus : IO Unit := do
   emit fanout [0, 0]
   emit fanout (List.range 64)
 
-private structure Input where
-  parents : List (List Nat)
-  seeds : List Nat
-  deriving FromJson
-
-/-- With a file argument, check bounded native-compiled input graphs using the
-same Lean transformation; without arguments, emit the exhaustive fixed corpus. -/
+/-- Emits the exhaustive fixed corpus. -/
 def run (args : List String) : IO Unit := do
   match args with
   | [] => emitCorpus
-  | [path] =>
-    let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
-    let inputs ← IO.ofExcept (fromJson? parsed : Except String (List Input))
-    IO.println inputs.length
-    for input in inputs do
-      let size := input.parents.length
-      if size > 64 || input.seeds.length > 64 ||
-          !(input.seeds.all (· < size)) ||
-          !(input.parents.all fun row => row.length ≤ 128 && row.all (· < size)) then
-        throw (IO.userError "Native bridge graph exceeds its declared finite bounds")
-      emit input.parents input.seeds
-  | _ => throw (IO.userError "Expected zero arguments or one native graph fixture file")
+  | _ => throw (IO.userError "Expected no argument")
 
 end Reconcile.SeededRequirementsOracle

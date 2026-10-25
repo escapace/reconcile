@@ -110,13 +110,12 @@ describe('deterministic public API fuzz regressions', () => {
     for (let trial = 0; trial < 10_000; trial += 1) {
       checkCase({ seed: random.seed, trial }, () => {
         const { values } = mixedGraph(random, false)
-        const exposed = values
         const currentIndex = random.next(values.length)
         const nextIndex = random.next(values.length)
-        const current = exposed[currentIndex]
-        const next = exposed[nextIndex]
-        // This generator authors only raw nodes. Native cloning independently
-        // captures their topology, including cycles and shared binary storage.
+        const current = values[currentIndex]
+        const next = values[nextIndex]
+        // Native cloning independently captures the topology, including cycles and shared
+        // binary storage.
         const expected = structuredClone(values[nextIndex])
         assert.isTrue(graphsEqual(expected, next))
         if (current.constructor !== next.constructor) {

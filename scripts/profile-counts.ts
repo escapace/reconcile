@@ -5,13 +5,8 @@ const intrinsic = new Set([
   'Object.getPrototypeOf',
   'Object.isExtensible',
   'Reflect.get',
-  'Reflect.getOwnPropertyDescriptor',
-  'Reflect.getPrototypeOf',
-  'Reflect.isExtensible',
   'Reflect.ownKeys',
 ])
-const metadata = new Set(['buffer', 'byteLength', 'byteOffset', 'constructor'])
-const nativeOwners = new Set(['src/draft-session.ts', 'src/finalization.ts'])
 
 const FINALIZATION = 'src/finalization.ts'
 const CANDIDATES = 'src/publication/candidates.ts'
@@ -19,8 +14,6 @@ const CANDIDATES = 'src/publication/candidates.ts'
 /** The source file being instrumented. */
 interface Site {
   readonly file: ts.SourceFile
-  /** Whether the file reads native-boundary metadata that the counters attribute. */
-  readonly nativeOwner: boolean
   readonly path: string
 }
 
@@ -83,16 +76,6 @@ function exactCalls(path: string, entries: ReadonlyArray<[called: string, key: s
   return (site, _node, called) => (site.path === path ? keys.get(called) : undefined)
 }
 
-/** The member name of a native-owner method call, if any. */
-function nativeMember(site: Site, callee: ts.Expression): string | undefined {
-  return site.nativeOwner && ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined
-}
-
-const metadataCall: CallRule = (site, node) => {
-  const member = nativeMember(site, node.expression)
-  return member !== undefined && metadata.has(member) ? `native.member.${member}` : undefined
-}
-
 const intrinsicCall: CallRule = (_site, _node, called) =>
   intrinsic.has(called) ? `native.${called}` : undefined
 
@@ -101,12 +84,8 @@ const kindMemoMiss: CallRule = (site, node, called) =>
     ? 'classification.memoMiss'
     : undefined
 
-const dateTimeCall: CallRule = (site, node) =>
-  nativeMember(site, node.expression) === 'getTime' ? 'native.dateTime' : undefined
-
 /** Call-site counters, in emission order. */
 const callRules: CallRule[] = [
-  metadataCall,
   exactCalls('src/types/builtins.ts', [
     ['Array.isArray', 'classification.predicateTests'],
     ['inChain', 'classification.predicateTests'],
@@ -116,30 +95,11 @@ const callRules: CallRule[] = [
   intrinsicCall,
   kindMemoMiss,
   exactCalls(FINALIZATION, [['this.untrackedSpecialsToClone.add', 'semantic.activations']]),
-  dateTimeCall,
 ]
 
 function callKeys(site: Site, node: ts.CallExpression): string[] {
   const called = node.expression.getText(site.file)
   return defined(callRules.map((rule) => rule(site, node, called)))
-}
-
-/** Native-boundary metadata is read-only in the supported current owners. */
-function metadataRead(site: Site, node: ts.PropertyAccessExpression): string[] {
-  const parent = node.parent
-  if (
-    !site.nativeOwner ||
-    !metadata.has(node.name.text) ||
-    (ts.isCallExpression(parent) && parent.expression === node)
-  )
-    return []
-  if (
-    ts.isBinaryExpression(parent) &&
-    parent.left === node &&
-    parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
-  )
-    throw new Error(`Metadata write requires an explicit counter rule: ${site.path}`)
-  return [`native.member.${node.name.text}`]
 }
 
 /** Graph record literals recognized by the identifier names they define. */
@@ -177,7 +137,6 @@ function objectKeys(site: Site, node: ts.ObjectLiteralExpression): string[] {
 function counterKeys(site: Site, node: ts.Node): string[] {
   if (ts.isBinaryExpression(node)) return binaryKeys(site, node)
   if (ts.isCallExpression(node)) return callKeys(site, node)
-  if (ts.isPropertyAccessExpression(node)) return metadataRead(site, node)
   if (ts.isObjectLiteralExpression(node)) return objectKeys(site, node)
   if (ts.isArrayLiteralExpression(node)) return ['allocation.arrayLiteral']
   if (ts.isNewExpression(node)) return [`allocation.new.${node.expression.getText(site.file)}`]
@@ -383,11 +342,7 @@ function createCounter(
 /** Diagnostic-only TypeScript overlay. Counters add no application property reads. */
 export function instrumentCounts(source: string, path: string) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const site: Site = {
-    file,
-    nativeOwner: path.startsWith('src/types/') || nativeOwners.has(path),
-    path,
-  }
+  const site: Site = { file, path }
   const sites: Record<string, number> = {}
   const transformed = ts.transform(file, [
     (context) => {

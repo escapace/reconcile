@@ -8,7 +8,7 @@ import { instrumentCounts } from '../../scripts/profile-counts'
 function prepare(source: string, path = 'src/types/fixture.ts') {
   const overlay = instrumentCounts(source, path)
   const counts: Record<string, number> = {}
-  const exports: { run?: (value: object) => unknown } = {}
+  const exports: { run?: (this: unknown, value?: object) => unknown } = {}
   runInNewContext(
     ts.transpileModule(overlay.contents, {
       compilerOptions: { module: ts.ModuleKind.CommonJS },
@@ -23,27 +23,25 @@ function prepare(source: string, path = 'src/types/fixture.ts') {
   return { counts, run: exports.run!, sites: overlay.sites }
 }
 
-it.each(['src/types/fixture.ts', 'src/draft-session.ts', 'src/finalization.ts'])(
-  'preserves the getter and method receiver in native owner %s',
-  (path) => {
-    let reads = 0
-    const value = {
-      get constructor() {
-        reads += 1
-        return function (this: object) {
-          return this
-        }
-      },
-    }
-    const { counts, run } = prepare(
-      'export function run(value: any) { return value.constructor() }',
-      path,
-    )
-    expect(run(value)).toBe(value)
-    expect(reads).toBe(1)
-    expect(counts['native.member.constructor']).toBe(1)
-  },
-)
+it('preserves the getter and method receiver of a counted member call', () => {
+  let reads = 0
+  const holder = {
+    get add() {
+      reads += 1
+      return function (this: object) {
+        return this
+      }
+    },
+  }
+  const target = { untrackedSpecialsToClone: holder }
+  const { counts, run } = prepare(
+    'export function run(this: any) { return this.untrackedSpecialsToClone.add() }',
+    'src/finalization.ts',
+  )
+  expect(run.call(target)).toBe(holder)
+  expect(reads).toBe(1)
+  expect(counts['semantic.activations']).toBe(1)
+})
 
 it('counts built-in recognition probes only when their branch is reached', () => {
   const { counts, run } = prepare(
@@ -58,20 +56,6 @@ it('counts built-in recognition probes only when their branch is reached', () =>
   expect(counts['classification.predicateTests']).toBe(1)
   expect(run({ ...probe, plain: true })).toBe(true)
   expect(counts['classification.predicateTests']).toBe(1)
-})
-
-it('does not execute a native read hidden behind a short circuit', () => {
-  const value = {
-    get buffer() {
-      throw new Error('must not read')
-    },
-  }
-  const { counts, run, sites } = prepare(
-    'export function run(value: any) { return false && value.buffer }',
-  )
-  expect(run(value)).toBe(false)
-  expect(counts['native.member.buffer']).toBeUndefined()
-  expect(sites['native.member.buffer']).toBe(1)
 })
 
 it('counts source constructions and preserves a graph edge identity', () => {

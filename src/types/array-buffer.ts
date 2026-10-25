@@ -18,8 +18,8 @@ import {
 } from './shared/binary-native'
 import { noChildren, noDependencies } from './shared/empty'
 
-/** Stable global identity owned by the array-buffer module. */
-export const ARRAY_BUFFER_KIND = Symbol.for('@escapace/reconcile/array-buffer')
+/** The `ArrayBuffer` kind. */
+export const ARRAY_BUFFER_KIND = Symbol('array-buffer')
 
 const arrayBufferCapture = {
   construction: (layout) => layout.bytes,

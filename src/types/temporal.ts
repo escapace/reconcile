@@ -20,8 +20,8 @@ import type {
 import { globalTemporal, temporalFrom } from '../standard-prototypes'
 import { inChain } from '../object-property'
 
-/** Stable global identity owned by the Temporal module. */
-export const TEMPORAL_KIND = Symbol.for('@escapace/reconcile/temporal')
+/** The Temporal kind. */
+export const TEMPORAL_KIND = Symbol('temporal')
 
 const durationFields = [
   'years',

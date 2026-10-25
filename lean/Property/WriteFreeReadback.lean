@@ -231,13 +231,13 @@ theorem accepts_readsAs (env : Env V) (keys : List (Key V))
     exact unchanged_readsAs _ _ hu
   · exact hall k hk
 
-/-! ## Retried plans
+/-! ## Later passes
 
-A plan the engine retries publishes again after the call wrote, so its readback always reads. A
-node whose previous readback matched held exactly the values that revision wanted there; the retry
-decides each of its keys from that value (`publishSeen`) instead of reading it again, so each retry
-calls a getter of `current` once, at its readback. A decision a write in between made stale can only
-reject the retry (`acceptsRetry_readsAs`). -/
+A later pass of the engine publishes again after the call wrote, so its readback always reads. A
+node whose previous readback matched held exactly the values the previous pass wanted there; the
+later pass decides each of its keys from that value (`publishSeen`) instead of reading it again, so
+each pass calls a getter of `current` once, at its readback. A decision a write in between made
+stale can only reject the pass (`acceptsRetry_readsAs`). -/
 
 /-- `writeProperty` in `src/types/shared/property-publication.ts`: `publish` once a read has shown
 that the key needs a write, deciding by the live slot without reading its value again. -/
@@ -248,7 +248,7 @@ def write (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
   | none => if proto || inheritedAccessor s.inherited then define s v plain else assign env s v plain
 
 /-- Publication of one key decided from `seen`, a value read earlier: skipped when that is the
-wanted value and written on the live slot otherwise. A retried plan decides each key of a node its
+wanted value and written on the live slot otherwise. A later pass decides each key of a node its
 previous readback matched from what that readback saw, and an array's first publication each index
 from what capture read. -/
 def publishSeen (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
@@ -269,7 +269,7 @@ theorem publishSeen_eq (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bo
       cases own <;> rfl
   · cases h
 
-/-- One key of a retried plan: the value its previous readback saw, its slot when publication
+/-- One key of a later pass: the value its previous readback saw, its slot when publication
 reaches it, the wanted value and whether the key is `__proto__`. -/
 structure SeenKey (V : Type) where
   seen : V
@@ -277,17 +277,17 @@ structure SeenKey (V : Type) where
   want : V
   proto : Bool
 
-/-- The key's slot after its publication in the retry, which readback observes. -/
+/-- The key's slot after its publication in the later pass, which readback observes. -/
 def SeenKey.after (env : Env V) (k : SeenKey V) : Slot V :=
   (publishSeen env k.seen k.live k.want k.proto).slot
 
-/-- The engine accepts a retried plan when every publication succeeded and every key reads back as
+/-- The engine accepts a later pass when every publication succeeded and every key reads back as
 wanted: only a call's first publication can be answered without reading. -/
 def acceptsRetry (env : Env V) (keys : List (SeenKey V)) : Bool :=
   keys.all (fun k => (publishSeen env k.seen k.live k.want k.proto).ok) &&
     keys.all fun k => readsAs (k.after env) k.want
 
-/-- Deciding a retry from the previous readback never accepts a wrong result, however stale. -/
+/-- Deciding a later pass from the previous readback never accepts a wrong result, however stale. -/
 theorem acceptsRetry_readsAs (env : Env V) (keys : List (SeenKey V))
     (h : acceptsRetry env keys = true) : ∀ k ∈ keys, readsAs (k.after env) k.want = true := by
   simp only [acceptsRetry, Bool.and_eq_true, List.all_eq_true] at h
@@ -321,8 +321,8 @@ example :
       readsAs (publish storing ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = true := by
   decide
 
-/-- Counterexample for deciding a retry from the previous readback: it saw 7, another key's setter
-changed the slot to 8, and the retry skips the key; readback rejects it. -/
+/-- Counterexample for deciding a later pass from the previous readback: it saw 7, another key's
+setter changed the slot to 8, and the pass skips the key; readback rejects it. -/
 example :
     readsAs (publishSeen storing 7 ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = false ∧
       readsAs (publish storing ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = true := by

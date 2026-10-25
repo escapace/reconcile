@@ -16,7 +16,6 @@ describe('aligned retention', () => {
         const newNodes = Array.from({ length: 3 }, (_, n) => ({ n: n + 1 }))
         const current = before.map((n) => oldNodes[n])
         const next = after.map((n) => newNodes[n])
-        // Count exposed JavaScript identities, not raw backing identities.
         const oldImages = Array.from(current)
         // Each next object, in order of first visit, keeps the first current object at one of
         // its positions, in position order, that no earlier next object kept.

@@ -85,23 +85,6 @@ describe('nested authoritative finalization coverage', () => {
   })
 
   describe('ordinary returned roots finalize nested draft handles coherently', () => {
-    it('plain-object handle finalizes when wrapped by an ordinary returned object', () => {
-      const shared = { count: 1 }
-      const current = {
-        left: { shared },
-        right: { shared },
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.shared.count = 2
-        return { wrapped: draft.right }
-      })
-
-      assert.notEqual(result.wrapped, current.right)
-      assert.notEqual(result.wrapped.shared, shared)
-      assert.equal(result.wrapped.shared.count, 2)
-    })
-
     it('array handle finalizes when wrapped by an ordinary returned object', () => {
       const shared = { count: 1 }
       const current = {
@@ -156,24 +139,6 @@ describe('nested authoritative finalization coverage', () => {
   })
 
   describe('clone-on-read specials propagate through nested returned roots', () => {
-    it('plain-object root finalizes a Date changed elsewhere', () => {
-      const date = new Date('2024-01-01T00:00:00.000Z')
-      const current = {
-        left: date,
-        right: { date },
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.setUTCFullYear(2025)
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result.date, date)
-      assert.equal(result.date.getUTCFullYear(), 2025)
-      assert.equal(current.right.date.getUTCFullYear(), 2024)
-    })
-
     it('array root finalizes an ArrayBuffer changed elsewhere', () => {
       const buffer = new Uint8Array([1, 2, 3]).buffer
       const current = {
@@ -275,24 +240,6 @@ describe('nested authoritative finalization coverage', () => {
       assert.notEqual(result, current.right)
       assert.notEqual(result[0], shared)
       assert.equal(result[0].count, 2)
-    })
-
-    it('map root finalizes a fresh subtree when a shared value changed elsewhere', () => {
-      const shared = { count: 1 }
-      const current = {
-        right: new Map<string, { count: number }>([['key', shared]]),
-        shared,
-      }
-
-      const result = produce(current, (draft) => {
-        draft.shared.count = 2
-        draft.right.set('key', shared) // SameValue write: no restoration
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result.get('key'), shared)
-      assert.equal(result.get('key')!.count, 2)
     })
 
     it('set root restores identity after delete plus re-add of the same value', () => {

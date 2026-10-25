@@ -424,8 +424,7 @@ Consumer bundlers drop code that no used export reaches (_tree shaking_). These 
 - `serialize` and `deserialize` share no decoder or encoder code: encoding failures raise the
   `Serialize` error and decoding failures the `Deserialize` errors, so each bundle keeps only its
   own.
-- Stable protocol identities use namespaced `Symbol.for` keys; attempt identities and lookup
-  sentinels use private objects, because they must be fresh or must not collide.
+- Lookup sentinels are private objects, so no stored value can equal one.
 - The mangle list holds only protocol fields, facet members and private methods. Descriptor
   fields, collection and iterator methods, proxy trap names and keys used with `in`
   stay unrenamed.

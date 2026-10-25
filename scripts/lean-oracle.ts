@@ -22,10 +22,8 @@ function request(family: string, arguments_: string[], input = ''): string {
   return JSON.stringify({ args: arguments_, family, input }) + '\n'
 }
 
-function logDuration(family: string, arguments_: string[], started: number): void {
-  console.log(
-    `Oracle ${family} ${arguments_[1] ?? ''}: ${((performance.now() - started) / 1000).toFixed(3)}s`,
-  )
+function logDuration(family: string, started: number): void {
+  console.log(`Oracle ${family}: ${((performance.now() - started) / 1000).toFixed(3)}s`)
 }
 
 /** Audit once, then share one native oracle process across sequential requests. */
@@ -94,7 +92,7 @@ export async function startOracle() {
       child.stdin.write(request(family, arguments_, options.input))
       return await reply()
     } finally {
-      logDuration(family, arguments_, started)
+      logDuration(family, started)
       pending = false
     }
   }

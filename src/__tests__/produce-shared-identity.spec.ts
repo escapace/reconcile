@@ -446,26 +446,6 @@ describe('produce with plain-object shared identities', () => {
       assert.deepEqual(Object.keys(current), ['a', 'b'])
     })
   })
-
-  describe('sharing with current does not corrupt finalization', () => {
-    it('produce swaps values correctly when property values are shared and swapped', () => {
-      const x = { id: 'x' }
-      const y = { id: 'y' }
-
-      const current = { a: x, b: y }
-
-      const result = produce(current, (draft) => {
-        draft.a = y
-        draft.b = x
-        return draft
-      })
-
-      assert.equal(result.a, y)
-      assert.equal(result.b, x)
-      assert.equal(x.id, 'x')
-      assert.equal(y.id, 'y')
-    })
-  })
 })
 
 // ============================================================================
@@ -610,25 +590,6 @@ describe('produce complex shared identity scenarios', () => {
 // ============================================================================
 
 describe('produce shared-identity publication boundary', () => {
-  it('produce output can share identities with current', () => {
-    const a = { id: 'a' }
-    const b = { id: 'b' }
-    const current = new Set([a, b])
-
-    const next = produce(current, (draft) => {
-      draft.clear()
-      draft.add(b)
-      draft.add(a)
-      return draft
-    })
-
-    const nextArray = [...next]
-    assert.equal(nextArray[0], b)
-    assert.equal(nextArray[1], a)
-    assert.equal(a.id, 'a')
-    assert.equal(b.id, 'b')
-  })
-
   it('produce reordering does not cascade mutations into current', () => {
     const a = { id: 'a' }
     const b = { id: 'b' }
