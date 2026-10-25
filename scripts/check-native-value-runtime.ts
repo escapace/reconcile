@@ -94,7 +94,8 @@ function evaluateFacets(current: object, desired: object, kind: symbol, name: st
   const policy = publicationTypes.policies[kind]
   const special = builtinTypes.specials[kind]
   assert.ok(special !== undefined)
-  const compatible = publicationTypes.matches(kind, current) && policy.compatible(node, current)
+  const compatible =
+    publicationTypes.matches(kind, current) && policy.requirements(node, current) !== undefined
   const reusable = special.equivalent(current, desired)
   const resolve = (edge: Edge): unknown => {
     if (!isNode(edge)) return atomValue(edge)

@@ -1,6 +1,6 @@
 import { builtinValue, uncurried } from '../standard-prototypes'
 import { adoptPrototype } from './shared/prototype'
-import { freeze, independentBindings, same, yes } from './shared/empty'
+import { freeze, independentBindings, same } from './shared/empty'
 import type { SpecialPolicy } from '../types'
 import { independentDraft } from './shared/empty'
 import { noValue } from './shared/empty'
@@ -58,7 +58,6 @@ export const datePublication = /* @__PURE__ */ (() =>
     ...dateCapture,
     ...dateConstruction,
     aligned: noValue,
-    compatible: yes,
     requirements: emptyEdges,
     seal: same,
     matches: (node, current) => Object.is(timeOf(current), node.layout.time),

@@ -49,7 +49,6 @@ export function createCellType<K extends symbol>(kind: K) {
       visit((current as Cell | undefined)?.value, node.edges[0])
     },
     allocate: () => new Cell(undefined),
-    compatible: () => true,
     construction: () => undefined,
     matches: (node, current, visit) => visit((current as Cell).value, node.edges[0]),
     observe(value, begin, edge) {

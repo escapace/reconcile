@@ -78,21 +78,21 @@ export function viewPublication<K extends symbol>(): Omit<
   keyof CapturePolicy | keyof ConstructionPolicy
 > {
   return {
-    requirements: viewRequirements,
+    // A kept view must have next's shape over a buffer of next's length.
     seal: same,
     aligned: (node, current, visit) =>
       visit(current === undefined ? undefined : bufferOfView(current), node.edges[0]),
-    compatible(node, current) {
-      const actual = current as ArrayBufferView
-      const sample = node.layout.sample
-      return (
-        viewShape(actual, sample) &&
-        bufferByteLength(bufferOfView(actual)) === bufferByteLength(bufferOfView(sample))
-      )
-    },
     matches(node, current, visit) {
       const actual = current as ArrayBufferView
       return viewShape(actual, node.layout.sample) && visit(bufferOfView(actual), node.edges[0])
+    },
+    requirements(node, current) {
+      const actual = current as ArrayBufferView
+      const sample = node.layout.sample
+      return viewShape(actual, sample) &&
+        bufferByteLength(bufferOfView(actual)) === bufferByteLength(bufferOfView(sample))
+        ? viewRequirements(node, current)
+        : undefined
     },
     // A view writes nothing: its bytes are its buffer's, and the preflight bound its buffer, which
     // readback compares with its shape.

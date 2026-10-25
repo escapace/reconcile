@@ -1,6 +1,6 @@
 import { edgeAt, snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
-import { freeze, independentBindings, yes } from './shared/empty'
+import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -107,7 +107,6 @@ export const setPublication = /* @__PURE__ */ (() =>
     ...setCapture,
     ...setConstruction,
     ...setPolicySurface,
-    compatible: yes,
     requirements: emptyEdges,
     seal: (node) => ({ ...node, edges: normalize(node.edges, 1) }),
   }))() satisfies PublicationPolicy<SetLayout>

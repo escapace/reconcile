@@ -1,6 +1,6 @@
+import { EMPTY_FACTS } from '../constants'
 import { adoptPrototype } from './shared/prototype'
 import {
-  emptyEdges,
   freeze,
   independentBindings,
   independentDraft,
@@ -166,10 +166,10 @@ export const temporalPublication = /* @__PURE__ */ (() =>
     ...temporalCapture,
     ...temporalConstruction,
     aligned: noValue,
-    requirements: emptyEdges,
+    // A Temporal value is kept only when equal.
     seal: same,
-    compatible: (node, current) => matches(node.layout, current),
     matches: (node, current) => matches(node.layout, current),
+    requirements: (node, current) => (matches(node.layout, current) ? EMPTY_FACTS : undefined),
     // A Temporal value is never written: it is kept when equal, which readback would accept.
     publish(node, current, _resolve, _owner, note) {
       const kept = matches(node.layout, current)

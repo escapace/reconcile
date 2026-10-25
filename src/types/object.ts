@@ -220,7 +220,6 @@ export const objectPublication = /* @__PURE__ */ (() =>
     ...objectCapture,
     ...objectConstruction,
     aligned: alignedProperties,
-    compatible: yes,
     // The key list must match before any value is read, so no key is read through the
     // prototype; every value is then read once, whether or not an earlier one matched.
     matches(node, current, visit) {

@@ -1,7 +1,7 @@
 import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { arraySearches } from './shared/draft-members'
-import { freeze, independentBindings, yes } from './shared/empty'
+import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -140,7 +140,6 @@ export const arrayPublication = /* @__PURE__ */ (() =>
     ...arrayCapture,
     ...arrayConstruction,
     aligned: alignedProperties,
-    compatible: yes,
     // Every present element is read once, whether or not an earlier one matched.
     matches(node, current, visit) {
       const array = current as unknown[]

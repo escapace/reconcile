@@ -1,5 +1,5 @@
 import { adoptPrototype } from './shared/prototype'
-import { freeze, noValue, same, yes } from './shared/empty'
+import { freeze, noValue, same } from './shared/empty'
 import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
 import {
@@ -101,7 +101,6 @@ export const urlPublication = /* @__PURE__ */ (() =>
   freeze({
     ...urlCapture,
     ...urlConstruction,
-    compatible: yes,
     requirements: urlBindings,
     seal: same,
     aligned: (node, current, visit) =>

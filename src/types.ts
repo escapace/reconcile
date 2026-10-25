@@ -170,8 +170,9 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     visit: Align,
     read?: SlotRead,
   ) => void
-  readonly compatible: (node: CapturedNode<L>, current: object) => boolean
-  /** The preflight; a policy may leave in `note` the facts it read, for the first publication. */
+  /** The preflight: undefined when `current` cannot hold the node's contents, else the objects
+   * its fixed slots require other nodes to keep; a policy may leave in `note` the facts it read,
+   * for the first publication. */
   readonly requirements: (
     node: CapturedNode<L>,
     current: object,
@@ -298,7 +299,7 @@ export type ImmutablePolicy<L extends Layout = Layout> = ConstructionPolicy<L> &
   Pick<NativePolicy<L>, 'freshWrite' | 'immutable' | 'someChild'>
 export type PublicationPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   ConstructionPolicy<L> &
-  Pick<NativePolicy<L>, 'aligned' | 'compatible' | 'matches' | 'publish' | 'requirements' | 'seal'>
+  Pick<NativePolicy<L>, 'aligned' | 'matches' | 'publish' | 'requirements' | 'seal'>
 export type SnapshotPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   Pick<NativePolicy<L>, 'snapshot'>
 

@@ -1,3 +1,4 @@
+import { EMPTY_FACTS } from '../constants'
 import { freeze, independentBindings, same } from './shared/empty'
 import type { SpecialPolicy } from '../types'
 import { independentDraft } from './shared/empty'
@@ -18,7 +19,7 @@ import {
   copyBuffer,
   copyChangedBytes,
 } from './shared/binary-native'
-import { emptyEdges, noChildren, noDependencies } from './shared/empty'
+import { noChildren, noDependencies } from './shared/empty'
 
 /** Stable global identity owned by the array-buffer module. */
 export const ARRAY_BUFFER_KIND = Symbol.for('@escapace/reconcile/array-buffer')
@@ -48,14 +49,15 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     ...arrayBufferCapture,
     ...arrayBufferConstruction,
     aligned: noValue,
-    requirements: emptyEdges,
-    seal: same,
     // A kept buffer takes next's bytes in place, so it must already have next's length and, as a
     // copy would, its resizability and maximum.
-    compatible: (node, current) =>
-      bufferByteLength(current) === bufferByteLength(node.layout.bytes) &&
-      bufferMaximum(current) === bufferMaximum(node.layout.bytes),
+    seal: same,
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
+    requirements: (node, current) =>
+      bufferByteLength(current) === bufferByteLength(node.layout.bytes) &&
+      bufferMaximum(current) === bufferMaximum(node.layout.bytes)
+        ? EMPTY_FACTS
+        : undefined,
     // Equal bytes are not written, and readback, which compares the same bytes, would accept them;
     // `compatible` matched the lengths.
     publish(node, current, _resolve, _owner, note) {

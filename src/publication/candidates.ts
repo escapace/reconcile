@@ -67,7 +67,7 @@ export function candidates(
     policy: PublicationRegistry['policies'][symbol],
   ): Candidate | undefined => {
     const prototype = ingressOf(types, node, index, candidate, alignment)
-    if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
+    if (prototype === MISMATCH) return undefined
     if (index !== 0 && protectedStorage?.has(candidate) === true) return undefined
     // What capture or discovery read at the candidate's slots serves its fixed slots.
     const reads = alignedReads(alignment, index, candidate)

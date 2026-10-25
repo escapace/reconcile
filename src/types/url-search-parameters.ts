@@ -3,7 +3,6 @@ import {
   freeze,
   noValue,
   independentBindings,
-  yes,
   same,
   emptyEdges,
   noChildren,
@@ -87,7 +86,6 @@ export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
     ...urlSearchParametersCapture,
     ...parametersConstruction,
     aligned: noValue,
-    compatible: yes,
     requirements: emptyEdges,
     seal: same,
     matches: (node, current) =>

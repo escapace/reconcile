@@ -1,6 +1,6 @@
 import { edgeAt } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
-import { freeze, independentBindings, yes } from './shared/empty'
+import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
@@ -104,7 +104,6 @@ export const mapPublication = /* @__PURE__ */ (() =>
     ...mapCapture,
     ...mapConstruction,
     ...mapPolicySurface,
-    compatible: yes,
     requirements: emptyEdges,
     seal: (node) => ({ ...node, edges: normalize(node.edges, 2) }),
   }))() satisfies PublicationPolicy<MapLayout>
