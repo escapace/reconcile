@@ -459,15 +459,6 @@ export function closeIterator(iterator: object): void {
 }
 
 /**
- * The global `Temporal` namespace, read as an own property of `globalThis`, whose prototype chain
- * reaches `Object.prototype`.
- *
- * @remarks
- * Unless `Object.prototype` holds `Temporal`, the global read finds only the global's own
- * property, and it is much faster than asking for ownership.
- * @internal
- */
-/**
  * A copy of `value`, a value of the Temporal class `name` whose constructor is `constructor`, made
  * by the class's `from`. A getter that every value of the class answers runs on `value` first, so
  * an object that only inherits the class's prototype throws that getter's native `TypeError`, as
@@ -493,6 +484,15 @@ export function temporalFrom(
   return constructor.from(value)
 }
 
+/**
+ * The global `Temporal` namespace, read as an own property of `globalThis`, whose prototype chain
+ * reaches `Object.prototype`.
+ *
+ * @remarks
+ * Unless `Object.prototype` holds `Temporal`, the global read finds only the global's own
+ * property, and it is much faster than asking for ownership.
+ * @internal
+ */
 export const globalTemporal = (): unknown =>
   !('Temporal' in Object.prototype) || Object.hasOwn(globalThis, 'Temporal')
     ? (globalThis as { Temporal?: unknown }).Temporal
