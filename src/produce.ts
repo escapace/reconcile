@@ -1,7 +1,6 @@
 import { isObject } from './object-property'
 import { DraftSession } from './draft-session'
 import { Finalization } from './finalization'
-import type { ImmutableRegistry } from './types'
 import { produceTypes } from './types/builtins'
 
 /**
@@ -135,21 +134,13 @@ import { produceTypes } from './types/builtins'
  * @throws {@link ReconcileError} after the recipe returns: `FinalizationAccessorUnstable` can be
  * thrown when a getter adds a getter to a part of the result that `produce` has already visited,
  * and `FinalizationConstructionImpossible` when no consistent result exists.
- * `FinalizationStorageMissing` and `FinalizationChildInvalid` indicate a bug in the library.
+ * `FinalizationChildInvalid` indicates a bug in the library.
  * @throws Errors thrown by the recipe, getters, setters or proxy traps, and native errors, such as
  * a `RangeError` for an invalid array length or the engine's error for nesting that exceeds the
  * call stack, propagate unchanged.
  */
 export function produce<T, R>(current: T, recipe: (draft: T) => R): R {
-  return produceWith(produceTypes, current, recipe)
-}
-
-export function produceWith<T, R>(
-  types: ImmutableRegistry,
-  current: T,
-  recipe: (draft: T) => R,
-): R {
-  const context = new DraftSession(types)
+  const context = new DraftSession(produceTypes)
   const draft = context.createDraft(current)
 
   const result = recipe(draft)

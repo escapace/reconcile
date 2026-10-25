@@ -1,4 +1,3 @@
-import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { arraySearches } from './shared/draft-members'
 import { freeze, independentBindings } from './shared/empty'
@@ -8,18 +7,15 @@ import type {
   CapturedNode,
   ConstructionPolicy,
   DraftObservationContext,
-  SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
   DraftStrategy,
-  Recognition,
 } from '../types'
 import { isObject, ownKeys } from '../object-property'
 import { draftArrayIndexRejected, draftArrayLengthRejected } from '../error'
 import { arrayIndex, hasOwn } from '../object-property'
 import type { Edge } from '../types'
 import { OBSERVED_ACCESSOR, UNREAD } from '../constants'
-import { defineType } from './registry'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { PropertyDraftState, createPropertyHandle, writeDataSlot } from './shared/draft-properties'
 import type { PropertySurface } from './shared/property-publication'
@@ -108,24 +104,6 @@ function fillElement(
   if (prototype === Array.prototype) (target as Record<PropertyKey, unknown>)[key] = value
   else defineData(target, key, value)
 }
-
-// Writes one snapshot element into the receiving reference's target.
-function writeArraySlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
-  const target = this.target!
-  fillElement(target, Object.getPrototypeOf(target) as object | null, key!, snapshotValue(edge))
-}
-
-const arraySnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...arrayCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(
-        layout,
-        adoptPrototype(new Array<unknown>(layout.length), layout.prototype, Array.prototype),
-        writeArraySlot,
-      )
-    },
-  }))() satisfies SnapshotPolicy<ArrayLayout>
 
 // The attributes of slot `position`: an array's table marks only its getters, so a data slot is a
 // hole, read as none without reaching Array.prototype.
@@ -291,14 +269,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
   },
 }))() satisfies ImmutablePolicy<ArrayLayout>
 
-const arrayPolicy = /* @__PURE__ */ (() => ({
-  ...arraySnapshot,
-  ...arrayPublication,
-  ...arrayImmutable,
-}))()
-
 /** Captures array length and an optional sealed index; holes are absent edge keys. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface ArrayLayout {
   readonly kind: typeof ARRAY_KIND
   readonly length: number
@@ -389,19 +360,3 @@ export const arrayDraft = /* @__PURE__ */ freeze({
   handle: (state) => createPropertyHandle(state),
   state: (base, context) => new PropertyDraftState(base, context, arrayDraftRules),
 }) satisfies DraftStrategy<PropertyDraftState<typeof ARRAY_KIND>>
-
-export const arrayRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: Array.isArray,
-}) satisfies Recognition
-
-export const arrayType = /* @__PURE__ */ defineType<
-  ArrayLayout,
-  PropertyDraftState<typeof ARRAY_KIND>
->({
-  draft: arrayDraft,
-  kind: ARRAY_KIND,
-  name: 'array',
-  policy: arrayPolicy,
-  recognition: arrayRecognition,
-})

@@ -19,7 +19,6 @@ export const RECONCILE_ERROR_TYPES = [
   'FinalizationAccessorUnstable',
   'FinalizationChildInvalid',
   'FinalizationConstructionImpossible',
-  'FinalizationStorageMissing',
   'PublicationRejected',
   'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible',
@@ -83,11 +82,6 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   FinalizationConstructionImpossible: {}
-  /**
-   * Internal error in `produce`, which indicates a bug in the library. `index` is a diagnostic
-   * value for a bug report.
-   */
-  FinalizationStorageMissing: { index: number }
   /**
    * `reconcile` could not make `current` match `next`. Writes made before the failure are not
    * rolled back.
@@ -214,12 +208,6 @@ export const finalizationConstructionImpossible = () =>
   new ReconcileError(
     { type: 'FinalizationConstructionImpossible' },
     'produce cannot build a consistent result.',
-  )
-
-export const finalizationStorageMissing = (index: number) =>
-  new ReconcileError(
-    { index, type: 'FinalizationStorageMissing' },
-    `Internal error in produce: record ${index} has no storage. This is a bug in @escapace/reconcile.`,
   )
 
 export const publicationRejected = () =>

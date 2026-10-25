@@ -107,11 +107,8 @@ const dateTimeCall: CallRule = (site, node) =>
 /** Call-site counters, in emission order. */
 const callRules: CallRule[] = [
   metadataCall,
-  exactCalls('src/types/registry.ts', [
-    ['module.recognition.test', 'classification.predicateTests'],
-  ]),
   exactCalls('src/types/builtins.ts', [
-    ['array.arrayRecognition.test', 'classification.predicateTests'],
+    ['Array.isArray', 'classification.predicateTests'],
     ['inChain', 'classification.predicateTests'],
     ['ArrayBuffer.isView', 'classification.predicateTests'],
     ['temporal.temporalInChain', 'classification.predicateTests'],

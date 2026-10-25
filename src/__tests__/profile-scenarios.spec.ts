@@ -3,18 +3,18 @@ import { ARRAY_BUFFER_KIND } from '../types/array-buffer'
 import { it } from 'vitest'
 import { createDiagnostic, diagnosticNames } from '../../scripts/profile-scenarios'
 import { deserialize, produce, reconcile, requiredMaxBytes, serialize, snapshot } from '../index'
-import { builtinTypes } from '../types/builtins'
+import { produceTypes } from '../types/builtins'
 
 it.each(diagnosticNames)('validates repeated diagnostic operations: %s', (name) => {
   const scenario = createDiagnostic(
     name,
     {
-      copyDate: builtinTypes.specials[DATE_KIND]!.copy,
+      copyDate: produceTypes.specials[DATE_KIND]!.copy,
       deserialize,
       produce,
       reconcile,
       requiredMaxBytes,
-      sameBuffer: builtinTypes.specials[ARRAY_BUFFER_KIND]!.equivalent,
+      sameBuffer: produceTypes.specials[ARRAY_BUFFER_KIND]!.equivalent,
       serialize,
       snapshot,
     },

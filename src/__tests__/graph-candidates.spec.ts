@@ -1,12 +1,12 @@
-import { builtinTypes } from '../types/builtins'
+import { publicationTypes } from '../types/builtins'
 import { atomValue, isNode } from '../graph/edge'
 import { describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { candidates } from '../publication/candidates'
 
 function problem(current: object, next: object) {
-  const records = capture(builtinTypes, next).nodes
-  return { domains: candidates(builtinTypes, records, current), records }
+  const records = capture(publicationTypes, next).nodes
+  return { domains: candidates(publicationTypes, records, current), records }
 }
 
 describe('native candidate discovery', () => {
@@ -103,7 +103,7 @@ describe('native candidate discovery', () => {
   })
   it('reads collection sizes with the built-in getter, never an own size', () => {
     for (const current of [new Map([['key', 1]]), new Set(['key'])]) {
-      const node = capture(builtinTypes, current).nodes[0]
+      const node = capture(publicationTypes, current).nodes[0]
       let coercions = 0
       Object.defineProperty(current, 'size', {
         value: {
@@ -114,7 +114,7 @@ describe('native candidate discovery', () => {
         },
       })
       expect(
-        builtinTypes.policies[node.layout.kind].matches(
+        publicationTypes.policies[node.layout.kind].matches(
           node,
           current,
           (actual, edge) => !isNode(edge) && Object.is(actual, atomValue(edge)),
@@ -131,9 +131,9 @@ describe('native candidate discovery', () => {
         return key !== 'second' && Reflect.set(object, key, value)
       },
     })
-    const root = capture(builtinTypes, { first: 1, second: 2 }).nodes[0]
+    const root = capture(publicationTypes, { first: 1, second: 2 }).nodes[0]
     expect(
-      builtinTypes.policies[root.layout.kind].publish(root, current, (edge) =>
+      publicationTypes.policies[root.layout.kind].publish(root, current, (edge) =>
         isNode(edge) ? undefined : atomValue(edge),
       ),
     ).toBe(false)

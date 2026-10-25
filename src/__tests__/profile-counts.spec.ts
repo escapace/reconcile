@@ -45,19 +45,18 @@ it.each(['src/types/fixture.ts', 'src/draft-session.ts', 'src/finalization.ts'])
   },
 )
 
-it('counts current registry predicates only when their recognition branch is reached', () => {
+it('counts built-in recognition probes only when their branch is reached', () => {
   const { counts, run } = prepare(
     `export function run(value: any) {
-      for (const module of value) {
-        if (module.recognition.tag === 'fallback' || module.recognition.test(value)) return true
-      }
-      return false
+      const inChain = value.inChain
+      return value.plain || inChain(value.prototype)
     }`,
-    'src/types/registry.ts',
+    'src/types/builtins.ts',
   )
-  expect(run([{ recognition: { tag: 'predicate', test: () => true } }])).toBe(true)
+  const probe = { plain: false, prototype: null, inChain: () => true }
+  expect(run(probe)).toBe(true)
   expect(counts['classification.predicateTests']).toBe(1)
-  expect(run([{ recognition: { tag: 'fallback' } }])).toBe(true)
+  expect(run({ ...probe, plain: true })).toBe(true)
   expect(counts['classification.predicateTests']).toBe(1)
 })
 

@@ -1,5 +1,6 @@
 import { assert, it, vi } from 'vitest'
-import { builtinModules, builtinTypes, publicationTypes, snapshotTypes } from '../types/builtins'
+import { orderedScan, recognitionOrder } from '../../scripts/recognition-scan'
+import { publicationTypes, snapshotTypes } from '../types/builtins'
 import { TEMPORAL_KIND } from '../types/temporal'
 import { OBJECT_KIND } from '../types/object'
 import { ARRAY_KIND } from '../types/array'
@@ -54,31 +55,31 @@ function observe(
 
 /**
  * Prototype reads of the object by the built-in registries: the array probe and checks that stop
- * at it, or name no kind, read nothing, as the generic scan does; any other check reads the object
- * once, where the generic scan reads it once per `instanceof` probe.
+ * at it, or name no kind, read nothing, as the ordered scan does; any other check reads the object
+ * once, where the ordered scan reads it once per probe.
  */
-function expectedReads(value: object, kind: symbol | undefined, generic: number): number {
-  if (Array.isArray(value) || kind === ARRAY_KIND) return generic
-  return kind !== undefined && !builtinModules.some((module) => module.kind === kind) ? generic : 1
+function expectedReads(value: object, kind: symbol | undefined, scanned: number): number {
+  if (Array.isArray(value) || kind === ARRAY_KIND) return scanned
+  return kind !== undefined && !recognitionOrder.includes(kind) ? scanned : 1
 }
 
-it("reads the object once and keeps the generic scan's results and errors", () => {
+it("reads the object once and keeps the ordered scan's results and errors", () => {
   const failure = new Error('prototype observation')
-  const kinds = [undefined, ...builtinModules.map((module) => module.kind), Symbol('unknown')]
+  const kinds = [undefined, ...recognitionOrder, Symbol('unknown')]
   for (const value of values())
     for (const kind of kinds) {
-      const generic = observe(builtinTypes, value, kind, 0, failure)
+      const scanned = observe(orderedScan, value, kind, 0, failure)
       const read = observe(publicationTypes, value, kind, 0, failure)
       assert.deepEqual(read, {
-        ...generic,
+        ...scanned,
         trace: Array.from(
-          { length: expectedReads(value, kind, generic.trace.length) },
+          { length: expectedReads(value, kind, scanned.trace.length) },
           () => 'prototype',
         ),
       })
       // A failing first read propagates its error, as the scan's first read does.
       const failed = observe(publicationTypes, value, kind, 1, failure)
-      const reference = observe(builtinTypes, value, kind, 1, failure)
+      const reference = observe(orderedScan, value, kind, 1, failure)
       assert.strictEqual(failed.error, reference.error)
       assert.strictEqual(failed.result, reference.result)
     }
@@ -87,7 +88,7 @@ it("reads the object once and keeps the generic scan's results and errors", () =
 it('recognizes a typed array by its brand whatever its prototype', () => {
   for (const prototype of [Object.prototype, null, Map.prototype, Date.prototype]) {
     const view = Object.setPrototypeOf(new Uint8Array(1), prototype) as object
-    assert.strictEqual(publicationTypes.recognize(view), builtinTypes.recognize(view))
+    assert.strictEqual(publicationTypes.recognize(view), orderedScan.recognize(view))
   }
 })
 
@@ -103,7 +104,7 @@ it('decides Temporal classes by their prototypes, reading each live class in ord
     'ZonedDateTime',
   ]
   const failure = new Error('native recognition')
-  // The pre-unrolling loop is an independent oracle for the generic registry; both decide by the
+  // The pre-unrolling loop is an independent oracle for the ordered scan; both decide by the
   // prototype chain, never by a constructor's `Symbol.hasInstance`.
   const reference = {
     recognize(value: object): symbol {
@@ -163,7 +164,7 @@ it('decides Temporal classes by their prototypes, reading each live class in ord
           vi.unstubAllGlobals()
         }
       }
-      assert.deepEqual(run(builtinTypes), run(reference))
+      assert.deepEqual(run(orderedScan), run(reference))
       // The built-in registries read the namespace and each class up to the match, and never
       // call `Symbol.hasInstance`.
       const reads = [

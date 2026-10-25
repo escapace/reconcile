@@ -1,4 +1,3 @@
-import type { MODULE_BRAND } from './constants'
 import type { PrototypeRead } from './object-property'
 
 export type { PrototypeRead }
@@ -289,13 +288,34 @@ export type PublicationPolicy<L extends Layout = Layout> = CapturePolicy<L> &
 export type SnapshotPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   Pick<NativePolicy<L>, 'snapshot'>
 
-export type ImmutableRegistry = NativeRegistry<ImmutablePolicy> &
-  Pick<TypeRegistry, 'drafts' | 'specials' | 'structural'>
+/**
+ * The kind-indexed native dispatch of `produce`.
+ *
+ * @remarks
+ * Payload and draft-state types are erased in the tables. Callers dispatch only with kinds
+ * established by recognition or a facet's valid phase-local certificate; the tables hold the
+ * built-in kinds, not every possible symbol.
+ */
+export type ImmutableRegistry = {
+  readonly drafts: Readonly<Record<symbol, DraftStrategy>>
+  readonly specials: Readonly<Record<symbol, SpecialPolicy | undefined>>
+  readonly structural: Readonly<
+    Record<symbol, Extract<NativePolicy['immutable'], { tag: 'structural' }>>
+  >
+} & NativeRegistry<ImmutablePolicy>
 export type NativeRegistry<P> = {
   readonly policies: Readonly<Record<symbol, P>>
 } & RecognitionRegistry
 export type PublicationRegistry = NativeRegistry<PublicationPolicy>
-export type RecognitionRegistry = Pick<TypeRegistry, 'matches' | 'recognize'>
+export interface RecognitionRegistry {
+  /** Reobserves the recognition prefix through a built-in kind; unknown kinds fail. */
+  readonly matches: (kind: symbol, value: object) => boolean
+  /**
+   * Returns the first matching kind in recognition order. It takes the prototype from `read` when
+   * it is known and reports there the one it read.
+   */
+  readonly recognize: (value: object, read?: PrototypeRead) => symbol | undefined
+}
 export type SnapshotRegistry = Pick<NativeRegistry<SnapshotPolicy>, 'policies' | 'recognize'>
 
 /** Consumes one canonical edge at its native snapshot observation boundary. */
@@ -328,81 +348,6 @@ export type DraftStrategy<S extends DraftState = DraftState> =
       readonly handle: (state: S, prototype?: object | null) => object
       readonly state: (base: object, context: DraftContext) => S
     }
-
-/** Probes may stop at a known-kind mismatch; later predicates need not run. */
-export type Recognition =
-  | { readonly tag: 'fallback' }
-  | { readonly tag: 'predicate'; readonly test: (value: object) => boolean }
-
-/** Binds one recognized kind to its native policies and recipe representation. */
-export interface TypeModule<
-  L extends { readonly kind: symbol },
-  S extends DraftState = DraftState,
-> {
-  readonly draft: DraftStrategy<S>
-  readonly kind: L['kind']
-  readonly [MODULE_BRAND]: true
-  readonly name: string
-  readonly policy: NativePolicy<L>
-  readonly recognition: Recognition
-  readonly requires: readonly symbol[]
-}
-
-/** Narrows a registered module to eager copy-on-read drafting. */
-export type CopyType<L extends { readonly kind: symbol }> = {
-  readonly draft: Extract<DraftStrategy, { tag: 'copy' }>
-  readonly policy: {
-    readonly immutable: Extract<NativePolicy<L>['immutable'], { tag: 'copy' }>
-  } & NativePolicy<L>
-} & TypeModule<L>
-
-/** Narrows a registered module to a type-owned structural draft state. */
-export type StructuralType<
-  L extends { readonly kind: symbol },
-  S extends { readonly kind: L['kind'] } & DraftState,
-> = {
-  readonly draft: Extract<DraftStrategy<S>, { tag: 'structural' }>
-  readonly policy: {
-    readonly immutable: Extract<NativePolicy<L>['immutable'], { tag: 'structural' }>
-  } & NativePolicy<L>
-} & TypeModule<L, S>
-
-/** Accepts module facets before branding and default dependency metadata are installed. */
-export type ModuleInput<M> = {
-  readonly requires?: readonly symbol[]
-} & Omit<M, 'requires' | typeof MODULE_BRAND>
-
-/** Erases native payload and draft types only at the registry composition boundary. */
-export interface ModuleShape extends Omit<TypeModule<Layout>, 'draft' | 'policy'> {
-  readonly draft: unknown
-  readonly policy: unknown
-}
-
-/**
- * Provides the opaque native dispatch contract consumed by the core.
- *
- * @remarks
- * Payload and draft-state types are erased at composition. Callers dispatch only with kinds
- * established by recognition or a module's valid phase-local certificate; the tables contain
- * registered keys, not every possible symbol. Structural facets require a structural module.
- * This interface cannot recover a concrete payload type from a symbol. Module authors retain
- * their precise types before composition; native correspondence tests cover the erased boundary.
- */
-export interface TypeRegistry {
-  readonly drafts: Readonly<Record<symbol, DraftStrategy>>
-  readonly policies: Readonly<Record<symbol, NativePolicy>>
-  readonly specials: Readonly<Record<symbol, SpecialPolicy | undefined>>
-  readonly structural: Readonly<
-    Record<symbol, Extract<NativePolicy['immutable'], { tag: 'structural' }>>
-  >
-  /** Reobserves the recognition prefix through a registered kind; unknown kinds fail. */
-  readonly matches: (kind: symbol, value: object) => boolean
-  /**
-   * Returns the first matching module identity, with precedence owned by composition. A registry
-   * may take the prototype from `read` when it is known and report there the one it read.
-   */
-  readonly recognize: (value: object, read?: PrototypeRead) => symbol | undefined
-}
 
 /** Represents an opaque atom or a canonical reference into the captured node domain. A
  * primitive is its own atom edge; an object atom is wrapped. */
@@ -561,11 +506,6 @@ export interface ImmutableRecord {
 
 /** Narrows an edge to a captured node reference. */
 export type NodeEdge = Extract<Edge, { readonly node: number }>
-
-/** Selects the immutable module registry used by an internal engine. */
-export interface EngineOptions {
-  readonly types?: readonly ModuleShape[]
-}
 
 /** Supplies the parent implication and provisional cycle guard for a descendant search. */
 export interface MaterializationTraversal {

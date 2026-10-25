@@ -1,0 +1,65 @@
+import { ARRAY_KIND } from '../src/types/array'
+import { ARRAY_BUFFER_KIND } from '../src/types/array-buffer'
+import { DATA_VIEW_KIND } from '../src/types/data-view'
+import { DATE_KIND } from '../src/types/date'
+import { MAP_KIND } from '../src/types/map'
+import { OBJECT_KIND } from '../src/types/object'
+import { SET_KIND } from '../src/types/set'
+import { TEMPORAL_KIND, temporalInChain } from '../src/types/temporal'
+import { TYPED_ARRAY_KIND } from '../src/types/typed-array'
+import { URL_KIND } from '../src/types/url'
+import { URL_SEARCH_PARAMS_KIND } from '../src/types/url-search-parameters'
+
+/** Whether `constructor.prototype` is on the chain of `value`, read from `value` itself as
+ * `instanceof` reads it, without a constructor's `Symbol.hasInstance`. */
+const inChainOf = (constructor: { readonly prototype: unknown }, value: object): boolean =>
+  Object.prototype.isPrototypeOf.call(constructor.prototype, value)
+
+/**
+ * The built-in kinds in recognition order, each with its probe; the plain-object fallback is
+ * last and has none.
+ *
+ * @remarks
+ * Each probe reads the value again, as the ordered scan of `Types.Recognition` does. Built-in
+ * recognition reads it once and must agree with this scan.
+ */
+const probes: ReadonlyArray<readonly [symbol, (value: object) => boolean]> = [
+  [ARRAY_KIND, (value) => Array.isArray(value)],
+  [DATE_KIND, (value) => inChainOf(Date, value)],
+  [MAP_KIND, (value) => inChainOf(Map, value)],
+  [SET_KIND, (value) => inChainOf(Set, value)],
+  [ARRAY_BUFFER_KIND, (value) => inChainOf(ArrayBuffer, value)],
+  [DATA_VIEW_KIND, (value) => inChainOf(DataView, value)],
+  [TYPED_ARRAY_KIND, (value) => ArrayBuffer.isView(value) && !inChainOf(DataView, value)],
+  [TEMPORAL_KIND, (value) => temporalInChain(Object.getPrototypeOf(value) as object | null)],
+  [URL_KIND, (value) => typeof URL !== 'undefined' && inChainOf(URL, value)],
+  [
+    URL_SEARCH_PARAMS_KIND,
+    (value) =>
+      typeof URL !== 'undefined' &&
+      typeof URLSearchParams !== 'undefined' &&
+      inChainOf(URLSearchParams, value),
+  ],
+]
+
+/** The built-in kinds in recognition order, the plain-object fallback last. */
+export const recognitionOrder: readonly symbol[] = [...probes.map(([kind]) => kind), OBJECT_KIND]
+
+/** The kind at the first matching rank up to `last`, or undefined; the fallback rank matches. */
+function firstMatch(value: object, last: number): symbol | undefined {
+  for (let index = 0; index <= last; index += 1) {
+    if (index === probes.length) return OBJECT_KIND
+    const [kind, test] = probes[index]
+    if (test(value)) return kind
+  }
+  return undefined
+}
+
+/** The ordered scan: a test reference for built-in recognition and known-kind checks. */
+export const orderedScan = {
+  matches(kind: symbol, value: object): boolean {
+    const last = recognitionOrder.indexOf(kind)
+    return last !== -1 && firstMatch(value, last) === kind
+  },
+  recognize: (value: object): symbol => firstMatch(value, probes.length)!,
+}

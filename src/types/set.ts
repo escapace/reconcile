@@ -1,4 +1,4 @@
-import { edgeAt, snapshotValue, type SnapshotReceiver } from '../graph/edge'
+import { edgeAt } from '../graph/edge'
 import { adoptPrototype } from './shared/prototype'
 import { freeze, independentBindings } from './shared/empty'
 import { noValue } from './shared/empty'
@@ -8,12 +8,9 @@ import type {
   DraftStrategy,
   ImmutablePolicy,
   PublicationPolicy,
-  Recognition,
-  SnapshotPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import type { BaseDraftState, Edge, NativePolicy } from '../types'
-import { defineType } from './registry'
+import type { BaseDraftState, NativePolicy } from '../types'
 import { collectionSurface, normalize } from './shared/collection'
 import {
   draftState,
@@ -85,23 +82,6 @@ const setConstruction = {
   allocate: (node) => adoptPrototype(new Set<unknown>(), node.layout.prototype, Set.prototype),
 } satisfies ConstructionPolicy<SetLayout>
 
-// Adds one snapshot member to the receiving reference's target.
-function writeSetMember(this: SnapshotReceiver, edge: Edge): void {
-  builtinSetAdd(this.target!, snapshotValue(edge))
-}
-
-const setSnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...setCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(
-        layout,
-        adoptPrototype(new Set<unknown>(), layout.prototype, Set.prototype),
-        writeSetMember,
-      )
-    },
-  }))() satisfies SnapshotPolicy<SetLayout>
-
 export const setPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...setCapture,
@@ -142,10 +122,7 @@ export const setImmutable = /* @__PURE__ */ (() => ({
   },
 }))() satisfies ImmutablePolicy<SetLayout>
 
-const setPolicy = /* @__PURE__ */ (() => ({ ...setSnapshot, ...setPublication, ...setImmutable }))()
-
 /** Identifies ordered Set payloads with one edge per member. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface SetLayout {
   readonly kind: typeof SET_KIND
   /** The source's prototype, which a copy keeps. */
@@ -168,19 +145,6 @@ export const setDraft = /* @__PURE__ */ freeze({
     },
   }),
 }) satisfies DraftStrategy<SetDraftState>
-
-const setRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => value instanceof Set,
-}) satisfies Recognition
-
-export const setType = /* @__PURE__ */ defineType<SetLayout, SetDraftState>({
-  draft: setDraft,
-  kind: SET_KIND,
-  name: 'set',
-  policy: setPolicy,
-  recognition: setRecognition,
-})
 
 const LOOKUP_MISS = {}
 /**
@@ -611,7 +575,6 @@ const DraftSet = /* @__PURE__ */ (() => {
 })()
 
 /** Stores Set draft state; a working copy, when present, is a native Set. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface SetDraftState extends BaseDraftState {
   readonly kind: typeof SET_KIND
 }

@@ -17,9 +17,8 @@ import type {
   DraftStrategy,
   CapturePolicy,
   ConstructionPolicy,
-  SnapshotPolicy,
+  ImmutablePolicy,
   PublicationPolicy,
-  CopyType,
 } from '../../types'
 
 export function viewCapture<K extends symbol>(
@@ -62,17 +61,6 @@ export function viewConstruction<K extends symbol>(
   }
 }
 
-export function viewSnapshot<K extends symbol>(): Pick<
-  SnapshotPolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>,
-  'snapshot'
-> {
-  return {
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, layout.sample, noValue)
-    },
-  }
-}
-
 export function viewPublication<K extends symbol>(): Omit<
   PublicationPolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>,
   keyof CapturePolicy | keyof ConstructionPolicy
@@ -105,9 +93,14 @@ export function viewPublication<K extends symbol>(): Omit<
 
 export function viewImmutable<K extends symbol>(
   copy: (value: ArrayBufferView, buffer: ArrayBuffer) => ArrayBufferView,
-): Omit<
-  CopyType<{ readonly kind: K; readonly sample: ArrayBufferView }>['policy'],
-  'snapshot' | keyof ConstructionPolicy | keyof PublicationPolicy
+): {
+  readonly immutable: Extract<
+    ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>['immutable'],
+    { tag: 'copy' }
+  >
+} & Pick<
+  ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>,
+  'freshWrite' | 'someChild'
 > {
   return {
     freshWrite: noValue,
@@ -124,10 +117,10 @@ export function viewImmutable<K extends symbol>(
           bufferEquivalent(bufferOfView(base), bufferOfView(candidate)),
       } satisfies SpecialPolicy),
       tag: 'copy',
-    } satisfies CopyType<{
-      readonly kind: K
-      readonly sample: ArrayBufferView
-    }>['policy']['immutable']),
+    } satisfies Extract<
+      ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>['immutable'],
+      { tag: 'copy' }
+    >),
     someChild: (source, _read, test) => test(bufferOfView(source)),
   }
 }

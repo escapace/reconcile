@@ -6,12 +6,9 @@ import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
   ConstructionPolicy,
-  SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
-  Recognition,
 } from '../types'
-import { defineType } from './registry'
 import { bufferEquivalent } from './shared/bytes'
 import {
   bufferByteLength,
@@ -35,14 +32,6 @@ const arrayBufferConstruction = {
   bindings: independentBindings,
   allocate: (node) => copyBuffer(node.layout.bytes),
 } satisfies ConstructionPolicy<ArrayBufferLayout>
-
-const arrayBufferSnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...arrayBufferCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(layout, layout.bytes, noValue)
-    },
-  }))() satisfies SnapshotPolicy<ArrayBufferLayout>
 
 export const arrayBufferPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
@@ -82,30 +71,10 @@ export const arrayBufferImmutable = /* @__PURE__ */ (() => ({
   someChild: noChildren,
 }))() satisfies ImmutablePolicy<ArrayBufferLayout>
 
-const arrayBufferPolicy = /* @__PURE__ */ (() => ({
-  ...arrayBufferSnapshot,
-  ...arrayBufferPublication,
-  ...arrayBufferImmutable,
-}))()
-
 /** Stores copied bytes used for construction and publication of a captured buffer. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface ArrayBufferLayout {
   readonly bytes: ArrayBuffer
   readonly kind: typeof ARRAY_BUFFER_KIND
 }
 
 export const arrayBufferDraft = /* @__PURE__ */ independentDraft
-
-const arrayBufferRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => value instanceof ArrayBuffer,
-}) satisfies Recognition
-
-export const arrayBufferType = /* @__PURE__ */ defineType<ArrayBufferLayout>({
-  draft: arrayBufferDraft,
-  kind: ARRAY_BUFFER_KIND,
-  name: 'array-buffer',
-  policy: arrayBufferPolicy,
-  recognition: arrayBufferRecognition,
-})

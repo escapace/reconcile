@@ -11,7 +11,8 @@ import { TEMPORAL_KIND } from '../src/types/temporal'
 import { TYPED_ARRAY_KIND } from '../src/types/typed-array'
 import { URL_KIND } from '../src/types/url'
 import { URL_SEARCH_PARAMS_KIND } from '../src/types/url-search-parameters'
-import { builtinTypes, publicationTypes } from '../src/types/builtins'
+import { publicationTypes } from '../src/types/builtins'
+import { orderedScan } from './recognition-scan'
 
 /** Kinds at ranks 1 to 10, in recognition order. */
 export const ranked = [
@@ -120,21 +121,21 @@ function checkKnown(
   }
 }
 
-/** The custom prototypes' reads of the generic ordered scan: the walks from the object's
- * prototype, which built-in recognition repeats, while it reads the object itself once. */
+/** The custom prototypes' reads of the ordered scan: the walks from the object's prototype,
+ * which built-in recognition repeats, while it reads the object itself once. */
 function scannedReads(depth: number, tail: number, brand: boolean): number {
   const scanned = { count: 0, own: 0 }
-  attempt(() => builtinTypes.recognize(build(depth, tail, brand, scanned)))
+  attempt(() => orderedScan.recognize(build(depth, tail, brand, scanned)))
   return scanned.count
 }
 
-/** The object is read once; its custom prototypes as the generic scan reads them. */
+/** The object is read once; its custom prototypes as the ordered scan reads them. */
 function checkReads(row: Record<string, unknown>, depth: number, tail: number, reads: Reads): void {
   const brand = row.brand === true
   // A branded object cannot be proxied, so only a proxied object reports its one own read.
   assert.equal(reads.own, Number(!brand), 'reads of the object itself')
-  // The generic typed-array probe walks the chain again for `instanceof DataView`, which the
-  // failed `DataView` probe already decided.
+  // The scan's typed-array probe walks the chain again for `DataView`, which the failed
+  // `DataView` probe already decided.
   const repeated = brand && row.selected === 6 ? depth : 0
   assert.equal(
     reads.count,

@@ -1,21 +1,16 @@
 import { OBJECT_KIND, OBSERVED_ACCESSOR, UNREAD } from '../constants'
-import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
 import { freeze, independentBindings, noValue, same, yes } from './shared/empty'
 import type {
   CapturedNode,
   CapturePolicy,
   ConstructionPolicy,
-  SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
   DraftObservationContext,
   DraftStrategy,
-  Recognition,
 } from '../types'
 import { hasOwn, hiddenNames, isObject, ownKeys } from '../object-property'
-import { setOwnProperty, standardPrototype } from '../set-own-property'
 import type { Edge } from '../types'
-import { defineType } from './registry'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { createPropertyHandle, PropertyDraftState, writeDataSlot } from './shared/draft-properties'
 import type { PropertySurface } from './shared/property-publication'
@@ -84,40 +79,6 @@ const objectConstruction = {
   bindings: independentBindings,
   allocate: (node) => Object.create(node.layout.prototype) as object,
 } satisfies ConstructionPolicy<ObjectLayout>
-
-// Writes one snapshot property into a new object on `Object.prototype` or a null prototype.
-function writeStandardSlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
-  setOwnProperty(
-    this.target as Record<PropertyKey, unknown>,
-    key!,
-    snapshotValue(edge),
-    true,
-    (this.layout as ObjectLayout).hidden?.has(key!) !== true,
-  )
-}
-
-// Writes one snapshot property into a new object on any other prototype, by definition.
-function writeDefinedSlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | undefined): void {
-  setOwnProperty(
-    this.target as Record<PropertyKey, unknown>,
-    key!,
-    snapshotValue(edge),
-    false,
-    (this.layout as ObjectLayout).hidden?.has(key!) !== true,
-  )
-}
-
-const objectSnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...objectCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(
-        layout,
-        Object.create(layout.prototype) as object,
-        standardPrototype(layout.prototype) ? writeStandardSlot : writeDefinedSlot,
-      )
-    },
-  }))() satisfies SnapshotPolicy<ObjectLayout>
 
 /** Writes each requested property in order. A property this write adds takes next's
  * enumerability, so a hidden one stays hidden; an existing one keeps its own attributes, and so
@@ -387,12 +348,6 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
   },
 }))() satisfies ImmutablePolicy<ObjectLayout>
 
-const objectPolicy = /* @__PURE__ */ (() => ({
-  ...objectSnapshot,
-  ...objectPublication,
-  ...objectImmutable,
-}))()
-
 /** Captures the prototype and optional sealed own-property index for plain-object publication. */
 export interface ObjectLayout {
   readonly kind: typeof OBJECT_KIND
@@ -421,18 +376,3 @@ export const objectDraft = /* @__PURE__ */ freeze({
   handle: (state, prototype) => createPropertyHandle(state, prototype),
   state: (base, context) => new PropertyDraftState(base, context, objectDraftRules),
 }) satisfies DraftStrategy<PropertyDraftState<typeof OBJECT_KIND>>
-
-const objectRecognition = /* @__PURE__ */ freeze({
-  tag: 'fallback',
-}) satisfies Recognition
-
-export const objectType = /* @__PURE__ */ defineType<
-  ObjectLayout,
-  PropertyDraftState<typeof OBJECT_KIND>
->({
-  draft: objectDraft,
-  kind: OBJECT_KIND,
-  name: 'object',
-  policy: objectPolicy,
-  recognition: objectRecognition,
-})

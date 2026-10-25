@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { it } from 'vitest'
 import { DraftSession } from '../draft-session'
 import { produce } from '../index'
-import { builtinTypes } from '../types/builtins'
+import { produceTypes } from '../types/builtins'
 import type { PropertyDraftState } from '../types/shared/draft-properties'
 
 it('preserves native array histories through holes, insertion, deletion and repeated shrinking', () => {
@@ -77,7 +77,7 @@ it('rebinds an array summary after a first-copy read installs a temporary privat
       return Reflect.get(target, key, receiver) as unknown
     },
   })
-  const session = new DraftSession(builtinTypes)
+  const session = new DraftSession(produceTypes)
   const handle = session.createDraft(source)
   cell.handle = handle
   handle.pop()
@@ -100,7 +100,7 @@ it('does not account an absent deletion against a store installed by its descrip
       return Reflect.getOwnPropertyDescriptor(target, key)
     },
   })
-  const session = new DraftSession(builtinTypes)
+  const session = new DraftSession(produceTypes)
   const handle = session.createDraft(source)
   cell.handle = handle
   assert.equal(Reflect.deleteProperty(handle, '3'), true)
@@ -111,7 +111,7 @@ it('does not account an absent deletion against a store installed by its descrip
 })
 
 it('retains partial failure and numeric-key boundaries after summary updates', () => {
-  const session = new DraftSession(builtinTypes)
+  const session = new DraftSession(produceTypes)
   const handle = session.createDraft([0, 1, 2, 3])
   const state = session.statesByIdentity.get(handle) as PropertyDraftState
   handle.pop()

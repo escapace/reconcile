@@ -9,7 +9,7 @@ import { DATA_VIEW_KIND } from '../types/data-view'
 import { describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { snapshot } from '../snapshot'
-import { builtinTypes } from '../types/builtins'
+import { publicationTypes } from '../types/builtins'
 
 describe('shared native graph capture', () => {
   it('registers every supported node once, including view construction edges', () => {
@@ -24,7 +24,7 @@ describe('shared native graph capture', () => {
       view: new DataView(buffer),
     }
     source.array.push(source, source.typed)
-    const graph = capture(builtinTypes, source)
+    const graph = capture(publicationTypes, source)
     expect(graph.nodes.map((node) => node.layout.kind)).toEqual([
       OBJECT_KIND,
       ARRAY_KIND,
@@ -57,7 +57,7 @@ describe('shared native graph capture', () => {
       return undefined
     }
     source[Symbol.iterator] = source.entries.bind(source)
-    const graph = capture(builtinTypes, source)
+    const graph = capture(publicationTypes, source)
     expect(graph.nodes[0].edges).toEqual([{ node: 1 }, 1, { node: 2 }, 2, 'key', 5])
     expect(graph.nodes).toHaveLength(3)
     expect(overridden).toBe(0)
@@ -140,7 +140,7 @@ describe('shared native graph capture', () => {
     }
     const view = new Uint8Array(8)
     Object.defineProperty(view, 'constructor', { value: Sample })
-    capture(builtinTypes, {
+    capture(publicationTypes, {
       view,
       get after() {
         events.push('after')
@@ -225,7 +225,7 @@ describe('shared native graph capture', () => {
       }
       source[Symbol.iterator] = source.entries.bind(source)
       expect(() =>
-        mode === 'snapshot' ? snapshot(source) : capture(builtinTypes, source),
+        mode === 'snapshot' ? snapshot(source) : capture(publicationTypes, source),
       ).toThrow(failure)
       expect(overridden).toBe(0)
     },
@@ -241,8 +241,8 @@ describe('shared native graph capture', () => {
       yield 9
       return undefined
     }
-    const mapEdges = capture(builtinTypes, map).nodes[0].edges
-    const setEdges = capture(builtinTypes, set).nodes[0].edges
+    const mapEdges = capture(publicationTypes, map).nodes[0].edges
+    const setEdges = capture(publicationTypes, set).nodes[0].edges
     expect(mapEdges).toEqual([0, 2])
     expect(setEdges).toEqual([0])
     expect(Object.is(mapEdges[0], 0) && Object.is(setEdges[0], 0)).toBe(true)

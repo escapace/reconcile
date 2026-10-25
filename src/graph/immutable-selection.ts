@@ -1,5 +1,5 @@
 import { isNode } from './edge'
-import { finalizationChildInvalid, finalizationStorageMissing } from '../error'
+import { finalizationChildInvalid } from '../error'
 import type { Edge, ImmutableProblem } from '../types'
 import { smallAdd, smallHas, smallSet } from './small-set'
 import { denseArray } from '../standard-prototypes'
@@ -76,11 +76,8 @@ export function* immutableSelections({
     eligibleNodes[node] = eligible
     const fixed = records[node].payload === undefined
     if (fixed && !eligible) return
-    if (eligible) {
-      const storage = node < storages.length ? storages[node] : undefined
-      if (storage === undefined) throw finalizationStorageMissing(node)
-      owners.add(storage)
-    }
+    // Every record has its own target as storage (compileImmutable).
+    if (eligible) owners.add(storages[node])
     maximum[node] = maximum[node + 1] + Number(eligible)
     minimum[node] = minimum[node + 1] + Number(fixed)
   }

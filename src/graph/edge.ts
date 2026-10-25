@@ -12,15 +12,6 @@ export const atomValue = (edge: Atom | Primitive): unknown =>
 export const snapshotValue = (edge: Edge): unknown =>
   isNode(edge) ? (edge as { readonly target?: object } & NodeEdge).target : atomValue(edge)
 
-/**
- * The snapshot walk calls a node's writer as a method of the node's private reference, so a
- * built-in writer can read the target from `this` instead of closing over it.
- */
-export interface SnapshotReceiver {
-  readonly layout?: object
-  readonly target?: object
-}
-
 const missing: Atom = /* @__PURE__ */ Object.freeze({ node: undefined, value: undefined })
 
 /** The edge at `index`, or an `undefined` atom past the end: never an element `Array.prototype`

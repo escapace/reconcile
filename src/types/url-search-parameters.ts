@@ -9,7 +9,6 @@ import {
   noDependencies,
   independentDraft,
 } from './shared/empty'
-import { defineType } from './registry'
 import {
   URL_KIND,
   createURLCarrier,
@@ -20,12 +19,11 @@ import {
 } from './shared/url-carrier'
 import type {
   CapturePolicy,
-  SnapshotPolicy,
-  Recognition,
   ConstructionPolicy,
   PublicationPolicy,
   ImmutablePolicy,
   SpecialPolicy,
+  SnapshotPolicy,
 } from '../types'
 
 /** Stable global identity owned by the URLSearchParams module. */
@@ -58,14 +56,6 @@ export const urlSearchParametersSnapshot = /* @__PURE__ */ (() =>
       writer.initialize(layout, nativeURLSearchParameters(layout.carrier), noValue)
     },
   }))() satisfies SnapshotPolicy<URLSearchParametersLayout>
-
-const urlSearchParametersRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) =>
-    typeof URL !== 'undefined' &&
-    typeof URLSearchParams !== 'undefined' &&
-    value instanceof URLSearchParams,
-}) satisfies Recognition
 
 const parametersConstruction = {
   bindings: independentBindings,
@@ -130,15 +120,3 @@ export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
 }))() satisfies ImmutablePolicy<URLSearchParametersLayout>
 
 export const urlSearchParametersDraft = independentDraft
-const parametersPolicy = /* @__PURE__ */ (() => ({
-  ...urlSearchParametersSnapshot,
-  ...urlSearchParametersPublication,
-  ...urlSearchParametersImmutable,
-}))()
-export const urlSearchParametersType = /* @__PURE__ */ defineType<URLSearchParametersLayout>({
-  draft: urlSearchParametersDraft,
-  kind: URL_SEARCH_PARAMS_KIND,
-  name: 'url-search-params',
-  policy: parametersPolicy,
-  recognition: urlSearchParametersRecognition,
-})

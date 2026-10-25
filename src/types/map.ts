@@ -8,12 +8,9 @@ import type {
   DraftStrategy,
   ImmutablePolicy,
   PublicationPolicy,
-  Recognition,
-  SnapshotPolicy,
 } from '../types'
 import { isObject } from '../object-property'
-import type { BaseDraftState, Edge, NativePolicy } from '../types'
-import { defineType } from './registry'
+import type { BaseDraftState, NativePolicy } from '../types'
 import { collectionSurface, normalize } from './shared/collection'
 import {
   draftState,
@@ -76,29 +73,6 @@ const mapConstruction = {
     adoptPrototype(new Map<unknown, unknown>(), node.layout.prototype, Map.prototype),
 } satisfies ConstructionPolicy<MapLayout>
 
-const mapSnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...mapCapture,
-    /**
-     * Streams pairs with only the unmatched canonical key retained between edge events.
-     *
-     * @remarks
-     * Resolve both edges when the value arrives, not when the key first arrives, so a pair is
-     * written once, after the live image of both edges exists.
-     */
-    snapshot(layout, resolve, writer) {
-      const target = adoptPrototype(new Map<unknown, unknown>(), layout.prototype, Map.prototype)
-      let pending: Edge | undefined
-      writer.initialize(layout, target, (edge) => {
-        if (pending === undefined) pending = edge
-        else {
-          builtinMapSet(target, resolve(pending), resolve(edge))
-          pending = undefined
-        }
-      })
-    },
-  }))() satisfies SnapshotPolicy<MapLayout>
-
 export const mapPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...mapCapture,
@@ -140,10 +114,7 @@ export const mapImmutable = /* @__PURE__ */ (() => ({
   },
 }))() satisfies ImmutablePolicy<MapLayout>
 
-const mapPolicy = /* @__PURE__ */ (() => ({ ...mapSnapshot, ...mapPublication, ...mapImmutable }))()
-
 /** Identifies ordered Map payloads whose edges alternate keys and values. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface MapLayout {
   readonly kind: typeof MAP_KIND
   /** The source's prototype, which a copy keeps. */
@@ -166,19 +137,6 @@ export const mapDraft = /* @__PURE__ */ freeze({
     },
   }),
 }) satisfies DraftStrategy<MapDraftState>
-
-const mapRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => value instanceof Map,
-}) satisfies Recognition
-
-export const mapType = /* @__PURE__ */ defineType<MapLayout, MapDraftState>({
-  draft: mapDraft,
-  kind: MAP_KIND,
-  name: 'map',
-  policy: mapPolicy,
-  recognition: mapRecognition,
-})
 
 /**
  * Captures a native Map once, preserving iterator order and key normalization.
@@ -344,7 +302,6 @@ const DraftMap = /* @__PURE__ */ (() => {
 })()
 
 /** Stores Map draft state; a working copy, when present, is a native Map. */
-// fallow-ignore-next-line unused-type -- part of the declared type of builtinModules in builtins.ts
 export interface MapDraftState extends BaseDraftState {
   readonly kind: typeof MAP_KIND
 }

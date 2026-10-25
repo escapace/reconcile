@@ -1,8 +1,3 @@
-/** Private brand installed by the typed module constructor. */
-export const MODULE_BRAND: unique symbol = /* @__PURE__ */ Symbol.for(
-  '@escapace/reconcile/type-module',
-)
-
 /** Shared immutable empty facts; callers must never append to this value. */
 export const EMPTY_FACTS: readonly never[] = /* @__PURE__ */ Object.freeze([])
 

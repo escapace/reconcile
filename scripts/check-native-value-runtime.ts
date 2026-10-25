@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { capture } from '../src/publication/capture'
 import { atomValue, isNode } from '../src/graph/edge'
 import type { Edge } from '../src/types'
-import { builtinTypes, publicationTypes } from '../src/types/builtins'
+import { produceTypes, publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
 import { snapshot } from '../src/snapshot'
 import { produce } from '../src/produce'
@@ -92,7 +92,7 @@ function evaluateFacets(current: object, desired: object, kind: symbol, name: st
   const graph = capture(publicationTypes, desired)
   const node = graph.nodes[0]
   const policy = publicationTypes.policies[kind]
-  const special = builtinTypes.specials[kind]
+  const special = produceTypes.specials[kind]
   assert.ok(special !== undefined)
   const compatible =
     publicationTypes.matches(kind, current) && policy.requirements(node, current) !== undefined

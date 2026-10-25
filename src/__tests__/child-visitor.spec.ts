@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { arrayType } from '../types/array'
-import { mapType } from '../types/map'
-import { setType } from '../types/set'
+import { arrayImmutable } from '../types/array'
+import { mapImmutable } from '../types/map'
+import { setImmutable } from '../types/set'
 
 describe('native child visitor', () => {
   it('visits map keys before values and stops without reading later entries', () => {
@@ -11,7 +11,7 @@ describe('native child visitor', () => {
       [3, 4],
     ])
     expect(
-      mapType.policy.someChild(source, Reflect.get, (value) => {
+      mapImmutable.someChild(source, Reflect.get, (value) => {
         seen.push(value)
         return value === 3
       }),
@@ -41,7 +41,7 @@ describe('native child visitor', () => {
           },
         })
         const visit = () =>
-          (kind === 'map' ? mapType : setType).policy.someChild(source, Reflect.get, (value) => {
+          (kind === 'map' ? mapImmutable : setImmutable).someChild(source, Reflect.get, (value) => {
             seen.push(value)
             if (outcome === 'throw') throw failure
             return outcome === 'match'
@@ -64,7 +64,7 @@ describe('native child visitor', () => {
     Reflect.deleteProperty(source, 1)
     const seen: unknown[] = []
     expect(
-      arrayType.policy.someChild(source, Reflect.get, (value) => {
+      arrayImmutable.someChild(source, Reflect.get, (value) => {
         seen.push(value)
         if (value === 1) source.push(4)
         return false

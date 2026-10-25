@@ -2,7 +2,6 @@ import { atomFrom, isObject } from './object-property'
 import { publicationRejected } from './error'
 import { capture } from './publication/capture'
 import { publishGraph } from './publication/publication-engine'
-import type { PublicationRegistry } from './types'
 import { publicationTypes } from './types/builtins'
 
 /**
@@ -95,10 +94,6 @@ import { publicationTypes } from './types/builtins'
  * rollback.
  */
 export function reconcile<T>(current: unknown, next: T): T {
-  return reconcileWith(publicationTypes, current, next)
-}
-
-export function reconcileWith<T>(types: PublicationRegistry, current: unknown, next: T): T {
   if (Object.is(current, next)) return current as T
   // An atom root, like a function, cannot be updated in place: the next value is the result.
   if (!isObject(current) || !isObject(next)) return next
@@ -107,7 +102,7 @@ export function reconcileWith<T>(types: PublicationRegistry, current: unknown, n
   if (atomFrom(nextPrototype)) return next
   const currentPrototype = Object.getPrototypeOf(current) as object | null
   if (atomFrom(currentPrototype)) return next
-  const graph = capture(types, next, current, nextPrototype, currentPrototype)
-  if (!publishGraph(types, graph, current)) throw publicationRejected()
+  const graph = capture(publicationTypes, next, current, nextPrototype, currentPrototype)
+  if (!publishGraph(publicationTypes, graph, current)) throw publicationRejected()
   return current as T
 }

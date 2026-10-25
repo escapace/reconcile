@@ -1,7 +1,7 @@
 /-! Recognition by ordered native predicate probes (`src/types/builtins.ts`,
-`src/types/registry.ts`, `src/types/temporal.ts`): the unrolled built-in and Temporal probes select
-the same result, throw at the same position and visit the same native prefix as a generic ordered
-scan. -/
+`src/types/temporal.ts`): the unrolled built-in and Temporal probes select the same result, throw
+at the same position and visit the same native prefix as an ordered scan, which
+`scripts/recognition-scan.ts` runs as the tests' reference. -/
 
 namespace Reconcile.Types.Recognition
 
@@ -81,7 +81,7 @@ example : scanTrace 0 0 [.miss, .raised] = { visited := [0] } := by decide
 example : scanTrace 2 0 [.hit, .raised] =
     { selected := some 0, visited := [0] } := by decide
 
-/-- Eight Temporal constructor probes; unlike registry recognition there is no fallback kind. -/
+/-- Eight Temporal constructor probes; unlike built-in recognition there is no fallback kind. -/
 def temporalTrace (p0 p1 p2 p3 p4 p5 p6 p7 : ProbeOutcome) : ProbeTrace :=
   probe 0 7 p0 fun _ =>
   probe 1 7 p1 fun _ =>

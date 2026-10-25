@@ -5,7 +5,6 @@ import type {
   PublicationRegistry,
   SnapshotRegistry,
 } from '../types'
-import { registerTypes } from './registry'
 import * as array from './array'
 import * as date from './date'
 import * as map from './map'
@@ -19,22 +18,6 @@ import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
 import { inChain, prototypeOf } from '../object-property'
-
-/** Orders native recognition with the plain-object fallback last. */
-export const builtinModules = [
-  array.arrayType,
-  date.dateType,
-  map.mapType,
-  set.setType,
-  arrayBuffer.arrayBufferType,
-  dataView.dataViewType,
-  typedArray.typedArrayType,
-  temporal.temporalType,
-  url.urlType,
-  urlSearchParameters.urlSearchParametersType,
-  object.objectType,
-] as const
-export const builtinTypes = /* @__PURE__ */ registerTypes(builtinModules)
 
 /** Built-in kinds in recognition order; every facet table below lists facets in this order. */
 const KINDS = [
@@ -70,7 +53,7 @@ const FALLBACK_RANK = 10
  * recognize_eq_scan proves the result is the ordered scan's.
  */
 function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): symbol | undefined {
-  if (array.arrayRecognition.test(value)) return array.ARRAY_KIND
+  if (Array.isArray(value)) return array.ARRAY_KIND
   if (last === 0) return undefined
   const first = prototypeOf(value, read)
   if ((first === Object.prototype || first === null) && !ArrayBuffer.isView(value))

@@ -14,11 +14,9 @@ import type {
   ConstructionPolicy,
   ImmutablePolicy,
   PublicationPolicy,
-  Recognition,
-  SnapshotPolicy,
   SpecialPolicy,
+  SnapshotPolicy,
 } from '../types'
-import { defineType } from './registry'
 import { globalTemporal } from '../standard-prototypes'
 import { inChain } from '../object-property'
 
@@ -204,22 +202,4 @@ export const temporalImmutable = /* @__PURE__ */ (() => ({
   someChild: noChildren,
 }))() satisfies ImmutablePolicy<TemporalLayout>
 
-const temporalPolicy = /* @__PURE__ */ (() => ({
-  ...temporalSnapshot,
-  ...temporalPublication,
-  ...temporalImmutable,
-}))()
-
 export const temporalDraft = independentDraft
-const temporalRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => temporalOf(Object.getPrototypeOf(value) as object | null) !== undefined,
-}) satisfies Recognition
-
-export const temporalType = /* @__PURE__ */ defineType<TemporalLayout>({
-  draft: temporalDraft,
-  kind: TEMPORAL_KIND,
-  name: 'temporal',
-  policy: temporalPolicy,
-  recognition: temporalRecognition,
-})

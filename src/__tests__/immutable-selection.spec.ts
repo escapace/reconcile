@@ -142,9 +142,7 @@ describe('compact immutable selection', () => {
     expect(declined).toBeGreaterThan(300)
   })
 
-  it('rejects malformed retained storage and child indices explicitly', () => {
-    const missing = { ...fixture([{}]), storages: [] }
-    expect(() => [...immutableSelections(missing)]).toThrow('has no storage')
+  it('rejects malformed child indices explicitly', () => {
     for (const child of [-1, 1, 0.5])
       expect(() => [...immutableSelections(fixture([{ children: [child] }]))]).toThrow(
         'has invalid child',

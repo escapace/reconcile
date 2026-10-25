@@ -1,10 +1,10 @@
 import { OBJECT_KIND } from '../types/object'
-import { builtinTypes } from '../types/builtins'
+import { produceTypes } from '../types/builtins'
 import type { ObjectLayout } from '../types/object'
 import { describe, expect, it } from 'vitest'
 import { compileImmutable, restoreIdentities } from '../restore-identities'
 import { immutableDomains, rankedSelections } from './fixtures/compact-immutable'
-import type { ReuseNode, TypeRegistry } from '../types'
+import type { ImmutableRegistry, ReuseNode } from '../types'
 
 function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLayout> {
   return {
@@ -32,7 +32,7 @@ describe('complete immutable graph compilation', () => {
     const view = new DataView(buffer, 1, 5)
     const current = { buffer, date, n: 0, repeated: date, typed, view }
     const source = record(current, 1)
-    const problem = compileImmutable(builtinTypes, source)
+    const problem = compileImmutable(produceTypes, source)
     const { records, root } = problem
     const domains = immutableDomains(problem)
     expect(records).toHaveLength(5)
@@ -51,7 +51,7 @@ describe('complete immutable graph compilation', () => {
     }
     const plans = rankedSelections(domains)
     expect(plans).toHaveLength(1)
-    const result = restoreIdentities(builtinTypes, source, true)!
+    const result = restoreIdentities(produceTypes, source, true)!
     for (const key of ['buffer', 'date', 'repeated', 'typed', 'view'] as const)
       expect(Reflect.get(result, key)).toBe(current[key])
     expect(Reflect.get(result, 'n')).toBe(1)
@@ -61,7 +61,7 @@ describe('complete immutable graph compilation', () => {
 
   it('retains unchanged structural parents of fixed specials', () => {
     const current = { date: new Date(7), n: 0 }
-    expect(restoreIdentities(builtinTypes, record(current, 0), true)).toBe(current)
+    expect(restoreIdentities(produceTypes, record(current, 0), true)).toBe(current)
   })
 
   it('propagates a late cyclic failure through locally passing parents and duplicate aliases', () => {
@@ -73,11 +73,11 @@ describe('complete immutable graph compilation', () => {
     source.children[1] = nextChild
     nextChild.children.splice(0, 2, source, source)
     const checks: object[] = []
-    const policy = builtinTypes.structural[OBJECT_KIND]
-    const types: TypeRegistry = {
-      ...builtinTypes,
+    const policy = produceTypes.structural[OBJECT_KIND]
+    const types: ImmutableRegistry = {
+      ...produceTypes,
       structural: {
-        ...builtinTypes.structural,
+        ...produceTypes.structural,
         [OBJECT_KIND]: {
           ...policy,
           reuse(payload, target, resolve) {
@@ -114,11 +114,11 @@ describe('complete immutable graph compilation', () => {
     const source = record(current, 1)
     source.children[0] = record(child, 0)
     const allocated: object[] = []
-    const policy = builtinTypes.policies[OBJECT_KIND]
-    const types: TypeRegistry = {
-      ...builtinTypes,
+    const policy = produceTypes.policies[OBJECT_KIND]
+    const types: ImmutableRegistry = {
+      ...produceTypes,
       policies: {
-        ...builtinTypes.policies,
+        ...produceTypes.policies,
         [OBJECT_KIND]: {
           ...policy,
           // The first construction fails, so the eligibility mask (child kept) is rejected.
@@ -148,11 +148,11 @@ describe('complete immutable graph compilation', () => {
     const source = record(current, 0)
     const nextChild = record(child, 1)
     source.children.splice(0, source.children.length, nextChild, nextChild, source)
-    const { records, root } = compileImmutable(builtinTypes, source)
+    const { records, root } = compileImmutable(produceTypes, source)
     expect(records).toHaveLength(2)
     expect(records[root].edges[0]).toBe(records[root].edges[1])
     expect(records[root].edges[2]).toEqual({ node: root })
-    const result = restoreIdentities(builtinTypes, source, true) as typeof current
+    const result = restoreIdentities(produceTypes, source, true) as typeof current
     expect(result.self).toBe(result)
     expect(result.left).toBe(result.right)
     expect(result.left).toEqual({ n: 1 })

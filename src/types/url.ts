@@ -1,7 +1,6 @@
 import { adoptPrototype } from './shared/prototype'
 import { inChain, isObject } from '../object-property'
 import { freeze, noValue, same } from './shared/empty'
-import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
 import {
   URL_KIND,
@@ -15,14 +14,13 @@ import { URL_SEARCH_PARAMS_KIND } from './url-search-parameters'
 import { snapshotURLSearchParametersMemoIncompatible } from '../error'
 import type {
   CapturePolicy,
-  SnapshotPolicy,
-  Recognition,
   ConstructionPolicy,
   PublicationPolicy,
   ImmutablePolicy,
   SpecialPolicy,
   CapturedNode,
   DraftStrategy,
+  SnapshotPolicy,
 } from '../types'
 
 export { URL_KIND } from './shared/url-carrier'
@@ -68,11 +66,6 @@ export const urlSnapshot = /* @__PURE__ */ (() =>
       writer.initialize(layout, layout.carrier, noValue)
     },
   }))() satisfies SnapshotPolicy<URLLayout>
-
-const urlRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => typeof URL !== 'undefined' && value instanceof URL,
-}) satisfies Recognition
 
 function urlBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
   return [
@@ -168,12 +161,3 @@ export const urlDraft = /* @__PURE__ */ freeze({
   }),
   tag: 'copy',
 }) satisfies Extract<DraftStrategy, { tag: 'copy' }>
-const urlPolicy = /* @__PURE__ */ (() => ({ ...urlSnapshot, ...urlPublication, ...urlImmutable }))()
-export const urlType = /* @__PURE__ */ defineType<URLLayout>({
-  draft: urlDraft,
-  kind: URL_KIND,
-  name: 'url',
-  policy: urlPolicy,
-  recognition: urlRecognition,
-  requires: [URL_SEARCH_PARAMS_KIND],
-})

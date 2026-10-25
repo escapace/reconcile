@@ -1,17 +1,10 @@
 import { atomValue, isNode, snapshotValue } from './graph/edge'
 import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
-import { recognize, recognizeStructure } from './adapters/recognition'
+import { recognizeStructure } from './adapters/recognition'
 import { ATOM_KIND } from './constants'
 import { atomPrototype, hiddenNames, prototypeOf } from './object-property'
-import type {
-  Edge,
-  Layout,
-  Primitive,
-  PrototypeRead,
-  SnapshotWrite,
-  SnapshotRegistry,
-} from './types'
+import type { Edge, Layout, Primitive, PrototypeRead, SnapshotWrite } from './types'
 import { snapshotTypes } from './types/builtins'
 import { setOwnProperty, standardPrototype } from './set-own-property'
 import {
@@ -123,19 +116,7 @@ export function snapshot(
   value: unknown,
   seen: WeakMap<object, object> | undefined = undefined,
 ): unknown {
-  return snapshotWith(snapshotTypes, value, seen)
-}
-
-export function snapshotWith(
-  types: SnapshotRegistry,
-  value: unknown,
-  seen?: WeakMap<object, object>,
-): unknown {
-  // Custom facets may retain and reinitialize a writer after returning. Their memo
-  // remains independent. Built-ins initialize once and expose no reentrant callback
-  // before the former memo write; future facets must preserve that boundary.
-  if (seen === undefined && types !== snapshotTypes) seen = new WeakMap()
-  return new SnapshotWalk(types, seen).slot(value)
+  return new SnapshotWalk(seen).slot(value)
 }
 
 type Begin = (layout: Layout) => void
@@ -153,15 +134,12 @@ type Deliver = (
  * @remarks
  * The traversal memoizes the private reference in `references` before observing children.
  * Without a caller memo, a completed reference resolves to its target; a pending one stays a
- * node edge. Built-in facets call `begin` and `edge` only while their own `observe` runs and
- * never catch a callback's exception, so one pair of callbacks, created when the first facet
- * runs, serves every node, routed through `currentReference` to the node being observed.
- * Custom facets may keep a callback and call it later, so each of their nodes gets a pair that
- * routes to it for the duration of the call.
+ * node edge. The facets call `begin` and `edge` only while their own `observe` runs and never
+ * catch a callback's exception, so one pair of callbacks, created when the first facet runs,
+ * serves every node, routed through `currentReference` to the node being observed.
  */
 class SnapshotWalk extends Detached {
   declare beginCallback: Begin | undefined
-  declare readonly builtin: boolean
   declare readonly callerMemo: WeakMap<object, object> | undefined
   declare constructed: WeakMap<object, object> | undefined
   declare count: number
@@ -171,13 +149,10 @@ class SnapshotWalk extends Detached {
   /** The prototype recognition read for the object `observe` is on, before it recurses. */
   declare readonly read: PrototypeRead
   declare readonly references: Map<object, SnapshotReference>
-  declare readonly types: SnapshotRegistry
 
-  constructor(types: SnapshotRegistry, seen: WeakMap<object, object> | undefined) {
+  constructor(seen: WeakMap<object, object> | undefined) {
     super()
-    this.types = types
     this.callerMemo = seen
-    this.builtin = types === snapshotTypes
     this.read = { known: false, prototype: null }
     this.references = new Map()
     this.constructed = undefined
@@ -204,7 +179,7 @@ class SnapshotWalk extends Detached {
   // Initializes the node's writer, records construction metadata, then writes the memo.
   begin(layout: Layout): void {
     const reference = this.currentReference!
-    const policy = this.types.policies[layout.kind]
+    const policy = snapshotTypes.policies[layout.kind]
     policy.snapshot(layout, snapshotValue, reference)
     if (policy.construction !== noValue) {
       const response = policy.construction(layout)
@@ -223,33 +198,13 @@ class SnapshotWalk extends Detached {
     if (construction === true) {
       if (isNode(child)) {
         const layout = (child as SnapshotReference).layout
-        if (layout !== undefined) return this.types.policies[layout.kind].construction(layout)
+        if (layout !== undefined) return snapshotTypes.policies[layout.kind].construction(layout)
       } else {
         const target = atomValue(child)
         return (isObject(target) ? this.constructed?.get(target) : undefined) ?? target
       }
     }
     return undefined
-  }
-
-  // Runs a callback with `reference` as the current node, restoring the previous one.
-  routed<A extends unknown[], T>(
-    reference: SnapshotReference,
-    source: object,
-    callback: (...a: A) => T,
-  ): (...values: A) => T {
-    return (...values: A): T => {
-      const parent = this.currentReference
-      const parentSource = this.currentSource
-      this.currentReference = reference
-      this.currentSource = source
-      try {
-        return callback(...values)
-      } finally {
-        this.currentReference = parent
-        this.currentSource = parentSource
-      }
-    }
   }
 
   // A slot's copied value, exactly as `snapshotValue(edgeOf(value))` resolves it, without
@@ -265,9 +220,8 @@ class SnapshotWalk extends Detached {
     return (this.references.get(value) ?? this.observe(value)).target
   }
 
-  // The built-in object, array, Map and Set facets, observed inline for the exact built-in
-  // registry: the same native reads in the same order as their `observe`, then the target their
-  // writer would create, the memo write, and each slot as their writer would store it.
+  // Objects, arrays, Maps and Sets are observed inline, with the same native reads in the same
+  // order as their capture `observe`, then the target, the memo write and each slot.
   // fallow-ignore-next-line complexity -- one copy per object; a helper per object costs snapshot time
   observeObject(reference: SnapshotReference, source: object): void {
     const prototype = prototypeOf(source, this.read)
@@ -362,7 +316,7 @@ class SnapshotWalk extends Detached {
     adoptPrototype(target, prototype, Set.prototype)
   }
 
-  // The Date, ArrayBuffer, typed-array and DataView facets, observed inline in the same way.
+  // Dates, ArrayBuffers, typed arrays and DataViews are observed inline in the same way.
   observeDate(reference: SnapshotReference, value: object): void {
     const target = new Date(timeOf(value))
     adoptPrototype(target, prototypeOf(value, this.read), Date.prototype)
@@ -393,7 +347,9 @@ class SnapshotWalk extends Detached {
     const target = seen === undefined ? reference.target : undefined
     if (target !== undefined) return this.constructed?.get(target) ?? target
     const layout = reference.layout
-    return layout === undefined ? undefined : this.types.policies[layout.kind].construction(layout)
+    return layout === undefined
+      ? undefined
+      : snapshotTypes.policies[layout.kind].construction(layout)
   }
 
   observeView(reference: SnapshotReference, source: object, kind: symbol): void {
@@ -413,46 +369,40 @@ class SnapshotWalk extends Detached {
     // built-in observers take that read before they recurse into children (Types.Ingress).
     const read = this.read
     read.known = false
-    const known =
-      kind ??
-      (this.builtin
-        ? recognizeStructure(this.types, source, read)
-        : recognize(this.types, source, read))
+    const known = kind ?? recognizeStructure(snapshotTypes, source, read)
     if (known === ATOM_KIND) {
       // An atom is kept by reference, as a function is.
       reference.target = source
       this.callerMemo?.set(source, source)
       return reference
     }
-    if (this.builtin) {
-      if (known === OBJECT_KIND) {
-        this.observeObject(reference, source)
-        return reference
-      }
-      if (known === ARRAY_KIND) {
-        this.observeArray(reference, source)
-        return reference
-      }
-      if (known === MAP_KIND) {
-        this.observeMap(reference, source)
-        return reference
-      }
-      if (known === SET_KIND) {
-        this.observeSet(reference, source)
-        return reference
-      }
-      if (known === DATE_KIND) {
-        this.observeDate(reference, source)
-        return reference
-      }
-      if (known === ARRAY_BUFFER_KIND) {
-        this.observeBuffer(reference, source)
-        return reference
-      }
-      if (known === TYPED_ARRAY_KIND || known === DATA_VIEW_KIND) {
-        this.observeView(reference, source, known)
-        return reference
-      }
+    if (known === OBJECT_KIND) {
+      this.observeObject(reference, source)
+      return reference
+    }
+    if (known === ARRAY_KIND) {
+      this.observeArray(reference, source)
+      return reference
+    }
+    if (known === MAP_KIND) {
+      this.observeMap(reference, source)
+      return reference
+    }
+    if (known === SET_KIND) {
+      this.observeSet(reference, source)
+      return reference
+    }
+    if (known === DATE_KIND) {
+      this.observeDate(reference, source)
+      return reference
+    }
+    if (known === ARRAY_BUFFER_KIND) {
+      this.observeBuffer(reference, source)
+      return reference
+    }
+    if (known === TYPED_ARRAY_KIND || known === DATA_VIEW_KIND) {
+      this.observeView(reference, source, known)
+      return reference
     }
     this.observePolicy(reference, source, known)
     return reference
@@ -460,28 +410,19 @@ class SnapshotWalk extends Detached {
 
   // Observes `source` through its kind's facet, which writes the copy through `begin` and `edge`.
   observePolicy(reference: SnapshotReference, source: object, known: symbol): void {
-    const policy = this.types.policies[known]
+    const policy = snapshotTypes.policies[known]
     const begin = (this.beginCallback ??= (layout) => {
       this.begin(layout)
     })
     const edge = (this.edgeCallback ??= (value, key, knownKind, construction) =>
       this.edge(value, key, knownKind, construction))
-    if (!this.builtin)
-      policy.observe(
-        source,
-        this.routed(reference, source, begin),
-        this.routed(reference, source, edge),
-        'snapshot',
-      )
-    else {
-      const parent = this.currentReference
-      const parentSource = this.currentSource
-      this.currentReference = reference
-      this.currentSource = source
-      policy.observe(source, begin, edge, 'snapshot')
-      this.currentReference = parent
-      this.currentSource = parentSource
-    }
+    const parent = this.currentReference
+    const parentSource = this.currentSource
+    this.currentReference = reference
+    this.currentSource = source
+    policy.observe(source, begin, edge, 'snapshot')
+    this.currentReference = parent
+    this.currentSource = parentSource
   }
 
   // Records `target` as the caller's copy of `source`.

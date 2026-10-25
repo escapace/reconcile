@@ -1,6 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import * as API from '../index'
-import { createEngine } from '../engine'
 
 const { produce } = API
 
@@ -30,15 +29,6 @@ describe('public API', () => {
       | 'serialize'
       | 'snapshot'
     >()
-  })
-
-  it('exposes only the retained operations on a configured engine', () => {
-    const engine = createEngine()
-    expect(Object.keys(engine).sort()).toEqual(['produce', 'reconcile', 'snapshot', 'types'])
-    expectTypeOf<keyof typeof engine>().toEqualTypeOf<
-      'produce' | 'reconcile' | 'snapshot' | 'types'
-    >()
-    expect(Object.isFrozen(engine)).toBe(true)
   })
 
   it('infers draft, nested, replacement, primitive, and void return types', () => {

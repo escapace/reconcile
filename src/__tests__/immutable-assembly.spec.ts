@@ -1,19 +1,19 @@
 import { expect, it } from 'vitest'
 import { compileImmutable } from '../restore-identities'
-import { createEngine } from '../engine'
-import { Cell, cellType } from './fixtures/cell-type'
+import { OBJECT_KIND } from '../types/object'
+import { produceTypes } from '../types/builtins'
 import type { ImmutableRegistry, ReuseNode } from '../types'
 
 it('preserves reservation and completion reads through child-first cyclic reuse', () => {
   const trace: string[] = []
-  const initialParent = new Cell(undefined)
-  const completedParent = new Cell(undefined)
-  const childTarget = new Cell(undefined)
+  const initialParent = {}
+  const completedParent = {}
+  const childTarget = {}
   let parentReads = 0
   const parent: ReuseNode = {
     children: [],
     discoveredBy: undefined,
-    layout: { kind: cellType.kind },
+    layout: { kind: OBJECT_KIND },
     get settled() {
       trace.push('parent.settled')
       return false
@@ -27,7 +27,7 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
   const child: ReuseNode = {
     children: [parent],
     discoveredBy: undefined,
-    layout: { kind: cellType.kind },
+    layout: { kind: OBJECT_KIND },
     get settled() {
       trace.push('child.settled')
       return false
@@ -38,13 +38,12 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
     },
   }
   parent.children.push(child)
-  const registry = createEngine({ types: [cellType] }).types
   const types: ImmutableRegistry = {
-    ...registry,
+    ...produceTypes,
     structural: {
-      ...registry.structural,
-      [cellType.kind]: {
-        ...registry.structural[cellType.kind],
+      ...produceTypes.structural,
+      [OBJECT_KIND]: {
+        ...produceTypes.structural[OBJECT_KIND],
         reuse(payload, target, compare) {
           const isChild = target === childTarget
           trace.push(isChild ? 'child.reuse' : 'parent.reuse')

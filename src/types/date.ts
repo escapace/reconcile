@@ -7,12 +7,9 @@ import { noValue } from './shared/empty'
 import type {
   CapturePolicy,
   ConstructionPolicy,
-  SnapshotPolicy,
   PublicationPolicy,
   ImmutablePolicy,
-  Recognition,
 } from '../types'
-import { defineType } from './registry'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
 
 // The built-in time accessors: a subclass override or a patched prototype is never called, as
@@ -40,18 +37,6 @@ const dateConstruction = {
   allocate: (node) =>
     adoptPrototype(new Date(node.layout.time), node.layout.prototype, Date.prototype),
 } satisfies ConstructionPolicy<DateLayout>
-
-const dateSnapshot = /* @__PURE__ */ (() =>
-  /* @__PURE__ */ freeze({
-    ...dateCapture,
-    snapshot(layout, _resolve, writer) {
-      writer.initialize(
-        layout,
-        adoptPrototype(new Date(layout.time), layout.prototype, Date.prototype),
-        noValue,
-      )
-    },
-  }))() satisfies SnapshotPolicy<DateLayout>
 
 export const datePublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
@@ -90,12 +75,6 @@ export const dateImmutable = /* @__PURE__ */ (() => ({
   someChild: noChildren,
 }))() satisfies ImmutablePolicy<DateLayout>
 
-const datePolicy = /* @__PURE__ */ (() => ({
-  ...dateSnapshot,
-  ...datePublication,
-  ...dateImmutable,
-}))()
-
 /** Stores the captured native timestamp, including an invalid-date NaN. */
 export interface DateLayout {
   readonly kind: typeof DATE_KIND
@@ -105,16 +84,3 @@ export interface DateLayout {
 }
 
 export const dateDraft = independentDraft
-
-const dateRecognition = /* @__PURE__ */ freeze({
-  tag: 'predicate',
-  test: (value: object) => value instanceof Date,
-}) satisfies Recognition
-
-export const dateType = /* @__PURE__ */ defineType<DateLayout>({
-  draft: dateDraft,
-  kind: DATE_KIND,
-  name: 'date',
-  policy: datePolicy,
-  recognition: dateRecognition,
-})

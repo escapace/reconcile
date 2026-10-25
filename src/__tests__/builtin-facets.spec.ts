@@ -2,44 +2,45 @@
 import { expect, it } from 'vitest'
 import { produce } from '../produce'
 import { produce as produceSource } from '../produce.ts'
-import { MODULE_BRAND } from '../constants'
+import { recognitionOrder } from '../../scripts/recognition-scan'
 import { draftState } from '../types/shared/draft-collection'
-import { builtinModules, snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
+import { snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
+import { TEMPORAL_KIND } from '../types/temporal'
+import { URL_KIND } from '../types/url'
+import { URL_SEARCH_PARAMS_KIND } from '../types/url-search-parameters'
 
-const SNAPSHOT_FACETS = ['temporal', 'url', 'url-search-params']
+// The snapshot walk copies every other kind inline, so its registry lists only these.
+const SNAPSHOT_FACETS: readonly symbol[] = [TEMPORAL_KIND, URL_KIND, URL_SEARCH_PARAMS_KIND]
 
-it('uses global identities for the built-in protocol symbols', () => {
-  for (const symbol of [MODULE_BRAND, ...builtinModules.map((type) => type.kind)]) {
+it('uses global identities for the built-in kinds', () => {
+  for (const symbol of recognitionOrder) {
     const key = Symbol.keyFor(symbol)
     expect(key).toMatch(/^@escapace\/reconcile\//)
     expect(Symbol.for(key!)).toBe(symbol)
   }
 })
 
+/** Each facet two registries both hold for `kind`, from the first and from the second. */
+function sharedFacets(kind: symbol, first: object, second: object): Array<[unknown, unknown]> {
+  const left = Reflect.get(first, kind) as object
+  const right = Reflect.get(second, kind) as object
+  return Reflect.ownKeys(left)
+    .filter((key) => Reflect.has(right, key))
+    .map((key) => [Reflect.get(left, key), Reflect.get(right, key)])
+}
+
 it('projects the same native callbacks into each public registry', () => {
-  for (const module of builtinModules) {
-    const registries = SNAPSHOT_FACETS.includes(module.name)
-      ? [snapshotTypes, publicationTypes, produceTypes]
-      : [publicationTypes, produceTypes]
-    for (const registry of registries) {
-      const policy = registry.policies[module.kind]
-      for (const key of Reflect.ownKeys(policy)) {
-        const actual: unknown = Reflect.get(policy, key)
-        const expected: unknown = Reflect.get(module.policy, key)
-        // defineType freezes copies of metadata; the native callbacks must be identical.
-        expect(actual).toEqual(expected)
-      }
-    }
-    expect(produceTypes.drafts[module.kind]).toEqual(module.draft)
+  for (const kind of recognitionOrder) {
+    const pairs = sharedFacets(kind, publicationTypes.policies, produceTypes.policies)
+    if (SNAPSHOT_FACETS.includes(kind))
+      pairs.push(...sharedFacets(kind, snapshotTypes.policies, publicationTypes.policies))
+    for (const [left, right] of pairs) expect(left).toBe(right)
+    expect(produceTypes.drafts[kind]).toBeDefined()
   }
 })
 
-// The snapshot walk copies every other kind inline, so its registry lists only these.
 it('lists in the snapshot registry only the kinds snapshot observes through their facets', () => {
-  const kinds = builtinModules
-    .filter((module) => SNAPSHOT_FACETS.includes(module.name))
-    .map((module) => module.kind)
-  expect(new Set(Reflect.ownKeys(snapshotTypes.policies))).toEqual(new Set(kinds))
+  expect(new Set(Reflect.ownKeys(snapshotTypes.policies))).toEqual(new Set(SNAPSHOT_FACETS))
 })
 
 it('accepts global symbols as ordinary Set members without sentinel collisions', () => {
@@ -62,9 +63,9 @@ it('keeps registry configuration exposed through a collection draft frozen', () 
       context: { types: typeof produceTypes }
     }
     expect(state.context.types).toBe(produceTypes)
-    for (const module of builtinModules) {
-      const policy = state.context.types.policies[module.kind]
-      const strategy = state.context.types.drafts[module.kind]
+    for (const kind of recognitionOrder) {
+      const policy = state.context.types.policies[kind]
+      const strategy = state.context.types.drafts[kind]
       expect(Object.isFrozen(policy)).toBe(true)
       expect(Object.isFrozen(policy.bindings)).toBe(true)
       expect(Object.isFrozen(policy.immutable)).toBe(true)
