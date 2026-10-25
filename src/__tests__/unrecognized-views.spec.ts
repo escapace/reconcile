@@ -55,3 +55,31 @@ it('rejects in serialize a view over a buffer without the standard prototype', (
     }
   }
 })
+
+/** Views whose own prototype was replaced, and a `DataView` that inherits a typed array's. */
+const replacedViews = (): object[] => [
+  Object.setPrototypeOf(new DataView(new ArrayBuffer(2)), null) as object,
+  Object.setPrototypeOf(new DataView(new ArrayBuffer(2)), Object.prototype) as object,
+  Object.setPrototypeOf(new Uint8Array([5, 6]), null) as object,
+  Object.setPrototypeOf(new DataView(new ArrayBuffer(2)), Uint8Array.prototype) as object,
+]
+
+/** A copy made through the own properties alone: same prototype, no view brand. */
+const expectOwnPropertyCopy = (copy: unknown, view: object): void => {
+  expect(ArrayBuffer.isView(copy)).toBe(false)
+  expect(Object.getPrototypeOf(copy)).toBe(Object.getPrototypeOf(view))
+  expect(Reflect.ownKeys(copy as object)).toEqual(Reflect.ownKeys(view))
+}
+
+it('handles a view whose own prototype was replaced through its own properties', () => {
+  for (const view of replacedViews()) {
+    expectOwnPropertyCopy(snapshot(view), view)
+    expectOwnPropertyCopy((reconcile({}, { view }) as { view: unknown }).view, view)
+    const next = produce({ view }, (draft) => {
+      Reflect.set(draft.view, 'label', 1)
+      return draft
+    })
+    expect(ArrayBuffer.isView(next.view)).toBe(false)
+    expect(Reflect.get(next.view, 'label')).toBe(1)
+  }
+})

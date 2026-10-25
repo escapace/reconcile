@@ -2,7 +2,7 @@ import Types.Ingress
 import Lean
 
 /-! Oracle for the `Ingress` family: recognizes every built-in and listed prototype tail behind up
-to two custom prototypes, with and without a view brand, and behind a custom prototype whose
+to two custom prototypes, with and without a typed-array brand, and behind a custom prototype whose
 prototype read throws, with `Types.Ingress.ingress`. Each row reports the outcome and the reads of
 the object itself with the prototype read shared and with a separate atom split. -/
 
@@ -20,7 +20,7 @@ prototypes. -/
 def tails : List (List Proto) :=
   [[], [object]] ++
   (List.range 5).map (fun r => [⟨.data (r + 2), .builtin (r + 1)⟩, object]) ++
-  [[⟨.data 7, .other 0⟩, ⟨.data 8, .other 1⟩, object], [⟨.data 9, .other 2⟩, object],
+  [[⟨.data 7, .other 0⟩, ⟨.data 8, .builtin 6⟩, object], [⟨.data 9, .other 2⟩, object],
     [⟨.data 10, .other 3⟩, object]] ++
   ([0, 1, 6, 12].zip [4, 5, 6, 7]).map
     (fun (atom, other) => [⟨.listed atom, .other other⟩, object]) ++

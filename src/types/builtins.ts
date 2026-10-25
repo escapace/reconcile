@@ -18,7 +18,7 @@ import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
 import { inChain, prototypeOf } from '../object-property'
-import { bufferOfView } from './shared/binary-native'
+import { bufferOfView, typedArrayClass, viewElement } from './shared/binary-native'
 
 /** Built-in kinds in recognition order; every facet table below lists facets in this order. */
 const KINDS = [
@@ -48,8 +48,8 @@ const FALLBACK_RANK = 10
  *
  * @remarks
  * After the array probe the value's prototype is read once. A value whose prototype is
- * `Object.prototype` or `null` and that holds no view brand fails every later probe, and the
- * fallback decides it. Otherwise each constructor probe walks the chain from that prototype, in
+ * `Object.prototype` or `null` fails every later probe, a view included, and the fallback decides
+ * it. Otherwise each constructor probe walks the chain from that prototype, in
  * the ordered scan's order, so the value itself is not read again. Types.RecognitionPlain.
  * recognize_eq_scan proves the result is the ordered scan's.
  */
@@ -57,7 +57,7 @@ function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): s
   if (Array.isArray(value)) return array.ARRAY_KIND
   if (last === 0) return undefined
   const first = prototypeOf(value, read)
-  if ((first === Object.prototype || first === null) && !ArrayBuffer.isView(value))
+  if (first === Object.prototype || first === null)
     return last === FALLBACK_RANK ? object.OBJECT_KIND : undefined
   if (inChain(first, Date)) return date.DATE_KIND
   if (last === 1) return undefined
@@ -85,7 +85,9 @@ function recognizedBuffer(value: object): boolean {
 }
 
 /** Continues the same ordered prefix without allocating a per-value continuation. A typed array
- * needs no walk for `DataView` here, since the `DataView` probe has decided it. */
+ * holds the typed-array brand and inherits `%TypedArray%.prototype`, so a `DataView` that inherits
+ * a typed array's prototype is not one; it needs no walk for `DataView` here, since the `DataView`
+ * probe has decided it. */
 function builtinRemainingMatch(
   value: object,
   first: object | null,
@@ -96,7 +98,13 @@ function builtinRemainingMatch(
   const view = ArrayBuffer.isView(value) ? recognizedBuffer(value) : undefined
   if (isDataView && view !== false) return dataView.DATA_VIEW_KIND
   if (last === 5) return undefined
-  if (!isDataView && view === true) return typedArray.TYPED_ARRAY_KIND
+  if (
+    !isDataView &&
+    view === true &&
+    viewElement(value) !== undefined &&
+    inChain(first, typedArrayClass)
+  )
+    return typedArray.TYPED_ARRAY_KIND
   if (last === 6) return undefined
   if (temporal.temporalInChain(first)) return temporal.TEMPORAL_KIND
   if (last === 7) return undefined

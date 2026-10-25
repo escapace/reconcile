@@ -1,3 +1,4 @@
+import { freeze } from './empty'
 import { adoptPrototype } from './prototype'
 import { inChain } from '../../object-property'
 import { builtinValue, uncurried } from '../../standard-prototypes'
@@ -35,6 +36,9 @@ export const viewConstructors: ReadonlyArray<ViewConstructor | undefined> = /* @
 
 const typedPrototype = /* @__PURE__ */ (() =>
   Object.getPrototypeOf(Uint8Array.prototype) as object)()
+
+/** `%TypedArray%` as `inChain` reads it: the class every built-in typed array class extends. */
+export const typedArrayClass = /* @__PURE__ */ (() => freeze({ prototype: typedPrototype }))()
 
 export const getter = (
   prototype: object,

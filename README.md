@@ -383,15 +383,15 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
   - A subclass that keeps its entries elsewhere and overrides the methods that read them, such as an Immer draft of a `Map`, reads as empty in `snapshot`, `reconcile` and `produce`.
   - In a recipe, a method called on a copy of a `Date`, buffer, view, `URL` or `URLSearchParams` is the one the copy inherits, as in any call, so a subclass's override runs.
   - A `Set` draft method, such as `union`, reads its operand's `size`, `has` and `keys` as the built-in method does, so the operand's overrides run; see [`produce` limitations](#produce-limitations).
-  - A proxy of a `Map`, `Set`, `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value, and an object that inherits one of their prototypes without being one, has no contents of its own, so the functions throw a `TypeError` when they read its contents. The exception is such a typed array in `snapshot`, `reconcile` and `produce`, which handle it as a class instance.
+  - A proxy of a `Map`, `Set`, `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value has no contents of its own, and neither has an object that only inherits from one of their prototypes, such as `Object.create(Map.prototype)`. The functions throw a `TypeError` when they read such contents. The exceptions: `snapshot`, `reconcile` and `produce` handle a proxy of a typed array, or an object that only inherits from a typed array's prototype, as a class instance, and `serialize` throws `SerializeValueUnsupported` when the prototype is a subclass's, as for any subclass instance.
 - **Sparse arrays.** `reconcile`, `produce`, `snapshot` and `serialize` can take time proportional to a sparse array's length, not to the number of elements it holds.
 - **Proxies that wrap every read.** A proxy that wraps each object it returns in a new proxy turns a cycle in its data into endless nesting, which `snapshot`, `produce` and `serialize` cannot copy: they exceed the call stack or do not return.
 - **Private fields.** `reconcile`, `produce` and `snapshot` lose the private fields of class instances that they rebuild or copy. A getter, setter or method that uses a private field throws on such a copy and on a `produce` draft, which is not the instance that holds the field. The built-in objects listed in [Objects kept by reference](#objects-kept-by-reference) are kept by reference instead.
-- **Unrecognized built-in values.** A built-in value created in another JavaScript environment, such as an iframe or a Node.js `vm` context, a Temporal value from a polyfill that is not installed globally, a typed array or `DataView` over a buffer that is not recognized, such as one whose prototype was replaced, and a built-in object that [Supported values](#supported-values) does not list, such as an `Intl.NumberFormat` or a `Headers`, are not recognized and are handled as class instances:
+- **Unrecognized built-in values.** The functions do not recognize the following values and handle them as class instances: a built-in value created in another JavaScript environment, such as an iframe or a Node.js `vm` context; a Temporal value from a polyfill that is not installed globally; a typed array or `DataView` over a buffer from another environment or over a buffer whose prototype was replaced as [Replaced prototypes](#all-functions) describes; and a built-in object that [Supported values](#supported-values) does not list, such as an `Intl.NumberFormat` or a `Headers`. For such a value:
   - `reconcile` can leave the value's entries, time or bytes unchanged without an error, or throw `PublicationRejected`.
   - The value's built-in methods throw on a `produce` draft and on a copy made by `snapshot` or `reconcile`.
   - `serialize` rejects these values and any object from another environment, including plain objects and arrays.
-- **Replaced prototype of a URL's `searchParams`.** Do not replace the prototype of a URL's `searchParams`: any function can then throw, and `serialize` can return data that `deserialize` rejects.
+- **Replaced prototypes.** The functions recognize a built-in value by its prototype chain. A `Map`, `Set`, `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value whose prototype was replaced with `null`, `Object.prototype` or the prototype of a class that [Supported values](#supported-values) does not list is handled as a plain object or class instance, from its own properties only; for example, `snapshot` copies a `Map` given a `null` prototype as an empty object. A replaced prototype on a URL's `searchParams` is not supported: any function can then throw or return a wrong result, such as data from `serialize` that `deserialize` rejects.
 - **Return type `unknown`.** `snapshot` and `deserialize` return `unknown`; cast the result, as the examples do.
 
 ### `reconcile` limitations
@@ -702,7 +702,7 @@ New JSON data representing the value.
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) with type `SerializeValueUnsupported` for unsupported values.
-2. Errors from getters, proxy traps or native operations, unchanged.
+2. Errors thrown by getters or proxy traps, and native errors, propagate unchanged.
 
 ### Remarks
 
