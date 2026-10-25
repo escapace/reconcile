@@ -9,13 +9,13 @@ differential bridge compares with the runtime. The bridge carries the promise to
 theorem shows the reference keeps it on every input, not only the generated ones.
 
 - `retainPrefix`: the retained prefix is a prefix of `next`'s order, a subsequence of `cur`'s, and
-  the longest such prefix. The keys or entries outside it are the moves (`moves_minimal`,
-  `collection_moves_minimal`).
+  the longest such prefix (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`).
+  The keys or entries outside it are the moves.
 - `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
   and at most once when nothing is written (`get_bound`, `read_once_before_write`); the number of
   decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
-  the greatest such set (`reuse_iff`, `changed_new`).
+  the greatest such set (`kept_closed`, `kept_greatest`).
 -/
 
 namespace Reconcile.Spec.Reconcile

@@ -57,7 +57,7 @@ aliases.
 2. **Examples.** Put an example whose premises hold, and a counterexample for each premise that
    matters, beside the model.
 3. **Name the runtime obligations.** State which premises the runtime must establish and how, as
-   `FullCapture` does, and list them under [Runtime obligations](#runtime-obligations).
+   the _Full capture_ obligation does, and list them under [Runtime obligations](#runtime-obligations).
 4. **Place and register every file.** A model goes in its area's directory under `lean/`:
    `Heap/`, `Spec/`, `Property/`, `Graph/`, `Produce/`, `Types/` or `Serialization/`; its oracle
    goes in `Oracle/`. List the module in `roots` in
@@ -110,10 +110,10 @@ proof-only module is still built and audited. _Obligations_ names the
 
 ### Heap model and public contracts
 
-| Module(s)     | Key theorems                                         | Runtime                                                                                                                       | Bridge               | Obligations                   |
-| ------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------- |
-| `Defs`, `WF`  | `HeapWF` (definition)                                | captured graphs: `src/publication/capture.ts` (`reconcile`), the walk in `src/snapshot.ts`, `src/finalization.ts` (`produce`) | imported by Contract | Capture                       |
-| `Publication` | `publishRecords_published`, `checkPublication_sound` | `src/publication/*`                                                                                                           | imported by Contract | Capture, Identity and storage |
+| Module(s)     | Key theorems                                         | Runtime                                                                                                                       | Bridge               | Obligations       |
+| ------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------- |
+| `Defs`, `WF`  | `HeapWF` (definition)                                | captured graphs: `src/publication/capture.ts` (`reconcile`), the walk in `src/snapshot.ts`, `src/finalization.ts` (`produce`) | imported by Contract | Capture           |
+| `Publication` | `publishRecords_published`, `checkPublication_sound` | `src/publication/*`                                                                                                           | imported by Contract | Capture, Identity |
 
 ### Reference models
 
@@ -153,25 +153,28 @@ far as the bridge shows it agrees with the reference.
 
 ### `snapshot`
 
-`snapshot` is `Spec.Produce.snapshot` in [Reference models](#reference-models): a new object per
-source object, atoms shared, which the Spec bridge checks on random graphs. The exact built-in
-registry's walk in `src/snapshot.ts` repeats the kinds' `observe` reads and writer stores, a
-coupling [the development guide](development.md#couplings-that-fail-silently) lists.
+`snapshot` is `Spec.Produce.snapshot` in [Reference models](#reference-models), a new object per
+source object with atoms shared; the Spec bridge checks the runtime against it on random graphs.
+For the built-in registry, the walk in `src/snapshot.ts` repeats the facets' `observe` reads and
+writer stores, the _Snapshot walk_ coupling that
+[the development guide](development.md#couplings-that-fail-silently) lists. Its runtime
+obligations are _Snapshot memo_ and _Built-in snapshot writer_.
 
 ### `reconcile`
 
-| Module(s)           | Key theorems                                                                                                                                                                                                                                                                                                                                                                             | Runtime                                                                                                                                                                                                                                                                                       | Bridge                                                    | Obligations                                       |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- |
-| `PropertyOrder`     | `step_equivalence`, `stream_equivalence`, `aligned_mem`                                                                                                                                                                                                                                                                                                                                  | `src/types/shared/property-publication.ts` `PropertyOrder`; aligned publication in `src/types/object.ts`                                                                                                                                                                                      | PropertyOrder                                             | Capture                                           |
-| `DeferredOrder`     | `catchUp_eq`, `execute_eq`                                                                                                                                                                                                                                                                                                                                                               | `src/types/shared/property-publication.ts`                                                                                                                                                                                                                                                    | DeferredOrder (instrumented copy)                         | Property order                                    |
-| `PropertyWrite`     | `reconcileKey_no_inherited_setter`, `publish_missing`, `construct_data`, `constructFrom_data`, `constructOn_fresh`, `constructOn_eq_construct`, `constructFromOn_fresh`, `draftSet_eq`, `assignStrict_eq`, `draftThroughSetter_eq`, `draftThroughSetter_refused`, `draftThroughSetter_tamed`, `publish_accessor`, `reconcileKey_rejected`, `reconcileKey_sound`, `reconcileKey_complete` | `src/types/shared/property-publication.ts` `canPublishProperties`, `publishProperty`; `src/types/shared/draft-properties.ts` `set`, `defineProperty`; `setOwnProperty` (`src/set-own-property.ts`); `define` in `src/serialization/common.ts`; the fresh-shell write in `src/types/object.ts` | PropertyWrite, PropertyConstructOn, PropertyThroughSetter | Property writes                                   |
-| `PropertyPlacement` | `matched_maximal`, `place_matched`, `feasible_iff`, `reference_sectors`, `reference_keeps_fixed_iff`                                                                                                                                                                                                                                                                                     | `src/types/shared/property-publication.ts` `canPublishProperties` with `PropertyOrder`                                                                                                                                                                                                        | PropertyPlacement                                         | Key order                                         |
-| `WriteFreeReadback` | `object_writeFree_matches`, `array_writeFree_matches`, `collection_writeFree_matches`, `publishKnown_eq`, `publishPre_eq`, `publishSeen_eq`, `accepts_readsAs`, `acceptsRetry_readsAs`                                                                                                                                                                                                   | readback elision, `PreflightFacts` and retried publications in `src/publication/publication-engine.ts`; `occupants` in `src/publication/capture.ts`; `publish` in `src/types/object.ts`, `src/types/array.ts` and the other kinds in `src/types/`; `publishKnown`                             | WriteFreeReadback                                         | Write-free readback, Reads before the first write |
-| `CollectionPlan`    | `plan_eq`, `put_same`                                                                                                                                                                                                                                                                                                                                                                    | `publish` in `src/types/shared/collection.ts`                                                                                                                                                                                                                                                 | proof-only                                                | Entries are matched by position                   |
+| Module(s)           | Key theorems                                                                                                                                                                                                                                                                                                                                                                             | Runtime                                                                                                                                                                                                                                                                                                 | Bridge                                                    | Obligations                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- |
+| `PropertyOrder`     | `step_equivalence`, `stream_equivalence`, `aligned_mem`                                                                                                                                                                                                                                                                                                                                  | `src/types/shared/property-publication.ts` `PropertyOrder`; aligned publication in `src/types/object.ts`                                                                                                                                                                                                | PropertyOrder                                             | Capture                                           |
+| `DeferredOrder`     | `catchUp_eq`, `execute_eq`                                                                                                                                                                                                                                                                                                                                                               | `src/types/shared/property-publication.ts`                                                                                                                                                                                                                                                              | DeferredOrder (instrumented copy)                         | Property order                                    |
+| `PropertyWrite`     | `reconcileKey_no_inherited_setter`, `publish_missing`, `construct_data`, `constructFrom_data`, `constructOn_fresh`, `constructOn_eq_construct`, `constructFromOn_fresh`, `draftSet_eq`, `assignStrict_eq`, `draftThroughSetter_eq`, `draftThroughSetter_refused`, `draftThroughSetter_tamed`, `publish_accessor`, `reconcileKey_rejected`, `reconcileKey_sound`, `reconcileKey_complete` | `src/types/shared/property-publication.ts` `canPublishProperties`, `publishProperty`; `src/types/shared/draft-properties.ts` `set`, `defineProperty`; `setOwnProperty` (`src/set-own-property.ts`); `define` in `src/serialization/common.ts`; the fresh-shell write in `src/types/object.ts`           | PropertyWrite, PropertyConstructOn, PropertyThroughSetter | Property writes                                   |
+| `PropertyPlacement` | `matched_maximal`, `place_matched`, `feasible_iff`, `reference_sectors`, `reference_keeps_fixed_iff`                                                                                                                                                                                                                                                                                     | `src/types/shared/property-publication.ts` `canPublishProperties` with `PropertyOrder`                                                                                                                                                                                                                  | PropertyPlacement                                         | Key order                                         |
+| `WriteFreeReadback` | `object_writeFree_matches`, `array_writeFree_matches`, `collection_writeFree_matches`, `publishKnown_eq`, `publishPre_eq`, `publishSeen_eq`, `accepts_readsAs`, `acceptsRetry_readsAs`                                                                                                                                                                                                   | readback elision, the preflight facts (`PreflightFacts`, `src/types.ts`) and retried publications in `src/publication/publication-engine.ts`; `occupants` in `src/publication/capture.ts`; `publish` in `src/types/object.ts`, `src/types/array.ts` and the other kinds in `src/types/`; `publishKnown` | WriteFreeReadback                                         | Write-free readback, Reads before the first write |
+| `CollectionPlan`    | `plan_eq`, `put_same`                                                                                                                                                                                                                                                                                                                                                                    | `publish` in `src/types/shared/collection.ts`                                                                                                                                                                                                                                                           | proof-only                                                | Ordinal candidates                                |
 
 `src/__tests__/reconcile-semantics.spec.ts` tests the contract case by case: a successful call
-keeps the current root, preserves sharing and cycles and never merges distinct nodes, a kept plain
-object keeps its prototype, and failure is an error that promises no rollback.
+keeps the current root, preserves sharing and cycles and never merges distinct nodes, and a kept
+plain object keeps its prototype. A failed call throws without rolling back (README: _Not rolled
+back_).
 
 Pinning is `Spec.Reconcile.pinned`: a `next` object that is the current object at the same
 own-property slot of the aligned current object, whose subtree reaches neither root, stays as it
@@ -226,28 +229,28 @@ accepts exactly that definition, so the assignment has the object's outcome
 
 ### `produce`
 
-| Module(s)                                                        | Key theorems                                                                                                                | Runtime                                                                                                                                                                                     | Bridge                                                  | Obligations                |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------- |
-| `GraphPolicy`                                                    | `feasiblePlans_exact`, `rankedPlans_exact`, `rankedPreferred_head`                                                          | the ranked stream `CompactImmutable` relates its masks to                                                                                                                                   | Policy                                                  | Preferred attempts         |
-| `SettledChildren`                                                | `check_step`, `needs_settled`, `needs_unchanged`, `settled_reach_recorded`, `recorded_getD`                                 | `checkDescendantsForMaterialization` in `src/finalization.ts`; `compileImmutable` in `src/restore-identities.ts`                                                                            | SettledChildren                                         | Finalization reads         |
-| `ReuseClosure`, `Immutable`                                      | `reuseSurvivors_greatest`, `selected_published`, `selected_storage_distinct`, `fresh_below_native`                          | `src/restore-identities.ts`                                                                                                                                                                 | Contract (`Immutable`); `ImmutableLabels` proof-only    | Identity and storage       |
-| `CompactImmutable`, `CompactOwners`                              | `feasible_iff`, `ranked_decode`, `ranked_head`, `separated_of_distinct`                                                     | `src/graph/immutable-selection.ts` `immutableSelections`                                                                                                                                    | CompactImmutable                                        | Preferred attempts         |
-| `KeyOrder`                                                       | `build_nodup`, `ownKeys_ownKeys`, `rebuild_preserves`, `produce_key_order`                                                  | `preparePropertyCopy` in `src/types/shared/draft-properties.ts`; finalization                                                                                                               | KeyOrder                                                | Key order                  |
-| `DraftSurface`                                                   | `admits_iff_represented`, `refused`, `keeps_iff`, `handle_rebuilds`                                                         | `admits` in `src/types/shared/draft-properties.ts`, non-extensible collection drafts and native copies in `src/draft-session.ts`, `reuse` in `src/types/object.ts` and `src/types/array.ts` | DraftSurface                                            | Draft surface              |
-| `DraftClass`                                                     | `draft_instanceOf`, `lookup_other`, `lookup_method`                                                                         | `draftCollectionBase` and `adoptDraftClass` in `src/types/shared/draft-collection.ts`                                                                                                       | DraftClass                                              | Draft class                |
-| `DraftIteration`                                                 | `iterate_entries`, `iterate_kept`, `write_after_iterate`, `kept_untouched`, `drafted_nodup`                                 | `draftWalk` and `draftCollectionBase` in `src/types/shared/draft-collection.ts`                                                                                                             | DraftIteration                                          | Draft iteration            |
-| `DraftMembers`                                                   | `includesBy_drafted`, `includesBy_form`, `includesBy_single`, `plain_self`                                                  | `memberIdentity` and `arraySearches` in `src/types/shared/draft-members.ts`                                                                                                                 | DraftMembers                                            | Draft members              |
-| `DraftSetMethods`                                                | `mem_union`, `mem_intersection`, `mem_difference`, `mem_symmetricDifference`, `isDisjointFrom_walk`, `intersection_drafted` | `setMethods` in `src/types/set.ts`                                                                                                                                                          | DraftSetMethods                                         | Draft members, Set methods |
-| `CopyPrototype`                                                  | `adopt_eq`, `copy_keeps`, `serializes_iff_restored`                                                                         | `adoptPrototype` in `src/types/shared/prototype.ts`; array, `Map`, `Set`, `Date`, `DataView`, URL and Temporal construction; `serialize` recognition                                        | CopyPrototype                                           | Copy prototypes            |
-| `Requirements`, `RequirementAdmission`, `RequirementPropagation` | `close_least`, `admit_nodup`, `completed_insertion_order`                                                                   | `src/graph/requirements.ts` `closeRequirements`                                                                                                                                             | Policy (`Requirements`); SeededRequirements (all three) | none                       |
-| `SeededRequirements`                                             | `close_eq`, `run_eq`, `scans_le`                                                                                            | `compileImmutable` in `src/restore-identities.ts`, `src/finalization.ts`                                                                                                                    | SeededRequirements                                      | none                       |
-| `ClosureHistory`, `FactRenaming`                                 | `expandUnfolded_eq`, `execute_eq`, `observations_eq`                                                                        | `src/graph/requirements.ts` `RequirementClosure`                                                                                                                                            | FactRenaming                                            | none                       |
-| `Construction`                                                   | `schedule_safe`, `schedule_complete`, `schedule_shells_only`                                                                | `src/graph/construction.ts` `constructionOrder`                                                                                                                                             | Policy, CompactImmutable                                | none                       |
+| Module(s)                                                        | Key theorems                                                                                                                | Runtime                                                                                                                                                                                     | Bridge                               | Obligations                |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------- |
+| `GraphPolicy`                                                    | `feasiblePlans_exact`, `rankedPlans_exact`, `rankedPreferred_head`                                                          | the reference ranked stream, to which `CompactImmutable` relates its masks                                                                                                                  | imported by Contract                 | none                       |
+| `SettledChildren`                                                | `check_step`, `needs_settled`, `needs_unchanged`, `settled_reach_recorded`, `recorded_getD`                                 | `checkDescendantsForMaterialization` in `src/finalization.ts`; `compileImmutable` in `src/restore-identities.ts`                                                                            | SettledChildren                      | Finalization reads         |
+| `ReuseClosure`, `Immutable`                                      | `reuseSurvivors_greatest`, `selected_published`, `selected_storage_distinct`                                                | `src/restore-identities.ts`                                                                                                                                                                 | Contract (`Immutable`)               | Identity                   |
+| `CompactImmutable`, `CompactOwners`                              | `feasible_iff`, `ranked_decode`, `ranked_head`, `separated_of_distinct`                                                     | `src/graph/immutable-selection.ts` `immutableSelections`                                                                                                                                    | CompactImmutable                     | none                       |
+| `KeyOrder`                                                       | `build_nodup`, `ownKeys_ownKeys`, `rebuild_preserves`, `produce_key_order`                                                  | `preparePropertyCopy` in `src/types/shared/draft-properties.ts`; finalization                                                                                                               | KeyOrder                             | Key order                  |
+| `DraftSurface`                                                   | `admits_iff_represented`, `refused`, `keeps_iff`, `handle_rebuilds`                                                         | `admits` in `src/types/shared/draft-properties.ts`, non-extensible collection drafts and native copies in `src/draft-session.ts`, `reuse` in `src/types/object.ts` and `src/types/array.ts` | DraftSurface                         | Draft surface              |
+| `DraftClass`                                                     | `draft_instanceOf`, `lookup_other`, `lookup_method`                                                                         | `draftCollectionBase` and `adoptDraftClass` in `src/types/shared/draft-collection.ts`                                                                                                       | DraftClass                           | Draft class                |
+| `DraftIteration`                                                 | `iterate_entries`, `iterate_kept`, `write_after_iterate`, `kept_untouched`, `drafted_nodup`                                 | `draftWalk` and `draftCollectionBase` in `src/types/shared/draft-collection.ts`                                                                                                             | DraftIteration                       | Draft iteration            |
+| `DraftMembers`                                                   | `includesBy_drafted`, `includesBy_form`, `includesBy_single`, `plain_self`                                                  | `memberIdentity` and `arraySearches` in `src/types/shared/draft-members.ts`                                                                                                                 | DraftMembers                         | Draft members              |
+| `DraftSetMethods`                                                | `mem_union`, `mem_intersection`, `mem_difference`, `mem_symmetricDifference`, `isDisjointFrom_walk`, `intersection_drafted` | `setMethods` in `src/types/set.ts`                                                                                                                                                          | DraftSetMethods                      | Draft members, Set methods |
+| `CopyPrototype`                                                  | `adopt_eq`, `copy_keeps`, `serializes_iff_restored`                                                                         | `adoptPrototype` in `src/types/shared/prototype.ts`; array, `Map`, `Set`, `Date`, `DataView`, URL and Temporal construction; `serialize` recognition                                        | CopyPrototype                        | Copy prototypes            |
+| `Requirements`, `RequirementAdmission`, `RequirementPropagation` | `close_least`, `admit_nodup`, `completed_insertion_order`                                                                   | `src/graph/requirements.ts` `closeRequirements`                                                                                                                                             | SeededRequirements, CompactImmutable | none                       |
+| `SeededRequirements`                                             | `close_eq`, `run_eq`, `scans_le`                                                                                            | `compileImmutable` in `src/restore-identities.ts`, `src/finalization.ts`                                                                                                                    | SeededRequirements                   | none                       |
+| `ClosureHistory`, `FactRenaming`                                 | `expandUnfolded_eq`, `execute_eq`, `observations_eq`                                                                        | `src/graph/requirements.ts` `RequirementClosure`                                                                                                                                            | FactRenaming                         | none                       |
+| `Construction`                                                   | `schedule_safe`, `schedule_complete`, `schedule_shells_only`                                                                | `src/graph/construction.ts` `constructionOrder`                                                                                                                                             | CompactImmutable                     | none                       |
 
 `GraphPolicy` defines domains, storage separation, identity requirements, feasible plans and the
-ranked stream, which keeps domain order within equal scores. Immutable restoration chooses which
+ranked stream, which keeps domain order within equal scores. Identity restoration chooses which
 current objects an immutable result reuses. `CompactImmutable` encodes choices as retained bits and
-relates them to the ranked streams; `ranked_head` proves that an admissible, separated and closed
+relates them to the ranked stream; `ranked_head` proves that an admissible, separated and closed
 eligibility mask is the first ranked mask.
 
 `SettledChildren` models finalization's question whether an object needs a copy: a walk of its
@@ -265,9 +268,11 @@ restoration's walk of an unchanged subtree the result keeps reads no list again
 into seed facts keeps the closure and its trace, which `compileImmutable` relies on. `FactRenaming`
 proves that relabeling objects as numbers, as the bridges do, preserves every closure, query and
 stream, and `expandUnfolded_eq` equates the runtime's admit-then-propagate `require` with expanding
-from the fact. `Construction` defines the wave schedule that the runtime's counting scheduler
-must equal, which the CompactImmutable bridge checks, rejections included. Construction order also
-runs during `reconcile` publication, in `src/publication/publication-engine.ts`.
+from the fact.
+
+`Construction` defines the construction schedule that the runtime's `constructionOrder` must
+equal; the CompactImmutable bridge checks that they agree, rejections included. Construction order
+also runs during `reconcile` publication, in `src/publication/publication-engine.ts`.
 
 ### Native type facets
 
@@ -277,7 +282,7 @@ runs during `reconcile` publication, in `src/publication/publication-engine.ts`.
 | `Types.RecognitionPlain` | `recognize_eq_scan`, `plain_probes`                                                       | `builtinFirstMatch` in `src/types/builtins.ts`, `inChain`                                                                                           | RecognitionPlain                            | Recognition                 |
 | `Types.Atoms`            | `classify_atomic`, `classify_reads`, `ingress_atom_iff`, `ingress_structural`             | `isAtomObject` in `src/object-property.ts`, `recognize` in `src/adapters/recognition.ts`                                                            | Atoms                                       | Recognition, Atoms          |
 | `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`                                                         | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; `prototypes` in `src/publication/capture.ts`, `createDraft`, the snapshot walk | Ingress                                     | Recognition, Atoms, Ingress |
-| `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`, `bigint_injective`  | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                   | NativeValue                                 | Native values               |
+| `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`                      | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                   | NativeValue                                 | Native values               |
 | `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                         | ownership tables in `src/snapshot.ts` and finalization                                                                                              | imported by OwnedNativeChild                | Lazy ownership metadata     |
 | `Types.OwnedPublication` | `bulk_equivalent`, `bulk_identity`, `sealed_owner_sound`                                  | `src/types/shared/url-carrier.ts`                                                                                                                   | OwnedNativeChild; native differential check | URL ownership               |
 | `Types.OwnedNativeChild` | `adopt_consistent`, `admitted_iff`, `first_prepared_ranked`, `replay_owned_valid`         | `src/types/url.ts`, `src/types/url-search-parameters.ts`, `src/types/shared/url-carrier.ts`                                                         | OwnedNativeChild                            | URL ownership               |
@@ -380,11 +385,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 ### Heap model and public contracts
 
 - **Capture.** Observations follow the documented order, collections are normalized, descriptor
-  operations behave natively, and observations stay stable within a phase.
+  operations behave natively, and observations stay stable within a phase. `graph-capture.spec.ts` covers the order of capture's reads.
 - **Identity.** Fresh allocations are fresh, each object is its own storage, and each publication
   attempt gets a fresh private token. A proxy is an object of its own: capture, `snapshot`,
   `serialize`, `produce` and identity restoration give it its own node, draft and record, and none
-  of them unwraps it.
+  of them unwraps it. `shared-identity-bug.spec.ts` covers one object at several positions.
 
 ### Reference models
 
@@ -419,11 +424,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   pin, and captured views never pin their buffers.
 - **Buffer shape.** An `arrayBuffer` node holds bytes only, and `compatibleShape` compares their
   count. The runtime also keeps a buffer only when it has next's resizability and maximum length,
-  which a copy would carry, so a kept buffer differs from next in no property a copy has.
+  which a copy would carry, so a kept buffer differs from next in no property a copy has. `binary-built-ins.spec.ts` and `clone-buffer-view.spec.ts` cover resizable buffers and views.
 - **Property order.** `DeferredOrder` applies only while key storage is private, stable and
   non-escaping, and desired keys are buffered eagerly. A key moved into the requested order is
   deleted, assigned again so that a proxy's `set` trap observes it, and given back its own attributes,
-  as `PropertyWrite` keeps them for a key written in place.
+  as `PropertyWrite` keeps them for a key written in place. `property-order.spec.ts` and `reconcile-property-order.spec.ts` cover the cursor and the moved keys.
 - **Property writes.** `PropertyWrite` covers one key of an ordinary object, or of a proxy whose
   traps forward to one. The prototype walk in `canPublishProperties`
   must find the descriptor assignment would reach. It reads a descriptor of `Object.prototype` or
@@ -486,7 +491,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   assumes; identity restoration takes an object's children from a finalization walk that visited all
   of them. A draft write keeps the descriptor and value it read for its
   key in the first copy, and a draft observation that reads the object itself counts each data slot
-  it read there as backed by the object.
+  it read there as backed by the object. `produce-reads.spec.ts` counts finalization's reads.
 - **Key order.** `KeyOrder` assumes the engine lists own keys as `OrdinaryOwnPropertyKeys` does and
   that the draft store follows ordinary assignment and `delete`; the KeyOrder bridge checks both.
 - **Draft surface.** The runtime refuses new properties on collection drafts and native copies by
@@ -535,7 +540,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   function on every value kind under `node --frozen-intrinsics` and under SES `lockdown()` with
   default and severe override taming, importing the library before and after it, and requires the
   outcomes of an ordinary runtime. A `Set` method operand's keys are stepped as the specification
-  steps them (`stepIterator`) and closed in the same way (`closeIterator`), except that a `return`
+  steps them and closed in the same way (`closeIterator`), except that a `return`
   only `Object.prototype` holds is neither read nor called. A user array's hole is
   asked of the array itself (`hasElement`) when a standard prototype holds that index; otherwise
   `in` is the only observation. `standard-prototypes.spec.ts` plants each internal and protocol
@@ -561,7 +566,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   result serves discovery (Ingress). The built-in registries read the prototype once and decide each
   `instanceof` probe from it; a repeated read answers as that one did, and `instanceof` against the
   built-in, `URL` and Temporal constructors uses the default `Symbol.hasInstance`, so no probe
-  accepts an object whose prototype is `Object.prototype` or `null`.
+  accepts an object whose prototype is `Object.prototype` or `null`. `builtin-recognition.spec.ts` covers the probes.
 - **Atoms.** The listed constructors are the live globals, which callers do not modify during a
   call; `instanceof` against them uses the default `Symbol.hasInstance`. A caller that already read
   an object's prototype, such as `snapshot` and `reconcile` capture, passes it on instead of reading
@@ -573,10 +578,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   `produce` uses it for the draft's proxy target and `snapshot` for the copy. A later read must
   answer as the first did, so a getter or trap that changes a prototype before the first write is
   unsupported. Readback and a draft's first copy, which follow the recipe, read the prototype
-  again.
+  again. `ingress-reads.spec.ts` counts the prototype reads.
 - **Native values.** Native brands, constructors, capture, cloning, publication and readback are
   faithful, and Temporal labels keep all ten Duration components and each class's calendar, time
-  zone and reference-date distinctions. Lean proves neither native parsing nor `.equals`.
+  zone and reference-date distinctions. Lean proves neither native parsing nor `.equals`. `temporal.spec.ts` and `url-values.spec.ts` cover the values.
 - **Lazy ownership metadata.** Runtime maps stay scoped to their session, phase or attempt; custom
   construction callbacks still run, and overwriting a shared target clears obsolete metadata.
 - **URL ownership.** Ownership is fixed, allocation is fresh, carrier maps are per call, ordered
@@ -586,7 +591,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   every parameter mutator running the native
   [query update](https://url.spec.whatwg.org/#concept-urlsearchparams-update), even for no-ops. Bulk
   publication relies on opaque-path normalization of the empty-list update, which JavaScript tests
-  cover. Getter order, method branding and URL parsing are native.
+  cover. Getter order, method branding and URL parsing are native. `url-ownership.spec.ts` covers the owner and child identities.
 
 ### Serialization
 
@@ -623,11 +628,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   a native base64 stand-in.
 - **Native arrays and views.** Array lengths stay within `2^32 - 1`, and view offsets, lengths and
   alignment are checked before construction. Native array writes and `length` assignment behave as
-  the `NativeArray` model in `Positional` states; view constructors and buffer bytes are outside it.
+  the `NativeArray` model in `Positional` states; view constructors and buffer bytes are outside it. `array-bound.spec.ts` and `sparse-codec.spec.ts` cover array lengths and sparse arrays.
 - **Map and Set equality.** `Map.prototype.set` and `Set.prototype.add` use `SameValueZero`,
   canonicalize signed-zero keys and keep the first insertion position of an existing entry
   ([Map.set](https://tc39.es/ecma262/multipage/keyed-collections.html#sec-map.prototype.set),
-  [Set.add](https://tc39.es/ecma262/multipage/keyed-collections.html#sec-set.prototype.add)).
+  [Set.add](https://tc39.es/ecma262/multipage/keyed-collections.html#sec-set.prototype.add)). `collection-normalization.spec.ts` covers signed zeros and `NaN`.
 - **Base64.** The encoder's alphabet table and bitwise operators are native; `binary-codec.spec.ts`
   compares it with `btoa`. A native decoder never yields more bytes than `decodedSize` predicts,
   which lets the exact-count check reject skipped whitespace; `serialization-boundaries.spec.ts`
@@ -682,7 +687,6 @@ Read the table with these limits:
 - A corpus bounds the test enumeration, not production graphs. "Strictly less work" marks cases
   where the optimized algorithm does less work than the reference, so the optimization is not
   vacuous.
-- The Contract bridge compares `produce`'s identity restoration with `Immutable`.
 - The `Serialization` domain is records, null-prototype records, dense and sparse arrays, JSON
   literals and shared scalar nodes. Its hand-written JSON importer uses Lean numbers, so `-0` and
   overflowing literal roots are compared with `JSON.parse` at runtime only.

@@ -1,8 +1,9 @@
 import Mathlib.Data.List.Basic
 import Lean
 
-/-! Closed, finite selection constraints and the reference model of the ranked selection stream
-of `src/graph/selection.ts`. Native capture supplies the identity and storage labels. -/
+/-! Closed, finite selection constraints and the reference model of the ranked selection stream,
+to which `CompactImmutable` relates the masks of `src/graph/immutable-selection.ts`. Native capture
+supplies the identity and storage labels. -/
 
 namespace Reconcile.Policy
 
