@@ -39,13 +39,12 @@ function atom(references: Map<object, Edge>, source: object): Edge {
  * pair of callbacks serves every node.
  */
 class AlignedCapture extends Detached {
-  // Every object a kept subtree's walk met; created on the first kept subtree.
-  declare protectedStorage: Set<unknown> | undefined
   // The prototype `classify` read for a plain-object kind, handed to that object's observer.
-  declare private classified: object | null | undefined
-  // Objects marked by kept-subtree walks; created on the first walk.
   declare private readonly beginCallback: (layout: Layout) => void
-  declare private closure: Set<object> | undefined
+  declare private classified: object | null | undefined
+  // Every object inside a kept subtree, marked by the walk that kept it; created on the first
+  // walk, and unmarked again when a walk reaches a root.
+  declare closure: Set<object> | undefined
   declare currents: Array<object | undefined>
   declare private readonly edgeCallback: CaptureEdge
   // The kind recognized for each aligned object found to be of another kind than its node's;
@@ -110,7 +109,6 @@ class AlignedCapture extends Detached {
     this.beginCallback = begin
     this.edgeCallback = edge
     this.pending = current
-    this.protectedStorage = undefined
     this.currentReference = undefined
     this.references = new Map()
     this.root = current
@@ -364,8 +362,6 @@ class AlignedCapture extends Detached {
       }
       source = pop()
     }
-    const walked = (this.protectedStorage ??= new Set())
-    for (let index = 0; index < visited.length; index += 1) walked.add(visited[index])
     return true
   }
 }
@@ -412,7 +408,7 @@ export function capture(
     kinds: run.kinds,
     nodes: run.nodes as CapturedNode[],
     occupants: run.occupants,
-    protectedStorage: run.protectedStorage,
+    pinned: run.closure,
     prototypes: run.prototypes,
     reads: run.reads,
     root,

@@ -226,9 +226,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: 5.0.3
         version: 5.0.3(vitest@5.0.3)
-      alien-deepsignals:
-        specifier: 0.4.3
-        version: 0.4.3
       arktype:
         specifier: 2.2.8
         version: 2.2.8
@@ -1441,12 +1438,6 @@ packages:
 
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
-
-  alien-deepsignals@0.4.3:
-    resolution: {integrity: sha512-+aJ2625Pi5Y3ZoEoGHmOPlmhDt61arTN+fnVdgdlrbXWdk/nPzY7ZbHuGD/c22NTnuCfO33kF3SxNswkdkQJ3Q==}
-
-  alien-signals@3.2.1:
-    resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
 
   ansi-regex@6.4.0:
     resolution: {integrity: sha512-KzTVk2tCWAHtYrvvvaP8bJKJq2pVinhLcGEQdtLIYPbmNGNyYe8QwNaTUYQp2J7/vIsUKt5QCqAfUkYyG9DkOw==}
@@ -4241,12 +4232,6 @@ snapshots:
       fast-uri: 3.1.8
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
-
-  alien-deepsignals@0.4.3:
-    dependencies:
-      alien-signals: 3.2.1
-
-  alien-signals@3.2.1: {}
 
   ansi-regex@6.4.0: {}
 

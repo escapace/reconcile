@@ -35,7 +35,7 @@ export function candidates(
     | 'firstAlignedAt'
     | 'kinds'
     | 'occupants'
-    | 'protectedStorage'
+    | 'pinned'
     | 'prototypes'
     | 'reads'
     | 'sources'
@@ -48,14 +48,14 @@ export function candidates(
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
   // edge still resolves through its own pinned node, and construction inputs were already
   // read during capture. The root is exempt: a reference to the current root is the live root.
-  const walked = alignment?.protectedStorage
-  const protectedStorage = walked !== undefined && walked.size !== 0 ? walked : undefined
-  if (protectedStorage !== undefined) {
+  const walked = alignment?.pinned
+  const pinned = walked !== undefined && walked.size !== 0 ? walked : undefined
+  if (pinned !== undefined) {
     const sources = alignment?.sources
     records.forEach((node, index) => {
       if (index === 0 || node.pinned !== undefined) return
       const source = sources?.[index]
-      if (source !== undefined && source !== root && protectedStorage.has(source))
+      if (source !== undefined && source !== root && pinned.has(source))
         (node as { pinned?: object }).pinned = source
     })
   }
@@ -68,7 +68,7 @@ export function candidates(
   ): Candidate | undefined => {
     const prototype = ingressOf(types, node, index, candidate, alignment)
     if (prototype === MISMATCH) return undefined
-    if (index !== 0 && protectedStorage?.has(candidate) === true) return undefined
+    if (index !== 0 && pinned?.has(candidate) === true) return undefined
     // What capture or discovery read at the candidate's slots serves its fixed slots.
     const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)

@@ -11,7 +11,7 @@ import type {
   TypeRegistry,
 } from '../types'
 
-import { MODULE_BRAND, RULE_VOCABULARY } from '../constants'
+import { MODULE_BRAND } from '../constants'
 
 /** Copies and freezes typed module facets before registry composition. */
 export function defineType<
@@ -46,7 +46,6 @@ export function defineType<L extends { readonly kind: symbol }, S extends DraftS
     }),
     recognition: Object.freeze({ ...module.recognition }),
     requires: Object.freeze([...(module.requires ?? [])]),
-    vocabulary: RULE_VOCABULARY,
   })
   return result
 }

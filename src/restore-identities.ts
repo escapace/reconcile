@@ -1,6 +1,5 @@
 import { atomValue, isNode } from './graph/edge'
 import { recognize } from './adapters/recognition'
-import { smallAdd, smallHas, smallSet, type SmallSet } from './graph/small-set'
 import { finalizationConstructionImpossible } from './error'
 import { constructionOrder } from './graph/construction'
 import { constructionDependencies } from './graph/construction-facts'
@@ -18,20 +17,12 @@ import type {
   ImmutableRecord,
   ImmutableRegistry,
   NativeOwners,
+  NodeEdge,
   Primitive,
   ReuseNode,
 } from './types'
 
 const NO_FACTS: ReadonlySet<number> = /* @__PURE__ */ new Set()
-
-/**
- * An edge to a registered node. `view` is the object the slot held when it is another view of the
- * node's target: a kept node keeps that view at that slot.
- */
-interface ViewEdge {
-  readonly node: number
-  readonly view: object | undefined
-}
 
 /** Facts finalization read in this call, which compilation takes instead of reading again. */
 export interface FinalizationFacts {
@@ -45,9 +36,7 @@ export interface FinalizationFacts {
  *
  * @remarks
  * With `fold`, an object first met inside a fixed node's subtree gets no node of its own: its
- * storage still joins the fixed storages, and its edges to registered nodes become the edges of
- * the fixed node whose walk met it. The selector then has the same choices whenever no storage
- * conflicts, which a caller that folds must treat as a rejection.
+ * edges to registered nodes become the edges of the fixed node whose walk met it.
  */
 export function compileImmutable(
   types: ImmutableRegistry,
@@ -60,51 +49,45 @@ export function compileImmutable(
   // A per-compile mark on the private finalized references replaces two identity tables; a
   // reference marked by another compile of the same graph carries a different mark.
   const mark = {}
-  // Special targets by identity, created on the first one, and the fixed nodes they register.
-  let specials: Map<object, ViewEdge> | undefined
-  const fixed: ViewEdge[] = []
+  // The fixed nodes: the special targets, registered before the structural records.
+  const fixed: NodeEdge[] = []
   const locallyReusable: boolean[] = []
   const parents: number[][] = []
   const storages: object[] = []
   // The edge of each node by its object; a fixed subtree that reaches an object registered
   // elsewhere resolves to its node.
-  const nodes = new Map<object, ViewEdge>()
-  // The edge to `node` from a slot that holds `target`.
-  const viewed = (node: ViewEdge, target: object): ViewEdge =>
-    records[node.node].target === target ? node : { node: node.node, view: target }
-  const register = (storage: object, entry: ImmutableRecord): ViewEdge => {
+  const nodes = new Map<object, NodeEdge>()
+  const register = (target: object, entry: ImmutableRecord): NodeEdge => {
     const index = records.length
-    const reference = { node: index, view: undefined }
-    nodes.set(storage, reference)
-    storages[index] = storage
+    const reference = { node: index }
+    nodes.set(target, reference)
+    storages[index] = target
     records.push(entry)
     locallyReusable[index] = true
     parents[index] = []
     return reference
   }
-  const special = (target: object): ViewEdge => {
-    const previous = specials?.get(target)
-    if (previous !== undefined) return previous
+  const special = (target: object): NodeEdge => {
     const registered = nodes.get(target)
-    const reference =
-      registered === undefined
-        ? register(target, { edges: [], payload: undefined, settled: undefined, target })
-        : viewed(registered, target)
-    ;(specials ??= new Map()).set(target, reference)
-    if (registered === undefined) fixed.push(reference)
+    if (registered !== undefined) return registered
+    const reference = register(target, {
+      edges: [],
+      payload: undefined,
+      settled: undefined,
+      target,
+    })
+    fixed.push(reference)
     return reference
   }
   // Registers every special target the finalized result reaches, children in slot order.
-  // Preserve the settled native observation boundary before structural reuse checks. A view
-  // stands for the reference it views.
+  // Preserve the settled native observation boundary before structural reuse checks.
   const discover = (): void => {
     const references = [result]
     while (references.length !== 0) {
       const reference = references.pop()!
       if (reference.discoveredBy === mark) continue
       reference.discoveredBy = mark
-      if (reference.viewOf !== undefined) references.push(reference.viewOf)
-      else if (reference.layout === undefined) special(reference.target)
+      if (reference.layout === undefined) special(reference.target)
       else {
         const children = (reference as ReuseNode).children
         for (let index = children.length - 1; index >= 0; index -= 1)
@@ -116,20 +99,17 @@ export function compileImmutable(
   const edge = (value: unknown): Edge => {
     if (!isObject(value)) return value as Primitive
     const reference = value as FinalizedReference
-    if (reference.viewOf !== undefined) {
-      const node = edge(reference.viewOf) as ViewEdge
-      return viewed(nodes.get(storages[node.node])!, reference.target)
-    }
     return reference.layout === undefined
-      ? specials!.get(reference.target)!
+      ? nodes.get(reference.target)!
       : collect(reference as ReuseNode)
   }
-  const collect = (record: ReuseNode): ViewEdge => {
-    if (record.collectedBy === mark) return record.collectedAs as ViewEdge
+  const collect = (record: ReuseNode): NodeEdge => {
+    if (record.collectedBy === mark) return record.collectedAs!
     record.collectedBy = mark
     const target = record.target
+    // Every reference to one object has one node; discovery registered the special targets.
     const registered = nodes.get(target)
-    if (registered !== undefined) return (record.collectedAs = viewed(registered, target))
+    if (registered !== undefined) return (record.collectedAs = registered)
     const edges: Edge[] = []
     const entry = {
       edges,
@@ -167,60 +147,27 @@ export function compileImmutable(
     const reusable =
       childrenReusable &&
       (record.settled === true ||
-        types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) => {
-          const wanted = isNode(expected)
-            ? ((expected as ViewEdge).view ?? records[expected.node].target)
-            : atomValue(expected)
-          // Another view of the object the slot holds is that object (StorageViews).
-          return Object.is(actual, wanted)
-        }))
+        types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) =>
+          Object.is(actual, isNode(expected) ? records[expected.node].target : atomValue(expected)),
+        ))
     locallyReusable[index] = reusable
     // A failed parent is already a closure seed; only omit implications into it.
     // Passing parents can still fail later through a cycle, so retain their incidences.
     if (reusable) for (const child of edges) if (isNode(child)) parents[child.node].push(index)
     return reference
   }
-  const root = (edge(result) as ViewEdge).node
+  const root = (edge(result) as NodeEdge).node
   // Fixed nodes expose their children after structural collection: settled specials their
-  // construction dependencies, unchanged leaves their whole subtree, so storage ownership
-  // and identity implications cover every object the result keeps. A child registered
-  // elsewhere resolves to its node.
-  // Without fixed nodes no storage is fixed, and without seeds nothing is unavailable
-  // (Requirements.close_no_seeds).
-  const fixedStorage = fixed.length === 0 ? undefined : smallSet<object>()
-  let conflict =
-    fixedStorage !== undefined &&
-    registerFixed(
-      { facts, fold, kindOf, parents, records, storages, types },
-      fixed,
-      nodes,
-      special,
-      fixedStorage,
-    )
+  // construction dependencies, unchanged leaves their whole subtree, so identity implications
+  // cover every object the result keeps. A child registered elsewhere resolves to its node.
+  // Without seeds nothing is unavailable (Requirements.close_no_seeds).
+  if (fixed.length !== 0)
+    registerFixed({ facts, fold, kindOf, parents, records, types }, fixed, nodes, special)
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
     if (!locallyReusable[index]) seeds.push(index)
   const unavailable = seeds.length === 0 ? NO_FACTS : closeRequirements(seeds, parents)
-  if (fixedStorage !== undefined && claimsFixed(records, storages, unavailable, fixedStorage))
-    conflict = true
-  return { conflict, records, root, storages, unavailable }
-}
-
-/** Whether a record the result could keep has a fixed storage. */
-function claimsFixed(
-  records: readonly ImmutableRecord[],
-  storages: readonly object[],
-  unavailable: ReadonlySet<number>,
-  fixedStorage: SmallSet<object>,
-): boolean {
-  for (let index = 0; index < records.length; index += 1)
-    if (
-      records[index].payload !== undefined &&
-      !unavailable.has(index) &&
-      smallHas(fixedStorage, storages[index])
-    )
-      return true
-  return false
+  return { records, root, storages, unavailable }
 }
 
 /** The compilation state fixed-node registration reads and fills. */
@@ -229,34 +176,26 @@ interface FixedState {
   readonly fold: boolean
   readonly parents: number[][]
   readonly records: ImmutableRecord[]
-  readonly storages: object[]
   readonly types: ImmutableRegistry
   readonly kindOf: (value: object) => symbol
 }
 
 /**
- * Registers each fixed node's storage and object children, in registration order, and reports
- * whether a storage was claimed twice. A child already registered, or any child without `fold`,
- * becomes an edge; with `fold`, an object first met inside a fixed subtree gets no node: its
- * storage joins the fixed storages and its children become the fixed node's.
+ * Registers each fixed node's object children, in registration order. A child already
+ * registered, or any child without `fold`, becomes an edge; with `fold`, an object first met
+ * inside a fixed subtree gets no node: its children become the fixed node's.
  */
 function registerFixed(
   state: FixedState,
-  fixed: readonly ViewEdge[],
-  nodes: ReadonlyMap<object, ViewEdge>,
-  special: (value: object) => ViewEdge,
-  fixedStorage: SmallSet<object>,
-): boolean {
-  const { facts, fold, kindOf, parents, records, storages, types } = state
-  let conflict = false
-  const claim = (storage: object): void => {
-    if (smallHas(fixedStorage, storage)) conflict = true
-    smallAdd(fixedStorage, storage)
-  }
+  fixed: readonly NodeEdge[],
+  nodes: ReadonlyMap<object, NodeEdge>,
+  special: (value: object) => NodeEdge,
+): void {
+  const { facts, fold, kindOf, parents, records, types } = state
   // The fixed node whose children `child` registers, and its edges.
   let owner = 0
   let edges: Edge[] = []
-  // The storages of folded objects, and the objects whose children are still to be visited.
+  // The folded objects, and those whose children are still to be visited.
   let folded: Set<object> | undefined
   const unvisited: object[] = []
   const child = (value: unknown): boolean => {
@@ -268,7 +207,6 @@ function registerFixed(
       parents[reference.node].push(owner)
     } else if (!(folded ??= new Set()).has(value)) {
       folded.add(value)
-      claim(value)
       unvisited.push(value)
     }
     return false
@@ -277,14 +215,12 @@ function registerFixed(
   for (let index = 0; index < fixed.length; index += 1) {
     owner = fixed[index].node
     const target = records[owner].target
-    claim(storages[owner])
     edges = []
     eachChild(types, kindOf, target, facts?.walked?.get(target), child)
     for (let next = unvisited.pop(); next !== undefined; next = unvisited.pop())
       eachChild(types, kindOf, next, facts?.walked?.get(next), child)
     records[owner] = { edges, payload: undefined, settled: undefined, target }
   }
-  return conflict
 }
 
 /**
@@ -315,12 +251,7 @@ function publishFresh(
   const targets: object[] = []
   // Native ownership found while allocating; a literal holds the field as its own data.
   const owners: NativeOwners = { nativeOwners: undefined }
-  // A kept child is the view its slot held (ViewEdge).
-  const resolve = (value: Edge): unknown => {
-    if (!isNode(value)) return atomValue(value)
-    const view = (value as ViewEdge).view
-    return view !== undefined && retained[value.node] ? view : targets[value.node]
-  }
+  const resolve = (value: Edge): unknown => (isNode(value) ? targets[value.node] : atomValue(value))
   for (let index = 0; index < records.length; index += 1)
     if (retained[index]) targets[index] = records[index].target
   for (let position = 0; position < order.length; position += 1) {
@@ -394,20 +325,11 @@ export function restoreIdentities(
   facts?: FinalizationFacts,
 ): object | undefined {
   // A result kept whole is the only registered node: every other object folds into it and nothing
-  // can be unavailable. Folding tells objects apart by storage, so no two folded storages clash,
-  // and the head keeps it.
-  if (!strict && result.layout === undefined && result.viewOf?.layout === undefined)
-    return result.target
-  // The first, non-strict attempt folds the objects inside fixed subtrees; a conflict rejects it.
+  // can be unavailable, so the head keeps it.
+  if (!strict && result.layout === undefined) return result.target
+  // The first, non-strict attempt folds the objects inside fixed subtrees.
   const problem = compileImmutable(types, result, kindOf, facts, !strict)
-  const { records, root } = problem
-  // A kept root is the view the result holds, which can be another view of its node's storage.
-  const shown = (target: object): object =>
-    target === records[root].target ? result.target : target
-  // Fixed leaves claim their storage unconditionally. When one shares storage with another
-  // node, the kernel could no longer weigh the larger compatible subset, so finalization
-  // redoes the sealed full pass instead.
-  if (!strict && problem.conflict) return undefined
+  const { root } = problem
   // Fixed specials contribute the same score to every plan. Only structural
   // retention varies; their private fresh choices cannot claim settled storage.
   // The stream's first mask is often determined without searching; the search starts only if
@@ -418,7 +340,7 @@ export function restoreIdentities(
   // own target.
   if (head !== undefined && problem.unavailable.size === 0) return result.target
   const targets = publishFirst(types, problem, head)
-  if (targets !== undefined) return shown(targets[root])
+  if (targets !== undefined) return targets[root]
   if (!strict) return undefined
   throw finalizationConstructionImpossible()
 }

@@ -1,4 +1,4 @@
-import type { MODULE_BRAND, RULE_VOCABULARY } from './constants'
+import type { MODULE_BRAND } from './constants'
 import type { PrototypeRead } from './object-property'
 
 export type { PrototypeRead }
@@ -65,8 +65,6 @@ export interface FinalizedReference<L extends Layout = Layout> {
   readonly leaf: boolean | undefined
   /** The mark of the identity compile that last discovered this reference. */
   discoveredBy: object | undefined
-  /** The reference of the object `target` is a view of; unused since views were removed. */
-  readonly viewOf: FinalizedReference | undefined
 }
 
 /**
@@ -359,7 +357,6 @@ export interface TypeModule<
   readonly policy: NativePolicy<L>
   readonly recognition: Recognition
   readonly requires: readonly symbol[]
-  readonly vocabulary: typeof RULE_VOCABULARY
 }
 
 /** Narrows a registered module to eager copy-on-read drafting. */
@@ -384,8 +381,7 @@ export type StructuralType<
 /** Accepts module facets before branding and default dependency metadata are installed. */
 export type ModuleInput<M> = {
   readonly requires?: readonly symbol[]
-  readonly vocabulary?: typeof RULE_VOCABULARY
-} & Omit<M, 'requires' | 'vocabulary' | typeof MODULE_BRAND>
+} & Omit<M, 'requires' | typeof MODULE_BRAND>
 
 /** Erases native payload and draft types only at the registry composition boundary. */
 export interface ModuleShape extends Omit<TypeModule<Layout>, 'draft' | 'policy'> {
@@ -479,8 +475,8 @@ export interface CapturedGraph {
   candidateReads?: Array<Map<object, unknown[]> | undefined>
   /** Source object of each captured node; pinned nodes record their occupant. */
   readonly sources?: readonly object[]
-  /** Storage of every object inside a pinned subtree; no other position may retain one. */
-  readonly protectedStorage?: ReadonlySet<unknown>
+  /** Every object inside a pinned subtree; no other position may retain one. */
+  readonly pinned?: ReadonlySet<object>
   /** The prototype capture read of each node's aligned current object; undefined when unread. */
   readonly prototypes?: ReadonlyArray<object | null | undefined>
   /** The node capture first aligned with each current object, once a second object is aligned;
@@ -555,41 +551,12 @@ export interface BuildingNode {
   readonly pinned: undefined
 }
 
-/**
- * Identity or storage label compared only by `===`.
- *
- * @remarks
- * Production uses the native objects themselves; fresh symbolic choices use their node index.
- * The finite models and bridges relabel these bijectively to naturals, which FactRenaming
- * proves preserves every closure, query and stream.
- */
-export type Label = number | object
-
-// Closed constraints over captured identity labels; the kernel never reads a label's contents.
-/** Requires a particular visible identity label at another selected node. */
-export interface Requirement {
-  readonly identity: Label
-  readonly node: number
-}
-
-/** A choice of an immutable selection problem, as the test fixtures state one. */
-export interface Choice {
-  readonly identity: Label
-  readonly required: readonly Requirement[]
-  readonly retained: boolean
-  readonly storage: Label
-}
-
-/** The choices of each node of an immutable selection problem, as the test fixtures state them. */
-export type Domains = ReadonlyArray<readonly Choice[]>
-
 /** Supplies native equivalence and provenance facts to the finite special-value decision. */
 export interface SpecialFacts {
-  readonly currentBacked: boolean
   readonly dependenciesStable: boolean
   readonly equivalent: boolean
   readonly forced: boolean
-  // Registration relationship; slot provenance is the independent currentBacked fact.
+  /** The registration relationship of the value. */
   readonly origin: 'base' | 'copy' | 'untracked'
 }
 
@@ -626,6 +593,4 @@ export interface ImmutableProblem {
   readonly root: number
   readonly storages: readonly object[]
   readonly unavailable: ReadonlySet<number>
-  /** A fixed node shares storage with another node, so leaves cannot stand in for records. */
-  readonly conflict: boolean
 }

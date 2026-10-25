@@ -64,9 +64,8 @@ it('establishes the composition premises for built-in and extended engines', () 
   }
 })
 
-it('enforces required operations, vocabulary and representation through types', () => {
+it('enforces required operations and representation through types', () => {
   type Input = ModuleInput<CopyType<DateLayout>>
-  expectTypeOf<{ vocabulary: 'custom-rule' } & Omit<Input, 'vocabulary'>>().not.toExtend<Input>()
   expectTypeOf<
     { policy: Omit<Input['policy'], 'observe'> } & Omit<Input, 'policy'>
   >().not.toExtend<Input>()

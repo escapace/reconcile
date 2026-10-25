@@ -3,9 +3,6 @@ export const MODULE_BRAND: unique symbol = /* @__PURE__ */ Symbol.for(
   '@escapace/reconcile/type-module',
 )
 
-/** Version of the finite identity, storage, and implication vocabulary shared by all modules. */
-export const RULE_VOCABULARY = 'identity-storage-requires-v1' as const
-
 /** Shared immutable empty facts; callers must never append to this value. */
 export const EMPTY_FACTS: readonly never[] = /* @__PURE__ */ Object.freeze([])
 

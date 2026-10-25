@@ -1,5 +1,33 @@
-import type { Choice, Domains, ImmutableProblem } from '../../types'
+import type { ImmutableProblem } from '../../types'
 import { isNode } from '../../graph/edge'
+
+/**
+ * Identity or storage label compared only by `===`.
+ *
+ * @remarks
+ * Production uses the native objects themselves; fresh symbolic choices use their node index.
+ * The finite models and bridges relabel these bijectively to naturals, which FactRenaming
+ * proves preserves every closure, query and stream.
+ */
+export type Label = number | object
+
+// Closed constraints over captured identity labels; the kernel never reads a label's contents.
+/** Requires a particular visible identity label at another selected node. */
+export interface Requirement {
+  readonly identity: Label
+  readonly node: number
+}
+
+/** A choice of an immutable selection problem, as this fixture states one. */
+export interface Choice {
+  readonly identity: Label
+  readonly required: readonly Requirement[]
+  readonly retained: boolean
+  readonly storage: Label
+}
+
+/** The choices of each node of an immutable selection problem, as this fixture states them. */
+export type Domains = ReadonlyArray<readonly Choice[]>
 
 export interface CompactImmutableInput {
   readonly dependencies: number[][]
@@ -43,7 +71,6 @@ export function compactFixture(input: CompactImmutableInput): ImmutableProblem {
     }
   })
   return {
-    conflict: false,
     records,
     root: 0,
     storages: input.rows.map((row) => object(row.storage)),

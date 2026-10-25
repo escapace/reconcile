@@ -22,18 +22,10 @@ import { Detached, isDataDescriptor } from './standard-prototypes'
 // The kept child list of an object without object children.
 const NO_CHILDREN: readonly object[] = /* @__PURE__ */ Object.freeze([])
 
-/** Retains observed structural slots for later activation without rereading their source. */
-interface PendingActivation {
-  readonly record: ReuseNode | undefined
-  readonly slots: Array<{ readonly currentBacked: boolean; readonly value: unknown }> | undefined
-}
-
-/** Owns finite activation facts and dormant records for one finalization discovery pass. */
+/** Owns the finite closure facts of one finalization discovery pass. */
 interface Discovery {
   clonesSpecialValues: boolean
   readonly closure: RequirementClosure<object>
-  // Created on the first dormant record.
-  dormant: Map<object, PendingActivation> | undefined
 }
 
 /** Separates probe, discovery and sealed caches so facts cannot outlive their phase. */
@@ -109,9 +101,9 @@ export class Finalization extends Detached {
    * Finalizes one recipe result through isolated observation and immutable selection.
    *
    * @remarks
-   * Discovery captures every structural subtree and its slot provenance. Late copy requirements
-   * activate stored slots without observing the container again. Special copies or accessor
-   * observations require a sealed projection, which incorporates receiver writes and rejects
+   * Discovery captures every structural subtree and its slot provenance; an unchanged subtree
+   * the probe settled is a fixed leaf. Special copies or accessor observations require a
+   * sealed projection, which incorporates receiver writes and rejects
    * newly encountered accessors before immutable selection publishes the graph.
    */
   run(value: object): unknown {
@@ -120,7 +112,6 @@ export class Finalization extends Detached {
     const plan: Discovery = {
       clonesSpecialValues: false,
       closure: new RequirementClosure<object>(),
-      dormant: undefined,
     }
     // The probe settled every negative reachability answer before any discovery work, and no
     // native write happens between the two passes, so discovery reuses those answers instead
@@ -135,18 +126,6 @@ export class Finalization extends Detached {
     }
     this.phase = discovery
     const result = this.materializeContainerSlot(value, false)
-    if (plan.dormant !== undefined)
-      for (const node of plan.closure.facts) {
-        const activation = plan.dormant.get(node)
-        if (activation === undefined) continue
-        plan.dormant.delete(node)
-        const slots = activation.slots!
-        for (let index = 0; index < slots.length; index += 1)
-          activation.record!.children[index] = this.materializeContainerSlot(
-            slots[index].value,
-            slots[index].currentBacked,
-          )
-      }
     // The sealed phase is entered only when something materializes in it: a projection, or the
     // fallback below. Nothing reads the phase in between.
     const sealed = (): unknown => {
@@ -301,7 +280,6 @@ export class Finalization extends Detached {
   /** Collects the native equivalence and provenance facts for a special value's decision. */
   private specialFacts(
     value: object,
-    currentBacked: boolean,
     copyBase: object | undefined,
     copy: object | undefined,
     policy: SpecialPolicy,
@@ -316,7 +294,6 @@ export class Finalization extends Detached {
           ? true
           : policy.equivalent(value, copy)
     return {
-      currentBacked,
       dependenciesStable,
       equivalent,
       forced,
@@ -354,7 +331,6 @@ export class Finalization extends Detached {
       layout: undefined,
       leaf,
       target,
-      viewOf: undefined,
     }
     this.phase.values.set(memoKey, reference)
     return reference
@@ -370,7 +346,7 @@ export class Finalization extends Detached {
     // found first and the memo is read once, by base.
     const draftState = this.session.stateOf(value)
 
-    if (draftState !== undefined) return this.materializeDrafted(value, draftState)
+    if (draftState !== undefined) return this.materializeState(draftState)
 
     const memo = this.phase.values
     const cached = memo.get(value)
@@ -415,21 +391,18 @@ export class Finalization extends Detached {
         active,
       )
     }
-    return this.materializeSpecial(value, isCurrentBackedSlot, copyBase, copy, policy)
+    return this.materializeSpecial(value, copyBase, copy, policy)
   }
 
   /** Applies a special value's proven provenance decision before observing copy dependencies. */
   private materializeSpecial(
     value: object,
-    isCurrentBackedSlot: boolean,
     copyBase: object | undefined,
     copy: object | undefined,
     policy: SpecialPolicy,
   ): unknown {
     const memo = this.phase.values
-    const decision = chooseSpecial(
-      this.specialFacts(value, isCurrentBackedSlot, copyBase, copy, policy),
-    )
+    const decision = chooseSpecial(this.specialFacts(value, copyBase, copy, policy))
     if (decision === 'base') return this.recordLeaf(copyBase!, value)
     if (decision === 'source') {
       if (copyBase !== undefined) this.forceOwnedChildren(value, policy)
@@ -473,8 +446,8 @@ export class Finalization extends Detached {
     active = true,
   ): ReuseNode {
     const base = state?.base ?? currentBackedBase
-    const plan = this.materializationPlan
-    // Dormant records keep their observed slots for later activation; active ones need none.
+    // An inactive object under a plan is a fixed leaf before this point, so every record a plan
+    // sees is active.
     const observer = new DraftObservation(
       this,
       this.phase.values,
@@ -483,19 +456,10 @@ export class Finalization extends Detached {
       base ?? source,
       base,
       active,
-      plan,
-      active || plan === undefined ? undefined : [],
+      this.materializationPlan,
     )
     this.session.types.structural[kind].observeDraft(source, observer)
     return observer.record!
-  }
-
-  /**
-   * The reference of a slot that holds `value`, drafted as `state`: its base or its handle, which
-   * both stand for the object.
-   */
-  private materializeDrafted(_value: object, state: DraftState): object {
-    return this.materializeState(state)
   }
 
   /** Captures one draft state and records whether its slots need semantic resolution. */
@@ -615,7 +579,7 @@ export class Finalization extends Detached {
  * One private object per observed record replaces per-record callbacks; it holds only the
  * record under construction and is never reachable from application code.
  */
-class DraftObservation extends Detached implements PendingActivation {
+class DraftObservation extends Detached {
   declare readonly active: boolean
   declare readonly base: object | undefined
   declare readonly finalization: Finalization
@@ -623,11 +587,10 @@ class DraftObservation extends Detached implements PendingActivation {
   declare readonly plan: Discovery | undefined
   declare readonly properties: DraftState['properties']
   declare record: ReuseNode | undefined
-  declare readonly slots: PendingActivation['slots']
   declare readonly state: DraftState | undefined
   declare readonly target: object
   // The memo of the phase that created this observer; a phase never changes during an
-  // observation, and a dormant activation reads only `record` and `slots`.
+  // observation.
   declare readonly values: WeakMap<object, unknown>
 
   constructor(
@@ -639,7 +602,6 @@ class DraftObservation extends Detached implements PendingActivation {
     base: object | undefined,
     active: boolean,
     plan: Discovery | undefined,
-    slots: PendingActivation['slots'] | undefined,
   ) {
     super()
     this.active = active
@@ -649,7 +611,6 @@ class DraftObservation extends Detached implements PendingActivation {
     this.plan = plan
     this.properties = state?.properties
     this.record = undefined
-    this.slots = slots
     this.state = state
     this.target = target
     this.values = values
@@ -668,15 +629,10 @@ class DraftObservation extends Detached implements PendingActivation {
       observed: undefined,
       settled: !this.active,
       target: this.target,
-      viewOf: undefined,
     }
     this.record = record
     this.values.set(this.memoKey, record)
-    const plan = this.plan
-    if (plan !== undefined) {
-      if (this.slots === undefined) plan.closure.require(this.memoKey)
-      else (plan.dormant ??= new Map()).set(this.memoKey, this)
-    }
+    this.plan?.closure.require(this.memoKey)
   }
 
   edge(value: unknown, key?: PropertyKey, backed?: boolean, attributes?: number): void {
@@ -684,7 +640,6 @@ class DraftObservation extends Detached implements PendingActivation {
     const record = this.record!
     const currentBacked = backed === true
     if (key !== undefined) (record.keys ??= []).push(key)
-    if (this.slots !== undefined) this.slots.push({ currentBacked, value })
     // A primitive slot resolves to itself in every phase.
     if (!isObject(value)) record.children.push(value)
     else {
@@ -697,7 +652,6 @@ class DraftObservation extends Detached implements PendingActivation {
               layout: undefined,
               leaf: undefined,
               target: value,
-              viewOf: undefined,
             },
       )
     }

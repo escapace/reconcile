@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import type { Oracle } from './lean-oracle'
-import { compactFixture } from '../src/__tests__/fixtures/compact-immutable'
+import { compactFixture, type Domains } from '../src/__tests__/fixtures/compact-immutable'
 import type { CompactImmutableInput } from '../src/__tests__/fixtures/compact-immutable'
 import { constructionOrder } from '../src/graph/construction'
 import { immutableSelections } from '../src/graph/immutable-selection'
-import type { Domains } from '../src/types'
 
 interface Observation {
   domains: Domains
