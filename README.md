@@ -276,7 +276,7 @@ Each function keeps or replaces objects as follows:
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
-- **One object at two positions.** When `current` holds one object at two positions and `next` holds different objects there, `reconcile` keeps the object at one of them, chosen deterministically, and gives the others new objects.
+- **One object at two positions.** When `current` holds one object at two positions and `next` holds different objects there, `reconcile` keeps the object at the first of them in the order it reads `next`, and gives the others new objects.
 - **Proxies.** Every function treats a proxy and its target as separate objects.
 
 ## Size limit

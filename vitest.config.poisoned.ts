@@ -2,8 +2,8 @@ import { defineConfig, mergeConfig } from 'vitest/config'
 import type { ViteUserConfig } from 'vitest/config'
 import configNeutral from './vitest.config.neutral.ts'
 
-// The complete suite with accessors on Object.prototype and Array.prototype that fail a test in
-// which library code reads or writes through either; see the setup file.
+// The complete suite with a proxy behind Array.prototype that fails a test in which library code
+// reads or writes through it; see the setup file.
 const config = mergeConfig(
   configNeutral,
   defineConfig({

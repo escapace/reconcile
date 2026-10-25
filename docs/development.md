@@ -73,13 +73,13 @@ can.
 2. _Candidate discovery_ (observes; `publication/candidates.ts`) lists the aligned current
    objects, recognizes the kind of each that capture did not, and checks, before any write,
    which of them must stay the same object (_identity requirements_). This is the _preflight_.
-   Capture's prototype read of each object serves discovery and the preflight
-   (`Types.Ingress`).
+   Among a node's candidates, those that an admitted candidate's fixed slot requires there come
+   first, then the rest, each group in discovery order. Capture's prototype read of each object
+   serves discovery and the preflight (`Types.Ingress`).
 3. _Decision_ (private; `publication/publication-engine.ts` `decide`) keeps, in node order, the
-   first candidate of each node that can be established: not blocked, not kept elsewhere, and with
-   each object its fixed slots hold kept at the node of that slot. Candidates that a candidate's
-   fixed slot requires at the node come before the rest, each part in discovery order. A different
-   decision for the same candidates is a behavior change.
+   first candidate of each node that qualifies: it is not blocked, it is not kept at another
+   node, and each object its fixed slots hold is kept at that slot's node. A different decision
+   for the same candidates is a behavior change.
 4. _Write_ (observes; `publication/publication-engine.ts`, `graph/construction.ts`) allocates the
    new objects in construction order, writes every node, new objects first, and reads each written
    object back to confirm the write (_readback_). A kept object whose write is refused or does not
@@ -240,12 +240,14 @@ sides together.
   names to `lib/neutral/index.js`; a test that imports another source module tests the sources
   under `pnpm test:lib`.
 - **Poisoned project.** `vitest.config.poisoned.ts` runs the suite again with a proxy of
-  `Object.prototype` as the prototype of `Array.prototype`, which forwards everything and fails a
-  test in which library code reads an array key that neither the array nor `Array.prototype`
-  holds, a hole or an index past the end among them, or assigns a named key to an array.
-  `Object.prototype` takes no proxy: an accessor there is visible to `in`, and `reconcile` then
-  replaces objects as the README says, so `standard-prototypes.spec.ts` covers it in a child
-  process on its own cases.
+  `Object.prototype` as the prototype of `Array.prototype`. The proxy forwards every operation,
+  and a test fails when library code reads an array key that neither the array nor
+  `Array.prototype` holds, such as a hole or an index past the end, or assigns a named key to an
+  array. `Object.prototype` gets no proxy: an accessor there is visible to `in`, and `reconcile`
+  then replaces objects (README: _Inherited getters and setters_), so `standard-prototypes.spec.ts`
+  covers `Object.prototype` in a child process with its own cases. The project builds on
+  `vitest.config.neutral.ts`, which drops the shared project list after merging; a project list
+  there nests the poisoned project under the neutral one and runs it twice.
 
 ## Checks and time budget
 
