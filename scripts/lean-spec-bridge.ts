@@ -216,7 +216,7 @@ const encode = (o: object, visit: Visit): GraphNode =>
 
 /** The Lean reference's outcome. For `produce`, an origin is a current index, `-k - 1` for the
  * `k`th object the recipe created, or null for a new object. */
-interface Outcome {
+export interface Outcome {
   /** Lean encodes a triple as nested pairs; `reconcile` only. */
   nodes: GraphNode[]
   ok: boolean
@@ -249,7 +249,7 @@ function canonicalize(outcome: Outcome): Captured {
   return { nodes, origins, root }
 }
 
-interface Report {
+export interface Report {
   detail: string
   kind:
     | 'attributes'
@@ -656,14 +656,14 @@ function compareCopy(
 
 /** One operation the bridge checks: how a seed becomes a case, the oracle request, and the
  * comparison. */
-interface Check<T> {
+export interface Check<T> {
   compare: (seed: number, c: T, expected: Outcome) => Report[]
   generate: (seed: number, options: Options) => T
   request: (c: T) => object
   show: (c: T) => string
 }
 
-const reconcileCheck: Check<Case> = {
+export const reconcileCheck: Check<Case> = {
   compare: compareReconcile,
   generate: genCase,
   request: (c) => ({
@@ -677,7 +677,7 @@ const reconcileCheck: Check<Case> = {
     `cur  ${stable(c.cur)}\nnext ${stable(c.next)}\nsame ${JSON.stringify(c.same)}\nclasses ${JSON.stringify(c.classes)}`,
 }
 
-const produceCheck: Check<Recipe> = {
+export const produceCheck: Check<Recipe> = {
   generate: genProduceCase,
   compare: (seed, r, expected) =>
     compareCopy(seed, r.cur, expected, (current, created) => runRecipe(r, current, created)),
@@ -692,7 +692,7 @@ const produceCheck: Check<Recipe> = {
     `cur ${stable(r.cur)}\nops ${JSON.stringify(r.ops)}\nreturns ${JSON.stringify(r.returns)} returnsCurrent ${r.returnsCurrent}`,
 }
 
-const snapshotCheck: Check<Graph> = {
+export const snapshotCheck: Check<Graph> = {
   compare: (seed, graph, expected) =>
     compareCopy(seed, graph, expected, (current) => snapshot(toJs(graph.root, current))),
   generate: (seed, options) => genCase(seed, options).cur,
@@ -711,6 +711,17 @@ async function ask(oracle: Oracle, requests: readonly object[]): Promise<Outcome
   return outcomes
 }
 
+/** Asks the oracle once for the outcomes of `cases` and compares each, reported under its id. */
+async function compareAll<T>(
+  check: Check<T>,
+  oracle: Oracle,
+  cases: readonly T[],
+  ids: readonly number[],
+): Promise<Report[]> {
+  const outcomes = await ask(oracle, cases.map(check.request))
+  return cases.flatMap((c, index) => check.compare(ids[index], c, outcomes[index]))
+}
+
 /** Generates cases from `seeds`, asks the oracle once for all of them and compares. */
 async function checkSpec<T>(
   check: Check<T>,
@@ -719,9 +730,28 @@ async function checkSpec<T>(
   options: Options,
 ): Promise<{ cases: number; reports: Report[] }> {
   const cases = seeds.map((seed) => check.generate(seed, options))
-  const outcomes = await ask(oracle, cases.map(check.request))
-  const reports = cases.flatMap((c, index) => check.compare(seeds[index], c, outcomes[index]))
-  return { cases: cases.length, reports }
+  return { cases: cases.length, reports: await compareAll(check, oracle, cases, seeds) }
+}
+
+/** Compares the given cases with the reference, `reconcile` through recording proxies when
+ * `writes` is set; a report's seed is its case's index. */
+export async function checkCases<T>(
+  check: Check<T>,
+  oracle: Oracle,
+  cases: readonly T[],
+  writes = false,
+): Promise<Report[]> {
+  writesMode = writes
+  try {
+    return await compareAll(
+      check,
+      oracle,
+      cases,
+      cases.map((_, index) => index),
+    )
+  } finally {
+    writesMode = false
+  }
 }
 
 /** The seeds `1` to `count`. */

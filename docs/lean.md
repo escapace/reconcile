@@ -79,8 +79,9 @@ and runs every bridge against one oracle process. Its budget and receipt are in
 Extra arguments go to Node. `pnpm check:lean --harmony-temporal` adds Node's native Temporal values
 to the `NativeValue` bridge, which otherwise skips them and says so. For the commands to use while
 editing, see [Checks and time budget](development.md#checks-and-time-budget). Only the `Spec`
-bridge has a standalone entry. [Runtime bridges](#runtime-bridges) describes it, the mutation
-audit that checks it and how to query one oracle by hand.
+bridges have standalone entries: the outcome bridge, the phase bridge and the enumeration.
+[Runtime bridges](#runtime-bridges) describes them, the mutation audit that checks them and how to
+query one oracle by hand.
 
 ## Checks and failures
 
@@ -507,6 +508,18 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   node keeps the object it is. The runtime also leaves out a candidate that is an object inside a
   pinned subtree, which the reference keeps in the list but never decides for, since every such
   object is reserved; the bridge's reference list leaves it out too.
+- **Spec enumeration.** Every case within the bounds of `scripts/lean-spec-enumerate.ts` agrees with
+  the reference, as the outcome bridge compares it, plain and through recording proxies, and, for
+  `reconcile`, as the phase bridge compares it. Its universes are objects and arrays of up to two
+  nodes and two positions on each side, with sharing, cycles, current objects in place or elsewhere
+  and either root inside `next`; a root object with every kind of slot at up to two keys,
+  extensible or not; class prototype slots; fixed slots that hold objects, so that a candidate
+  demands an object at another node; `Map` and `Set` entries; array holes and integrity levels;
+  dates; buffers and views, including a view over another buffer of the same length; and every
+  `produce` recipe of up to two operations over the small graphs and over objects and arrays of
+  each attribute kind and integrity level, with `snapshot` over every current graph listed. Its
+  evidence covers those cases only; a defect that needs a larger graph, such as a demand made
+  through a pinned node, is the random bridges' to find.
 - **Pass termination.** `publishGraph` in `src/publication/publication-engine.ts` repeats its
   passes with no limit on their number. They end for the reason `blocked_fresh` gives for the
   reference, because the runtime meets both of its premises: a decision keeps no demoted object
@@ -815,6 +828,7 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | `SerializationCollection` | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `Spec`                    | `lean-spec-bridge.ts`                       | seeded random graphs of up to seven objects, arrays, maps, sets, dates, and buffers with views over them, with cycles and sharing, attributes, accessors, non-extensible, sealed and frozen values and prototypes, with data and accessor slots on the class prototypes for `reconcile`: `reconcile` of a mutated `next` that reuses, reorders and moves current objects, `produce` recipes of draft writes, created objects and returned values, and `snapshot`; the results read back as graphs equal the reference's on identities, values, descriptors, prototypes and extensibility, except as _Spec agreement_ allows. Standalone: `pnpm exec tsx scripts/lean-spec-bridge.ts --op produce --seeds 2000`, with `--dump SEED` for one case, `--features` for what the `reconcile` cases exercise, and the flags of the batches that _Spec agreement_ describes |
 | `Spec` (phases)           | `lean-spec-phases.ts`                       | the `Spec` bridge's `reconcile` cases, plain, hazard-rich and with buffers and views, on a bundle of the sources that records discovery and each decision pass: visit order, pinning alignment, pinned nodes, candidates in decision order with their fixed-slot requirements, and every pass's decision equal the reference's, as _Spec phases_ describes. Standalone: `pnpm exec tsx scripts/lean-spec-phases.ts --seeds 2000`, with `--hazards`, `--binary`, `--nodes N` and `--dump SEED`                                                                                                                                                                                                                                                                                                                                                                       |
+| `Spec` (enumeration)      | `lean-spec-enumerate.ts`                    | every case of the universes _Spec enumeration_ lists, about 52,000 `reconcile` cases, 46,000 `produce` recipes and 800 `snapshot` graphs, compared as the outcome and phase bridges compare them. Standalone: `pnpm exec tsx scripts/lean-spec-enumerate.ts`, with `--only NAME` for one universe and `--count` for the size of each                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 Read the table with these limits:
 

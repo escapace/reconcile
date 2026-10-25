@@ -74,10 +74,10 @@ const HOOKS: ReadonlyArray<[anchor: string, hook: string]> = [
   ],
 ]
 
-type Library = typeof import('../src/index')
+export type Library = typeof import('../src/index')
 
 /** Bundles the sources with the recorder calls after each hook's statement and loads the bundle. */
-async function instrumented(): Promise<Library> {
+export async function instrumented(): Promise<Library> {
   const esbuild = loadEsbuild()
   const result = await esbuild.build({
     bundle: true,
@@ -243,7 +243,7 @@ function comparePhases(
   return cx.differences
 }
 
-interface Report {
+export interface PhaseReport {
   detail: string
   seed: number
 }
@@ -268,7 +268,7 @@ const unpublished = (want: Phases, current: unknown, next: unknown): boolean =>
   Object.is(current, next) || want.rounds.length === 0
 
 /** Runs one case on the instrumented runtime and compares its phases with the reference's. */
-function checkCase(library: Library, seed: number, c: Case, want: Phases): Report[] {
+function checkCase(library: Library, seed: number, c: Case, want: Phases): PhaseReport[] {
   const classes = materializeClasses(c.classes, new Map())
   const current = materialize(c.cur, new Map(), undefined, undefined, classes)
   const next = materializeNext(c, current, classes)
@@ -294,15 +294,26 @@ async function checkPhases(
   oracle: Oracle,
   seeds: readonly number[],
   options: Options,
-): Promise<{ cases: number; passes: number; reports: Report[] }> {
+): Promise<{ cases: number; passes: number; reports: PhaseReport[] }> {
   const cases = seeds.map((seed) => genCase(seed, options))
+  return { cases: cases.length, ...(await checkPhaseCases(library, oracle, cases, seeds)) }
+}
+
+/** Asks the oracle once for the phases of `cases` and compares each, reported under its id, by
+ * default its index. */
+export async function checkPhaseCases(
+  library: Library,
+  oracle: Oracle,
+  cases: readonly Case[],
+  ids: readonly number[] = cases.map((_, index) => index),
+): Promise<{ passes: number; reports: PhaseReport[] }> {
   const input = JSON.stringify(cases.map(request))
-  const output = (await oracle('Spec', [], { input, maxBuffer: 64 * 1024 * 1024 })).trim()
+  const output = (await oracle('Spec', [], { input, maxBuffer: 256 * 1024 * 1024 })).trim()
   const phases = JSON.parse(output) as Phases[]
   assert.equal(phases.length, cases.length)
-  const reports = cases.flatMap((c, index) => checkCase(library, seeds[index], c, phases[index]))
+  const reports = cases.flatMap((c, index) => checkCase(library, ids[index], c, phases[index]))
   const passes = phases.reduce((sum, p) => sum + p.rounds.length, 0)
-  return { cases: cases.length, passes, reports }
+  return { passes, reports }
 }
 
 const seedsFrom = (from: number, count: number): number[] =>

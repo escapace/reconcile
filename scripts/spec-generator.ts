@@ -667,7 +667,7 @@ function reachChild(
   pending.push(v.ref)
 }
 
-function draftPaths(graph: Graph): Map<number, Step[]> {
+export function draftPaths(graph: Graph): Map<number, Step[]> {
   const paths = new Map<number, Step[]>()
   if (!isReference(graph.root)) return paths
   paths.set(graph.root.ref, [])
