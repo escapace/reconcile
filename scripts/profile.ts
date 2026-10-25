@@ -175,9 +175,9 @@ function diagnosticOverlay(original: string): string {
     `
 import { createDiagnostic } from ${JSON.stringify(path.join(ROOT, 'scripts/profile-scenarios.ts'))}
 import * as api from ${JSON.stringify(path.join(config.root, 'src/index.ts'))}
-import { dateType } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}
-import { arrayBufferType } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}
-const copyOperations = { date: dateType.policy.immutable.operations, buffer: arrayBufferType.policy.immutable.operations }
+import { dateImmutable } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}
+import { arrayBufferImmutable } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}
+const copyOperations = { date: dateImmutable.immutable.operations, buffer: arrayBufferImmutable.immutable.operations }
 ` +
     original.slice(importsEnd)
   const registryStart = harness.indexOf('const profileScenarios:')
