@@ -1,5 +1,6 @@
 import { decodeFail } from './common'
 import { builtinValue } from '../standard-prototypes'
+import { inChain } from '../object-property'
 import {
   bufferByteLength,
   bufferOfView,
@@ -76,6 +77,13 @@ export function encodeBytes(buffer: ArrayBuffer): string {
     )
   return btoa(binary)
 }
+// Whether a native decoder threw an error of `constructor`'s class, decided by the prototype chain
+// so that an overridden `Symbol.hasInstance` does not decide it.
+const nativeError = (error: unknown, constructor: { readonly prototype: unknown }): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  inChain(Object.getPrototypeOf(error) as object | null, constructor)
+
 function decodeAtob(text: string, length: number): string {
   let binary
   // Always decode, including predicted zero: exact length rules out whitespace.
@@ -84,8 +92,8 @@ function decodeAtob(text: string, length: number): string {
   } catch (error) {
     if (
       typeof DOMException === 'function' &&
-      error instanceof DOMException &&
-      error.name === 'InvalidCharacterError'
+      nativeError(error, DOMException) &&
+      (error as DOMException).name === 'InvalidCharacterError'
     )
       decodeFail('base64')
     throw error
@@ -101,7 +109,7 @@ function decodeNativeBytes(text: string, length: number): ArrayBuffer {
       { alphabet: 'base64', lastChunkHandling: 'loose' },
     ])
   } catch (error) {
-    if (error instanceof SyntaxError) decodeFail('base64')
+    if (nativeError(error, SyntaxError)) decodeFail('base64')
     throw error
   }
   return dedicatedBuffer(bytes, length)

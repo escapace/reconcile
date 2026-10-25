@@ -465,20 +465,6 @@ export function closeIterator(iterator: object): void {
 }
 
 /**
- * Closes an iterator that a loop leaves by a throw, as `for...of` closes it: the throw is the
- * outcome, whatever closing does.
- * @internal
- */
-export function closeIteratorAfterThrow(iterator: object): void {
-  try {
-    const method = returnMethod(iterator)
-    if (method !== undefined) Reflect.apply(method as () => unknown, iterator, [])
-  } catch {
-    // The throw that left the loop is the outcome.
-  }
-}
-
-/**
  * The global `Temporal` namespace, read as an own property of `globalThis`, whose prototype chain
  * reaches `Object.prototype`.
  *

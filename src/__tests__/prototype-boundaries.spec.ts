@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deserialize, isReconcileError, produce, reconcile, snapshot } from '../index'
+import { deserialize, isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
 
 /** The traps `reconcile` calls on a proxied `current` holding `key`, with the key renamed. */
 function traps(key: string): string[] {
@@ -201,5 +201,43 @@ describe('a loop that application code or a rejection leaves', () => {
       Reflect.deleteProperty(Object.prototype, 'return')
     }
     expect(reads).toBe(0)
+  })
+})
+
+describe('serialize left by a throw inside a Map or Set', () => {
+  it('closes no built-in iterator and calls no return a prototype holds', () => {
+    // The built-in iterators have no `return`; one planted on their shared prototype is not called.
+    const iteratorPrototype = Object.getPrototypeOf(
+      Object.getPrototypeOf(new Map().entries()),
+    ) as object
+    let calls = 0
+    Object.defineProperty(iteratorPrototype, 'return', {
+      configurable: true,
+      value() {
+        calls += 1
+        return { done: true, value: undefined }
+      },
+    })
+    const failure = new Error('thrown by a getter')
+    const value = new Map([
+      [
+        1,
+        {
+          get a(): never {
+            throw failure
+          },
+        },
+      ],
+    ])
+    let caught: unknown
+    try {
+      serialize(value)
+    } catch (error) {
+      caught = error
+    } finally {
+      Reflect.deleteProperty(iteratorPrototype, 'return')
+    }
+    expect(caught).toBe(failure)
+    expect(calls).toBe(0)
   })
 })

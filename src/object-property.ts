@@ -86,27 +86,38 @@ export const hasOwn = (value: object, key: PropertyKey): boolean => Object.hasOw
  * The own string keys of `value` that are not enumerable, or `undefined` when every one is.
  *
  * @remarks
- * One key listing decides the common case without reading a descriptor. The caller passes the
- * names it listed, and reads them again only through this listing.
+ * One key listing decides the common case without reading a descriptor. Otherwise each listed
+ * name's descriptor is read once: a name a proxy lists without a descriptor is absent, as
+ * `Object.keys` treats it, and is removed from `names`, which the caller listed and reads again
+ * only through this listing.
  * @internal
  */
-export function hiddenNames(value: object, names: readonly string[]): Set<PropertyKey> | undefined {
+export function hiddenNames(value: object, names: string[]): Set<PropertyKey> | undefined {
   if (Object.keys(value).length === names.length) return undefined
-  const hidden = new Set<PropertyKey>()
-  for (let index = 0; index < names.length; index += 1)
-    if (!isEnumerable(value, names[index])) hidden.add(names[index])
+  let hidden: Set<PropertyKey> | undefined
+  let kept = 0
+  for (let index = 0; index < names.length; index += 1) {
+    const key = names[index]
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor === undefined) continue
+    if (descriptor.enumerable !== true) (hidden ??= new Set()).add(key)
+    names[kept++] = key
+  }
+  names.length = kept
   return hidden
 }
 
 /**
- * Checks whether an own property is enumerable without trusting an object's own helpers.
- *
+ * Whether `value` has an own symbol key: one it lists with a descriptor, as `Object.keys` counts
+ * only those.
  * @internal
  */
-export const isEnumerable = /* @__PURE__ */ (() =>
-  uncurried<[key: PropertyKey], boolean>(
-    builtinValue(Object.prototype, 'propertyIsEnumerable'),
-  ))() as (value: object, key: PropertyKey) => boolean
+export function hasSymbolKey(value: object): boolean {
+  const symbols = Object.getOwnPropertySymbols(value)
+  for (let index = 0; index < symbols.length; index += 1)
+    if (Object.getOwnPropertyDescriptor(value, symbols[index]) !== undefined) return true
+  return false
+}
 
 // Read when the module loads, so a later change to `Object.prototype` is never called.
 const isPrototypeOf = /* @__PURE__ */ (() =>

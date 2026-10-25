@@ -260,3 +260,22 @@ describe.skipIf(temporal === undefined)('Temporal native slot equality', () => {
     assert.strictEqual(reconcile(value, temporal!.Duration.from({ seconds: 1 })), value)
   })
 })
+
+describe.skipIf(temporal === undefined)('Temporal classes and Symbol.hasInstance', () => {
+  it('recognizes and compares a value by its prototype chain, not by Symbol.hasInstance', () => {
+    const PlainDate = temporal!.PlainDate
+    const date = PlainDate.from('2025-01-02')
+    Object.defineProperty(PlainDate, Symbol.hasInstance, { configurable: true, value: () => false })
+    try {
+      const copy = snapshot({ date }) as { date: TemporalValue }
+      assert.notStrictEqual(copy.date, date)
+      assert.strictEqual(copy.date.toString(), '2025-01-02')
+      const current = { date }
+      assert.strictEqual(reconcile(current, { date: PlainDate.from('2025-01-02') }).date, date)
+      const result = produce({ date }, (draft) => ({ copied: draft.date }))
+      assert.strictEqual(result.copied.toString(), '2025-01-02')
+    } finally {
+      Reflect.deleteProperty(PlainDate, Symbol.hasInstance)
+    }
+  })
+})

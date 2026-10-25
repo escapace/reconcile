@@ -12,7 +12,7 @@ import type {
   DraftStrategy,
   Recognition,
 } from '../types'
-import { hasOwn, hiddenNames, isEnumerable, isObject, ownKeys } from '../object-property'
+import { hasOwn, hiddenNames, isObject, ownKeys } from '../object-property'
 import { setOwnProperty, standardPrototype } from '../set-own-property'
 import type { Edge } from '../types'
 import { defineType } from './registry'
@@ -63,14 +63,18 @@ const objectCapture = {
       slots: undefined,
     }
     begin(layout)
-    // Symbols are listed after string getters run, so keys those getters add are captured.
+    // Symbols are listed after string getters run, so keys those getters add are captured. A
+    // symbol is read after its descriptor, as `hiddenNames` reads the names', so one a proxy lists
+    // without a descriptor is absent.
     for (let index = 0; index < names.length; index += 1)
       edge(Reflect.get(value, names[index]) as unknown, names[index])
     const symbols = Object.getOwnPropertySymbols(value)
     for (let index = 0; index < symbols.length; index += 1) {
       const key = symbols[index]
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor === undefined) continue
       edge(Reflect.get(value, key) as unknown, key)
-      if (!isEnumerable(value, key))
+      if (descriptor.enumerable !== true)
         ((layout as { hidden?: Set<PropertyKey> }).hidden ??= new Set()).add(key)
     }
   },
@@ -275,9 +279,10 @@ const attributeBits = (descriptor: PropertyDescriptor): number =>
   (descriptor.enumerable === true ? 2 : 0) |
   (descriptor.writable === true ? 4 : 0)
 
-// A key listed without a descriptor, as a proxy may list one, counts as enumerable.
-const accessorBits = (descriptor: PropertyDescriptor | undefined): number =>
-  OBSERVED_ACCESSOR | 5 | (descriptor?.enumerable === false ? 0 : 2)
+// Packs an own accessor's enumerable flag; an observed accessor is otherwise a configurable,
+// writable data slot of the copy.
+const accessorBits = (descriptor: PropertyDescriptor): number =>
+  OBSERVED_ACCESSOR | 5 | (descriptor.enumerable === false ? 0 : 2)
 
 // Observes one own key of an object or its draft: its value, its attributes and whether `base`
 // backs it, which reads of `base` itself (`fromBase`) already answer.
@@ -292,7 +297,9 @@ function observeSlot(
     properties === undefined
       ? Object.getOwnPropertyDescriptor(source, key)
       : properties.ownDescriptor(key)
-  const data = descriptor !== undefined && isDataDescriptor(descriptor)
+  // A key a proxy lists without a descriptor is absent, as `Object.keys` treats it.
+  if (descriptor === undefined) return
+  const data = isDataDescriptor(descriptor)
   const value: unknown = data
     ? properties === undefined
       ? Reflect.get(source, key)

@@ -120,7 +120,6 @@ export function node(item: object, context: EncodeContext): number {
 // Every frame starts with one field layout so the traversal stays monomorphic.
 export function frame(id: number, tag: number, detail: number | undefined, value: unknown): Frame {
   return {
-    active: false,
     child: undefined,
     detail,
     end: 0,

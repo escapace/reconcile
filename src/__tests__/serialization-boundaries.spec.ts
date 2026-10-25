@@ -60,11 +60,51 @@ describe('base64 payloads', () => {
       )
   })
 
+  it('classifies a decoder error by its prototype chain, not by Symbol.hasInstance', () => {
+    const constructors = [DOMException, SyntaxError]
+    for (const constructor of constructors)
+      Object.defineProperty(constructor, Symbol.hasInstance, {
+        configurable: true,
+        value: () => false,
+      })
+    try {
+      assert.deepEqual(
+        failure(() => decodeText(text.replace('AQID', 'AQI*'))),
+        {
+          reason: 'base64',
+          type: 'DeserializeInputInvalid',
+        },
+      )
+    } finally {
+      for (const constructor of constructors)
+        Reflect.deleteProperty(constructor, Symbol.hasInstance)
+    }
+  })
+
   describe('through the native Uint8Array base64 methods', () => {
     afterEach(() => {
       Reflect.deleteProperty(Uint8Array, 'fromBase64')
       Reflect.deleteProperty(Uint8Array.prototype, 'toBase64')
       vi.resetModules()
+    })
+
+    it('classifies the native SyntaxError by its prototype chain', async () => {
+      const api = await loadWithNativeBase64(0)
+      const wire = JSON.stringify(api.serialize(new Uint8Array([1, 2, 3]).buffer))
+      Object.defineProperty(SyntaxError, Symbol.hasInstance, {
+        configurable: true,
+        value: () => false,
+      })
+      let caught: unknown
+      try {
+        api.deserialize(JSON.parse(wire.replace('AQID', 'AQI*')), { maxBytes: Infinity })
+      } catch (error) {
+        caught = error
+      } finally {
+        Reflect.deleteProperty(SyntaxError, Symbol.hasInstance)
+      }
+      assert.ok(api.isReconcileError(caught))
+      assert.deepEqual(caught.cause, { reason: 'base64', type: 'DeserializeInputInvalid' })
     })
 
     for (const offset of [0, 3]) {

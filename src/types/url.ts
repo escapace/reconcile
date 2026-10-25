@@ -1,4 +1,5 @@
 import { adoptPrototype } from './shared/prototype'
+import { inChain, isObject } from '../object-property'
 import { freeze, noValue, same } from './shared/empty'
 import { defineType } from './registry'
 import { finalizationConstructionImpossible } from '../error'
@@ -49,7 +50,11 @@ const urlCapture = {
     )
     const carrier =
       carrierFromResponse(response) ??
-      (mode !== 'snapshot' && response instanceof URLSearchParams ? new URL(href) : undefined)
+      (mode !== 'snapshot' &&
+      isObject(response) &&
+      inChain(Object.getPrototypeOf(response) as object | null, URLSearchParams)
+        ? new URL(href)
+        : undefined)
     if (carrier === undefined) throw snapshotURLSearchParametersMemoIncompatible()
     adoptPrototype(adoptURLCarrier(carrier, href), prototype, URL.prototype)
     begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })

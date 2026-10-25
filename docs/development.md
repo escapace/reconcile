@@ -114,9 +114,10 @@ unchanged objects.
 operations. The [Lean guide](lean.md) describes the format.
 
 - **Encoding** observes. An explicit frame stack (`frames.ts`) reads each record's own string
-  keys and values depth first with the source as receiver and iterates collections; on a throw
-  it closes open iterators and rethrows. Shapes and layouts are interned per call in
-  path-compressed tries (`radix.ts`); output is new JSON data, which the caller writes as text.
+  keys and values depth first with the source as receiver and iterates collections with the
+  built-in iterators, which have no `return`, so a throw propagates with nothing to close. Shapes
+  and layouts are interned per call in path-compressed tries (`radix.ts`); output is new JSON data,
+  which the caller writes as text.
 - **Decoding** takes ownership of the JSON data it is given: payload rows become decoded arrays
   and slots are overwritten, and a literal root is returned as given. It observes nothing in data
   from `JSON.parse`. It checks the control table, allocates nodes, links dependent natives (views,

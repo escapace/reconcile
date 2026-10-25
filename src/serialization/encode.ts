@@ -1,5 +1,5 @@
 import type { EncodeContext } from './contracts'
-import { advances, closeFrame } from './frames'
+import { advances } from './frames'
 import { frame, layout, node, slot } from './emit'
 import { radixTrie } from './radix'
 import { filledArray } from '../standard-prototypes'
@@ -27,25 +27,16 @@ export function encodeGraph(value: unknown): unknown[] {
   const { descriptors, payloads, stack } = context
   const literal = enter(value, context)
   if (literal !== undefined) return literal
-  try {
-    // Each advance writes children in place and yields only after a child pushed its own
-    // frame, so that subtree completes before the parent's next observation.
-    while (stack.length !== 0) {
-      const current = stack[stack.length - 1]
-      if (advances[current.tag](current, context)) {
-        payloads[current.id] = current.row
-        descriptors[current.id] = layout(current.tag, current.detail, current.runs, context)
-        stack.pop()
-      }
+  // Each advance writes children in place and yields only after a child pushed its own frame, so
+  // that subtree completes before the parent's next observation. A throw propagates as is: the
+  // built-in Map and Set iterators the frames step have no `return`, so there is nothing to close.
+  while (stack.length !== 0) {
+    const current = stack[stack.length - 1]
+    if (advances[current.tag](current, context)) {
+      payloads[current.id] = current.row
+      descriptors[current.id] = layout(current.tag, current.detail, current.runs, context)
+      stack.pop()
     }
-  } catch (error) {
-    // Native IteratorClose on an abrupt throw preserves the original completion.
-    for (let index = stack.length - 1; index >= 0; index--) {
-      try {
-        closeFrame(stack[index])
-      } catch {}
-    }
-    throw error
   }
   if (context.owners !== undefined)
     for (const entry of context.owners) {

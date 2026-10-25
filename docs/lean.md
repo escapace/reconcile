@@ -629,11 +629,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Recognition.** The runtime performs the same live namespace reads, constructor reads and
   predicate calls in the modelled order, and caches no result across calls; within a call, capture's
   result serves discovery (Ingress). The built-in registries read the prototype once and decide each
-  `instanceof` probe from it; a repeated read answers as that one did, and `instanceof` against the
-  built-in, `URL` and Temporal constructors uses the default `Symbol.hasInstance`, so no probe
-  accepts an object whose prototype is `Object.prototype` or `null`. `builtin-recognition.spec.ts` covers the probes.
+  probe by the prototype chain from it, never by a constructor's `Symbol.hasInstance`; a repeated
+  read answers as that one did, so no probe accepts an object whose prototype is `Object.prototype`
+  or `null`. `builtin-recognition.spec.ts` covers the probes.
 - **Atoms.** The listed constructors are the live globals, which callers do not modify during a
-  call; `instanceof` against them uses the default `Symbol.hasInstance`. A caller that already read
+  call; membership is decided by the prototype chain, as `instanceof` decides it with the default
+  `Symbol.hasInstance`. A caller that already read
   an object's prototype, such as `snapshot` and `reconcile` capture, passes it on instead of reading
   it again. The Atoms bridge checks the classification, the read count and each function's
   treatment of atoms.
@@ -703,8 +704,8 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   which lets the exact-count check reject skipped whitespace; `serialization-boundaries.spec.ts`
   covers this on the `atob` path and with native stand-ins.
 - **Encoder observations.** The traversal models constrain only the order of entering and
-  referencing objects, not application reads such as `length`, getters, iterator `next` and
-  `return`, or IteratorClose. The runtime classifies each child slot (`slot` in `emit.ts`) only
+  referencing objects, not application reads such as `length` and getters; collections are
+  stepped by the built-in iterators, which have no `return` to call. The runtime classifies each child slot (`slot` in `emit.ts`) only
   where the stack machine would, recognizes each object once (`node`), reads a Map entry, URL
   parameters or a view's buffer before its child, and keeps trie nodes fresh per call.
   `serialization.spec.ts` and `serialization-collections.spec.ts` cover representative traces.

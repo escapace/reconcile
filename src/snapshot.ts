@@ -3,7 +3,7 @@ import { noValue } from './types/shared/empty'
 import { isObject } from './object-property'
 import { recognize, recognizeStructure } from './adapters/recognition'
 import { ATOM_KIND } from './constants'
-import { atomPrototype, hiddenNames, isEnumerable, prototypeOf } from './object-property'
+import { atomPrototype, hiddenNames, prototypeOf } from './object-property'
 import type {
   Edge,
   Layout,
@@ -307,15 +307,18 @@ class SnapshotWalk extends Detached {
           hidden?.has(key) !== true,
         )
       }
+    // A symbol is read after its descriptor; one a proxy lists without a descriptor is absent.
     const symbols = Object.getOwnPropertySymbols(source)
     for (let index = 0; index < symbols.length; index++) {
       const key = symbols[index]
+      const descriptor = Object.getOwnPropertyDescriptor(source, key)
+      if (descriptor === undefined) continue
       setOwnProperty(
         target,
         key,
         this.slot(Reflect.get(source, key)),
         standard,
-        isEnumerable(source, key),
+        descriptor.enumerable === true,
       )
     }
   }

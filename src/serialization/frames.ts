@@ -1,26 +1,20 @@
 import type { EncodeContext, Frame } from './contracts'
 // Inline.lean inline_step_refines / inline_matches_recursive: containers write children in
 // place and yield after a child pushed its frame. Positional.lean sparse_roundtrip covers the
-// incremental presence runs. Dynamic observations and IteratorClose are runtime obligations
-// (docs/lean.md, serialization) checked by differential tests.
+// incremental presence runs. Dynamic observations are runtime obligations (docs/lean.md,
+// serialization) checked by differential tests.
 import { encodeFail as fail, int, maxArrayLength } from './common'
 import { readView, readURL } from './native'
 import { leafCaptures } from './leaf'
 import { lengths } from './layout'
 import { node, slot } from './emit'
 import { intern } from './radix'
-import { openBuiltin, closeIteratorAfterThrow, hasElement } from '../standard-prototypes'
+import { openBuiltin, hasElement } from '../standard-prototypes'
+import { hasSymbolKey, hiddenNames } from '../object-property'
 
 // True when the last slot pushed a frame that must complete first.
 const pushed = (frame: Frame, context: EncodeContext) =>
   context.stack[context.stack.length - 1] !== frame
-export function closeFrame(frame: Frame) {
-  if (frame.active) {
-    frame.active = false
-    // Cleanup only handles an existing throw; return result cannot replace it.
-    closeIteratorAfterThrow(frame.iterator)
-  }
-}
 // Appends one present element. Positional.lean presenceGo: a gap records the boundaries of the
 // whole hole run at once.
 function append(frame: Frame, context: EncodeContext, index: number, item: unknown) {
@@ -58,7 +52,6 @@ function builtinIterator(frame: Frame, collection: object, map: boolean) {
   const opened = openBuiltin(collection, map, map ? 'entries' : 'values')
   frame.iterator = opened.iterator
   frame.step = opened.step
-  frame.active = false
 }
 function leaf(frame: Frame, context: EncodeContext) {
   frame.row = leafCaptures[frame.tag]!(frame.value, context, frame.detail)
@@ -91,11 +84,9 @@ function map(frame: Frame, context: EncodeContext) {
   return true
 }
 function next(frame: Frame) {
-  frame.active = false // step/done/value failures do not close this iterator.
   const result = frame.step(frame.iterator)
   if (result.done === true) return false
   frame.child = result.value
-  frame.active = true
   return true
 }
 function record(frame: Frame, context: EncodeContext) {
@@ -103,7 +94,7 @@ function record(frame: Frame, context: EncodeContext) {
     const names = Object.getOwnPropertyNames(frame.value)
     // deserialize restores enumerable properties only, so a hidden property is rejected, not
     // revealed.
-    if (Object.keys(frame.value).length !== names.length) fail('non-enumerable property')
+    if (hiddenNames(frame.value, names) !== undefined) fail('non-enumerable property')
     frame.keys = names
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
@@ -116,7 +107,7 @@ function record(frame: Frame, context: EncodeContext) {
     slot(frame, Reflect.get(frame.value, keys[frame.index++]), context)
     if (pushed(frame, context)) return false
   }
-  if (Object.getOwnPropertySymbols(frame.value).length !== 0) fail('symbol key')
+  if (hasSymbolKey(frame.value)) fail('symbol key')
   return true
 }
 function set(frame: Frame, context: EncodeContext) {

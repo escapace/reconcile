@@ -65,7 +65,6 @@ export interface EncodeContext {
   top: number
 }
 export interface Frame {
-  active: boolean
   child: unknown
   end: number
   holes: number[] | undefined

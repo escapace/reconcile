@@ -103,14 +103,18 @@ it('decides Temporal classes by their prototypes, reading each live class in ord
     'ZonedDateTime',
   ]
   const failure = new Error('native recognition')
-  // The pre-unrolling loop is an independent oracle for the generic registry, which still asks
-  // each constructor's `Symbol.hasInstance`.
+  // The pre-unrolling loop is an independent oracle for the generic registry; both decide by the
+  // prototype chain, never by a constructor's `Symbol.hasInstance`.
   const reference = {
     recognize(value: object): symbol {
       const namespace = Reflect.get(globalThis, 'Temporal') as Record<string, unknown>
       for (const name of names) {
         const constructor = namespace[name]
-        if (typeof constructor === 'function' && value instanceof constructor) return TEMPORAL_KIND
+        if (
+          typeof constructor === 'function' &&
+          Object.prototype.isPrototypeOf.call(constructor.prototype, value)
+        )
+          return TEMPORAL_KIND
       }
       return OBJECT_KIND
     },

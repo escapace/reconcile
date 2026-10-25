@@ -80,13 +80,16 @@ function temporalMatch(holds: (constructor: TemporalConstructor) => boolean) {
   return undefined
 }
 
-/** The Temporal class of `value`, probing each live class in order with `instanceof`. */
-const temporalClass = (value: object) =>
-  temporalMatch((constructor) => value instanceof constructor)
+/**
+ * The Temporal class whose prototype is on the chain from `first`, a value's prototype already
+ * read, probing each live class in order. The chain decides, as for every other kind: an
+ * overridden `Symbol.hasInstance` does not.
+ */
+const temporalOf = (first: object | null) =>
+  temporalMatch((constructor) => inChain(first, constructor))
 
 /** The Temporal probe of built-in recognition from the prototype `first` already read. */
-export const temporalInChain = (first: object | null): boolean =>
-  temporalMatch((constructor) => inChain(first, constructor)) !== undefined
+export const temporalInChain = (first: object | null): boolean => temporalOf(first) !== undefined
 
 function equivalentValue(
   source: object,
@@ -119,7 +122,7 @@ export interface TemporalLayout {
 
 function matches(layout: TemporalLayout, current: object): boolean {
   return (
-    current instanceof layout.temporalConstructor &&
+    inChain(Object.getPrototypeOf(current) as object | null, layout.temporalConstructor) &&
     equivalentValue(layout.temporalValue, current, layout)
   )
 }
@@ -136,8 +139,8 @@ function copyTemporal(
 const temporalCapture = {
   construction: noValue,
   observe(value, begin) {
-    const type = temporalClass(value)!
     const prototype = Object.getPrototypeOf(value) as object | null
+    const type = temporalOf(prototype)!
     begin({
       kind: TEMPORAL_KIND,
       ...type,
@@ -184,16 +187,15 @@ export const temporalImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value) =>
-        copyTemporal(
-          value,
-          temporalClass(value)!.temporalConstructor,
-          Object.getPrototypeOf(value) as object | null,
-        ),
+      copy(value) {
+        const prototype = Object.getPrototypeOf(value) as object | null
+        return copyTemporal(value, temporalOf(prototype)!.temporalConstructor, prototype)
+      },
       equivalent(base, candidate) {
-        const type = temporalClass(base)!
+        const type = temporalOf(Object.getPrototypeOf(base) as object | null)!
         return (
-          candidate instanceof type.temporalConstructor && equivalentValue(base, candidate, type)
+          inChain(Object.getPrototypeOf(candidate) as object | null, type.temporalConstructor) &&
+          equivalentValue(base, candidate, type)
         )
       },
     } satisfies SpecialPolicy),
@@ -211,7 +213,7 @@ const temporalPolicy = /* @__PURE__ */ (() => ({
 export const temporalDraft = independentDraft
 const temporalRecognition = /* @__PURE__ */ freeze({
   tag: 'predicate',
-  test: (value: object) => temporalClass(value) !== undefined,
+  test: (value: object) => temporalOf(Object.getPrototypeOf(value) as object | null) !== undefined,
 }) satisfies Recognition
 
 export const temporalType = /* @__PURE__ */ defineType<TemporalLayout>({
