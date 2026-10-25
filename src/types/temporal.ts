@@ -172,6 +172,7 @@ export const temporalPublication = /* @__PURE__ */ (() =>
     ...temporalConstruction,
     aligned: noValue,
     seal: same,
+    someChild: noChildren,
     // A Temporal value is kept only when equal.
     matches: (node, current) => matches(node.layout, current),
     requirements: (node, current) => (matches(node.layout, current) ? EMPTY_FACTS : undefined),

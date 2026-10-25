@@ -200,7 +200,8 @@ interface Run {
  * whose write does not take effect is blocked: the next pass decides again without it, and the
  * passes end when none is blocked. Pinned nodes are kept as they are: no preflight, publication or
  * readback inside. Returns false when the root cannot be kept: before any write when the decision
- * finds so, else after the pass that found it blocked (Spec.Reconcile.run).
+ * finds so, else after the pass that found it blocked (Spec.Reconcile.run); also when a new object
+ * cannot be allocated, refuses a write or does not hold its contents on readback.
  */
 export function publishGraph(
   types: PublicationRegistry,
@@ -278,8 +279,7 @@ function allocate(
     retained[index] = target !== undefined
     if (target !== undefined) targets[index] = target
   }
-  // Construction dependencies are sealed facts: only a dependent kind, a view or a URL's
-  // parameters, has any.
+  // Construction dependencies are sealed facts: only a dependent kind, a view or a URL, has any.
   const order = constructionOrder(
     records.map((node) => {
       const bindings = types.policies[node.layout.kind].bindings
@@ -318,10 +318,11 @@ function ownersOf(
   for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
     if (node.pinned !== undefined || node.layout.kind !== kind) continue
+    // A kept URL keeps its own parameters and a new one owns new parameters, so each child it
+    // names is the target of the child's node.
     const edges = policy.requirements(node, targets[index])!
     for (let edge = 0; edge < edges.length; edge += 1)
-      if (edges[edge].identity === targets[edges[edge].node])
-        owners.set(edges[edge].identity, targets[index])
+      owners.set(edges[edge].identity, targets[index])
   }
   return owners
 }
@@ -354,8 +355,6 @@ function publishAll(run: Run): object[] | typeof REJECTED | typeof WRITE_FREE | 
   run.unchanged = true
   if (publishPhase(run, true) === REJECTED) return REJECTED
   const blocked = publishPhase(run, false)
-  run.note.facts = undefined
-  run.note.reads = undefined
   return run.unchanged ? WRITE_FREE : blocked
 }
 
@@ -406,7 +405,8 @@ function prepareKept(run: Run, index: number, target: object): boolean {
   if (passes?.writtenAt[index] !== target) {
     note.reads = alignedReads(run.graph, index, target)
     if (passes === undefined) {
-      note.facts = candidateOf(run.domains[index], target)?.facts
+      // In the first pass every kept object is a candidate of its node.
+      note.facts = candidateOf(run.domains[index], target)!.facts
       return true
     }
   } else note.reads = wantedReads(node, passes.previousTargets)

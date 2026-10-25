@@ -136,6 +136,22 @@ describe('identical-occupant pruning', () => {
     assert.equal(current.counter, 1)
   })
 
+  it('walks a subtree that stays in place without reading the values it would copy', () => {
+    // A proxy of a Date has no time of its own, so reading it throws; staying in place, it is
+    // not read.
+    const date = new Proxy(new Date(5), {})
+    const url = new URL('https://example.test/?q=1')
+    const view = new Uint8Array([1, 2])
+    const kept = { date, url, view }
+    const current = { counter: 0, kept }
+    assert.equal(reconcile(current, { ...current, counter: 1 }), current)
+    assert.equal(current.kept, kept)
+    assert.equal(kept.date, date)
+    assert.equal(kept.url, url)
+    assert.equal(kept.view, view)
+    assert.equal(current.counter, 1)
+  })
+
   it('pins array elements and object slots inside arrays', () => {
     const items = [{ id: 1 }, { id: 2 }, { id: 3 }]
     const [first, second, third] = items

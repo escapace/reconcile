@@ -2,7 +2,7 @@ import { isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
 import { isObject } from '../object-property'
 import { ownValue } from '../types/shared/properties'
-import { EMPTY_FACTS, UNREAD } from '../constants'
+import { EMPTY_FACTS } from '../constants'
 import type {
   Candidate,
   Candidates,
@@ -12,6 +12,7 @@ import type {
   PublicationNote,
   PublicationRegistry,
   SlotRead,
+  PrototypeRead,
 } from '../types'
 import { denseArray } from '../standard-prototypes'
 import { tableOf } from './capture'
@@ -42,7 +43,9 @@ export function candidates(
   >,
   note?: PublicationNote,
 ): Candidates {
-  const aligned = collect(types, root, records, alignment)
+  // The prototype discovery's recognition read for each object it aligned, by object.
+  const prototypes = new Map<object, object | null>()
+  const aligned = collect(types, root, records, prototypes, alignment)
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
   // a captured node whose own object lies inside one is already published: it is pinned to
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
@@ -51,17 +54,15 @@ export function candidates(
   const walked = alignment?.pinned
   const pinned = walked !== undefined && walked.size !== 0 ? walked : undefined
   if (pinned !== undefined) {
-    const sources = alignment?.sources
+    // Capture records every node's source, and its walk never marks a root.
+    const sources = alignment!.sources!
     records.forEach((node, index) => {
-      if (index === 0 || node.pinned !== undefined) return
-      const source = sources?.[index]
-      if (source !== undefined && source !== root && pinned.has(source))
-        (node as { pinned?: object }).pinned = source
+      if (pinned.has(sources[index])) (node as { pinned?: object }).pinned = sources[index]
     })
     // No new URL can own `searchParams` that stay in place, so their URL is kept as it is.
     for (let index = 1; index < records.length; index += 1)
       if (records[index].pinned === undefined && ownsPinned(types, records, index))
-        (records[index] as { pinned?: object }).pinned = sources![index]
+        (records[index] as { pinned?: object }).pinned = sources[index]
   }
   // A candidate that passes the preflight, or undefined when it cannot be kept.
   const admitted = (
@@ -70,9 +71,9 @@ export function candidates(
     candidate: object,
     policy: PublicationRegistry['policies'][symbol],
   ): Candidate | undefined => {
-    const prototype = ingressOf(types, node, index, candidate, alignment)
+    const prototype = ingressOf(types, node, index, candidate, prototypes, alignment)
     if (prototype === MISMATCH) return undefined
-    if (index !== 0 && pinned?.has(candidate) === true) return undefined
+    if (pinned?.has(candidate) === true) return undefined
     // What capture or discovery read at the candidate's slots serves its fixed slots.
     const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)
@@ -220,9 +221,9 @@ function promoted(domain: readonly Candidate[], wanted: ReadonlySet<object>): Ca
 export const alignedReads = (
   alignment: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'occupants'> | undefined,
   index: number,
-  candidate: unknown,
+  candidate: object,
 ): readonly unknown[] | undefined =>
-  !isObject(candidate) || alignment === undefined
+  alignment === undefined
     ? undefined
     : candidate === alignment.currents?.[index]
       ? alignment.occupants?.[index]
@@ -231,16 +232,20 @@ export const alignedReads = (
 // A candidate of another kind than its node's.
 const MISMATCH: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)
 
-// Capture recognized the object it aligned with a node as the node's kind and kept the prototype it
-// read, or undefined; any other candidate's kind is checked here (Types.Ingress).
+// The prototype a recognition of a candidate as its node's kind read, undefined when none read
+// one, or MISMATCH: capture read it for the object it aligned with the node, and discovery for any
+// other candidate, which it aligns only as the node's kind; only the root, which capture did not
+// align when its kind differs, is checked here (Types.Ingress).
 function ingressOf(
   types: PublicationRegistry,
   node: CapturedNode,
   index: number,
   candidate: object,
+  prototypes: ReadonlyMap<object, object | null>,
   alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
 ): object | null | undefined {
   if (candidate === alignment?.currents?.[index]) return alignment.prototypes?.[index]
+  if (index !== 0) return prototypes.get(candidate)
   return matchesKind(types, candidate, node.layout.kind) ? undefined : MISMATCH
 }
 
@@ -323,15 +328,22 @@ function collect(
   types: PublicationRegistry,
   old: unknown,
   records: readonly CapturedNode[],
+  prototypes: Map<object, object | null>,
   alignment?: Alignment,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
-  // capture's recognition, which also recorded each aligned object of another kind.
+  // capture's recognition, which also recorded each aligned object of another kind. Each
+  // recognition here reads the prototype once and keeps it for the candidate's preflight.
   let kinds = alignment?.kinds
+  const recognition: PrototypeRead = { known: false, prototype: null }
   const kindOf = (object: object): symbol => {
     let kind = (kinds ??= new Map<object, symbol>()).get(object)
-    if (kind === undefined) kinds.set(object, (kind = recognize(types, object)))
+    if (kind === undefined) {
+      recognition.known = false
+      kinds.set(object, (kind = recognize(types, object, recognition)))
+      if (recognition.known) prototypes.set(object, recognition.prototype)
+    }
     return kind
   }
   const currents = alignment?.currents
@@ -348,8 +360,7 @@ function collect(
       const table = (alignment!.candidateReads ??= denseArray(records.length))
       ;(table[reading] ??= new Map()).set(readingObject, read)
     }
-    // Slots are read in edge order; one not read holds `UNREAD`, and so does any past the last.
-    while (read.length < position) read.push(UNREAD)
+    // The aligned walk reads every slot, in edge order.
     read.push(current)
   }
   // The node discovery first walked each candidate at, when capture aligned none with it, and

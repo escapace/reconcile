@@ -28,7 +28,7 @@ export const OBJECT_KIND = Symbol.for('@escapace/reconcile/object')
 export const ATOM_KIND = Symbol.for('@escapace/reconcile/atom')
 
 /**
- * Marks an edge whose occupant aligned capture did not read; no value of `current` is this
- * private object.
+ * Marks a slot whose value the call has not read, or whose read no longer holds, as for a key
+ * moved before it is published; no value of `current` is this private object.
  */
 export const UNREAD: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)

@@ -69,6 +69,7 @@ export const urlSearchParametersPublication = /* @__PURE__ */ (() =>
     aligned: noValue,
     requirements: emptyEdges,
     seal: same,
+    someChild: noChildren,
     matches: (node, current) =>
       nativeParametersText(current as URLSearchParams) === node.layout.text,
     // A publication that wrote nothing found the text equal, as readback, which compares the same

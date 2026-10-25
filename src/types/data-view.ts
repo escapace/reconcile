@@ -19,7 +19,5 @@ export const dataViewPublication = /* @__PURE__ */ (() =>
     ...dataViewConstruction,
     .../* @__PURE__ */ viewPublication<typeof DATA_VIEW_KIND>(),
   }))()
-export const dataViewImmutable = /* @__PURE__ */ (() => ({
-  .../* @__PURE__ */ viewImmutable<typeof DATA_VIEW_KIND>(copyDataView),
-}))()
+export const dataViewImmutable = /* @__PURE__ */ viewImmutable<typeof DATA_VIEW_KIND>(copyDataView)
 export const dataViewDraft = viewDraft

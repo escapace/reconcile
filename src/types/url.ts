@@ -21,6 +21,7 @@ import type {
   CapturedNode,
   DraftStrategy,
   SnapshotPolicy,
+  NativePolicy,
 } from '../types'
 
 export { URL_KIND } from './shared/url-carrier'
@@ -91,12 +92,17 @@ const urlConstruction = {
   },
 } satisfies ConstructionPolicy<URLLayout>
 
+// Its only child is its own `searchParams`.
+const urlChildren: NativePolicy['someChild'] = (source, _read, test) =>
+  test(nativeURLSearchParameters(source as URL))
+
 export const urlPublication = /* @__PURE__ */ (() =>
   freeze({
     ...urlCapture,
     ...urlConstruction,
     requirements: urlBindings,
     seal: same,
+    someChild: urlChildren,
     aligned: (node, current, visit) =>
       visit(
         current === undefined ? undefined : nativeURLSearchParameters(current as URL),
@@ -139,7 +145,7 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
     } satisfies SpecialPolicy),
     tag: 'copy',
   }),
-  someChild: (source, _read, test) => test(nativeURLSearchParameters(source as URL)),
+  someChild: urlChildren,
 }))() satisfies ImmutablePolicy<URLLayout>
 
 export const urlDraft = /* @__PURE__ */ freeze({

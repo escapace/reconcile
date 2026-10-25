@@ -1,7 +1,7 @@
 import { atomValue, isNode } from '../graph/edge'
 import { isObject, prototypeOf } from '../object-property'
 import { ownValue } from '../types/shared/properties'
-import { ATOM_KIND, UNREAD } from '../constants'
+import { ATOM_KIND } from '../constants'
 import { atomPrototype } from '../object-property'
 import { OBJECT_KIND } from '../types/object'
 import { recognize, recognizeStructure } from '../adapters/recognition'
@@ -33,7 +33,7 @@ function atom(references: Map<object, Edge>, source: object): Edge {
  * @remarks
  * Memoize the private reference before observing children. Construction edges may precede begin;
  * their child must finish before the parent's constructor consumes its response. Synchronous
- * delivery preserves iterator cleanup and accessor effects at the native module boundary.
+ * delivery preserves accessor effects at the native module boundary.
  * `snapshot` has its own traversal with the same order. The node under observation is a field,
  * restored after each child, whose observation nests inside one of its parent's edges, so one
  * pair of callbacks serves every node.
@@ -131,7 +131,11 @@ class AlignedCapture extends Detached {
     const structural = kind ?? recognizeStructure(this.types, source, read)
     if (structural !== OBJECT_KIND) return this.observe(source, structural)
     const prototype = prototypeOf(source, read)
-    return prototype !== Object.prototype && prototype !== null && atomPrototype(prototype)
+    // reconcile already found that the next root is no atom.
+    return source !== this.nextRoot &&
+      prototype !== Object.prototype &&
+      prototype !== null &&
+      atomPrototype(prototype)
       ? atom(this.references, source)
       : this.observe(source, structural, prototype)
   }
@@ -220,7 +224,11 @@ class AlignedCapture extends Detached {
     const aligned = this.currents[index]
     if (aligned === undefined) return
     const read = this.share(this.prototypes[index])
-    const kind = recognize(this.types, aligned, read)
+    // reconcile already found that the current root is no atom.
+    const kind =
+      index === 0
+        ? recognizeStructure(this.types, aligned, read)
+        : recognize(this.types, aligned, read)
     if (kind === layout.kind) this.prototypes[index] = read.known ? read.prototype : undefined
     else {
       this.currents[index] = undefined
@@ -249,13 +257,11 @@ class AlignedCapture extends Detached {
     if (key !== undefined) node.keys.push(key)
     const child = this.adopt(reference.node, value, key, construction, knownKind)
     node.edges.push(child)
-    if (construction === true) {
-      if (isNode(child)) {
-        const layout = this.nodes[child.node]?.layout
-        if (layout !== undefined) return this.types.policies[layout.kind].construction(layout)
-      } else return atomValue(child)
-    }
-    return undefined
+    if (construction !== true) return undefined
+    // A construction child, a buffer or a URL's parameters, is a leaf whose node began already.
+    if (!isNode(child)) return atomValue(child)
+    const layout = this.nodes[child.node].layout!
+    return this.types.policies[layout.kind].construction(layout)
   }
 
   // A new child is classified as `visit` classifies it.
@@ -304,13 +310,10 @@ class AlignedCapture extends Detached {
     return this.observe(child, childKind!, prototype)
   }
 
-  // Records the occupant read for the parent's next edge, at that edge's position; an earlier edge
-  // whose occupant was not read, a construction edge, holds `UNREAD`.
+  // Records the occupant read for the parent's next edge. A node's own-property edges all read
+  // one, in edge order, and no kind mixes them with construction edges, so the list is complete.
   private recordOccupant(parent: number, occupant: unknown): void {
-    const slots = (this.occupants[parent] ??= [])
-    const position = (this.nodes[parent] as BuildingNode).edges.length
-    while (slots.length < position) slots.push(UNREAD)
-    slots.push(occupant)
+    ;(this.occupants[parent] ??= []).push(occupant)
   }
 
   // A keepable kind needs no construction input and has independent bindings. Its subtree is
@@ -329,10 +332,12 @@ class AlignedCapture extends Detached {
     const stack: object[] = []
     let source: object | undefined = candidate
     let prototype: object | null | undefined
-    const edge = (child: unknown, _key?: PropertyKey, _kind?: symbol, construction?: boolean) => {
+    const edge = (child: unknown) => {
       if (isObject(child)) stack.push(child)
-      // A view's constructor receives its actual buffer; the sample it builds is dropped.
-      return construction === true ? child : undefined
+    }
+    const push = (child: unknown): boolean => {
+      edge(child)
+      return false
     }
     // Atoms are leaves: the walk passes them by, classifying as `visit` does.
     const pop = (): object | undefined => {
@@ -359,7 +364,10 @@ class AlignedCapture extends Detached {
         }
         closure.add(source)
         visited.push(source)
-        policy.observe(source, noValue, edge, 'publication', prototype)
+        // A kind that `someChild` lists needs no observation, which would copy its value.
+        if (policy.someChild === undefined)
+          policy.observe(source, noValue, edge, 'publication', prototype)
+        else policy.someChild(source, ownValue, push)
       }
       source = pop()
     }
@@ -367,7 +375,7 @@ class AlignedCapture extends Detached {
   }
 }
 
-/** The values read at `keys`, by key, from the positional `reads`; an unread position is left out. */
+/** The values read at `keys`, by key, from the positional `reads`. */
 export function tableOf(
   keys: readonly PropertyKey[],
   reads: readonly unknown[] | undefined,
@@ -375,7 +383,7 @@ export function tableOf(
   const table = new Map<PropertyKey, unknown>()
   if (reads === undefined) return table
   for (let index = 0; index < keys.length && index < reads.length; index += 1)
-    if (reads[index] !== UNREAD) table.set(keys[index], reads[index])
+    table.set(keys[index], reads[index])
   return table
 }
 

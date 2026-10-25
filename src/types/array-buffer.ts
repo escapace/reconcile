@@ -39,6 +39,7 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     ...arrayBufferConstruction,
     aligned: noValue,
     seal: same,
+    someChild: noChildren,
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
     // A kept buffer takes next's bytes in place, so it must already have next's length and, as a
     // copy would, its resizability and maximum.

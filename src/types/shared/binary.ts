@@ -19,6 +19,7 @@ import type {
   ConstructionPolicy,
   ImmutablePolicy,
   PublicationPolicy,
+  NativePolicy,
 } from '../../types'
 
 export function viewCapture<K extends symbol>(
@@ -60,12 +61,16 @@ export function viewConstruction<K extends symbol>(
   }
 }
 
+// A view's only child is its buffer.
+const viewChildren: NativePolicy['someChild'] = (source, _read, test) => test(bufferOfView(source))
+
 export function viewPublication<K extends symbol>(): Omit<
   PublicationPolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>,
   keyof CapturePolicy | keyof ConstructionPolicy
 > {
   return {
     seal: same,
+    someChild: viewChildren,
     aligned: (node, current, visit) =>
       visit(current === undefined ? undefined : bufferOfView(current), node.edges[0]),
     matches(node, current, visit) {
@@ -116,7 +121,7 @@ export function viewImmutable<K extends symbol>(
       ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>['immutable'],
       { tag: 'copy' }
     >),
-    someChild: (source, _read, test) => test(bufferOfView(source)),
+    someChild: viewChildren,
   }
 }
 

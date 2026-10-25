@@ -20,7 +20,6 @@ export const typedArrayPublication = /* @__PURE__ */ (() =>
     ...typedArrayConstruction,
     .../* @__PURE__ */ viewPublication<typeof TYPED_ARRAY_KIND>(),
   }))()
-export const typedArrayImmutable = /* @__PURE__ */ (() => ({
-  .../* @__PURE__ */ viewImmutable<typeof TYPED_ARRAY_KIND>(copyTypedArray),
-}))()
+export const typedArrayImmutable =
+  /* @__PURE__ */ viewImmutable<typeof TYPED_ARRAY_KIND>(copyTypedArray)
 export const typedArrayDraft = viewDraft

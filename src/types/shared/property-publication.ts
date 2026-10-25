@@ -111,10 +111,12 @@ export class PropertyOrder extends Detached {
 /** Supplies type-owned shape, ordering and slot rules to shared property publication. */
 export interface PropertySurface<L extends { readonly kind: symbol }> {
   readonly ordered: boolean
+  /** Whether `current` can hold the node's slots at all; `prototype` reads its prototype once. */
   readonly compatible: (
     node: CapturedNode<L>,
     current: object,
     properties: () => ReadonlyMap<PropertyKey, Edge>,
+    prototype: () => object | null,
   ) => boolean
   /** The requested keys in order, equal to the slot index's keys; defaults to listing them. */
   readonly desired: ((node: CapturedNode<L>) => readonly PropertyKey[]) | undefined
@@ -152,7 +154,13 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   // The descriptor read for each current key, kept for the first publication when it asks.
   const descriptors =
     note === undefined ? undefined : denseArray<PropertyDescriptor | undefined>(previous.length)
-  if (!surface.compatible(node, current, properties)) return false
+  // The prototype of `current`, read at most once; capture's read serves when it made one.
+  let prototype = note?.prototype
+  const prototypeOf = (): object | null =>
+    prototype === undefined
+      ? (prototype = Object.getPrototypeOf(current) as object | null)
+      : prototype
+  if (!surface.compatible(node, current, properties, prototypeOf)) return false
   const cursor = fixedSlotsHold(
     node,
     current,
@@ -166,12 +174,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   )
   if (
     cursor === false ||
-    reachesInheritedAccessor(
-      current,
-      desiredKeys,
-      note?.prototype,
-      ownedPrefix(previous, desiredKeys),
-    )
+    reachesInheritedAccessor(current, desiredKeys, prototypeOf, ownedPrefix(previous, desiredKeys))
   )
     return false
   if (
@@ -311,7 +314,7 @@ function heldValue(
 ): unknown {
   const reads = context?.reads
   const edge = reads === undefined ? -1 : indexIn(node.keys, key)
-  if (edge !== -1 && edge < reads!.length && reads![edge] !== UNREAD) return reads![edge]
+  if (edge !== -1) return reads![edge]
   return Reflect.get(current, key)
 }
 
@@ -356,13 +359,11 @@ const ownedPrefix = (
 function reachesInheritedAccessor(
   current: object,
   desiredKeys: readonly PropertyKey[],
-  prototype: object | null | undefined,
+  prototype: () => object | null,
   owned: number,
 ): boolean {
   if (owned >= desiredKeys.length) return false
-  // Capture's read of the prototype serves here when it read one.
-  const first =
-    prototype === undefined ? (Object.getPrototypeOf(current) as object | null) : prototype
+  const first = prototype()
   if (first === null) return false
   for (let index = owned < 0 ? 0 : owned; index < desiredKeys.length; index += 1) {
     const key = desiredKeys[index]
@@ -488,12 +489,14 @@ export function publishRead(
   descriptor: PropertyDescriptor | undefined,
   read: unknown,
 ): number {
-  if (
-    Object.is(read, value) &&
-    (value !== undefined || descriptor !== undefined || hasOwn(target, key))
-  )
-    return UNCHANGED
-  if (descriptor === undefined) return writeProperty(target, key, value, hasOwn(target, key))
+  if (descriptor === undefined) {
+    if (Object.is(read, value) && value !== undefined) return UNCHANGED
+    // An undefined value is unchanged only where the key is present; presence is read once.
+    const present = hasOwn(target, key)
+    if (Object.is(read, value) && present) return UNCHANGED
+    return writeProperty(target, key, value, present)
+  }
+  if (Object.is(read, value)) return UNCHANGED
   return wrote(
     isDataDescriptor(descriptor)
       ? assignData(target, key, value, descriptor)

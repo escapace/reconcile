@@ -39,8 +39,8 @@ export const ARRAY_KIND = Symbol.for('@escapace/reconcile/array')
 const arraySurface: PropertySurface<ArrayLayout> = {
   desired: undefined,
   ordered: false,
-  compatible(node, current, properties) {
-    const prototype = Object.getPrototypeOf(current) as object | null
+  compatible(node, _current, properties, prototypeOf) {
+    const prototype = prototypeOf()
     const slots = properties()
     for (let index = 0; index < node.layout.length; index += 1)
       // A hole the array's own prototype fills cannot be published; one only a standard prototype

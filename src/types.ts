@@ -266,9 +266,8 @@ export interface PublicationNote {
   prototype: object | null | undefined
   unchanged: boolean
   /** What the call already read of the object being preflighted or published, by edge position:
-   * before the first write, the occupants that aligned capture or discovery read, with `UNREAD`
-   * or no entry at a position neither read; in a later pass, what the previous pass read back of
-   * the object at this node; undefined otherwise. */
+   * before the first write, the occupants that aligned capture or discovery read; in a later
+   * pass, what the previous pass read back of the object at this node; undefined otherwise. */
   reads: readonly unknown[] | undefined
 }
 
@@ -285,8 +284,11 @@ export type ImmutablePolicy<L extends Layout = Layout> = Pick<
   NativePolicy<L>,
   'immutable' | 'someChild'
 >
+/** A kind whose capture copies its value also lists its children (`someChild`), so the walk of a
+ * subtree that stays in place, which needs only the children, copies nothing. */
 export type PublicationPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   ConstructionPolicy<L> &
+  Partial<Pick<NativePolicy<L>, 'someChild'>> &
   Pick<NativePolicy<L>, 'aligned' | 'matches' | 'publish' | 'requirements' | 'seal'>
 export type SnapshotPolicy<L extends Layout = Layout> = CapturePolicy<L> &
   Pick<NativePolicy<L>, 'snapshot'>
@@ -393,9 +395,8 @@ export interface CapturedNode<L extends { readonly kind: symbol } = Layout> {
  * Represents a finite graph closed under all node references, including its root.
  *
  * @remarks
- * Aligned capture records, per captured node, the current object it was first aligned with. At
- * the position of each own-property edge whose next value is an object, it also records the
- * occupant it read; an earlier position holds `UNREAD`, and the list can end before the last edge.
+ * Aligned capture records, per captured node, the current object it was first aligned with, and
+ * at each own-property edge the occupant it read, by edge position.
  * Candidate discovery and the first publication of the aligned object reuse those reads.
  */
 export interface CapturedGraph {
@@ -407,8 +408,7 @@ export interface CapturedGraph {
   readonly kinds?: Map<object, symbol> | undefined
   readonly occupants?: ReadonlyArray<readonly unknown[] | undefined>
   /** The values discovery read at the slots of each node's other aligned objects, by object and
-   * edge position, `UNREAD` where it read none and absent past the last it read; discovery
-   * creates the table on its first read. */
+   * edge position; discovery creates the table on its first read. */
   candidateReads?: Array<Map<object, unknown[]> | undefined>
   /** Source object of each captured node; pinned nodes record their occupant. */
   readonly sources?: readonly object[]

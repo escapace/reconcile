@@ -45,6 +45,7 @@ export const datePublication = /* @__PURE__ */ (() =>
     aligned: noValue,
     requirements: emptyEdges,
     seal: same,
+    someChild: noChildren,
     matches: (node, current) => Object.is(timeOf(current), node.layout.time),
     // Only a changed time is written; a publication that wrote nothing found it equal, as readback,
     // which compares the same time, would.

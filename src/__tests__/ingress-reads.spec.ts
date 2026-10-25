@@ -39,6 +39,16 @@ it('reads each object prototype once before reconcile writes', () => {
   assert.deepEqual(beforeWrite(log), { current: 1, currentU: 1, next: 1, nextU: 1 })
 })
 
+it('reads the prototype of a current object discovery meets at a second position once', () => {
+  const log: string[] = []
+  // `next` holds one object at both keys; `current` holds `alias` at the second, where discovery
+  // recognizes it as a candidate of that object's node.
+  const alias = counted('alias', { n: 0 }, log)
+  const shared = { n: 1 }
+  reconcile({ a: { n: 0 }, b: alias }, { a: shared, b: shared })
+  assert.deepEqual(beforeWrite(log), { alias: 1 })
+})
+
 it('reads a draft base prototype once when the recipe begins', () => {
   const log: string[] = []
   produce(counted('base', { a: 0 }, log), (draft) => {
