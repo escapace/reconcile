@@ -1,5 +1,4 @@
 import { atomValue, isNode } from './graph/edge'
-import { recognize } from './adapters/recognition'
 import { finalizationConstructionImpossible } from './error'
 import { immutableHead, immutableSelections } from './graph/immutable-selection'
 import { closeRequirements } from './graph/requirements'
@@ -18,12 +17,9 @@ import type {
 
 const NO_FACTS: ReadonlySet<number> = /* @__PURE__ */ new Set()
 
-/** Facts finalization read in this call, which compilation takes instead of reading again. */
-export interface FinalizationFacts {
-  /** The complete object-child list of an object a walk visited to the end
-   * (Produce.SettledChildren). */
-  readonly walked: ReadonlyMap<object, readonly object[]> | undefined
-}
+/** The complete object-child list of each object a finalization walk visited to the end, which
+ * compilation takes instead of reading again (Produce.SettledChildren). */
+export type Walked = ReadonlyMap<object, readonly object[]> | undefined
 
 /**
  * Compiles complete immutable ownership and child-binding facts before selection.
@@ -35,9 +31,9 @@ export interface FinalizationFacts {
 export function compileImmutable(
   types: ImmutableRegistry,
   result: FinalizedReference,
-  kindOf: (value: object) => symbol = (value) => recognize(types, value),
-  facts?: FinalizationFacts,
-  fold = false,
+  kindOf: (value: object) => symbol,
+  walked: Walked,
+  fold: boolean,
 ): ImmutableProblem {
   const records: ImmutableRecord[] = []
   // A per-compile mark on the private finalized references replaces two identity tables; a
@@ -47,7 +43,6 @@ export function compileImmutable(
   const fixed: NodeEdge[] = []
   const locallyReusable: boolean[] = []
   const parents: number[][] = []
-  const storages: object[] = []
   // The edge of each node by its object; a fixed subtree that reaches an object registered
   // elsewhere resolves to its node.
   const nodes = new Map<object, NodeEdge>()
@@ -55,7 +50,6 @@ export function compileImmutable(
     const index = records.length
     const reference = { node: index }
     nodes.set(target, reference)
-    storages[index] = target
     records.push(entry)
     locallyReusable[index] = true
     parents[index] = []
@@ -64,12 +58,7 @@ export function compileImmutable(
   const special = (target: object): NodeEdge => {
     const registered = nodes.get(target)
     if (registered !== undefined) return registered
-    const reference = register(target, {
-      edges: [],
-      payload: undefined,
-      settled: undefined,
-      target,
-    })
+    const reference = register(target, { edges: [], payload: undefined, target })
     fixed.push(reference)
     return reference
   }
@@ -105,12 +94,7 @@ export function compileImmutable(
     const registered = nodes.get(target)
     if (registered !== undefined) return (record.collectedAs = registered)
     const edges: Edge[] = []
-    const entry = {
-      edges,
-      payload: undefined as CapturedNode | undefined,
-      settled: undefined as boolean | undefined,
-      target,
-    }
+    const entry = { edges, payload: undefined as CapturedNode | undefined, target }
     const reference = register(target, entry)
     record.collectedAs = reference
     const index = reference.node
@@ -129,11 +113,8 @@ export function compileImmutable(
       observed: record.observed,
       pinned: undefined,
     }
-    // Only target is read through a pending cycle. Complete the same private entry
-    // at the original replacement boundary, preserving both native property reads.
+    // A cycle back to this record reads only its target, so the entry gets its payload last.
     entry.payload = payload
-    entry.settled = record.settled
-    entry.target = record.target
     // Preserve child-first native checks and skip a parent already ruled out by
     // a discovered child failure. Cyclic implications close over finite facts below. A
     // settled record was read from its own unchanged, accessor-free base in this call, so
@@ -141,7 +122,7 @@ export function compileImmutable(
     const reusable =
       childrenReusable &&
       (record.settled === true ||
-        types.structural[record.layout.kind].reuse(payload, record.target, (actual, expected) =>
+        types.structural[record.layout.kind].reuse(payload, target, (actual, expected) =>
           Object.is(actual, isNode(expected) ? records[expected.node].target : atomValue(expected)),
         ))
     locallyReusable[index] = reusable
@@ -156,21 +137,21 @@ export function compileImmutable(
   // cover every object the result keeps. A child registered elsewhere resolves to its node.
   // Without seeds nothing is unavailable (Requirements.close_no_seeds).
   if (fixed.length !== 0)
-    registerFixed({ facts, fold, kindOf, parents, records, types }, fixed, nodes, special)
+    registerFixed({ fold, kindOf, parents, records, types, walked }, fixed, nodes, special)
   const seeds: number[] = []
   for (let index = 0; index < records.length; index += 1)
     if (!locallyReusable[index]) seeds.push(index)
   const unavailable = seeds.length === 0 ? NO_FACTS : closeRequirements(seeds, parents)
-  return { records, root, storages, unavailable }
+  return { records, root, unavailable }
 }
 
 /** The compilation state fixed-node registration reads and fills. */
 interface FixedState {
-  readonly facts: FinalizationFacts | undefined
   readonly fold: boolean
   readonly parents: number[][]
   readonly records: ImmutableRecord[]
   readonly types: ImmutableRegistry
+  readonly walked: Walked
   readonly kindOf: (value: object) => symbol
 }
 
@@ -185,7 +166,7 @@ function registerFixed(
   nodes: ReadonlyMap<object, NodeEdge>,
   special: (value: object) => NodeEdge,
 ): void {
-  const { facts, fold, kindOf, parents, records, types } = state
+  const { fold, kindOf, parents, records, types, walked } = state
   // The fixed node whose children `child` registers, and its edges.
   let owner = 0
   let edges: Edge[] = []
@@ -210,10 +191,10 @@ function registerFixed(
     owner = fixed[index].node
     const target = records[owner].target
     edges = []
-    eachChild(types, kindOf, target, facts?.walked?.get(target), child)
+    eachChild(types, kindOf, target, walked?.get(target), child)
     for (let next = unvisited.pop(); next !== undefined; next = unvisited.pop())
-      eachChild(types, kindOf, next, facts?.walked?.get(next), child)
-    records[owner] = { edges, payload: undefined, settled: undefined, target }
+      eachChild(types, kindOf, next, walked?.get(next), child)
+    records[owner] = { edges, payload: undefined, target }
   }
 }
 
@@ -285,24 +266,22 @@ export function restoreIdentities(
   types: ImmutableRegistry,
   result: FinalizedReference,
   strict: boolean,
-  kindOf?: (value: object) => symbol,
-  facts?: FinalizationFacts,
+  kindOf: (value: object) => symbol,
+  walked: Walked,
 ): object | undefined {
   // A result kept whole is the only registered node: every other object folds into it and nothing
   // can be unavailable, so the head keeps it.
   if (!strict && result.layout === undefined) return result.target
   // The first, non-strict attempt folds the objects inside fixed subtrees.
-  const problem = compileImmutable(types, result, kindOf, facts, !strict)
+  const problem = compileImmutable(types, result, kindOf, walked, !strict)
   const { root } = problem
-  // Fixed specials contribute the same score to every plan. Only structural
-  // retention varies; their private fresh choices cannot claim settled storage.
+  // With nothing unavailable the head keeps every record, which allocates nothing and writes
+  // nothing, so the root keeps its own target.
+  if (problem.unavailable.size === 0) return result.target
+  // Fixed specials contribute the same score to every plan; only structural retention varies.
   // The stream's first mask is often determined without searching; the search starts only if
   // that mask cannot be built, and its first mask, already tried, is skipped.
   const head = immutableHead(problem)
-  // A head keeping every record allocates nothing: its construction order is empty
-  // (Construction.schedule_all_retained) and publication writes nothing, so the root keeps its
-  // own target.
-  if (head !== undefined && problem.unavailable.size === 0) return result.target
   const targets = publishFirst(types, problem, head)
   if (targets !== undefined) return targets[root]
   if (!strict) return undefined

@@ -77,10 +77,16 @@ function build(depth: number, tail: number, brand: boolean, reads: Reads, foreig
   let prototype = first(tails[tail])
   for (let index = 0; index < depth; index++)
     prototype = level(prototype, reads, index === throwing)
-  if (!brand) return level(prototype, ownReads(reads), depth === throwing)
+  return brand
+    ? (Object.setPrototypeOf(branded(foreign), prototype) as object)
+    : level(prototype, ownReads(reads), depth === throwing)
+}
+
+/** A `Uint8Array` over a buffer whose prototype is `null` when `foreign`. */
+function branded(foreign: boolean): Uint8Array {
   const view = new Uint8Array(1)
   if (foreign) Object.setPrototypeOf(view.buffer, null)
-  return Object.setPrototypeOf(view, prototype) as object
+  return view
 }
 
 /** A counter that adds the object's own reads to `own`. */

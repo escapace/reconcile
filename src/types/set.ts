@@ -132,7 +132,7 @@ export interface SetLayout {
 
 export const setDraft = /* @__PURE__ */ collectionDraft<SetDraftState>(
   SET_KIND,
-  (state): object => new DraftSet(state),
+  (state, prototype): object => new DraftSet(state, prototype),
 )
 
 const LOOKUP_MISS = {}

@@ -60,7 +60,7 @@ export function draftCollectionBase(
   builtin: object,
   prepareCopy: (state: BaseDraftState) => Map<unknown, unknown> | Set<unknown>,
   key: (state: BaseDraftState, key: unknown) => unknown,
-): abstract new (state: BaseDraftState) => DraftCollectionWalks {
+): abstract new (state: BaseDraftState, prototype: object) => DraftCollectionWalks {
   const map = builtin === Map.prototype
   const open = (state: BaseDraftState, walk: 'entries' | 'keys' | 'values') =>
     openBuiltin(prepareCopy(state), map, walk)
@@ -73,11 +73,12 @@ export function draftCollectionBase(
     return draftWalk(opened.iterator as Iterator<never>, project, opened.step)
   }
   abstract class DraftCollection extends DraftStateHolder {
-    /** Binds the draft to its call-local state, on its source's class; a collection result carries
-     * only its entries or members, so the draft refuses new properties. */
-    constructor(state: BaseDraftState) {
+    /** Binds the draft to its call-local state, on the class of its source, whose prototype
+     * recognition read; a collection result carries only its entries or members, so the draft
+     * refuses new properties. */
+    constructor(state: BaseDraftState, prototype: object) {
       super(state)
-      adoptDraftClass(this, new.target.prototype, builtin, state)
+      adoptDraftClass(this, new.target.prototype, builtin, prototype, state.context)
       Object.preventExtensions(this)
     }
 
@@ -130,14 +131,15 @@ export function draftCollectionBase(
   return DraftCollection
 }
 
-/** The draft strategy of a `Map` or `Set` kind, whose drafts `handle` constructs. */
+/** The draft strategy of a `Map` or `Set` kind, whose drafts `handle` constructs over the
+ * prototype that recognition read, which every `Map` or `Set` has. */
 export const collectionDraft = <S extends BaseDraftState>(
   kind: S['kind'],
-  handle: (state: S) => object,
+  handle: (state: S, prototype: object) => object,
 ): DraftStrategy<S> =>
   freeze({
-    handle,
     tag: 'structural',
+    handle: (state, prototype) => handle(state, prototype!),
     state: (base, context) =>
       ({
         base,
@@ -199,11 +201,11 @@ function adoptDraftClass(
   draft: object,
   layer: object,
   builtin: object,
-  state: BaseDraftState,
+  prototype: object,
+  context: BaseDraftState['context'],
 ): void {
-  const prototype = Object.getPrototypeOf(state.base) as object
   if (prototype === builtin) return
-  const layers = (state.context.draftLayers ??= new Map<object, object>())
+  const layers = (context.draftLayers ??= new Map<object, object>())
   let subclassLayer: object | undefined = layers.get(prototype)
   if (subclassLayer === undefined) {
     const copy = Object.create(prototype) as object

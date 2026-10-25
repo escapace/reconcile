@@ -6,7 +6,7 @@ import { finalizationAccessorUnstable } from './error'
 import { chooseSpecial } from './graph/provenance'
 import { RequirementClosure } from './graph/requirements'
 import { propertyDescriptor } from './object-property'
-import { restoreIdentities, type FinalizationFacts } from './restore-identities'
+import { restoreIdentities } from './restore-identities'
 import type {
   DraftState,
   FinalizedReference,
@@ -43,10 +43,10 @@ export class Finalization extends Detached {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
   // The complete object-child list of each object whose walk found no child needing a copy, in
   // slot order; created on the first. Produce.SettledChildren.
-  declare private walked: Map<object, readonly object[]> | undefined
-  // Native kind knowledge for one observation phase; never attached to application objects.
   declare private forcedOwnedCopies: WeakSet<object> | undefined
-  // Created on the first recognition.
+  declare private walked: Map<object, readonly object[]> | undefined
+  // Native kind knowledge for one observation phase, created on the first recognition; never
+  // attached to application objects.
   declare private kinds: Map<object, symbol> | undefined
   // How many times a walk met an object its question visited but has not settled.
   declare private guards: number
@@ -127,33 +127,27 @@ export class Finalization extends Detached {
     this.phase = discovery
     const result = this.materializeContainerSlot(value, false)
     // The sealed phase is entered only when something materializes in it: a projection, or the
-    // fallback below. Nothing reads the phase in between.
+    // fallback below, never both, since a strict restoration returns or throws. Nothing reads the
+    // phase in between.
     const sealed = (): unknown => {
-      if (this.phase.kind !== 'sealed')
-        this.phase = {
-          kind: 'sealed',
-          nativeOwners: undefined,
-          required: new WeakMap(),
-          values: new WeakMap(),
-        }
+      this.phase = {
+        kind: 'sealed',
+        nativeOwners: undefined,
+        required: new WeakMap(),
+        values: new WeakMap(),
+      }
       return this.materializeContainerSlot(value, false)
     }
     const project = plan.clonesSpecialValues || this.accessorObservations !== undefined
     const finalized = project ? sealed() : result
-    if (!isObject(finalized)) return finalized
     const { types } = this.session
     const kindOf = (value: object): symbol => this.kindOf(value)
     // Discovery kept unchanged subtrees as fixed leaves. When the kernel cannot keep every
     // settled record, the sealed pass (already current) materializes everything and selects again.
     return (
-      restoreIdentities(types, finalized as FinalizedReference, project, kindOf, this.facts()) ??
-      restoreIdentities(types, sealed() as FinalizedReference, true, kindOf, this.facts())!
+      restoreIdentities(types, finalized as FinalizedReference, project, kindOf, this.walked) ??
+      restoreIdentities(types, sealed() as FinalizedReference, true, kindOf, this.walked)!
     )
-  }
-
-  /** What this finalization read that identity restoration would otherwise read again. */
-  private facts(): FinalizationFacts {
-    return { walked: this.walked }
   }
 
   /**
@@ -205,8 +199,7 @@ export class Finalization extends Detached {
     }
 
     // A handle needs unwrapping even when its base is unchanged. Do not cache
-    // this answer against the base: materializeState can still reuse that base. Every view of a
-    // drafted object answers as its draft (DraftSession.stateOf).
+    // this answer against the base: materializeState can still reuse that base.
     const state = this.session.stateOf(value)
     if (state?.handle === value) return true
     const base = state?.base ?? value
@@ -440,8 +433,8 @@ export class Finalization extends Detached {
     source: object,
     state: DraftState | undefined,
     memoKey: object,
-    currentBackedBase?: object,
-    active = true,
+    currentBackedBase: object | undefined,
+    active: boolean,
   ): ReuseNode {
     const base = state?.base ?? currentBackedBase
     // An inactive object under a plan is a fixed leaf before this point, so every record a plan
@@ -659,17 +652,10 @@ class DraftObservation extends Detached {
       (record.observed ??= [])[record.children.length - 1] = value
   }
 
-  /** Records an inactive record's implication and decides whether its child is resolved. */
+  /** Decides whether a child of an inactive record is resolved. Only a pass without a plan
+   * observes an inactive record: under a plan it is a fixed leaf. */
   resolvesInactive(value: object): boolean {
     const finalization = this.finalization
-    // An active parent is already a closure fact; SeededRequirements proves that omitting
-    // implications into initial facts preserves the closure.
-    const plan = this.plan
-    if (plan !== undefined)
-      plan.closure.imply(
-        finalization.session.statesByIdentity.get(value)?.base ?? value,
-        this.memoKey,
-      )
     // Unchanged special children of an inactive record stay settled leaves in every phase;
     // unchanged structural children become fixed leaves in materializeContainerSlot.
     if (this.values.get(value) !== undefined) return true

@@ -119,7 +119,7 @@ export interface MapLayout {
 
 export const mapDraft = /* @__PURE__ */ collectionDraft<MapDraftState>(
   MAP_KIND,
-  (state): object => new DraftMap(state),
+  (state, prototype): object => new DraftMap(state, prototype),
 )
 
 /**

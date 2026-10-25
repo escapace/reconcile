@@ -43,28 +43,12 @@ describe('compact immutable selection', () => {
     ])
   })
 
-  it('separates shared owners without losing the equal-score tie order', () => {
-    expect([...immutableSelections(fixture([{ storage: 200 }, { storage: 200 }]))]).toEqual([
-      [true, false],
-      [false, true],
-      [false, false],
-    ])
-  })
-
   it('retains mandatory specials or reports no assignment', () => {
     expect([...immutableSelections(fixture([{ fixed: true }, {}]))]).toEqual([
       [true, true],
       [true, false],
     ])
     expect([...immutableSelections(fixture([{ eligible: false, fixed: true }]))]).toEqual([])
-    expect([
-      ...immutableSelections(
-        fixture([
-          { fixed: true, storage: 200 },
-          { fixed: true, storage: 200 },
-        ]),
-      ),
-    ]).toEqual([])
   })
 
   it('keeps cyclic retentions closed, including self and repeated edges', () => {
@@ -76,42 +60,38 @@ describe('compact immutable selection', () => {
   })
 
   it('restores older forward demands across repeated edges and backtracking', () => {
-    const problem = fixture([
-      { children: [3, 3] },
-      { children: [3] },
-      { storage: 203 },
-      { storage: 203 },
-    ])
+    const problem = fixture([{ children: [3, 3] }, { children: [3] }, {}, {}])
     const masks = [...immutableSelections(problem)]
-    expect(masks[0]).toEqual([true, true, false, true])
+    expect(masks[0]).toEqual([true, true, true, true])
     expect(masks).toEqual(reference(problem))
     expect(new Set(masks).size).toBe(masks.length)
   })
 
-  it('preserves the complete stream for two cycles competing for the same owners', () => {
+  it('preserves the complete stream for two cycles under one parent', () => {
     const size = 12
     const rows: Array<Partial<CompactImmutableInput['rows'][number]>> = [
-      { children: [1, size + 1], storage: 999 },
+      { children: [1, size + 1] },
     ]
     for (let copy = 0; copy < 2; copy += 1)
       for (let node = 0; node < size; node += 1)
-        rows.push({
-          children: [1 + copy * size + ((node + 1) % size)],
-          storage: 200 + node,
-        })
+        rows.push({ children: [1 + copy * size + ((node + 1) % size)] })
     const problem = fixture(rows)
     const masks = [...immutableSelections(problem)]
+    const cycle = (kept: boolean): boolean[] => new Array<boolean>(size).fill(kept)
     expect(masks).toEqual([
-      [false, ...new Array<boolean>(size).fill(true), ...new Array<boolean>(size).fill(false)],
-      [false, ...new Array<boolean>(size).fill(false), ...new Array<boolean>(size).fill(true)],
-      new Array<boolean>(2 * size + 1).fill(false),
+      [true, ...cycle(true), ...cycle(true)],
+      [false, ...cycle(true), ...cycle(true)],
+      [false, ...cycle(true), ...cycle(false)],
+      [false, ...cycle(false), ...cycle(true)],
+      [false, ...cycle(false), ...cycle(false)],
     ])
     expect(masks).toEqual(reference(problem))
   })
 
   // CompactImmutable.ranked_head: an admissible, separated and closed eligibility mask is the
-  // stream's first mask.
-  it('streams the eligibility mask first when it is admissible, separated and closed', () => {
+  // stream's first mask. Records have distinct storages and eligibility closed over parents, as
+  // compileImmutable builds them, so the head needs only every fixed record to be eligible.
+  it('streams the eligibility mask first when every fixed record is eligible', () => {
     let seed = 91_357
     const random = (size: number): number => {
       seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
@@ -121,14 +101,21 @@ describe('compact immutable selection', () => {
     let declined = 0
     for (let test = 0; test < 3000; test += 1) {
       const size = random(6)
-      const problem = fixture(
-        Array.from({ length: size }, (_, node) => ({
-          children: Array.from({ length: random(3) === 0 ? 1 + random(2) : 0 }, () => random(size)),
-          eligible: random(4) !== 0,
-          fixed: random(5) === 0,
-          storage: random(4) === 0 ? 200 + random(3) : 300 + node,
-        })),
-      )
+      const rows = Array.from({ length: size }, () => ({
+        children: Array.from({ length: random(3) === 0 ? 1 + random(2) : 0 }, () => random(size)),
+        eligible: random(4) !== 0,
+        fixed: random(5) === 0,
+      }))
+      // A record with an ineligible child is ineligible, as the closure of the unavailable makes it.
+      for (let changed = true; changed;) {
+        changed = false
+        for (const row of rows)
+          if (row.eligible && row.children.some((child) => !rows[child].eligible)) {
+            row.eligible = false
+            changed = true
+          }
+      }
+      const problem = fixture(rows)
       const stream = [...immutableSelections(problem)]
       const head = immutableHead(problem)
       if (head === undefined) {

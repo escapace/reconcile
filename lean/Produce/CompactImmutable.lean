@@ -335,6 +335,13 @@ theorem score_le_length (bits : List Bool) : score bits ≤ bits.length := by
     simp only [score, List.map_cons, List.sum_cons, List.length_cons] at ih ⊢
     split <;> omega
 
+/-- When no two rows share a storage, as no two runtime records do, every mask is separated, so
+the search needs no owner tracking. -/
+theorem separated_of_injective {size : Nat} (p : Problem size)
+    (injective : ∀ i j, (p.row i).storage = (p.row j).storage → i = j) (keep : Mask size) :
+    Separated p keep :=
+  fun i j _ _ same => injective i j same
+
 /-- The eligibility mask heads the ranked stream when it is admissible, separated and closed. -/
 theorem ranked_head {size : Nat} (p : Problem size)
     (admitted : ∀ i, (p.row i).fixed = true → (p.row i).eligible = true)

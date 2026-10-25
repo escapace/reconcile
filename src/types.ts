@@ -503,8 +503,6 @@ export interface ImmutableRecord {
   readonly target: object
   // Settled specials need no allocation payload or additional scalar observation.
   readonly payload: CapturedNode | undefined
-  /** Captured from an inactive, accessor-free record: its payload equals its base. */
-  readonly settled: boolean | undefined
 }
 
 /** Narrows an edge to a captured node reference. */
@@ -516,10 +514,9 @@ export interface MaterializationTraversal {
   readonly visited: Set<object>
 }
 
-/** Supplies sealed immutable proposals, storage owners and closed reuse failures. */
+/** Supplies sealed immutable proposals and closed reuse failures; each record is its own storage. */
 export interface ImmutableProblem {
   readonly records: readonly ImmutableRecord[]
   readonly root: number
-  readonly storages: readonly object[]
   readonly unavailable: ReadonlySet<number>
 }

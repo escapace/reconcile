@@ -18,7 +18,8 @@ const STORE_PROTOTYPE: object = /* @__PURE__ */ Object.freeze(Object.create(null
  * Captures the descriptor store at the first-copy observation boundary.
  *
  * @remarks
- * Preserves prototype capture, key order, wrapper-visible reads, and native array-length effects.
+ * Preserves prototype capture, key order, the value reads a proxy base observes, and native
+ * array-length effects.
  * The store becomes visible to the state only after capture finishes.
  */
 function preparePropertyCopy(
@@ -41,7 +42,7 @@ function preparePropertyCopy(
     const reused = key === known && knownDescriptor !== undefined
     const descriptor = reused ? knownDescriptor : Object.getOwnPropertyDescriptor(source, key)
     if (descriptor === undefined) continue
-    // Capture wrapper-exposed values in the same order as the former physical copy.
+    // Each data value is read through the source, in key order, as a proxy base answers it.
     if (isDataDescriptor(descriptor)) descriptor.value = reused ? knownValue : source[key]
     state.rules.capture(replacement, key, descriptor)
     replacement[key] = descriptor
@@ -94,7 +95,7 @@ function writeProperty(
  * Implements object and array draft reads, reflection, and writes over a logical descriptor store.
  *
  * @remarks
- * The first copy captures descriptors and wrapper-visible data values eagerly. Internal reads
+ * The first copy captures descriptors and data values, read through the source, eagerly. Internal reads
  * borrow those descriptors; public reflection returns separate descriptors containing draft-safe
  * values. The proxy uses a separate extensible target to preserve native proxy invariants.
  * Held handles keep their working state after finalization and are not revoked.
@@ -231,7 +232,7 @@ export class PropertyDraftState<K extends symbol = symbol>
     // A native method the draft replaces resolves to its replacement; an override of it, in a
     // subclass or on the object, still runs (DraftMembers).
     if (typeof value === 'function' && this.rules.methods !== undefined)
-      return (this.provided ??= this.rules.methods(this.context, this.base)).get(value) ?? value
+      return (this.provided ??= this.rules.methods(this.context)).get(value) ?? value
     return !present || !isObject(value) ? value : this.context.materializeChild(value)
   }
   /** Returns a separate descriptor whose data value follows ordinary draft reads. */
@@ -249,7 +250,7 @@ export class PropertyDraftState<K extends symbol = symbol>
       reported.writable = !configurable || ownDescriptor.writable === true
       return reported
     }
-    return accessorDescriptor(ownDescriptor, configurable)
+    return accessorDescriptor(ownDescriptor)
   }
   /** Exposes the base prototype independently of the captured copy prototype. */
   getPrototypeOf(): object | null {
@@ -369,8 +370,7 @@ export interface PropertyDraftRules<K extends symbol = symbol> {
   readonly kind: K
   /** Replacements for inherited native methods, keyed by the native function, built once per
    * draft. */
-  readonly methods:
-    ((context: DraftContext, base: object) => ReadonlyMap<unknown, unknown>) | undefined
+  readonly methods: ((context: DraftContext) => ReadonlyMap<unknown, unknown>) | undefined
   /** Whether the result can carry an own property with this key; DraftSurface.admits. */
   readonly admits: (key: PropertyKey) => boolean
   readonly capture: (

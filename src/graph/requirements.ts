@@ -12,7 +12,7 @@ export function closeRequirements(
   implications: ReadonlyArray<readonly number[]>,
 ): ReadonlySet<number> {
   const closed = new Set<number>()
-  propagate(closed, seeds, (fact) => implications[fact] ?? EMPTY_FACTS)
+  propagate(closed, seeds, (fact) => implications[fact])
   return closed
 }
 

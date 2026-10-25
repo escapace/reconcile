@@ -3,8 +3,15 @@ import { produceTypes } from '../types/builtins'
 import type { ObjectLayout } from '../types/object'
 import { describe, expect, it } from 'vitest'
 import { compileImmutable, restoreIdentities } from '../restore-identities'
+import { recognize } from '../adapters/recognition'
 import { immutableDomains, rankedSelections } from './fixtures/compact-immutable'
 import type { ImmutableRegistry, ReuseNode } from '../types'
+
+/** Recognition as finalization supplies it, for registry `types`. */
+const kinds =
+  (types: ImmutableRegistry) =>
+  (value: object): symbol =>
+    recognize(types, value)
 
 function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLayout> {
   return {
@@ -32,7 +39,7 @@ describe('complete immutable graph compilation', () => {
     const view = new DataView(buffer, 1, 5)
     const current = { buffer, date, n: 0, repeated: date, typed, view }
     const source = record(current, 1)
-    const problem = compileImmutable(produceTypes, source)
+    const problem = compileImmutable(produceTypes, source, kinds(produceTypes), undefined, false)
     const { records, root } = problem
     const domains = immutableDomains(problem)
     expect(records).toHaveLength(5)
@@ -51,7 +58,7 @@ describe('complete immutable graph compilation', () => {
     }
     const plans = rankedSelections(domains)
     expect(plans).toHaveLength(1)
-    const result = restoreIdentities(produceTypes, source, true)!
+    const result = restoreIdentities(produceTypes, source, true, kinds(produceTypes), undefined)!
     for (const key of ['buffer', 'date', 'repeated', 'typed', 'view'] as const)
       expect(Reflect.get(result, key)).toBe(current[key])
     expect(Reflect.get(result, 'n')).toBe(1)
@@ -61,7 +68,9 @@ describe('complete immutable graph compilation', () => {
 
   it('retains unchanged structural parents of fixed specials', () => {
     const current = { date: new Date(7), n: 0 }
-    expect(restoreIdentities(produceTypes, record(current, 0), true)).toBe(current)
+    expect(
+      restoreIdentities(produceTypes, record(current, 0), true, kinds(produceTypes), undefined),
+    ).toBe(current)
   })
 
   it('propagates a late cyclic failure through locally passing parents and duplicate aliases', () => {
@@ -87,7 +96,7 @@ describe('complete immutable graph compilation', () => {
         },
       },
     }
-    const problem = compileImmutable(types, source)
+    const problem = compileImmutable(types, source, kinds(types), undefined, false)
     const { records, root } = problem
     const domains = immutableDomains(problem)
     expect(checks).toEqual([child, current])
@@ -99,7 +108,7 @@ describe('complete immutable graph compilation', () => {
       [false],
     ])
     expect(rankedSelections(domains)).toEqual([[0, 0]])
-    const result = restoreIdentities(types, source, true) as typeof current
+    const result = restoreIdentities(types, source, true, kinds(types), undefined) as typeof current
     expect(result).not.toBe(current)
     expect(result.n).toBe(1)
     expect(result.next).not.toBe(child)
@@ -132,7 +141,7 @@ describe('complete immutable graph compilation', () => {
         },
       },
     }
-    const result = restoreIdentities(types, source, true) as typeof current
+    const result = restoreIdentities(types, source, true, kinds(types), undefined) as typeof current
     // The stream's next mask copies both records; the rejected mask is not attempted again.
     expect(allocated).toHaveLength(3)
     expect(result.child).not.toBe(child)
@@ -151,11 +160,23 @@ describe('complete immutable graph compilation', () => {
     const source = record(current, 0)
     const nextChild = record(child, 1)
     source.children.splice(0, source.children.length, nextChild, nextChild, source)
-    const { records, root } = compileImmutable(produceTypes, source)
+    const { records, root } = compileImmutable(
+      produceTypes,
+      source,
+      kinds(produceTypes),
+      undefined,
+      false,
+    )
     expect(records).toHaveLength(2)
     expect(records[root].edges[0]).toBe(records[root].edges[1])
     expect(records[root].edges[2]).toEqual({ node: root })
-    const result = restoreIdentities(produceTypes, source, true) as typeof current
+    const result = restoreIdentities(
+      produceTypes,
+      source,
+      true,
+      kinds(produceTypes),
+      undefined,
+    ) as typeof current
     expect(result.self).toBe(result)
     expect(result.left).toBe(result.right)
     expect(result.left).toEqual({ n: 1 })

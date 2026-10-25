@@ -1,19 +1,4 @@
 import { denseArray } from '../standard-prototypes'
-/**
- * Orders fresh allocations in stable waves over sealed construction dependencies.
- * Retained identities are already available. Empty-dependency shells form the
- * first wave, preserving the built-in shell-before-view observation boundary.
- *
- * @remarks
- * The scheduler counts reverse dependency occurrences, including duplicates, then emits stable level
- * buckets. Queue order alone is not the required allocation order; the result equals the wave
- * schedule of `Graph.Construction`, which the CompactImmutable bridge checks.
- * Node IDs must form a closed dense domain. Counters are plain numbers, exact far beyond any
- * occurrence count, as the model's naturals are.
- * The caller must finish this schedule before performing any native allocation.
- *
- * @returns The complete allocation order, or undefined when no safe fresh order exists.
- */
 // Fresh nodes without construction inputs are all shells at level 0, so when every fresh
 // node is one the order is the fresh nodes ascending (Construction.schedule_shells_only).
 function freshShells(
@@ -29,6 +14,21 @@ function freshShells(
   return shells
 }
 
+/**
+ * Orders fresh allocations in stable waves over sealed construction dependencies.
+ * Retained identities are already available. Empty-dependency shells form the
+ * first wave, preserving the built-in shell-before-view observation boundary.
+ *
+ * @remarks
+ * The scheduler counts reverse dependency occurrences, including duplicates, then emits stable level
+ * buckets. Queue order alone is not the required allocation order; the result equals the wave
+ * schedule of `Graph.Construction`, which the CompactImmutable bridge checks.
+ * Node IDs must form a closed dense domain. Counters are plain numbers, exact far beyond any
+ * occurrence count, as the model's naturals are.
+ * The caller must finish this schedule before performing any native allocation.
+ *
+ * @returns The complete allocation order, or undefined when no safe fresh order exists.
+ */
 export function constructionOrder(
   dependencies: ReadonlyArray<readonly number[]>,
   retained: readonly boolean[],

@@ -1,11 +1,11 @@
-import Produce.CompactOwners
+import Produce.CompactImmutable
 import Graph.Construction
 import Lean
 
-/-! Oracle for the `CompactImmutable` family: for each bounded case it checks that the compact
-ranked masks (`CompactOwners.ranked`) decode to the reference ranked plans, schedules
-construction for each plan with `Construction.schedule`, and reports the first plan whose
-construction succeeds. -/
+/-! Oracle for the `CompactImmutable` family: for each bounded case, whose rows have distinct
+storages as the runtime's records do, it checks that the compact ranked masks
+(`CompactImmutable.ranked`) decode to the reference ranked plans and schedules construction for
+each plan with `Construction.schedule`. -/
 
 namespace Reconcile.CompactImmutableOracle
 
@@ -17,20 +17,18 @@ private structure InputRow where
   eligible : Bool
   fixed : Bool
   children : List Nat
-  deriving FromJson, ToJson
+  deriving ToJson
 
 private structure Input where
   rows : List InputRow
   dependencies : List (List Nat)
-  deriving FromJson, ToJson
+  deriving ToJson
 
 private structure Observation where
   input : Input
   domains : Reconcile.Policy.Domains
-  ownerBound : Nat
   masks : List (List Bool)
   orders : List (Option (List Nat))
-  selected : Option (List Bool)
   deriving ToJson
 
 private def bounded (size : Nat) (row : InputRow) : Bool :=
@@ -59,35 +57,28 @@ private def emit (input : Input) : IO Unit := do
           ⟨child.val, (bounds i).2.2 child.val child.property⟩ }
       proposedReserved := fun i => (bounds i).1
       storageReserved := fun i => (bounds i).2.1 }
-    let masks := Reconcile.CompactOwners.ranked p
+    let masks := ranked p
     if masks.map (decode p (List.finRange size)) != Reconcile.Policy.rankedPlans (domains p) then
       throw (IO.userError "Compact and decoded ranked streams differ")
     let order := fun bits : List Bool =>
       let kept := (List.range size).filter fun i => bits[i]?.getD false
       Reconcile.Construction.schedule (fun i => input.dependencies[i]?.getD [])
         kept.toFinset (List.range size)
-    let orders := masks.map order
-    let selected := (masks.filter fun bits => (order bits).isSome).head?
-    let observation : Observation := {
-      input, domains := domains p, ownerBound := (Reconcile.CompactOwners.owners p).card,
-      masks, orders, selected }
+    let observation : Observation := { input, domains := domains p, masks, orders := masks.map order }
     IO.println (toJson observation).compress
   else throw (IO.userError "Invalid child index or non-reserved immutable label")
 
 private def emitCorpus : IO Unit := do
-  let colors := [[0, 1, 2], [0, 0, 1], [0, 1, 0], [0, 1, 1], [0, 0, 0]]
-  IO.println (40960 + 3)
+  IO.println (8192 + 3)
   for graph in List.range 512 do
     for flags in List.range 8 do
-      for owners in colors do
-        let rows := (List.range 3).map fun i => {
-          proposed := 3 + i, storage := 6 + owners[i]?.getD 0
-          eligible := flags.testBit i, fixed := false
-          children := (List.range 3).filter fun j => graph.testBit (i * 3 + j) : InputRow }
-        emit { rows, dependencies := [[], [], []] }
-        let fixed := rows.zipIdx |>.map fun (row, i) =>
-          { row with eligible := true, fixed := flags.testBit i }
-        emit { rows := fixed, dependencies := [[1], [0], []] }
+      let rows := (List.range 3).map fun i => {
+        proposed := 3 + i, storage := 6 + i, eligible := flags.testBit i, fixed := false
+        children := (List.range 3).filter fun j => graph.testBit (i * 3 + j) : InputRow }
+      emit { rows, dependencies := [[], [], []] }
+      let fixed := rows.zipIdx |>.map fun (row, i) =>
+        { row with eligible := true, fixed := flags.testBit i }
+      emit { rows := fixed, dependencies := [[1], [0], []] }
   emit { rows := [], dependencies := [] }
   let self : InputRow := {
     proposed := 1, storage := 2, eligible := true, fixed := false, children := [0, 0] }
@@ -99,11 +90,6 @@ private def emitCorpus : IO Unit := do
 def run (args : List String) : IO Unit := do
   match args with
   | [] => emitCorpus
-  | [path] =>
-    let parsed ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
-    let inputs ← IO.ofExcept (fromJson? parsed : Except String (List Input))
-    IO.println inputs.length
-    for input in inputs do emit input
-  | _ => throw (IO.userError "Expected no argument or one finite native-input file")
+  | _ => throw (IO.userError "Expected no argument")
 
 end Reconcile.CompactImmutableOracle

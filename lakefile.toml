@@ -96,7 +96,6 @@ roots = [
   "Heap.ReuseClosure",
   "Produce.Immutable",
   "Produce.CompactImmutable",
-  "Produce.CompactOwners",
   "Oracle.CompactImmutableOracle",
   "Oracle.ContractOracle",
   "Oracle.RuntimeOracle",

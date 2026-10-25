@@ -49,17 +49,14 @@ export const dataDescriptor = (): DataDescriptor =>
   ) as DataDescriptor
 
 /**
- * A copy of an accessor descriptor with the given configurability, inheriting nothing. A
- * non-configurable result is also marked writable, as the draft's own descriptors are.
+ * A configurable copy of an accessor descriptor, inheriting nothing: a draft reports every
+ * accessor as configurable, since only an array's `length`, a data property, is not.
  * @internal
  */
-export function accessorDescriptor(
-  descriptor: PropertyDescriptor,
-  configurable: boolean,
-): PropertyDescriptor {
-  const copy = Object.setPrototypeOf(
+export const accessorDescriptor = (descriptor: PropertyDescriptor): PropertyDescriptor =>
+  Object.setPrototypeOf(
     {
-      configurable,
+      configurable: true,
       enumerable: descriptor.enumerable === true,
       // eslint-disable-next-line typescript/unbound-method -- the accessor is copied, not called
       get: descriptor.get,
@@ -68,9 +65,6 @@ export function accessorDescriptor(
     },
     null,
   ) as PropertyDescriptor
-  if (!configurable) copy.writable = true
-  return copy
-}
 
 /**
  * Whether a property descriptor describes a data property. A descriptor that

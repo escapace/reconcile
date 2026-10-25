@@ -66,14 +66,12 @@ export function compactFixture(input: CompactImmutableInput): ImmutableProblem {
             observed: undefined,
             pinned: undefined,
           },
-      settled: undefined,
       target: object(row.proposed),
     }
   })
   return {
     records,
     root: 0,
-    storages: input.rows.map((row) => object(row.storage)),
     unavailable: new Set(input.rows.flatMap((row, node) => (row.eligible ? [] : [node]))),
   }
 }
@@ -138,8 +136,9 @@ export function rankedSelections(domains: Domains): number[][] {
     .map((entry) => entry.selection)
 }
 
-/** Decodes compact native facts into the existing finite wire format without solving them. */
-export function immutableDomains({ records, storages, unavailable }: ImmutableProblem): Domains {
+/** Decodes compact native facts into the existing finite wire format without solving them; each
+ * record is its own storage. */
+export function immutableDomains({ records, unavailable }: ImmutableProblem): Domains {
   return records.map((record, node) => {
     const domain: Choice[] = []
     if (!unavailable.has(node)) {
@@ -149,7 +148,7 @@ export function immutableDomains({ records, storages, unavailable }: ImmutablePr
           isNode(edge) ? [{ identity: records[edge.node].target, node: edge.node }] : [],
         ),
         retained: true,
-        storage: storages[node],
+        storage: record.target,
       })
     }
     if (record.payload !== undefined)

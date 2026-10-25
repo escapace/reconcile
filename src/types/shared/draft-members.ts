@@ -62,7 +62,7 @@ const start = (from: readonly unknown[], length: number): number => {
 }
 
 /**
- * Builds the search methods of the array draft of `base`, keyed by the native methods they replace.
+ * Builds the search methods of an array draft, keyed by the native methods they replace.
  *
  * @remarks
  * Each follows the native algorithm step by step: it reads `length` once, starts at `fromIndex`,
@@ -72,7 +72,7 @@ const start = (from: readonly unknown[], length: number): number => {
  * value's key is taken before the search drafts any element, and reading an element does not
  * change its key, so the search still finds an element the array holds.
  */
-export function arraySearches(context: DraftContext, _base: object): ReadonlyMap<unknown, unknown> {
+export function arraySearches(context: DraftContext): ReadonlyMap<unknown, unknown> {
   const held = (value: unknown) => memberIdentity(context, value)
   function includes(this: unknown, value: unknown, ...from: unknown[]) {
     const array = Object(this) as unknown[]
