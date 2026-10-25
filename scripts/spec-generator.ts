@@ -41,6 +41,9 @@ export interface Options {
   accessors?: boolean
   /** Non-default attributes and extensibility levels. */
   attributes?: boolean
+  /** More accessors, dropping setters and reorders below the root, so that decision passes
+   * demote objects more often; the root takes no accessor, so a hazard rarely rejects the call. */
+  hazards?: boolean
   /** The largest graph. */
   nodes?: number
   /** Key and entry reorders in `next`. */
@@ -114,12 +117,13 @@ const attributes = (rng: Rng, allowed: boolean): Attributes =>
     : [rng.chance(0.6), rng.chance(0.6), rng.chance(0.6)]
 
 function slot(rng: Rng, references: readonly number[], options: Options): Slot {
-  if (options.accessors === true && rng.chance(0.2))
+  const hazards = options.hazards === true
+  if (options.accessors === true && rng.chance(hazards ? 0.45 : 0.2))
     return {
       c: rng.chance(0.8),
       e: rng.chance(0.8),
       get: value(rng, references, P_REFERENCE),
-      set: rng.pick([null, true, false]),
+      set: hazards ? rng.pick([true, false, false]) : rng.pick([null, true, false]),
     }
   return { a: attributes(rng, options.attributes === true), v: value(rng, references, P_REFERENCE) }
 }
@@ -234,7 +238,14 @@ function genCurrent(rng: Rng, options: Options): Graph {
   const size = 1 + rng.int(options.nodes ?? 6)
   const ids = Array.from({ length: size }, (_, index) => index)
   const nodes: GraphNode[] = ids.map((id) =>
-    node(rng, ids, options, id === 0 ? rng.pick(['object', 'object', 'array']) : undefined),
+    id === 0
+      ? node(
+          rng,
+          ids,
+          options.hazards === true ? { ...options, accessors: false } : options,
+          rng.pick(['object', 'object', 'array']),
+        )
+      : node(rng, ids, options),
   )
   // Make every node reachable: hang each unreachable node off a reachable node.
   for (;;) {
@@ -270,8 +281,16 @@ function mutateMap(n: NodeOf<'map'>, rng: Rng, references: readonly number[]): v
     n.entries.push([k, value(rng, references, 0.4)])
 }
 
-function mutateField(rng: Rng, f: [string, Slot], references: readonly number[]): void {
-  if (rng.chance(0.4))
+function mutateField(
+  rng: Rng,
+  f: [string, Slot],
+  references: readonly number[],
+  options: Options,
+): void {
+  // With hazards, an accessor's next value changes often, so its setter receives a write.
+  if ('get' in f[1] && options.hazards === true && rng.chance(0.7))
+    f[1] = { a: [true, true, true], v: value(rng, references, 0.4) }
+  else if (rng.chance(0.4))
     f[1] = { a: [true, rng.chance(0.9), true], v: mutateValue(rng, slotValue(f[1]), references) }
   else if ('get' in f[1]) f[1] = { a: [true, true, true], v: f[1].get }
 }
@@ -285,8 +304,13 @@ function addField(rng: Rng, n: NodeOf<'object'>, references: readonly number[]):
   ])
 }
 
-function mutateObject(n: NodeOf<'object'>, rng: Rng, references: readonly number[]): void {
-  for (const f of n.fields) mutateField(rng, f, references)
+function mutateObject(
+  n: NodeOf<'object'>,
+  rng: Rng,
+  references: readonly number[],
+  options: Options,
+): void {
+  for (const f of n.fields) mutateField(rng, f, references, options)
   if (rng.chance(0.3)) n.fields = n.fields.filter(() => rng.chance(0.7))
   if (rng.chance(0.3)) addField(rng, n, references)
 }
@@ -296,7 +320,7 @@ function mutateSet(n: NodeOf<'set'>, rng: Rng, references: readonly number[]): v
   if (rng.chance(0.3)) addDistinct(n.members, value(rng, references, 0.4))
 }
 
-const mutators: ByKind<[rng: Rng, references: readonly number[]], void> = {
+const mutators: ByKind<[rng: Rng, references: readonly number[], options: Options], void> = {
   array: mutateArray,
   map: mutateMap,
   object: mutateObject,
@@ -323,10 +347,13 @@ function mutateNode(
   references: readonly number[],
   options: Options,
 ): GraphNode {
-  if (rng.chance(0.2))
+  // With hazards, nodes keep their kind and order more often, so that a kept object's write,
+  // not a static refusal, decides the case.
+  const hazards = options.hazards === true
+  if (rng.chance(hazards ? 0.05 : 0.2))
     return node(rng, references, { ...options, accessors: false, attributes: false })
-  byKind(mutators, n, rng, references)
-  if (options.reorder === true && rng.chance(0.3)) shuffle(rng, byKind(orders, n))
+  byKind(mutators, n, rng, references, options)
+  if (options.reorder === true && rng.chance(hazards ? 0.15 : 0.3)) shuffle(rng, byKind(orders, n))
   return n
 }
 

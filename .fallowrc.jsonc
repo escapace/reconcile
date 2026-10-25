@@ -12,6 +12,8 @@
       "enablers": ["tsx"],
       "entryPointRole": "support",
       "entryPoints": [
+        // Run by hand; docs/lean.md names it under the Spec agreement obligation.
+        "scripts/spec-mutants.ts",
         "scripts/profile.ts",
         "scripts/check-lean.ts",
         "scripts/bundle-size.ts",

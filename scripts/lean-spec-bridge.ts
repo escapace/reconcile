@@ -11,12 +11,20 @@ import { parseArgs } from 'node:util'
 import { isReconcileError, produce, reconcile, snapshot } from '../src/index'
 import type { Oracle } from './lean-oracle'
 import {
-  ATOMS,
+  atoms,
+  construct,
+  materialize,
+  primitiveToJs,
+  prototypeIndex,
+  setterStores,
+  toJs,
+  type Counters,
+  type Resolve,
+} from './spec-realize'
+import {
   byKind,
-  CLASSES,
   genCase,
   genProduceCase,
-  isHole,
   isReference,
   mapReferences,
   slotValue,
@@ -33,144 +41,6 @@ import {
   type Step,
   type Value,
 } from './spec-generator'
-
-/** The prototypes of the model's classes. */
-const prototypes = Array.from({ length: CLASSES }, (): object => ({}))
-const prototypeIndex = new Map(prototypes.map((p, index) => [p, index]))
-const atoms = Array.from({ length: ATOMS }, (_, index) => (): number => index)
-
-/** Getter and setter calls per object and key, recorded by the accessors the bridge installs. */
-type Counters = Map<object, Map<string, { get: number; set: number }>>
-/** Whether an installed setter stores its value, by setter function. */
-const setterStores = new WeakMap<object, boolean>()
-type Accessor = Extract<Slot, { get: Value }>
-type Resolve = (v: Value) => unknown
-
-const primitiveToJs = (v: Exclude<Value, { ref: number }>): unknown =>
-  v === null || typeof v !== 'object' ? v : 'undef' in v ? undefined : atoms[v.atom]
-
-const toJs = (v: Value, objects: readonly object[]): unknown =>
-  isReference(v) ? objects[v.ref] : primitiveToJs(v)
-
-const prototypeOf = (prototype: NodeOf<'object'>['proto']): object | null =>
-  prototype === 'object'
-    ? Object.prototype
-    : prototype === 'null'
-      ? null
-      : prototypes[prototype.cls]
-
-const shells: ByKind<[], object> = {
-  array: () => [],
-  date: (node) => new Date(node.ms),
-  map: () => new Map(),
-  object: (node) => Object.create(prototypeOf(node.proto)) as object,
-  set: () => new Set(),
-}
-
-const levelers: Record<Extensibility, (a: unknown[]) => unknown> = {
-  frozen: Object.freeze,
-  nonExtensible: Object.preventExtensions,
-  sealed: Object.seal,
-  extensible: () => undefined,
-}
-
-function defineData(
-  o: object,
-  key: string,
-  slot: Extract<Slot, { v: Value }>,
-  resolve: Resolve,
-): void {
-  Object.defineProperty(o, key, {
-    configurable: slot.a[2],
-    enumerable: slot.a[1],
-    value: resolve(slot.v),
-    writable: slot.a[0],
-  })
-}
-
-/** Fills the shell of a node, resolving each value with `resolve`; an accessor slot goes to
- * `accessor`, which the recipe's created objects do not have. */
-const fillers: ByKind<
-  [o: object, resolve: Resolve, accessor?: (o: object, key: string, slot: Accessor) => void],
-  void
-> = {
-  array: (node, o, resolve) => {
-    const a = o as unknown[]
-    a.length = node.entries.length
-    node.entries.forEach((entry, index) => {
-      if (!isHole(entry)) a[index] = resolve(entry)
-    })
-    levelers[node.ext](a)
-  },
-  date: () => undefined,
-  map: (node, o, resolve) => {
-    for (const [k, v] of node.entries) (o as Map<unknown, unknown>).set(resolve(k), resolve(v))
-  },
-  object: (node, o, resolve, accessor) => {
-    for (const [key, slot] of node.fields) {
-      if ('v' in slot) defineData(o, key, slot, resolve)
-      else {
-        assert.ok(accessor !== undefined, 'a created object has no accessors')
-        accessor(o, key, slot)
-      }
-    }
-    if (!node.extensible) Object.preventExtensions(o)
-  },
-  set: (node, o, resolve) => {
-    for (const m of node.members) (o as Set<unknown>).add(resolve(m))
-  },
-}
-
-/** Builds the objects of a graph; `fixed(j)` supplies an existing object for node `j`. */
-function materialize(
-  graph: Graph,
-  counters: Counters,
-  fixed: (index: number) => object | undefined = () => undefined,
-): object[] {
-  const objects = graph.nodes.map((node, index) => fixed(index) ?? byKind(shells, node))
-  const resolve: Resolve = (v) => toJs(v, objects)
-  const accessor = (o: object, key: string, slot: Accessor): void =>
-    defineAccessor(o, key, slot, resolve, counters)
-  graph.nodes.forEach((node, index) => {
-    if (fixed(index) === undefined) byKind(fillers, node, objects[index], resolve, accessor)
-  })
-  return objects
-}
-
-function countersOf(counters: Counters, o: object): Map<string, { get: number; set: number }> {
-  let byKey = counters.get(o)
-  if (byKey === undefined)
-    counters.set(o, (byKey = new Map<string, { get: number; set: number }>()))
-  return byKey
-}
-
-/** Defines an accessor slot whose getter and setter count their calls. */
-function defineAccessor(
-  o: object,
-  key: string,
-  slot: Accessor,
-  resolve: Resolve,
-  counters: Counters,
-): void {
-  let store = resolve(slot.get)
-  const count = { get: 0, set: 0 }
-  countersOf(counters, o).set(key, count)
-  const stores = slot.set
-  const setter = (value: unknown): void => {
-    count.set += 1
-    if (stores === true) store = value
-  }
-  setterStores.set(setter, stores === true)
-  Object.defineProperty(o, key, {
-    configurable: slot.c,
-    enumerable: slot.e,
-    set: stores === null ? undefined : setter,
-    get(): unknown {
-      count.get += 1
-      return store
-    },
-  })
-}
 
 const sortedEntries = (v: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
@@ -327,6 +197,8 @@ interface Outcome {
   /** 0 when the call is rejected before any write; `reconcile` only. */
   root: Value
   passes?: number
+  /** The writes of every decision pass, as `[current index, [key, 'set' | 'delete']]`. */
+  allWrites?: Array<[number, [string, string]]>
 }
 
 /** Renumbers a graph by depth-first visit order from the root, dropping unreachable nodes. */
@@ -359,6 +231,7 @@ interface Report {
     | 'rejection'
     | 'result'
     | 'retention'
+    | 'writes'
     | 'wrote-before-rejecting'
   seed: number
 }
@@ -497,17 +370,107 @@ function reportRejection(seed: number, expected: Outcome, changed: boolean): Rep
   return reports
 }
 
+/** The keys the runtime wrote to each proxied current object, as `key:kind`. */
+type Writes = Map<object, Set<string>>
+
+/** Whether `compareReconcile` wraps current objects and arrays in proxies that record writes. */
+let writesMode = false
+
+/** A forwarding proxy of `target` that records, while `armed`, the keys set, defined or deleted
+ * through it. */
+function recordingProxy(target: object, writes: Writes, armed: { on: boolean }): object {
+  const record = (key: PropertyKey, kind: string): void => {
+    if (!armed.on || typeof key !== 'string') return
+    let set = writes.get(proxy)
+    if (set === undefined) writes.set(proxy, (set = new Set()))
+    set.add(`${key}:${kind}`)
+  }
+  const proxy: object = new Proxy(target, {
+    defineProperty(t, key, descriptor): boolean {
+      record(key, 'set')
+      return Reflect.defineProperty(t, key, descriptor)
+    },
+    deleteProperty(t, key): boolean {
+      record(key, 'delete')
+      return Reflect.deleteProperty(t, key)
+    },
+    set(t, key, value, receiver): boolean {
+      record(key, 'set')
+      return Reflect.set(t, key, value, receiver === proxy ? t : receiver)
+    },
+  })
+  return proxy
+}
+
+/** Whether a node is an object or array, whose writes the recording proxies see. */
+const recorded = (node: GraphNode): boolean => node.kind === 'object' || node.kind === 'array'
+
+/** The keys the reference's passes write on node `index`, as `key:kind`, sorted. */
+const wantedWrites = (expected: Outcome, index: number): string =>
+  [
+    ...new Set(
+      (expected.allWrites ?? [])
+        .filter(([node]) => node === index)
+        .map(([, [k, w]]) => `${k}:${w}`),
+    ),
+  ]
+    .sort()
+    .join(' ')
+
+/** The keys the runtime wrote on `object` in any pass, as `key:kind`, sorted. */
+const actualWrites = (writes: Writes, object: object): string =>
+  [...(writes.get(object) ?? [])].sort().join(' ')
+
+function reportWriteMismatch(
+  seed: number,
+  index: number,
+  actual: string,
+  wanted: string,
+  reports: Report[],
+): void {
+  if (actual !== wanted)
+    reports.push({
+      detail: `${index}: runtime [${actual}] reference [${wanted}]`,
+      kind: 'writes',
+      seed,
+    })
+}
+
+/** Reports, for each current object or array, the keys the runtime wrote in any pass against
+ * the keys the reference's passes write. */
+function reportWrites(
+  seed: number,
+  c: Case,
+  current: readonly object[],
+  writes: Writes,
+  expected: Outcome,
+  reports: Report[],
+): void {
+  if (!writesMode) return
+  for (let index = 0; index < c.cur.nodes.length; index += 1) {
+    if (!recorded(c.cur.nodes[index])) continue
+    const actual = actualWrites(writes, current[index])
+    reportWriteMismatch(seed, index, actual, wantedWrites(expected, index), reports)
+  }
+}
+
 /** Runs one case through `reconcile` and compares with the reference outcome. */
 function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const counters: Counters = new Map()
-  const current = materialize(c.cur, counters)
+  const writes: Writes = new Map()
+  const armed = { on: false }
+  const wrap = (o: object, index: number): object =>
+    writesMode && recorded(c.cur.nodes[index]) ? recordingProxy(o, writes, armed) : o
+  const current = materialize(c.cur, counters, undefined, wrap)
   const next = materialize(c.next, new Map(), (index) =>
     c.same[index] === null ? undefined : current[c.same[index]],
   )
   const held = new Set(c.same.flatMap((index) => (index === null ? [] : [current[index]])))
   const before = stable(recapture(current[0], current))
   getterCounts(counters, current, held)
+  armed.on = true
   const run = attempt(() => reconcile(toJs(c.cur.root, current), toJs(c.next.root, next)))
+  armed.on = false
   const gets = getterCounts(counters, current, held)
   if ('error' in run) return [errorReport(seed, run.error)]
   if (run.rejected)
@@ -517,6 +480,7 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const reports: Report[] = []
   compareCaptured(seed, recapture(run.result, current), expected, reports)
   reportGetters(seed, gets, wantedGets(expected, current, held), reports)
+  reportWrites(seed, c, current, writes, expected, reports)
   return reports
 }
 
@@ -582,13 +546,6 @@ function runRecipe(recipe: Recipe, current: readonly object[], created: object[]
     }
     return recipe.returnsCurrent ? root : resolve(recipe.returns)
   })
-}
-
-/** Builds one object the recipe creates, from drafts and earlier created objects. */
-function construct(object: GraphNode, resolve: Resolve): object {
-  const o = byKind(shells, object)
-  byKind(fillers, object, o, resolve)
-  return o
 }
 
 /** Origins of a result as the reference encodes them: `-k - 1` for the `k`th created object. */
@@ -699,6 +656,126 @@ function summary(reports: readonly Report[]): string {
   return text === '' ? 'agree' : text
 }
 
+/** Whether some node of `graph` is on a cycle reachable from the root. */
+function hasCycle(graph: Graph): boolean {
+  const state = new Map<number, 'done' | 'open'>()
+  const visit = (id: number): boolean => {
+    const seen = state.get(id)
+    if (seen !== undefined) return seen === 'open'
+    state.set(id, 'open')
+    const node = graph.nodes[id]
+    const children = JSON.stringify(node).matchAll(/"ref":(\d+)/g)
+    for (const match of children) if (visit(Number(match[1]))) return true
+    state.set(id, 'done')
+    return false
+  }
+  return isReference(graph.root) && visit(graph.root.ref)
+}
+
+/** How many slots of `graph` reference each node. */
+function referrers(graph: Graph): Map<number, number> {
+  const counts = new Map<number, number>()
+  for (const node of graph.nodes)
+    for (const match of JSON.stringify(node).matchAll(/"ref":(\d+)/g)) {
+      const id = Number(match[1])
+      counts.set(id, (counts.get(id) ?? 0) + 1)
+    }
+  return counts
+}
+
+const orderOf = (node: GraphNode): string =>
+  node.kind === 'object'
+    ? node.fields.map(([k]) => k).join()
+    : node.kind === 'map'
+      ? node.entries.map(([k]) => JSON.stringify(k)).join()
+      : node.kind === 'set'
+        ? node.members.map((m) => JSON.stringify(m)).join()
+        : ''
+
+/** Whether two key lists hold the same keys in different orders. */
+const permuted = (a: string, b: string): boolean =>
+  a !== b && a.split(',').sort().join() === b.split(',').sort().join()
+
+/** Whether the next mirror of current node `index` lists the same keys in another order. */
+const reorderedAt = (c: Case, index: number): boolean =>
+  c.cur.nodes[index].kind === c.next.nodes[index].kind &&
+  c.same[index] === null &&
+  permuted(orderOf(c.cur.nodes[index]), orderOf(c.next.nodes[index]))
+
+/** Whether the next mirror of some current node lists the same keys in another order. */
+const reordered = (c: Case): boolean => c.cur.nodes.some((_, index) => reorderedAt(c, index))
+
+type Feature = [name: string, present: boolean]
+const present = (features: readonly Feature[]): string[] =>
+  features.filter(([, p]) => p).map(([name]) => name)
+
+/** The features of a case that its wire text shows. */
+const textFeatures = (c: Case): Feature[] => {
+  const text = JSON.stringify(c.cur)
+  return [
+    ['accessor', text.includes('"get":')],
+    ['droppingSetter', text.includes('"set":false')],
+    [
+      'readOnly',
+      text.includes('"a":[false') || /"a":\[(?:false|true),(?:false|true),false\]/.test(text),
+    ],
+    [
+      'nonExtensible',
+      text.includes('"extensible":false') || /"ext":"(?:frozen|nonExtensible|sealed)"/.test(text),
+    ],
+    ['hole', text.includes('"hole":true') || JSON.stringify(c.next).includes('"hole":true')],
+    ['classPrototype', text.includes('"cls":')],
+    ['nullPrototype', text.includes('"proto":"null"')],
+  ]
+}
+
+/** The features of a case's graphs. */
+const graphFeatures = (c: Case): Feature[] => [
+  ['cycle', hasCycle(c.cur)],
+  ['shared', [...referrers(c.cur).values()].some((n) => n > 1)],
+  ['pinned', c.same.some((s) => s !== null)],
+  [
+    'mapObjectKey',
+    c.cur.nodes.some((n) => n.kind === 'map' && n.entries.some(([k]) => isReference(k))),
+  ],
+  ['date', c.cur.nodes.some((n) => n.kind === 'date')],
+  ['rootArray', c.cur.nodes[0].kind === 'array'],
+  ['kindChange', c.cur.nodes.some((n, index) => c.next.nodes[index].kind !== n.kind)],
+  ['reorder', reordered(c)],
+]
+
+/** The features of a reference outcome. */
+const outcomeFeatures = (outcome: Outcome): Feature[] => [
+  ['rejected', !outcome.ok],
+  ['fresh', outcome.origins.some((o) => o === null)],
+  ['getterRan', (outcome.gets ?? []).some(([, [, count]]) => count > 0)],
+  ['multiPass', (outcome.passes ?? 1) > 1],
+  ['threePasses', (outcome.passes ?? 1) > 2],
+]
+
+/** The features of a reconcile case and its reference outcome, for the coverage report. */
+const caseFeatures = (c: Case, outcome: Outcome): string[] =>
+  present([...textFeatures(c), ...graphFeatures(c), ...outcomeFeatures(outcome)])
+
+/** Prints how often each feature occurs among the reconcile cases of `seedList`. */
+async function features(
+  oracle: Oracle,
+  seedList: readonly number[],
+  options: Options,
+): Promise<void> {
+  const cases = seedList.map((seed) => genCase(seed, options))
+  const outcomes = await ask(oracle, cases.map(reconcileCheck.request))
+  const counts = new Map<string, number>()
+  cases.forEach((c, index) => {
+    for (const f of caseFeatures(c, outcomes[index])) counts.set(f, (counts.get(f) ?? 0) + 1)
+  })
+  console.log(`features over ${cases.length} reconcile cases`)
+  for (const [name, count] of [...counts].sort((a, b) => b[1] - a[1]))
+    console.log(
+      `${name.padEnd(16)} ${String(count).padStart(6)} ${((100 * count) / cases.length).toFixed(1).padStart(6)}%`,
+    )
+}
+
 const GATE_OPTIONS: Options = {
   accessors: true,
   attributes: true,
@@ -716,12 +793,22 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
     [],
     `Spec reconcile: ${reconciled.reports.length} differences`,
   )
+  writesMode = true
+  const written = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
+  assert.deepEqual(written.reports, [], `Spec writes: ${written.reports.length} differences`)
+  // Hazards: more dropping setters and reorders below the root, so demotion passes are common.
+  const hazardous = await checkSpec(reconcileCheck, oracle, seeds(3000), {
+    ...GATE_OPTIONS,
+    hazards: true,
+  })
+  writesMode = false
+  assert.deepEqual(hazardous.reports, [], `Spec hazards: ${hazardous.reports.length} differences`)
   const produced = await checkSpec(produceCheck, oracle, seeds(1500), GATE_OPTIONS)
   assert.deepEqual(produced.reports, [], `Spec produce: ${produced.reports.length} differences`)
   const copied = await checkSpec(snapshotCheck, oracle, seeds(500), GATE_OPTIONS)
   assert.deepEqual(copied.reports, [], `Spec snapshot: ${copied.reports.length} differences`)
   console.log(
-    `Spec bridge: reconcile ${reconciled.cases} cases (${summary(reconciled.reports)}); produce ${produced.cases} cases (${summary(produced.reports)}); snapshot ${copied.cases} cases (${summary(copied.reports)})`,
+    `Spec bridge: reconcile ${reconciled.cases} cases (${summary(reconciled.reports)}), ${written.cases} through recording proxies (${summary(written.reports)}), ${hazardous.cases} with hazards (${summary(hazardous.reports)}); produce ${produced.cases} cases (${summary(produced.reports)}); snapshot ${copied.cases} cases (${summary(copied.reports)})`,
   )
 }
 
@@ -772,28 +859,34 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       accessors: { default: true, type: 'boolean' },
       attributes: { default: true, type: 'boolean' },
       dump: { type: 'string' },
+      features: { default: false, type: 'boolean' },
       from: { default: '1', type: 'string' },
+      hazards: { default: false, type: 'boolean' },
       nodes: { default: '6', type: 'string' },
       op: { default: 'reconcile', type: 'string' },
       reorder: { default: true, type: 'boolean' },
       same: { default: true, type: 'boolean' },
       seeds: { default: '200', type: 'string' },
       strict: { default: false, type: 'boolean' },
+      writes: { default: false, type: 'boolean' },
     },
   })
+  writesMode = values.writes
   const { startOracle } = await import('./lean-oracle')
   const oracle = await startOracle()
   try {
     const options: Options = {
       accessors: values.accessors,
       attributes: values.attributes,
+      hazards: values.hazards,
       nodes: Number(values.nodes),
       reorder: values.reorder,
       same: values.same,
     }
     assert.ok(values.op in checks, `unknown operation ${values.op}`)
     const check = checks[values.op as keyof typeof checks] as Check<unknown>
-    if (values.dump === undefined)
+    if (values.features) await features(oracle.run, seeds(Number(values.seeds)), options)
+    else if (values.dump === undefined)
       await batch(
         check,
         oracle.run,
