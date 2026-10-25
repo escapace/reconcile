@@ -4,7 +4,6 @@ import { compactFixture } from '../src/__tests__/fixtures/compact-immutable'
 import type { CompactImmutableInput } from '../src/__tests__/fixtures/compact-immutable'
 import { constructionOrder } from '../src/graph/construction'
 import { immutableSelections } from '../src/graph/immutable-selection'
-import { selections } from '../src/graph/selection'
 import type { Domains } from '../src/types'
 
 interface Observation {
@@ -39,9 +38,10 @@ function checkInput(input: CompactImmutableInput, context: string): void {
   for (const row of input.rows) checkRow(row, input.rows.length, context)
 }
 
-/** Checks one case's native ranked stream, owner bound and construction orders against Lean. */
+/** Checks one case's native ranked stream, owner bound and construction orders against Lean. The
+ * Lean masks are the complete ranked stream of the case's domains. */
 function checkCase(observation: Observation, context: string, totals: Totals): void {
-  const { domains, input, masks, orders, selected } = observation
+  const { input, masks, orders, selected } = observation
   checkInput(input, context)
   const problem = compactFixture(input)
   const owners = new Set(problem.storages.filter((_, node) => !problem.unavailable.has(node)))
@@ -51,10 +51,6 @@ function checkCase(observation: Observation, context: string, totals: Totals): v
     actual.length !== 0 && input.rows.filter((row) => row.eligible).length > owners.size,
   )
   assert.deepEqual(actual, masks, context)
-  const original = [...selections(domains)].map((selection) =>
-    selection.map((choice, node) => domains[node][choice].retained),
-  )
-  assert.deepEqual(original, masks, `${context}: original ranked stream`)
   const actualOrders = actual.map((mask) => constructionOrder(input.dependencies, mask) ?? null)
   assert.deepEqual(actualOrders, orders, `${context}: construction order`)
   const first = actual.find((_, plan) => actualOrders[plan] !== null) ?? null

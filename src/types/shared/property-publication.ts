@@ -281,9 +281,8 @@ function fixedSlot(
 }
 
 /**
- * The value of a fixed slot: what the call already read at its edge (`context.reads`), what an
- * earlier preflight of this publication read, or one read now, kept in `context.held` so that
- * publication decides from it (Property.WriteFreeReadback.publishPre, publishSeen).
+ * The value of a fixed slot: what the call already read at its edge (`context.reads`), else one
+ * read now.
  */
 function heldValue(
   node: CapturedNode,
@@ -294,31 +293,22 @@ function heldValue(
   const reads = context?.reads
   const edge = reads === undefined ? -1 : indexIn(node.keys, key)
   if (edge !== -1 && edge < reads!.length && reads![edge] !== UNREAD) return reads![edge]
-  let held = context?.held?.get(current)
-  if (held?.has(key) === true) return held.get(key)
-  const value = Reflect.get(current, key) as unknown
-  if (context !== undefined) {
-    if (held === undefined) (context.held ??= new Map()).set(current, (held = new Map()))
-    held.set(key, value)
-  }
-  return value
+  return Reflect.get(current, key)
 }
 
 /**
  * What the call already read at edge `index`, which holds `key`, of the object being published:
- * capture's or a previous readback's read, else what a preflight of this publication read at that
- * fixed slot (`held`), else `UNREAD`. A key publication deleted first (`removed`) holds no read.
+ * capture's, discovery's or the previous pass's read by position, else `UNREAD`. A key
+ * publication deleted first (`removed`) holds no read.
  */
 export function priorRead(
   reads: readonly unknown[] | undefined,
   index: number,
-  held: ReadonlyMap<PropertyKey, unknown> | undefined,
   key: PropertyKey,
   removed?: readonly PropertyKey[],
 ): unknown {
   if (removed?.includes(key) === true) return UNREAD
-  const read = reads !== undefined && index < reads.length ? reads[index] : UNREAD
-  return read === UNREAD && held?.has(key) === true ? held.get(key) : read
+  return reads !== undefined && index < reads.length ? reads[index] : UNREAD
 }
 
 // The order cursor for `previous`, or undefined when it already begins with the desired order.
@@ -461,15 +451,15 @@ export function publishKnown(
 }
 
 /**
- * `publishKnown` with a value the call already read of this key (`read`): the one aligned capture,
- * candidate discovery or a preflight read before the first write, or the one a retried plan's
- * previous readback saw.
+ * `publishKnown` with a value the call already read of this key (`read`): the one aligned capture
+ * or candidate discovery read before the first write, or the one the previous pass read back.
  * It decides whether the key needs a write, without reading it again, and the descriptor, or else
  * the live slot, gives the presence and attributes the write uses
  * (Property.WriteFreeReadback.publishPre, publishSeen); with stable reads that is
  * `publishProperty`'s decision (publishPre_eq, publishSeen_eq). After an earlier write the read can
  * be stale, which the readback that follows any write catches (accepts_readsAs,
- * acceptsRetry_readsAs).
+ * acceptsRetry_readsAs). A key the object lacks reads as `undefined`, so an equal `undefined` is
+ * unchanged only when the key is own, which the descriptor or presence says.
  */
 export function publishRead(
   target: object,
@@ -478,7 +468,11 @@ export function publishRead(
   descriptor: PropertyDescriptor | undefined,
   read: unknown,
 ): number {
-  if (Object.is(read, value)) return UNCHANGED
+  if (
+    Object.is(read, value) &&
+    (value !== undefined || descriptor !== undefined || hasOwn(target, key))
+  )
+    return UNCHANGED
   if (descriptor === undefined) return writeProperty(target, key, value, hasOwn(target, key))
   return wrote(
     isDataDescriptor(descriptor)

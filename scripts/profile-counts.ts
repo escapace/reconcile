@@ -13,10 +13,6 @@ const intrinsic = new Set([
 const metadata = new Set(['buffer', 'byteLength', 'byteOffset', 'constructor'])
 const nativeOwners = new Set(['src/draft-session.ts', 'src/finalization.ts'])
 
-const EXECUTION = 'src/graph/execution.ts'
-const SELECTION = 'src/graph/selection.ts'
-const SUPPORTED_CHOICES = 'src/graph/supported-choices.ts'
-const FORCED_GROUPS = 'src/graph/forced-groups.ts'
 const FINALIZATION = 'src/finalization.ts'
 const CANDIDATES = 'src/publication/candidates.ts'
 
@@ -67,105 +63,14 @@ function declaredIdentifier(node: ts.Node): string | undefined {
     : undefined
 }
 
-function isAssignmentTo(node: ts.BinaryExpression, target: string, file: ts.SourceFile): boolean {
-  return node.left.getText(file) === target && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-}
-
-/** Whether `state.checked` is copied entry by entry (spread or `new Set(state.checked)`). */
-function copiesCheckedEntries(node: ts.PropertyAccessExpression, file: ts.SourceFile): boolean {
-  const parent = node.parent
-  return (
-    ts.isSpreadElement(parent) ||
-    (ts.isNewExpression(parent) &&
-      parent.expression.getText(file) === 'Set' &&
-      // TypeScript syntax-node fields, not legacy Function.arguments.
-      // eslint-disable-next-line baseline-js/use-baseline
-      parent.arguments?.length === 1 &&
-      // eslint-disable-next-line baseline-js/use-baseline
-      parent.arguments[0] === node)
-  )
-}
-
-/** Counts copied checked-store entries; every other checked-store access must be audited. */
-function countCheckedCopy(
-  counter: Counter,
-  node: ts.Node,
-  updated: ts.Node,
-): ts.Expression | undefined {
-  const { file, path } = counter.site
-  if (
-    path !== EXECUTION ||
-    !ts.isPropertyAccessExpression(node) ||
-    node.getText(file) !== 'state.checked'
-  )
-    return undefined
-  if (copiesCheckedEntries(node, file)) {
-    counter.sites['execution.checkedEntriesCopied'] += 1
-    const f = counter.factory
-    return f.createCallExpression(
-      f.createPropertyAccessExpression(
-        f.createIdentifier('globalThis'),
-        '__reconcileCheckedEntries',
-      ),
-      undefined,
-      [updated as ts.Expression],
-    )
-  }
-  const parent = node.parent
-  if (!ts.isPropertyAccessExpression(parent) || !['add', 'has', 'size'].includes(parent.name.text))
-    throw new Error(`Unaudited checked-store access: ${parent.getText(file)}`)
-  return undefined
-}
-
 const matchesText =
   (texts: string | readonly string[], key: string): BinaryRule =>
   (node, file) =>
     (typeof texts === 'string' ? [texts] : texts).includes(node.getText(file)) ? key : undefined
 
-/** Forced-follower slots restore with `undefined` and force with any other value. */
-const forcedWrite: BinaryRule = (node, file) => {
-  if (!isAssignmentTo(node, 'forced![group[member].node]', file)) return undefined
-  return node.right.getText(file) === 'undefined'
-    ? 'selection.forceRestores'
-    : 'selection.forceWrites'
-}
-
 /** Binary expressions counted by their source text, per owning file. */
 const binaryRules = new Map<string, BinaryRule[]>([
-  [
-    EXECUTION,
-    [
-      (node, file) =>
-        isAssignmentTo(node, 'incoming[edge.node]', file)
-          ? 'execution.incomingSummaryUpdates'
-          : undefined,
-      matchesText('incoming !== undefined', 'execution.incomingQueries'),
-      matchesText('incoming !== event.exposed', 'execution.incomingSummaryComparisons'),
-    ],
-  ],
-  [
-    FORCED_GROUPS,
-    [matchesText(['required[edge].node <= node', 'edge.node <= node'], 'selection.groupScanEdges')],
-  ],
-  [
-    SELECTION,
-    [
-      matchesText('choice !== undefined', 'selection.choiceChecks'),
-      forcedWrite,
-      matchesText('demand === undefined', 'selection.activeQueries'),
-    ],
-  ],
-  [
-    SUPPORTED_CHOICES,
-    [
-      matchesText(
-        ['domain[position].identity === identity', 'target.identity === edge.identity'],
-        'selection.supportProbePositions',
-      ),
-      matchesText('edge.node === node', 'selection.supportRequirementVisits'),
-      matchesText('bucket.remaining === 0', 'selection.supportDeletions'),
-    ],
-  ],
+  [CANDIDATES, [matchesText('choices?.includes(object) === true', 'discovery.aliasVisits')]],
 ])
 
 function binaryKeys(site: Site, node: ts.BinaryExpression): string[] {
@@ -201,17 +106,6 @@ const dateTimeCall: CallRule = (site, node) =>
 
 /** Call-site counters, in emission order. */
 const callRules: CallRule[] = [
-  exactCalls(SUPPORTED_CHOICES, [
-    ['queue.push', 'selection.supportAdmissions'],
-    ['bucket.dependents.push', 'selection.supportIncidences'],
-  ]),
-  exactCalls(SELECTION, [
-    ['trail.push', 'selection.trailWrites'],
-    ['trail.pop', 'selection.trailRestores'],
-    ['addIncoming', 'selection.summaryUpdates'],
-    ['owners.add', 'selection.assignments'],
-    ['owners.delete', 'selection.undo'],
-  ]),
   metadataCall,
   exactCalls('src/types/registry.ts', [
     ['module.recognition.test', 'classification.predicateTests'],
@@ -225,7 +119,6 @@ const callRules: CallRule[] = [
   intrinsicCall,
   kindMemoMiss,
   exactCalls(FINALIZATION, [['this.untrackedSpecialsToClone.add', 'semantic.activations']]),
-  exactCalls(EXECUTION, [['state.checked.add', 'execution.checks']]),
   dateTimeCall,
 ]
 
@@ -254,7 +147,7 @@ function metadataRead(site: Site, node: ts.PropertyAccessExpression): string[] {
 
 /** Graph record literals recognized by the identifier names they define. */
 const literalShapes: ReadonlyArray<[key: string, names: string[]]> = [
-  ['graph.choiceLiteral', ['identity', 'storage', 'required', 'retained']],
+  ['graph.candidateLiteral', ['identity', 'required']],
   ['graph.capturedNodeLiteral', ['edges', 'keys', 'layout']],
   ['graph.reuseNodeLiteral', ['children', 'layout', 'target']],
 ]
@@ -272,19 +165,6 @@ function isEdgeLiteral(path: string, names: ReadonlySet<string>): boolean {
   return edgeOwners.includes(path) && names.size === 1 && (names.has('node') || names.has('value'))
 }
 
-/** Execution states built with a computed `revision`. */
-function isRevisionLiteral(site: Site, node: ts.ObjectLiteralExpression): boolean {
-  return (
-    site.path === EXECUTION &&
-    node.properties.some(
-      (property) =>
-        ts.isPropertyAssignment(property) &&
-        property.name.getText(site.file) === 'revision' &&
-        ts.isBinaryExpression(property.initializer),
-    )
-  )
-}
-
 function objectKeys(site: Site, node: ts.ObjectLiteralExpression): string[] {
   const names = propertyNames(node)
   return defined([
@@ -293,7 +173,6 @@ function objectKeys(site: Site, node: ts.ObjectLiteralExpression): string[] {
       required.every((name) => names.has(name)) ? key : undefined,
     ),
     isEdgeLiteral(site.path, names) ? 'graph.edgeLiteral' : undefined,
-    isRevisionLiteral(site, node) ? 'execution.revisions' : undefined,
   ])
 }
 
@@ -325,22 +204,6 @@ function prependToArrow(
   )
 }
 
-/** Each plan that the selection stream yields; delegation to a score tier is not a plan. */
-const countPlans: Rewrite = (counter, _node, updated) => {
-  if (
-    !ts.isYieldExpression(updated) ||
-    updated.asteriskToken !== undefined ||
-    counter.site.path !== SELECTION ||
-    updated.expression === undefined
-  )
-    return undefined
-  return counter.factory.updateYieldExpression(
-    updated,
-    updated.asteriskToken,
-    counter.wrap(updated.expression, ['selection.plans']),
-  )
-}
-
 /** Function-entry counters by owning file and function name. */
 const entryTallies = new Map<string, ReadonlyMap<string, string>>([
   [
@@ -352,21 +215,12 @@ const entryTallies = new Map<string, ReadonlyMap<string, string>>([
     ]),
   ],
   ['src/types/shared/property-publication.ts', new Map([['propertySlots', 'shape.indexBuilds']])],
-  [
-    SELECTION,
-    new Map([
-      ['compatible', 'selection.compatible'],
-      ['selections', 'selection.streams'],
-    ]),
-  ],
 ])
 /** Entry counters that also count distinct `value` arguments. */
 const identityTallies = new Set(['classification.expected', 'classification.full'])
 
 function entryKey(path: string, name: string | undefined): string | undefined {
-  if (name === undefined) return undefined
-  if (path === FORCED_GROUPS) return `selection.${name}`
-  return entryTallies.get(path)?.get(name)
+  return name === undefined ? undefined : entryTallies.get(path)?.get(name)
 }
 
 const countFunctionEntry: Rewrite = (counter, _node, updated) => {
@@ -483,7 +337,6 @@ const countObservationMethod: Rewrite = (counter, node, updated) => {
 
 /** Statement-level rewrites; the first that applies wins. */
 const rewrites: Rewrite[] = [
-  countPlans,
   countFunctionEntry,
   countMethodMemo,
   countArrowMemo,
@@ -539,17 +392,11 @@ export function instrumentCounts(source: string, path: string) {
     path,
   }
   const sites: Record<string, number> = {}
-  // Zero is meaningful only after every checked-store access passes the audit below.
-  if (path === EXECUTION) {
-    sites['execution.checkedEntriesCopied'] = 0
-  }
   const transformed = ts.transform(file, [
     (context) => {
       const counter = createCounter(context, site, sites)
       const visit: ts.Visitor = (node) => {
         const updated = ts.visitEachChild(node, visit, context)
-        const copied = countCheckedCopy(counter, node, updated)
-        if (copied !== undefined) return copied
         const keys = counterKeys(site, node)
         if (ts.isExpression(updated) && keys.length !== 0) return counter.wrap(updated, keys)
         return rewrite(counter, node, updated) ?? updated
@@ -573,12 +420,6 @@ globalThis.__reconcileCount = (key, identity) => {
     seen.set(identity, previous + 1)
     if (previous === 0) diagnosticCounts[key + '.identities'] = (diagnosticCounts[key + '.identities'] ?? 0) + 1
     diagnosticCounts[key + '.maximumPerIdentity'] = Math.max(diagnosticCounts[key + '.maximumPerIdentity'] ?? 0, previous + 1)
-  }
-}
-globalThis.__reconcileCheckedEntries = function* (entries) {
-  for (const entry of entries) {
-    globalThis.__reconcileCount('execution.checkedEntriesCopied')
-    yield entry
   }
 }
 `

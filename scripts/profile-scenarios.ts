@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { ring, type RingNode } from '../src/__tests__/fixtures/ring'
-import type { selections } from '../src/graph/selection'
 import type * as API from '../src/index'
-import type { Domains } from '../src/types'
 import {
   flatOperation,
   serializationFixtures,
@@ -24,8 +22,6 @@ export const diagnosticNames = [
   'diag-collection-capture',
   'diag-buffer',
   'diag-views',
-  'diag-core-selection',
-  'diag-core-requires',
   'diag-shared-cycle',
   'diag-shared-spread',
   'diag-produce-deep',
@@ -214,54 +210,6 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
         assert.equal(shared.n, 0)
         assert.equal(output.map.get(0)!.n, 1)
         assert.equal(output.map.get(0), [...output.set][0])
-      },
-    }
-  },
-  'diag-core-requires': ({ api, size }) => {
-    let last: unknown
-    const width = Math.min(size, 32)
-    const domains: Domains = [
-      Array.from({ length: width }, (_, identity) => ({
-        identity,
-        required: [{ identity: width + identity, node: 1 }],
-        retained: true,
-        storage: identity,
-      })),
-      Array.from({ length: width }, (_, option) => ({
-        identity: width + option,
-        required: [],
-        retained: true,
-        storage: width + option,
-      })),
-    ]
-    return {
-      layer: 'finite core only',
-      state:
-        'stable two-domain Requires problem, width capped at 32; complete stream per operation',
-      run: () => {
-        last = [...api.selections(domains)]
-      },
-      validate: () => {
-        const plans = last as number[][]
-        assert.equal(plans.length, width)
-        plans.forEach((plan, index) => assert.deepEqual(plan, [index, index]))
-      },
-    }
-  },
-  'diag-core-selection': ({ api, size }) => {
-    let last: unknown
-    const domains: Domains = Array.from({ length: Math.min(size, 6) }, (_, node) => [
-      { identity: node, required: [], retained: true, storage: node },
-      { identity: node + 10, required: [], retained: false, storage: node + 10 },
-    ])
-    return {
-      layer: 'finite core only',
-      state: 'stable finite domains; complete bounded plan stream per operation',
-      run: () => {
-        last = [...api.selections(domains)]
-      },
-      validate: () => {
-        assert.equal((last as unknown[]).length, 2 ** domains.length)
       },
     }
   },
@@ -587,7 +535,6 @@ export function createDiagnostic(
   api: {
     produce: typeof API.produce
     reconcile: typeof API.reconcile
-    selections: typeof selections
     snapshot: typeof API.snapshot
     copyDate: (value: object, resolve: (child: object) => object) => object
     sameBuffer: (left: ArrayBuffer, right: ArrayBuffer) => boolean

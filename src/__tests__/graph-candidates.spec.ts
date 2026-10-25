@@ -1,17 +1,16 @@
 import { builtinTypes } from '../types/builtins'
 import { atomValue, isNode } from '../graph/edge'
-import { assert, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { candidates } from '../publication/candidates'
-import { selections } from '../graph/selection'
 
 function problem(current: object, next: object) {
   const records = capture(builtinTypes, next).nodes
   return { domains: candidates(builtinTypes, records, current), records }
 }
 
-describe('native candidate constraint compiler', () => {
-  it('compiles fixed cycles and shared references without making a selection or writing input', () => {
+describe('native candidate discovery', () => {
+  it('compiles fixed cycles and shared references without deciding or writing input', () => {
     const child = { n: 0 }
     const current = { child, self: {} }
     current.self = current
@@ -19,26 +18,42 @@ describe('native candidate constraint compiler', () => {
     const next = { child: { n: 1 }, self: {} }
     next.self = next
     const { domains } = problem(current, next)
-    const plans = [...selections(domains)]
-    expect(plans).toHaveLength(1)
-    expect(plans[0].map((choice, node) => domains[node][choice].identity)).toEqual([current, child])
+    expect(domains.map((domain) => domain.map((choice) => choice.identity))).toEqual([
+      [current],
+      [child],
+    ])
+    expect(domains[0][0].required).toEqual([
+      { identity: child, node: 1 },
+      { identity: current, node: 0 },
+    ])
     expect(child.n).toBe(0)
   })
 
-  it('rejects incompatible fixed identities, storage and own surfaces before publication', () => {
+  it('rejects incompatible fixed identities and own surfaces before publication', () => {
     const shared = { n: 1 }
     const cases: Array<[object, object]> = [
       [Object.freeze({ left: {}, right: {} }), { left: shared, right: shared }],
-      [Object.freeze({ left: shared, right: shared }), { left: {}, right: {} }],
       [Object.preventExtensions({ n: 0 }), { added: 2, n: 1 }],
       [Object.freeze({ n: 0 }), { n: 1 }],
       [new ArrayBuffer(1), new ArrayBuffer(2)],
     ]
-    for (const [current, next] of cases)
-      expect([...selections(problem(current, next).domains)]).toEqual([])
+    for (const [current, next] of cases) expect(problem(current, next).domains[0]).toEqual([])
   })
 
-  it('scores view retention and buffer ownership through one conditional rule', () => {
+  it('offers a frozen root whose fixed slots hold one object at two positions', () => {
+    const shared = { n: 1 }
+    const { domains } = problem(Object.freeze({ left: shared, right: shared }), {
+      left: {},
+      right: {},
+    })
+    // The root requires both nodes to keep `shared`, which the decision then cannot establish.
+    expect(domains[0][0].required).toEqual([
+      { identity: shared, node: 1 },
+      { identity: shared, node: 2 },
+    ])
+  })
+
+  it('binds a view to its buffer through one conditional rule', () => {
     const first = new ArrayBuffer(4)
     const second = new ArrayBuffer(4)
     const view = new Uint8Array(second)
@@ -47,20 +62,16 @@ describe('native candidate constraint compiler', () => {
       { a: first, b: second, view },
       { a: nextBuffer, b: nextBuffer, view: new Uint8Array(nextBuffer) },
     )
-    const selected = selections(domains).next().value
-    assert(selected !== undefined)
-    expect(domains[1][selected[1]].identity).toBe(second)
-    expect(domains[2][selected[2]].identity).toBe(view)
+    expect(domains[1].map((choice) => choice.identity)).toEqual([first, second])
+    expect(domains[2]).toEqual([{ identity: view, required: [{ identity: second, node: 1 }] }])
   })
 
   it('preserves compatible children when a fixed parent candidate cannot be retained', () => {
     const child = { n: 0 }
     const parent = Object.freeze({ child, obsolete: 1 })
     const { domains } = problem({ parent }, { parent: { child: { n: 2 } } })
-    const selected = selections(domains).next().value
-    assert(selected !== undefined)
-    expect(domains[1][selected[1]].retained).toBe(false)
-    expect(domains[2][selected[2]].identity).toBe(child)
+    expect(domains[1]).toEqual([])
+    expect(domains[2][0].identity).toBe(child)
     expect(child.n).toBe(0)
   })
   it('aligns Map entries from the built-in contents, never through an own entries method', () => {
@@ -88,9 +99,7 @@ describe('native candidate constraint compiler', () => {
     }
     const { domains } = problem(current, new Map([['key', { n: 1 }]]))
     expect(events).toEqual([])
-    const selected = selections(domains).next().value
-    assert(selected !== undefined)
-    expect(domains[1][selected[1]].identity).toBe(child)
+    expect(domains[1][0].identity).toBe(child)
   })
   it('reads collection sizes with the built-in getter, never an own size', () => {
     for (const current of [new Map([['key', 1]]), new Set(['key'])]) {

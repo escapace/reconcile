@@ -439,33 +439,48 @@ function attempt(operation: () => unknown): {
   }
 }
 
-/** The getter counts the runtime made, labelled `<current index>.<key>`. */
-function getterCounts(counters: Counters, current: readonly object[]): Map<string, number> {
+/** The getter counts the runtime made so far, labelled `<current index>.<key>`, leaving out the
+ * objects `next` holds, whose getters reading `next` runs; then resets the counts. */
+function getterCounts(
+  counters: Counters,
+  current: readonly object[],
+  held: ReadonlySet<object>,
+): Map<string, number> {
   const counts = new Map<string, number>()
   for (const [o, byKey] of counters)
-    for (const [k, count] of byKey) counts.set(`${current.indexOf(o)}.${k}`, count.get)
+    for (const [k, count] of byKey) {
+      if (!held.has(o)) counts.set(`${current.indexOf(o)}.${k}`, count.get)
+      count.get = 0
+    }
   return counts
 }
 
 /** The getter counts the reference expects, labelled like `getterCounts`. */
-const wantedGets = (expected: Outcome): Map<string, number> =>
-  new Map((expected.gets ?? []).map(([index, [k, n]]) => [`${index}.${k}`, n]))
+const wantedGets = (expected: Outcome, current: readonly object[], held: ReadonlySet<object>) =>
+  new Map(
+    (expected.gets ?? [])
+      .filter(([index]) => !held.has(current[index]))
+      .map(([index, [k, n]]) => [`${index}.${k}`, n]),
+  )
 
-/** Getter counts for accessor slots of current objects: a report, not a gate. */
+/** Getter counts for accessor slots of current objects that `next` does not hold, which must
+ * agree both ways. */
 function reportGetters(
   seed: number,
-  counters: Counters,
-  current: readonly object[],
-  expected: Outcome,
+  actual: ReadonlyMap<string, number>,
+  wanted: ReadonlyMap<string, number>,
   reports: Report[],
 ): void {
-  const wanted = wantedGets(expected)
-  for (const [label, n] of getterCounts(counters, current)) {
-    const w = wanted.get(label) ?? 0
+  for (const label of new Set([...actual.keys(), ...wanted.keys()])) {
+    const n = countOf(actual, label)
+    const w = countOf(wanted, label)
     if (n !== w)
       reports.push({ detail: `${label}: runtime ${n} reference ${w}`, kind: 'getters', seed })
   }
 }
+
+const countOf = (counts: ReadonlyMap<string, number>, label: string): number =>
+  counts.get(label) ?? 0
 
 /** Reports a runtime rejection against the reference: whether the reference succeeds, and whether
  * `current` changed before a rejection the reference decides before any write. */
@@ -489,8 +504,11 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const next = materialize(c.next, new Map(), (index) =>
     c.same[index] === null ? undefined : current[c.same[index]],
   )
+  const held = new Set(c.same.flatMap((index) => (index === null ? [] : [current[index]])))
   const before = stable(recapture(current[0], current))
+  getterCounts(counters, current, held)
   const run = attempt(() => reconcile(toJs(c.cur.root, current), toJs(c.next.root, next)))
+  const gets = getterCounts(counters, current, held)
   if ('error' in run) return [errorReport(seed, run.error)]
   if (run.rejected)
     return reportRejection(seed, expected, stable(recapture(current[0], current)) !== before)
@@ -498,7 +516,7 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
     return [{ detail: 'reference rejects; runtime succeeded', kind: 'rejection', seed }]
   const reports: Report[] = []
   compareCaptured(seed, recapture(run.result, current), expected, reports)
-  reportGetters(seed, counters, current, expected, reports)
+  reportGetters(seed, gets, wantedGets(expected, current, held), reports)
   return reports
 }
 
@@ -689,19 +707,14 @@ const GATE_OPTIONS: Options = {
   same: true,
 }
 
-/** The seeded batch `check-lean.ts` runs. Until the deterministic engine replaces the current
- * one, `reconcile` differences of the known class are allowed: `retention` (where the current
- * engine's plan search keeps an object the deterministic reference does not, or the reverse);
- * getter counts are a report. Every other difference, and any difference of `produce` or
- * `snapshot`, fails. */
+/** The seeded batch `check-lean.ts` runs: every difference of `reconcile`, getter counts
+ * included, and of `produce` or `snapshot` fails. */
 export async function checkSpecGate(oracle: Oracle): Promise<void> {
-  const allowed = new Set<Report['kind']>(['getters', 'retention'])
   const reconciled = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
-  const failing = reconciled.reports.filter((r) => !allowed.has(r.kind))
   assert.deepEqual(
-    failing,
+    reconciled.reports,
     [],
-    `Spec reconcile: ${failing.length} differences outside the known classes`,
+    `Spec reconcile: ${reconciled.reports.length} differences`,
   )
   const produced = await checkSpec(produceCheck, oracle, seeds(1500), GATE_OPTIONS)
   assert.deepEqual(produced.reports, [], `Spec produce: ${produced.reports.length} differences`)

@@ -3,7 +3,6 @@ import { ARRAY_BUFFER_KIND } from '../types/array-buffer'
 import { it } from 'vitest'
 import { createDiagnostic, diagnosticNames } from '../../scripts/profile-scenarios'
 import { deserialize, produce, reconcile, requiredMaxBytes, serialize, snapshot } from '../index'
-import { selections } from '../graph/selection'
 import { builtinTypes } from '../types/builtins'
 
 it.each(diagnosticNames)('validates repeated diagnostic operations: %s', (name) => {
@@ -16,7 +15,6 @@ it.each(diagnosticNames)('validates repeated diagnostic operations: %s', (name) 
       reconcile,
       requiredMaxBytes,
       sameBuffer: builtinTypes.specials[ARRAY_BUFFER_KIND]!.equivalent,
-      selections,
       serialize,
       snapshot,
     },

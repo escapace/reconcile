@@ -126,12 +126,11 @@ function writeProperties(
   image: (edge: Edge, key?: PropertyKey) => unknown,
   known: ReadonlyArray<PropertyDescriptor | undefined> | undefined,
   reads: readonly unknown[] | undefined,
-  held: ReadonlyMap<PropertyKey, unknown> | undefined,
   removed: readonly PropertyKey[] | undefined,
   moved: readonly unknown[] | undefined,
 ): number {
   const hidden = node.layout.hidden
-  const lookup = reads !== undefined || held !== undefined
+  const lookup = reads !== undefined
   let result = UNCHANGED
   for (let index = 0; index < node.keys.length; index += 1) {
     const key = node.keys[index]
@@ -142,7 +141,7 @@ function writeProperties(
       descriptor === undefined &&
       hidden?.has(key) === true &&
       !hasOwn(target, key)
-    const read = lookup ? priorRead(reads, index, held, key, removed) : UNREAD
+    const read = lookup ? priorRead(reads, index, key, removed) : UNREAD
     const value = image(node.edges[index], key)
     // Without a read the key takes `publishKnown` as it is, kept small enough to inline.
     const written =
@@ -222,15 +221,17 @@ export const objectPublication = /* @__PURE__ */ (() =>
     ...objectConstruction,
     aligned: alignedProperties,
     compatible: yes,
+    // The key list must match before any value is read, so no key is read through the
+    // prototype; every value is then read once, whether or not an earlier one matched.
     matches(node, current, visit) {
       const keys = ownKeys(current)
       if (keys.length !== node.keys.length) return false
-      for (let index = 0; index < keys.length; index += 1) {
-        const key = node.keys[index]
-        if (keys[index] !== key || !visit(Reflect.get(current, key), node.edges[index]))
-          return false
-      }
-      return true
+      for (let index = 0; index < keys.length; index += 1)
+        if (keys[index] !== node.keys[index]) return false
+      let matched = true
+      for (let index = 0; index < keys.length; index += 1)
+        if (!visit(Reflect.get(current, node.keys[index]), node.edges[index])) matched = false
+      return matched
     },
     publish(node, target, image, _owner, note) {
       const keys = node.keys
@@ -244,10 +245,7 @@ export const objectPublication = /* @__PURE__ */ (() =>
       // The reads, capture's or a previous readback's, follow the node's edges; a requested key
       // moved into the requested order is deleted first, and its read no longer holds.
       const reads = note?.reads
-      // The fixed slots a preflight of this publication read, by key.
-      const held = note?.held?.get(target)
-      const removed =
-        (reads !== undefined || held !== undefined) && properties !== undefined ? [] : undefined
+      const removed = reads !== undefined && properties !== undefined ? [] : undefined
       const moved: unknown[] | undefined = properties === undefined ? undefined : []
       const deleted = deleteUnrequested(target, previous, keys.length, properties, removed, moved)
       if (deleted === REFUSED) return false
@@ -258,7 +256,6 @@ export const objectPublication = /* @__PURE__ */ (() =>
         image,
         properties === undefined ? facts?.descriptors : undefined,
         reads,
-        held,
         removed,
         moved,
       )

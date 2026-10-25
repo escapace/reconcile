@@ -3,8 +3,7 @@ import { builtinTypes } from '../types/builtins'
 import type { ObjectLayout } from '../types/object'
 import { describe, expect, it } from 'vitest'
 import { compileImmutable, restoreIdentities } from '../restore-identities'
-import { selections } from '../graph/selection'
-import { immutableDomains } from './fixtures/compact-immutable'
+import { immutableDomains, rankedSelections } from './fixtures/compact-immutable'
 import type { ReuseNode, TypeRegistry } from '../types'
 
 function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLayout> {
@@ -52,7 +51,7 @@ describe('complete immutable graph compilation', () => {
         { identity: domains[bufferNode][0].identity, node: bufferNode },
       ])
     }
-    const plans = [...selections(domains)]
+    const plans = rankedSelections(domains)
     expect(plans).toHaveLength(1)
     const result = restoreIdentities(builtinTypes, source, true)!
     for (const key of ['buffer', 'date', 'repeated', 'typed', 'view'] as const)
@@ -101,7 +100,7 @@ describe('complete immutable graph compilation', () => {
       [false],
       [false],
     ])
-    expect([...selections(domains)]).toEqual([[0, 0]])
+    expect(rankedSelections(domains)).toEqual([[0, 0]])
     const result = restoreIdentities(types, source, true) as typeof current
     expect(result).not.toBe(current)
     expect(result.n).toBe(1)

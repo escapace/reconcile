@@ -589,7 +589,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L93-L95 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L94-L96 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -617,7 +617,7 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when the next value has the same type, such as object, array or `Map`; otherwise the position receives the next value: a primitive or an object kept by reference, such as a function, `RegExp` or `Error`, as it is, and any other object as a new copy. A kept object keeps its prototype: a class instance updated from a plain object stays an instance of its class.
 
-When `current` holds one object at two positions and `next` holds different objects there, the object is kept at one of them, chosen deterministically, and the others receive new objects. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
+When `current` holds one object at two positions and `next` holds different objects there, the object is kept at the first of them in the order `reconcile` reads `next`, and the others receive new objects. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
 
 Dates, buffers and views at matched positions take the next value's time or bytes, and buffer sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's text, including parameter order and duplicate names, and a URL keeps its own `searchParams` object. An equal Temporal value is kept, and a changed one at a nested position is replaced. The contents of a `Map`, `Set`, date, buffer, view, URL or `URLSearchParams` are read and written with the built-in methods, so an override on a subclass or on the instance never runs. Arrays, `Map`, `Set`, dates, binary data, URLs and Temporal values carry only their elements, entries, time, bytes or text: their other own properties, such as fields that a subclass declares, are not updated on a kept object and are not copied to a new one.
 

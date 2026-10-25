@@ -44,8 +44,8 @@ uses. Recognition tries kinds in order; the plain object is the fallback, which 
 registries reach after one prototype read for an object whose prototype is `Object.prototype` or
 `null`.
 
-Selection never lets two kept objects claim one object, and typed-array views reference their
-buffers through explicit edges. `src/standard-prototypes.ts` holds the helpers
+The decision never lets two nodes keep one object, and typed-array views reference their buffers
+through explicit edges. `src/standard-prototypes.ts` holds the helpers
 that keep internal objects and reads independent of `Object.prototype` and `Array.prototype`.
 
 ### The graph operations
@@ -75,16 +75,19 @@ can.
    which of them must stay the same object (_identity requirements_). This is the _preflight_.
    Capture's prototype read of each object serves discovery and the preflight
    (`Types.Ingress`).
-3. _Selection_ (private; `graph/selection.ts` and its helpers) streams every feasible plan by
-   decreasing number of kept objects in a fixed tie order. A different plan with the same score
-   is a behavior change.
-4. _Execution_ (observes; `graph/driver.ts`, `graph/execution.ts`,
-   `publication/publication-engine.ts`, `graph/construction.ts`) prepares targets, writes and
-   reads each written object back to confirm the write (_readback_). A failed native write or
-   readback moves to the next plan; after the first write, the requirement scan reruns on kept
-   targets before each attempt. When every node of the first publication is a plain object or
-   an array that wrote nothing and kept its key order, the readback is skipped
-   (`Property.WriteFreeReadback`); that publication also reuses the preflight's key lists and
+3. _Decision_ (private; `publication/publication-engine.ts` `decide`) keeps, in node order, the
+   first candidate of each node that can be established: not blocked, not kept elsewhere, and with
+   each object its fixed slots hold kept at the node of that slot. Candidates that a candidate's
+   fixed slot requires at the node come before the rest, each part in discovery order. A different
+   decision for the same candidates is a behavior change.
+4. _Write_ (observes; `publication/publication-engine.ts`, `graph/construction.ts`) allocates the
+   new objects in construction order, writes every node, new objects first, and reads each written
+   object back to confirm the write (_readback_). A kept object whose write is refused or does not
+   read back is _blocked_: the next pass decides again without it, every object the earlier pass
+   wrote staying at its node, and the passes end when no object is blocked; a blocked root rejects
+   the call. After the first write, the requirement scan reruns on kept targets before each pass.
+   When every node of the first pass wrote nothing and kept its key order, the readback is skipped
+   (`Property.WriteFreeReadback`); that pass also reuses the preflight's key lists and
    descriptors.
 
 **`produce(current, recipe)`** runs `recipe` against a draft and returns a new graph that reuses
@@ -138,8 +141,8 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   stating the contract change. Run `pnpm check:lean` as well, because a bridge can encode the old
   behavior; [Checks and failures](lean.md#checks-and-failures) says how to resolve a mismatch.
 - **Finite algorithm or new feature.** Work proof first, following [Adding or changing a
-  model](lean.md#adding-or-changing-a-model); identical-occupant pruning (`PrunedReconcile`,
-  `scripts/lean-pruned-bridge.ts`) is the worked example. Then implement, and run the public API
+  model](lean.md#adding-or-changing-a-model); the reference models (`Spec.Reconcile`,
+  `scripts/lean-spec-bridge.ts`) are the worked example. Then implement, and run the public API
   fuzz files (`src/__tests__/public-api-fuzz*.spec.ts`) early, because they catch unsound
   shortcuts.
 - **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
@@ -197,8 +200,8 @@ sides together.
 
 - **Profile harness.** `scripts/profile.ts` rewrites `perf/profile-harness.ts` by exact text (the
   `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for the `diag-*`,
-  `serialize` and `deserialize` scenarios, imports the measured tree's `src/index.ts`, `selections` from
-  `src/graph/selection.ts`, and `dateType` and `arrayBufferType` with their copy operations.
+  `serialize` and `deserialize` scenarios, imports the measured tree's `src/index.ts`, and
+  `dateType` and `arrayBufferType` with their copy operations.
   Renaming or moving any of these breaks `pnpm bench profile` and `ab`, which bundles through the
   same harness. These scenarios always come from the current checkout's
   `scripts/profile-scenarios.ts`.
@@ -209,17 +212,15 @@ sides together.
   factories by name through `createBatches` in `bench-workloads.ts`. The serialization workloads
   always come from the current checkout and measure value to JSON text and back through each
   tree's `serialize` and `deserialize`.
-- **Test fixtures in the tooling.** `scripts/lean-policy-bridge.ts`,
-  `scripts/check-compact-immutable-runtime.ts` and `scripts/profile-scenarios.ts` import fixtures
+- **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` and
+  `scripts/profile-scenarios.ts` import fixtures
   from `src/__tests__/fixtures/`. Changing one for a test silently changes the `pnpm check:lean`
   corpora and the ring-based `diag-*` workloads.
 - **DeferredOrder bridge.** `scripts/check-deferred-order-runtime.ts` copies
   `types/shared/property-publication.ts`, rewrites its relative imports and instruments three exact
   lines in `canPublishProperties`, so a new relative import or an edit to those lines breaks the
   bridge.
-- **Kernel bridges.** Renaming the runtime's policy event field `tag` breaks
-  `scripts/lean-policy-bridge.ts`, which translates it to the oracle's `type`. Source comments
-  name their Lean theorems, and nothing checks them.
+- **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
 - **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until
   `Positional.lean` changes too. `check-serialization-collection-runtime.ts` calls the production
@@ -231,8 +232,8 @@ sides together.
   object, array, `Map`, `Set`, `Date`, `ArrayBuffer`, typed-array and `DataView` facets, and
   `viewBuffer` the view facets' buffer-edge answer. A capture or snapshot policy change for these
   kinds MUST be made there too.
-- **Head shortcuts.** The driver tries `headSelection`'s plan, and identity restoration
-  `immutableHead`'s mask, before searching, because the head theorems prove they come first.
+- **Head shortcut.** Identity restoration tries `immutableHead`'s mask before searching, because
+  the head theorem proves it comes first.
 - **Mangle list.** A name in `scripts/constants.json` that is also read on an application or
   native object, or is public, breaks only the built package, which `pnpm test:lib` tests.
 - **Library tests.** `vitest-library.config.ts` redirects only imports of the entry modules it
@@ -371,7 +372,7 @@ cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot
 - **`profile`** writes `summary.json`, `report.md` and the raw artifacts (under `raw/`) to a new
   `reconcile-profile-*` directory inside `--out`:
   - `--mode counts` counts instrumented source events (constructions, not allocations), such as
-    recognitions, memo hits and selection steps.
+    recognitions, memo hits and alias visits.
   - `--mode cpu` (the default) and `--mode heap` sample time or allocation and attribute frames
     to source through the bundle's source map; the raw `.cpuprofile` and `.heapprofile` files
     open in Chrome DevTools. Samples include fixture work.

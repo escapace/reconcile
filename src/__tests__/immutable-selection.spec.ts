@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { immutableHead, immutableSelections } from '../graph/immutable-selection'
-import { selections } from '../graph/selection'
 import { produce } from '../produce'
 import type { ImmutableProblem } from '../types'
-import { compactFixture, immutableDomains } from './fixtures/compact-immutable'
+import { compactFixture, immutableDomains, rankedSelections } from './fixtures/compact-immutable'
 import type { CompactImmutableInput } from './fixtures/compact-immutable'
 
 function fixture(rows: Array<Partial<CompactImmutableInput['rows'][number]>>): ImmutableProblem {
@@ -22,7 +21,7 @@ function fixture(rows: Array<Partial<CompactImmutableInput['rows'][number]>>): I
 
 function reference(problem: ImmutableProblem): boolean[][] {
   const domains = immutableDomains(problem)
-  return [...selections(domains)].map((selection) =>
+  return rankedSelections(domains).map((selection) =>
     selection.map((choice, node) => domains[node][choice].retained),
   )
 }

@@ -3,7 +3,6 @@ import Oracle.SerializationCollectionOracle
 import Oracle.OwnedNativeChildOracle
 import Oracle.NativeValueOracle
 import Oracle.ContractOracle
-import Oracle.PolicyOracle
 import Oracle.PropertyOrderOracle
 import Oracle.PropertyWriteOracle
 import Oracle.PropertyPlacementOracle
@@ -23,8 +22,6 @@ import Oracle.SeededRequirementsOracle
 import Oracle.CompactImmutableOracle
 import Oracle.FactRenamingOracle
 import Oracle.DeferredOrderOracle
-import Oracle.SelectionUnwindOracle
-import Oracle.PrunedOracle
 import Oracle.SpecOracle
 
 /-! Sequential JSON-line requests share one imported Lean environment.
@@ -48,8 +45,6 @@ private def dispatch (request : Request) : IO Unit := do
   | "NativeValue" => NativeValueOracle.run request.input
   | "Contract" =>
     if (← ContractOracle.run request.args) != 0 then throw (IO.userError "Contract oracle failed")
-  | "Policy" =>
-    if (← PolicyOracle.run request.args) != 0 then throw (IO.userError "Policy oracle failed")
   | "PropertyOrder" => PropertyOrderOracle.run
   | "PropertyWrite" => PropertyWriteOracle.run
   | "PropertyConstructOn" => PropertyWriteOracle.runConstructOn
@@ -71,10 +66,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "CompactImmutable" => CompactImmutableOracle.run request.args
   | "FactRenaming" => FactRenamingOracle.run request.args
   | "DeferredOrder" => DeferredOrderOracle.run request.input
-  | "SelectionUnwind" => SelectionUnwindOracle.run request.input
   | "Spec" => SpecOracle.run request.input
-  | "Pruned" =>
-    if (← PrunedOracle.run request.args) != 0 then throw (IO.userError "Pruned oracle failed")
   | _ => throw (IO.userError s!"Unknown oracle family: {request.family}")
 
 private def finish (error : Option String) : IO Unit := do

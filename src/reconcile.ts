@@ -18,7 +18,8 @@ import { publicationTypes } from './types/builtins'
  * instance updated from a plain object stays an instance of its class.
  *
  * When `current` holds one object at two positions and `next` holds different objects there, the
- * object is kept at one of them, chosen deterministically, and the others receive new objects.
+ * object is kept at the first of them in the order `reconcile` reads `next`, and the others
+ * receive new objects.
  * Afterwards `current` has the key order, array lengths and holes, entry order, shared references
  * and cycles of `next`.
  *

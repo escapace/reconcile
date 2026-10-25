@@ -133,8 +133,7 @@ const readAt = (
   reads: readonly unknown[] | undefined,
   edge: number,
   key: string,
-  held: ReadonlyMap<PropertyKey, unknown> | undefined,
-): unknown => priorRead(node.keys[edge] === key ? reads : undefined, edge, held, key)
+): unknown => priorRead(node.keys[edge] === key ? reads : undefined, edge, key)
 
 export const arrayPublication = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
@@ -142,18 +141,20 @@ export const arrayPublication = /* @__PURE__ */ (() =>
     ...arrayConstruction,
     aligned: alignedProperties,
     compatible: yes,
+    // Every present element is read once, whether or not an earlier one matched.
     matches(node, current, visit) {
       const array = current as unknown[]
       const length = node.layout.length
       if (array.length !== length) return false
       const properties = arraySurface.slots(node)
+      let matched = true
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         const present = properties.has(key)
         if (hasOwn(array, index) !== present || hasElement(array, index) !== present) return false
-        if (present && !visit(array[index], properties.get(key))) return false
+        if (present && !visit(array[index], properties.get(key))) matched = false
       }
-      return true
+      return matched
     },
     // fallow-ignore-next-line complexity -- a dispatch helper per element slowed reconcile 3%
     publish(node, target, image, _owner, note) {
@@ -163,13 +164,11 @@ export const arrayPublication = /* @__PURE__ */ (() =>
       if (written === REFUSED) return false
       // The reads, capture's or a previous readback's, follow the edges: present indices in order.
       const reads = note?.reads
-      // The fixed slots a preflight of this publication read, by key.
-      const held = note?.held?.get(target)
       let edge = 0
       for (let index = 0; index < length; index += 1) {
         const key = String(index)
         if (properties.has(key)) {
-          const read = readAt(node, reads, edge, key, held)
+          const read = readAt(node, reads, edge, key)
           edge += 1
           const value = image(properties.get(key))
           const element =

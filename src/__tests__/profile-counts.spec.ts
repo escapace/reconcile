@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
-import { counterReport, counterSetup, instrumentCounts } from '../../scripts/profile-counts'
+import { instrumentCounts } from '../../scripts/profile-counts'
 
 function prepare(source: string, path = 'src/types/fixture.ts') {
   const overlay = instrumentCounts(source, path)
@@ -85,60 +85,6 @@ it('counts source constructions and preserves a graph edge identity', () => {
   expect(counts).toEqual({ 'allocation.objectLiteral': 1, 'graph.edgeLiteral': 1 })
 })
 
-it.each(['new Set([...state.checked, 9])', 'new Set(state.checked)'])(
-  'counts actual checked entries in %s without extra native reads',
-  (expression) => {
-    let reads = 0
-    let iterations = 0
-    let report = ''
-    const state = {
-      get checked() {
-        reads += 1
-        return {
-          *[Symbol.iterator]() {
-            iterations += 1
-            yield 3
-            yield 7
-          },
-        }
-      },
-    }
-    const overlay = instrumentCounts(
-      `export function run(state: any) { return ${expression} }`,
-      'src/graph/execution.ts',
-    )
-    const result = runInNewContext(
-      counterSetup +
-        ts.transpileModule(overlay.contents, {
-          compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-        }).outputText +
-        '\nconst result = exports.run(state)\n' +
-        counterReport +
-        '\nresult',
-      { console: { log: (line: string) => (report = line) }, exports: {}, state },
-    ) as Set<number>
-    expect([...result]).toEqual(expression.includes('9') ? [3, 7, 9] : [3, 7])
-    expect(reads).toBe(1)
-    expect(iterations).toBe(1)
-    expect(JSON.parse(report.slice('RECONCILE_COUNTS '.length))).toMatchObject({
-      'execution.checkedEntriesCopied': 2,
-    })
-    expect(overlay.sites['execution.checkedEntriesCopied']).toBe(1)
-  },
-)
-
-it('audits zero-copy checked access and refuses an unrecognized use', () => {
-  const path = 'src/graph/execution.ts'
-  expect(
-    instrumentCounts('state.checked.add(1); state.checked.has(1); state.checked.size', path).sites[
-      'execution.checkedEntriesCopied'
-    ],
-  ).toBe(0)
-  expect(() => instrumentCounts('consume(state.checked)', path)).toThrow(
-    'Unaudited checked-store access',
-  )
-})
-
 it('counts split begin and edge callbacks while preserving construction responses', () => {
   const { counts, run } = prepare(
     `export function run(value: any) {
@@ -154,41 +100,6 @@ it('counts split begin and edge callbacks while preserving construction response
   const value = {}
   expect(run(value)).toBe(value)
   expect(counts['observation.events']).toBe(2)
-})
-
-it('counts current incoming-summary queries without comparisons after an empty summary', () => {
-  const { counts, run } = prepare(
-    `export function run(value: any) {
-      const incoming = value.incoming
-      const event = { exposed: value.exposed }
-      return incoming !== undefined && incoming !== event.exposed
-    }`,
-    'src/graph/execution.ts',
-  )
-  expect(run({ exposed: 1, incoming: undefined })).toBe(false)
-  expect(counts['execution.incomingQueries']).toBe(1)
-  expect(counts['execution.incomingSummaryComparisons']).toBeUndefined()
-  expect(run({ exposed: 1, incoming: 2 })).toBe(true)
-  expect(counts['execution.incomingQueries']).toBe(2)
-  expect(counts['execution.incomingSummaryComparisons']).toBe(1)
-})
-
-it('counts forced assignments and restoration without changing indexed storage', () => {
-  const { counts, run } = prepare(
-    `
-    export function run(value: any) {
-      const forced: any[] = [], group = [{ node: 0 }, { node: 2, choice: 7 }]
-      const member = 1
-      forced![group[member].node] = group[member].choice
-      const selected = forced[2]
-      forced![group[member].node] = undefined
-      return [selected, forced[2]]
-    }`,
-    'src/graph/selection.ts',
-  )
-  expect(Array.from(run({}) as unknown[])).toEqual([7, undefined])
-  expect(counts['selection.forceWrites']).toBe(1)
-  expect(counts['selection.forceRestores']).toBe(1)
 })
 
 // Rules that find their call sites by exact source text drop their counter silently when the
@@ -209,20 +120,7 @@ it('finds a site in the library for every text-matched counter', () => {
     'classification.full',
     'classification.memoLookups',
     'classification.predicateTests',
-    'execution.incomingQueries',
-    'execution.incomingSummaryComparisons',
-    'execution.incomingSummaryUpdates',
-    'selection.activeQueries',
-    'selection.choiceChecks',
-    'selection.forceRestores',
-    'selection.forceWrites',
-    'selection.groupScanEdges',
-    'selection.plans',
-    'selection.supportDeletions',
-    'selection.supportProbePositions',
-    'selection.supportRequirementVisits',
-    'selection.trailRestores',
-    'selection.trailWrites',
+    'discovery.aliasVisits',
   ]
   expect(textMatched.filter((key) => !found.has(key))).toEqual([])
   expect([...(found.get('observation.events') ?? [])].toSorted()).toEqual([

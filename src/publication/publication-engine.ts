@@ -1,415 +1,548 @@
 import { atomValue, isNode } from '../graph/edge'
 import { matchesKind } from '../adapters/recognition'
-import { EXPOSURE_MODES } from '../constants'
 import type {
-  Adapter,
-  Binding,
+  Candidate,
+  Candidates,
   CapturedGraph,
-  Choice,
-  Domains,
+  CapturedNode,
+  Compare,
   Edge,
-  Execution,
-  Selection,
-  PublicationRegistry,
   NativeOwners,
-  PreflightFacts,
   PublicationNote,
-  Readback,
+  PublicationRegistry,
 } from '../types'
 import { alignedReads, candidates } from './candidates'
 import { constructionOrder } from '../graph/construction'
 import { constructionDependencies } from '../graph/construction-facts'
-import { continueExecution, execute, scoreOf, type HeadOutcome } from '../graph/driver'
-import { completeExecution, startExecution } from '../graph/execution'
-import { headSelection } from '../graph/selection'
 import { denseArray } from '../standard-prototypes'
 
-// Whether no object is a retained choice at two nodes, so that selection need not compare the
-// objects of the choices it takes.
-function distinctCandidates(domains: Domains): boolean {
-  const seen = new Set<unknown>()
-  for (let node = 0; node < domains.length; node += 1) {
-    const domain = domains[node]
-    for (let index = 0; index < domain.length; index += 1) {
-      const choice = domain[index]
-      if (!choice.retained) continue
-      if (seen.has(choice.storage)) return false
-      seen.add(choice.storage)
-    }
+/**
+ * What a pass leaves for the passes after it: the objects it found blocked, the node each object
+ * it wrote was kept at, by object and by node, and its targets, which say what its readback saw.
+ * Created by the first pass that is followed by another.
+ */
+interface Passes {
+  readonly forbidden: Set<object>
+  previousTargets: readonly object[]
+  readonly written: Map<object, number>
+  readonly writtenAt: Array<object | undefined>
+}
+
+/**
+ * The decision of one pass: the object kept per node, the object an earlier decision requires at
+ * a node not yet reached, and the objects reserved for a node, which only an object that is a
+ * candidate at several nodes (`shared`) or one an earlier pass wrote can be.
+ */
+interface Decision {
+  readonly domains: Candidates
+  readonly kept: Array<object | undefined>
+  readonly passes: Passes | undefined
+  readonly records: readonly CapturedNode[]
+  required: Array<object | undefined> | undefined
+  readonly shared: ReadonlyMap<object, unknown> | undefined
+  used: Set<object> | undefined
+}
+
+// The candidate of a node that is `identity`, if any.
+function candidateOf(domain: readonly Candidate[], identity: object): Candidate | undefined {
+  for (let index = 0; index < domain.length; index += 1)
+    if (domain[index].identity === identity) return domain[index]
+  return undefined
+}
+
+// Whether `x` is reserved for a node other than `c`: kept by an earlier decision of this pass, or
+// written at another node by an earlier pass.
+const reservedElsewhere = (state: Decision, c: number, x: object): boolean =>
+  state.used?.has(x) === true && state.passes?.written.get(x) !== c
+
+// Whether `x` may be kept at `c` as far as the passes and the decisions so far say: no pass found
+// it blocked and no other node reserved it.
+const admissible = (state: Decision, c: number, x: object): boolean =>
+  state.passes?.forbidden.has(x) !== true && !reservedElsewhere(state, c, x)
+
+// Reserves `x` when another node could claim it.
+function reserve(state: Decision, x: object): void {
+  if (state.shared?.has(x) === true || state.passes !== undefined) (state.used ??= new Set()).add(x)
+}
+
+// What the chain says about `c` keeping `x`: a pair already in the chain holds, and a node or
+// object the chain pairs otherwise conflicts; undefined when the chain names neither.
+function chained(chain: readonly unknown[], c: number, x: object): boolean | undefined {
+  for (let index = 0; index < chain.length; index += 2) {
+    if (chain[index] === c) return chain[index + 1] === x
+    if (chain[index + 1] === x) return false
+  }
+  return undefined
+}
+
+// Whether node `c`, not the node being decided, keeps `x` when something is fixed at it: a node
+// before `node` keeps what it was decided to, a pinned node the object it is, and a node an
+// earlier decision requires an object at that object; undefined when nothing is fixed at `c`.
+function fixedKeeps(state: Decision, node: number, c: number, x: object): boolean | undefined {
+  if (c < node) return state.kept[c] === x
+  const fixed = state.records[c].pinned ?? state.required?.[c]
+  return fixed === undefined ? undefined : fixed === x
+}
+
+/**
+ * Establishes that node `c` keeps `x` while `node` is being decided, extending `chain`, which
+ * alternates nodes and objects, with the pairs that requires; false when it cannot. A pair
+ * already in the chain holds, and a node or object the chain pairs otherwise conflicts. A node
+ * something is fixed at must keep `x`. Otherwise `x` must be a candidate of `c` that no pass
+ * found blocked and no other node reserved, and each fixed slot of `x` establishes that the node
+ * at that slot keeps the object the slot holds (Spec.Reconcile.establish).
+ */
+function establish(state: Decision, node: number, chain: unknown[], c: number, x: object): boolean {
+  const known = chained(chain, c, x)
+  if (known !== undefined) return known
+  const fixed = c === node ? undefined : fixedKeeps(state, node, c, x)
+  if (fixed !== undefined) return fixed
+  if (!admissible(state, c, x)) return false
+  const candidate = candidateOf(state.domains[c], x)
+  if (candidate === undefined) return false
+  chain.push(c, x)
+  const required = candidate.required
+  for (let index = 0; index < required.length; index += 1)
+    if (!establish(state, node, chain, required[index].node, required[index].identity)) return false
+  return true
+}
+
+// Keeps `x` at `node` when its chain can be established: the objects the chain names are
+// reserved and the nodes it names are required to keep them. Whether it was kept.
+function keep(state: Decision, node: number, candidate: Candidate, x: object): boolean {
+  if (candidate.required.length === 0) {
+    if (!admissible(state, node, x)) return false
+    state.kept[node] = x
+    reserve(state, x)
+    return true
+  }
+  const chain: unknown[] = []
+  if (!establish(state, node, chain, node, x)) return false
+  for (let index = 0; index < chain.length; index += 2) {
+    const c = chain[index] as number
+    const y = chain[index + 1] as object
+    if (c === node) state.kept[node] = y
+    else (state.required ??= denseArray<object | undefined>(state.records.length))[c] = y
+    reserve(state, y)
   }
   return true
 }
 
-// Claims a fresh target against every old object and the earlier fresh ones; undefined on a
-// collision. The set of old objects is built on the first fresh target.
-function claimFresh(
-  domains: Domains,
-  taken: Set<unknown> | undefined,
-  target: object,
-): Set<unknown> | undefined {
-  if (taken === undefined) {
-    taken = new Set()
-    for (const domain of domains) for (const old of domain) if (old.retained) taken.add(old.storage)
+/**
+ * Decides which current object each node keeps, in node order, which is the order of first visit:
+ * a pinned node keeps the object it is; a node an earlier decision requires keeps that object; any
+ * other node keeps the object an earlier pass wrote there when it still can, else the first of its
+ * candidates that can be established. An object an earlier pass found blocked is never kept, and
+ * one it wrote stays at its node or is dropped, so no object holds another node's writes. Nothing
+ * is read or written: discovery read the candidates and the preflight checked them
+ * (Spec.Reconcile.decide).
+ */
+function decide(
+  records: readonly CapturedNode[],
+  domains: Candidates,
+  shared: ReadonlyMap<object, unknown> | undefined,
+  passes: Passes | undefined,
+): Array<object | undefined> {
+  const size = records.length
+  const state: Decision = {
+    domains,
+    kept: denseArray<object | undefined>(size),
+    passes,
+    records,
+    required: undefined,
+    shared,
+    used: passes === undefined ? undefined : new Set(passes.written.keys()),
   }
-  if (taken.has(target)) return undefined
-  taken.add(target)
-  return taken
+  for (let node = 0; node < size; node += 1) decideNode(state, node)
+  return state.kept
 }
 
-// Fixed identities are the root and everything its selected choices pin transitively;
-// undefined when the root pins nothing and is the only fixed node.
-function fixedNodes(choices: readonly Choice[]): Set<number> | undefined {
-  if (choices[0].required.length === 0) return undefined
-  const fixed = new Set([0])
-  for (const node of fixed) for (const edge of choices[node].required) fixed.add(edge.node)
-  return fixed
-}
-
-const isFixed = (fixed: ReadonlySet<number> | undefined, index: number): boolean =>
-  fixed === undefined ? index === 0 : fixed.has(index)
-
-// Readback results are only read; one frozen match serves every node, one frozen reject every
-// failure without a rebind.
-const MATCH: Readback = /* @__PURE__ */ Object.freeze({ kind: 'match' })
-const REJECT: Readback = /* @__PURE__ */ Object.freeze({ kind: 'reject' })
-
-// After a call's own writes, retained replaceable targets rerun the preflight; the first one
-// that no longer passes, or -1. A fresh choice is labelled by its node index; a retained one by
-// its object. A fixed slot's value comes from what the previous readback saw of a node it
-// matched (`seen`), or is read once and kept in `note.held` for the publication that follows.
-function stale(
-  state: Execution,
-  records: CapturedGraph['nodes'],
-  types: PublicationRegistry,
-  note: PublicationNote,
-  seen: (index: number, binding: Binding) => unknown[] | undefined,
-): number {
-  let rejected = -1
-  for (let index = 0; index < records.length && rejected === -1; index += 1) {
-    const binding = state.bindings[index]
-    if (typeof binding.choice === 'number' || records[index].pinned !== undefined) continue
-    note.prototype = undefined
-    note.reads = seen(index, binding)
-    if (
-      types.policies[records[index].layout.kind].requirements(
-        records[index],
-        binding.writer as object,
-        note,
-      ) === undefined
-    )
-      rejected = index
+// Decides one node, as `decide` says.
+function decideNode(state: Decision, node: number): void {
+  const fixed = state.records[node].pinned ?? state.required?.[node]
+  if (fixed !== undefined) {
+    state.kept[node] = fixed
+    return
   }
-  note.facts = undefined
-  note.reads = undefined
-  return rejected
+  const domain = state.domains[node]
+  const before = state.passes?.writtenAt[node]
+  const first = before === undefined ? undefined : candidateOf(domain, before)
+  if (first !== undefined && keep(state, node, first, before!)) return
+  for (let at = 0; at < domain.length; at += 1) {
+    const candidate = domain[at]
+    if (candidate !== first && keep(state, node, candidate, candidate.identity)) return
+  }
 }
 
-// Publishes every node that is not pinned; the first one refused, or -1. New objects are filled
-// before kept ones, which link them: code that a write into a kept object runs, such as a setter,
-// finds each new object complete.
-function publishFreshFirst(
-  state: Execution,
-  records: CapturedGraph['nodes'],
-  publishNode: (index: number) => boolean,
-): number {
-  for (let pass = 0; pass < 2; pass += 1)
-    for (let index = 0; index < records.length; index += 1)
-      if (
-        records[index].pinned === undefined &&
-        (typeof state.bindings[index].choice === 'number') === (pass === 0) &&
-        !publishNode(index)
-      )
-        return index
-  return -1
+/** The pass under way: the target of each node, which the callbacks read, the native owners found
+ * among them, and whether every publication so far wrote nothing a readback would reject. */
+interface Run {
+  nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
+  targets: readonly object[]
+  unchanged: boolean
 }
 
-/** Reads the live object currently exposed at a node of one attempt. */
-const exposed = (state: Execution, index: number): object => state.bindings[index].exposed as object
-
-// The finite driver owns all selection/revision/retry decisions. This adapter
-// translates native observations to outcomes without changing an active image.
-// Binding labels are the live objects themselves, so no handle table is needed.
-// Pinned nodes are retained as they are: no preflight, publication or readback inside.
+/**
+ * Publishes a captured graph into `root`: decides which current object each node keeps, allocates
+ * the fresh ones, writes every node and reads the written objects back, in passes. A kept object
+ * whose write does not take effect is blocked: the next pass decides again without it, and the
+ * passes end when none is blocked. Pinned nodes are kept as they are: no preflight, publication or
+ * readback inside. Returns false when the root cannot be kept: before any write when the decision
+ * finds so, else after the pass that found it blocked (Spec.Reconcile.run).
+ */
 export function publishGraph(
   types: PublicationRegistry,
   graph: CapturedGraph,
   root: object,
 ): boolean {
   const records = graph.nodes
-  const size = records.length
-  const policies = types.policies
-  // Construction dependencies are sealed facts, listed on the first preparation.
-  let dependencies: Array<readonly number[]> | undefined
-  // The channel between this call's preflights and publications, and the facts a passing
-  // preflight read, by node.
+  // The channel between this call's preflights and publications.
   const note: PublicationNote = {
     facts: undefined,
     fresh: false,
-    held: undefined,
     prototype: undefined,
     reads: undefined,
     unchanged: false,
   }
-  const preflight = denseArray<PreflightFacts | undefined>(size)
-  const domains = candidates(types, records, root, graph, note, preflight)
-  // Retained choices are their objects and fresh ones their own node number, so two choices
-  // share a label only when one object is a candidate at two nodes.
-  const distinctStorages = distinctCandidates(domains)
-  // Binds each selected target to its choice; undefined when a fresh target reuses an old object
-  // or a construction edge names another target.
-  const bind = (choices: readonly Choice[], targets: readonly object[]): Binding[] | undefined => {
-    const fixed = fixedNodes(choices)
-    const bindings = denseArray<Binding>(size)
-    // A retained target observes its choice's memoized storage, and selection admits no two
-    // choices with one storage (GraphPolicy feasible), so only a fresh target can collide: with
-    // any old storage, or with an earlier fresh target. A retained target sharing an earlier
-    // fresh target's storage was already rejected at that fresh target. The taken set exists
-    // only once a fresh target is bound.
-    let taken: Set<unknown> | undefined
-    for (let index = 0; index < size; index += 1) {
-      const target = targets[index]
-      const node = records[index]
-      const choice = choices[index]
-      if (!choice.retained) {
-        taken = claimFresh(domains, taken, target)
-        if (taken === undefined) return undefined
-      }
-      // A retained choice's requirements already name the selected targets; dependent
-      // construction extends a copy of them with edges that must name the selected targets.
-      const construction = policies[node.layout.kind].bindings
-      const read = construction.tag === 'dependent' ? construction.read(node, target) : undefined
-      if (read?.some((edge) => edge.identity !== targets[edge.node]) === true) return undefined
-      bindings[index] = {
-        choice: choice.identity,
-        construction: read === undefined ? choice.required : [...choice.required, ...read],
-        exposed: target,
-        fixed: isFixed(fixed, index),
-        mode: 0,
-        palette: EXPOSURE_MODES,
-        storage: target,
-        writer: target,
-      }
-    }
-    return bindings
+  const domains = candidates(types, records, root, graph, note)
+  const run: Run = {
+    nativeOwners: undefined,
+    targets: records,
+    unchanged: false,
   }
-  // The attempt being published or read back; the callbacks below read it instead of closing
-  // over each revision.
-  let active: Execution | undefined
-  const resolve = (edge: Edge): unknown =>
-    isNode(edge) ? active!.bindings[edge.node].exposed : atomValue(edge)
-  const writer = (index: number): object => active!.bindings[index].writer as object
-  // Construction bindings already observed native ownership at prepare. URL child
-  // identity is fixed for its owner's lifetime, so this lookup performs no live read.
-  let nativeOwners: Map<symbol, WeakMap<object, object>> | undefined
-  const owner = (child: object, kind: symbol): object | undefined => {
-    let owners = nativeOwners?.get(kind)
-    if (owners === undefined) {
-      owners = new WeakMap<object, object>()
-      ;(nativeOwners ??= new Map()).set(kind, owners)
-      for (let index = 0; index < size; index += 1) {
-        if (records[index].pinned !== undefined || records[index].layout.kind !== kind) continue
-        for (const edge of active!.bindings[index].construction)
-          if (edge.identity === writer(edge.node)) owners.set(edge.identity, writer(index))
-      }
-    }
-    return owners.get(child)
+  const resolve = (edge: Edge): unknown => (isNode(edge) ? run.targets[edge.node] : atomValue(edge))
+  const compare: Compare = (actual, wanted) =>
+    isNode(wanted) ? actual === run.targets[wanted.node] : Object.is(actual, atomValue(wanted))
+  const owner = (child: object, kind: symbol): object | undefined =>
+    ownersIn(types, records, run, kind).get(child)
+  let passes: Passes | undefined
+  for (;;) {
+    const kept = decide(records, domains, graph.reads, passes)
+    if (kept[0] === undefined) return false
+    const targets = allocate(types, records, kept)
+    if (targets === undefined) return false
+    run.targets = targets
+    run.nativeOwners = undefined
+    const blocked = write(types, graph, domains, kept, run, note, passes, resolve, compare, owner)
+    if (blocked === REJECTED) return false
+    if (blocked === undefined) return true
+    passes = remember(records, kept, targets, blocked, passes)
   }
-  const compare = (actual: unknown, wanted: Edge): boolean =>
-    isNode(wanted) ? actual === exposed(active!, wanted.node) : Object.is(actual, atomValue(wanted))
-  // Candidate discovery already ran the requirement scan on every retained candidate while no
-  // write had happened; it is the preflight. The engine repeats it only after this call's own
-  // writes, and never on a fresh target, which is private until it is published.
-  let written = false
-  // Whether the first publication wrote nothing that a readback would reject: with no write no
-  // setter or write trap ran, so each readback would observe what publication compared and
-  // accept (Property.WriteFreeReadback), and the engine answers it without reading again.
-  let confirmed = false
-  // An exception from a setter, trap or method propagates unchanged at any depth, without
-  // rollback; only a refusal the publication detects makes the driver try another plan.
-  // Publishes one node of the active execution; the first publication passes the preflight's
-  // facts along. `unchanged` ends false when any node of a publication wrote.
-  let first = false
-  let unchanged = false
-  // The attempt the last readback read and how many of its nodes, from the first, matched: the
-  // readback reads them in order and stops at the first mismatch. Each held what that revision
-  // wanted, which a retried publication decides from instead of reading again
-  // (WriteFreeReadback.publishSeen); a retry's readback always reads.
-  let checked: Execution | undefined
-  let matching = 0
-  // What the last readback saw at each key of a node it matched, when the node is published
-  // through the object that readback read.
-  const seen = (index: number, binding: Binding): unknown[] | undefined => {
-    const before = checked === undefined || index >= matching ? undefined : checked.bindings[index]
-    if (before?.choice !== binding.choice || before.exposed !== binding.writer) return undefined
-    const edges = records[index].edges
-    const reads = denseArray<unknown>(edges.length)
-    for (let edge = 0; edge < edges.length; edge += 1) {
-      const wanted = edges[edge]
-      reads[edge] = isNode(wanted) ? checked!.bindings[wanted.node].exposed : atomValue(wanted)
-    }
-    return reads
+}
+
+// The owner of each native child of one kind among the targets of the pass; URL child identity
+// is fixed for its owner's lifetime, so the lookup performs no live read.
+function ownersIn(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  run: Run,
+  kind: symbol,
+): WeakMap<object, object> {
+  let owners = run.nativeOwners?.get(kind)
+  if (owners === undefined) {
+    owners = ownersOf(types, records, run.targets, kind)
+    ;(run.nativeOwners ??= new Map()).set(kind, owners)
   }
-  const publishNode = (index: number): boolean => {
-    const binding = active!.bindings[index]
-    // Facts serve only the object they were read from.
-    const facts = preflight[index]
-    note.facts = first && facts?.current === binding.choice ? facts : undefined
-    note.unchanged = false
-    note.fresh = typeof binding.choice === 'number'
-    // What capture or discovery read at the object's slots serves its first publication.
-    note.reads = first ? alignedReads(graph, index, binding.choice) : seen(index, binding)
+  return owners
+}
+
+/**
+ * The target of each node: the object it keeps, or a new object allocated in construction order,
+ * after the targets it is built from; the kept objects themselves when every node keeps one.
+ * Undefined when no order exists or an allocation fails.
+ */
+function allocate(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  kept: ReadonlyArray<object | undefined>,
+): readonly object[] | undefined {
+  const size = records.length
+  let fresh = false
+  for (let index = 0; index < size; index += 1) if (kept[index] === undefined) fresh = true
+  if (!fresh) return kept as readonly object[]
+  const targets = denseArray<object>(size)
+  const retained = denseArray<boolean>(size)
+  for (let index = 0; index < size; index += 1) {
+    const target = kept[index]
+    retained[index] = target !== undefined
+    if (target !== undefined) targets[index] = target
+  }
+  // Construction dependencies are sealed facts.
+  const order = constructionOrder(
+    records.map((node) => constructionDependencies(types, node)),
+    retained,
+  )
+  if (order === undefined) return undefined
+  // Native ownership found while allocating; a literal holds the field as its own data.
+  const owners: NativeOwners = { nativeOwners: undefined }
+  const resolve = (edge: Edge): unknown => (isNode(edge) ? targets[edge.node] : atomValue(edge))
+  for (let position = 0; position < order.length; position += 1) {
+    const index = order[position]
+    const target = types.policies[records[index].layout.kind].allocate(
+      records[index],
+      resolve,
+      owners,
+    )
+    if (target === undefined) return undefined
+    targets[index] = target
+  }
+  return targets
+}
+
+// The owner of each native child among the targets of one kind: the target whose construction
+// edge names the child, which is the child's target.
+function ownersOf(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  targets: readonly object[],
+  kind: symbol,
+): WeakMap<object, object> {
+  const owners = new WeakMap<object, object>()
+  const bindings = types.policies[kind].bindings
+  if (bindings.tag !== 'dependent') return owners
+  for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
-    const accepted = policies[node.layout.kind].publish(
-      node,
-      binding.writer as object,
+    if (node.pinned !== undefined || node.layout.kind !== kind) continue
+    const edges = bindings.read(node, targets[index])
+    for (let edge = 0; edge < edges.length; edge += 1)
+      if (edges[edge].identity === targets[edges[edge].node])
+        owners.set(edges[edge].identity, targets[index])
+  }
+  return owners
+}
+
+/** A new object refused a write, which nothing else has seen, so no pass can repair it. */
+const REJECTED = 'rejected'
+/** Every publication of the pass wrote nothing that a readback would reject. */
+const WRITE_FREE = 'write-free'
+
+/**
+ * Writes one pass: publishes every unpinned node and reads the written objects back. Returns the
+ * blocked objects, undefined when there are none, or `REJECTED`.
+ */
+function write(
+  types: PublicationRegistry,
+  graph: CapturedGraph,
+  domains: Candidates,
+  kept: ReadonlyArray<object | undefined>,
+  run: Run,
+  note: PublicationNote,
+  passes: Passes | undefined,
+  resolve: (edge: Edge) => unknown,
+  compare: Compare,
+  owner: (child: object, kind: symbol) => object | undefined,
+): object[] | typeof REJECTED | undefined {
+  const published = publishAll(types, graph, domains, kept, run, note, passes, resolve, owner)
+  if (published === REJECTED) return REJECTED
+  // A pass that wrote nothing that a readback would reject is done: no setter or trap ran, so
+  // each readback would observe what publication compared (Property.WriteFreeReadback).
+  if (published === WRITE_FREE) return undefined
+  return readback(types, graph.nodes, kept, run.targets, compare, published)
+}
+
+/**
+ * Publishes every unpinned node of a pass, new objects first: code that a write into a kept object
+ * runs, such as a setter, finds each new object complete. Returns the objects whose preflight or
+ * write was refused, undefined when there are none, `REJECTED` or `WRITE_FREE`.
+ */
+function publishAll(
+  types: PublicationRegistry,
+  graph: CapturedGraph,
+  domains: Candidates,
+  kept: ReadonlyArray<object | undefined>,
+  run: Run,
+  note: PublicationNote,
+  passes: Passes | undefined,
+  resolve: (edge: Edge) => unknown,
+  owner: (child: object, kind: symbol) => object | undefined,
+): object[] | typeof REJECTED | typeof WRITE_FREE | undefined {
+  run.unchanged = true
+  const fresh = publishPhase(types, graph, domains, kept, run, note, passes, resolve, owner, true)
+  if (fresh === REJECTED) return REJECTED
+  const blocked = publishPhase(
+    types,
+    graph,
+    domains,
+    kept,
+    run,
+    note,
+    passes,
+    resolve,
+    owner,
+    false,
+  )
+  note.facts = undefined
+  note.fresh = false
+  note.reads = undefined
+  return run.unchanged ? WRITE_FREE : blocked
+}
+
+// Publishes the new or the kept unpinned nodes of a pass. Returns the kept objects whose
+// preflight or write was refused, undefined when there are none, or `REJECTED` when a new object
+// refused a write.
+function publishPhase(
+  types: PublicationRegistry,
+  graph: CapturedGraph,
+  domains: Candidates,
+  kept: ReadonlyArray<object | undefined>,
+  run: Run,
+  note: PublicationNote,
+  passes: Passes | undefined,
+  resolve: (edge: Edge) => unknown,
+  owner: (child: object, kind: symbol) => object | undefined,
+  fresh: boolean,
+): object[] | typeof REJECTED | undefined {
+  const records = graph.nodes
+  let blocked: object[] | undefined
+  for (let index = 0; index < records.length; index += 1) {
+    const target = kept[index]
+    if (records[index].pinned !== undefined || (target === undefined) !== fresh) continue
+    note.unchanged = false
+    const accepted = publishNode(
+      types,
+      graph,
+      domains,
+      index,
+      fresh,
+      run,
+      note,
+      passes,
       resolve,
       owner,
-      note,
     )
-    if (!note.unchanged) unchanged = false
-    return accepted
+    if (!note.unchanged) run.unchanged = false
+    if (accepted) continue
+    if (target === undefined) return REJECTED
+    ;(blocked ??= []).push(target)
   }
-  const prepare = (selection: Selection): Binding[] | undefined => {
-    const choices = denseArray<Choice>(size)
-    const targets = denseArray<object>(size)
-    let fresh = false
-    for (let node = 0; node < size; node += 1) {
-      const choice = domains[node][selection[node]]
-      choices[node] = choice
-      targets[node] = choice.retained ? (choice.identity as object) : (undefined as never)
-      if (!choice.retained) fresh = true
-    }
-    // With every choice retained the construction order is empty.
-    if (fresh) {
-      dependencies ??= records.map((node) => constructionDependencies(types, node))
-      const order = constructionOrder(
-        dependencies,
-        choices.map((choice) => choice.retained),
-      )
-      if (order === undefined) return undefined
-      // Native ownership found while allocating; a literal holds the field as its own data.
-      const owners: NativeOwners = { nativeOwners: undefined }
-      const resolveTarget = (edge: Edge): unknown =>
-        isNode(edge) ? targets[edge.node] : atomValue(edge)
-      for (let position = 0; position < order.length; position += 1) {
-        const index = order[position]
-        const target = policies[records[index].layout.kind].allocate(
-          records[index],
-          resolveTarget,
-          owners,
-        )
-        if (target === undefined) return undefined
-        targets[index] = target
-      }
-    }
-    return bind(choices, targets)
-  }
-  const publish = (state: Execution): ReturnType<Adapter['publish']> => {
-    active = state
-    nativeOwners = undefined
-    // Each later publication decides from reads made after the previous one's writes.
-    if (written) note.held = undefined
-    const rejected = written ? stale(state, records, types, note, seen) : -1
-    if (rejected !== -1) return { rejected }
-    // Only the first publication reads the preflight's facts and may confirm itself: its
-    // targets are the ones the preflight read, and each is exposed as it is written.
-    first = !written
-    written = true
-    confirmed = false
-    unchanged = first
-    const refused = publishFreshFirst(state, records, publishNode)
-    note.facts = undefined
-    note.fresh = false
-    note.reads = undefined
-    // A refused publication wrote without a readback after it; the next one reads afresh.
-    checked = refused === -1 ? state : undefined
-    matching = 0
-    if (refused !== -1) return { rejected: refused }
-    confirmed = unchanged
-    return true
-  }
-  const readback = (state: Execution, index: number): Readback => {
-    const node = records[index]
-    if (node.pinned !== undefined || confirmed) {
-      matching = index + 1
-      return MATCH
-    }
-    const target = exposed(state, index)
-    active = state
-    const matches =
-      matchesKind(types, target, node.layout.kind) &&
-      policies[node.layout.kind].matches(
-        node,
-        target,
-        compare,
-        typeof state.bindings[index].choice === 'number' && target === writer(index),
-      )
-    if (!matches) return REJECT
-    matching = index + 1
-    return MATCH
-  }
-  // The driver's adapter, built only when the driver takes over from the head attempt.
-  const adapter = (): Adapter & { retention: (state: Execution) => number } => ({
-    prepare,
-    publish,
-    readback,
-    retention(state) {
-      let score = 0
-      for (let index = 0; index < size; index += 1) {
-        const target = exposed(state, index)
-        // A retained choice is labelled by its own identity, so exposing it scores without
-        // searching its domain.
-        if (state.bindings[index].choice === target) {
-          score += 1
-          continue
-        }
-        const domain = domains[index]
-        for (let choice = 0; choice < domain.length; choice += 1)
-          if (domain[choice].retained && domain[choice].identity === target) {
-            score += 1
-            break
-          }
-      }
-      return score
-    },
-  })
-  // The head plan's first revision runs here, with the adapter's callbacks called directly;
-  // the driver continues from any other outcome exactly as its own first attempt would.
-  const head = headSelection(domains, distinctStorages)
-  if (head === undefined) return execute(domains, adapter(), distinctStorages).kind === 'accepted'
-  const bindings = prepare(head)
-  if (bindings?.length !== size) return afterHead(domains, adapter(), head, UNPREPARED)
-  // The head attempt is plan 0; the driver numbers its own attempts from 1.
-  const state = startExecution(0, bindings)
-  const publication = publish(state)
-  if (publication !== true)
-    return afterHead(domains, adapter(), head, { publication, tag: 'refused' })
-  let node = 0
-  let result: Readback = MATCH
-  for (; node < size; node += 1) {
-    result = readback(state, node)
-    if (result.kind !== 'match') break
-  }
-  // A first revision whose readbacks all match is done with its bindings unchanged
-  // (Execution.check_all_done), so every node exposes its prepared target, a retained choice's
-  // own identity: an all-retained head scores its upper bound, as the retention scan would.
-  if (result.kind === 'match' && scoreOf(domains, head) === size) return true
-  return afterHead(domains, adapter(), head, headResult(state, node, result))
+  return blocked
 }
 
-const UNPREPARED: HeadOutcome = /* @__PURE__ */ Object.freeze({ tag: 'unprepared' })
-
-function headResult(state: Execution, node: number, result: Readback): HeadOutcome {
-  return result.kind === 'match'
-    ? { state: completeExecution(state), tag: 'done' }
-    : { node, result, state, tag: 'mismatch' }
-}
-
-function afterHead(
-  domains: Domains,
-  adapter: Adapter,
-  head: Selection,
-  outcome: HeadOutcome,
+// Publishes one node into its target, after preparing a kept target; whether the preflight and
+// the write were accepted.
+function publishNode(
+  types: PublicationRegistry,
+  graph: CapturedGraph,
+  domains: Candidates,
+  index: number,
+  fresh: boolean,
+  run: Run,
+  note: PublicationNote,
+  passes: Passes | undefined,
+  resolve: (edge: Edge) => unknown,
+  owner: (child: object, kind: symbol) => object | undefined,
 ): boolean {
-  return continueExecution(domains, adapter, head, outcome).kind === 'accepted'
+  const target = run.targets[index]
+  if (fresh) {
+    note.facts = undefined
+    note.reads = undefined
+  } else if (!prepareKept(types, graph, domains, index, target, note, passes)) return false
+  note.fresh = fresh
+  const node = graph.nodes[index]
+  return types.policies[node.layout.kind].publish(node, target, resolve, owner, note)
+}
+
+/**
+ * Gives the publication of a kept object its reads and facts: in the first pass, what capture or
+ * discovery read at its slots and the preflight's facts; in a later pass, after this call's own
+ * writes, what the previous pass read back of it, which is what that pass wanted, and a preflight
+ * run again. False when that preflight fails.
+ */
+function prepareKept(
+  types: PublicationRegistry,
+  graph: CapturedGraph,
+  domains: Candidates,
+  index: number,
+  target: object,
+  note: PublicationNote,
+  passes: Passes | undefined,
+): boolean {
+  const node = graph.nodes[index]
+  if (passes?.writtenAt[index] !== target) {
+    note.reads = alignedReads(graph, index, target)
+    if (passes === undefined) {
+      note.facts = candidateOf(domains[index], target)?.facts
+      return true
+    }
+  } else note.reads = wantedReads(node, passes.previousTargets)
+  note.prototype = undefined
+  note.facts = undefined
+  return types.policies[node.layout.kind].requirements(node, target, note) !== undefined
+}
+
+// The value the previous pass wanted at each edge of `node`, which its readback saw there.
+function wantedReads(node: CapturedNode, targets: readonly object[]): unknown[] {
+  const edges = node.edges
+  const reads = denseArray<unknown>(edges.length)
+  for (let index = 0; index < edges.length; index += 1) {
+    const edge = edges[index]
+    reads[index] = isNode(edge) ? targets[edge.node] : atomValue(edge)
+  }
+  return reads
+}
+
+/**
+ * Reads every unpinned node back after a pass's writes. A kept object that does not hold its
+ * node's contents is blocked, added to `blocked` unless the pass already found it so. Returns the
+ * blocked objects, undefined when there are none, or `REJECTED` when a new object does not hold
+ * its contents, which no further pass can repair.
+ */
+function readback(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  kept: ReadonlyArray<object | undefined>,
+  targets: readonly object[],
+  compare: Compare,
+  blocked: object[] | undefined,
+): object[] | typeof REJECTED | undefined {
+  const found = blocked?.length ?? 0
+  for (let index = 0; index < records.length; index += 1) {
+    const node = records[index]
+    if (node.pinned !== undefined) continue
+    const target = targets[index]
+    const fresh = kept[index] === undefined
+    if (
+      matchesKind(types, target, node.layout.kind) &&
+      types.policies[node.layout.kind].matches(node, target, compare, fresh)
+    )
+      continue
+    if (fresh) return REJECTED
+    if (!blockedAlready(blocked, found, target)) (blocked ??= []).push(target)
+  }
+  return blocked
+}
+
+// Whether the pass found `target` blocked before its readback.
+function blockedAlready(
+  blocked: readonly object[] | undefined,
+  found: number,
+  target: object,
+): boolean {
+  for (let index = 0; index < found; index += 1) if (blocked![index] === target) return true
+  return false
+}
+
+// Records what a pass leaves for the next: the objects it found blocked are forbidden, and the
+// objects it wrote stay at their nodes.
+function remember(
+  records: readonly CapturedNode[],
+  kept: ReadonlyArray<object | undefined>,
+  targets: readonly object[],
+  blocked: readonly object[],
+  passes: Passes | undefined,
+): Passes {
+  const state: Passes = passes ?? {
+    forbidden: new Set(),
+    previousTargets: targets,
+    written: new Map(),
+    writtenAt: denseArray<object | undefined>(records.length),
+  }
+  state.previousTargets = targets
+  for (let index = 0; index < blocked.length; index += 1) state.forbidden.add(blocked[index])
+  for (let index = 0; index < records.length; index += 1) {
+    const target = records[index].pinned === undefined ? kept[index] : undefined
+    state.writtenAt[index] = target
+    if (target !== undefined) state.written.set(target, index)
+  }
+  return state
 }

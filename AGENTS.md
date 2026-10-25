@@ -8,7 +8,7 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
   reordered read visible. A value of `current` read before the first write is read once and
   serves every phase up to readback; a kind, prototype, key list or descriptor read then may too.
   Readback reads every node again after any write, so a getter of `current` runs at most once
-  without writes, twice with them and once more per retried plan, apart from reading `next`.
+  without writes, twice with them and once more per demotion pass, apart from reading `next`.
   Library reads run any other getter once per call. The exact trace is otherwise internal and
   must stay deterministic.
 - Prove a changed finite algorithm in Lean before its runtime. Keep theorem statements, bridges

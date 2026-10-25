@@ -11,9 +11,9 @@ theorem shows the reference keeps it on every input, not only the generated ones
 - `retainPrefix`: the retained prefix is a prefix of `next`'s order, a subsequence of `cur`'s, and
   the longest such prefix. The keys or entries outside it are the moves (`moves_minimal`,
   `collection_moves_minimal`).
-- `reconcile`: a getter of `current` runs at most twice, and at most once when nothing is written
-  (`get_bound`, `read_once_before_write`); the number of decision passes is bounded by the number
-  of node pairs (`passes_le`): no plan search.
+- `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
+  and at most once when nothing is written (`get_bound`, `read_once_before_write`); the number of
+  decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`reuse_iff`, `changed_new`).
 -/
@@ -111,40 +111,27 @@ end Retention
 
 /-! ## Trace -/
 
-theorem getCounts_le_two (captured readback : List (Nat × String)) :
-    ∀ e ∈ getCounts captured readback, e.2.2 ≤ 2 := by
+theorem getCounts_le (captured : List (Nat × String)) (readbacks : List (List (Nat × String))) :
+    ∀ e ∈ getCounts captured readbacks, e.2.2 ≤ 1 + readbacks.length := by
   intro e he
   simp only [getCounts, List.mem_map] at he
   obtain ⟨⟨i, k⟩, _, rfl⟩ := he
   simp only
-  split <;> split <;> omega
+  have := List.length_filter_le (fun l : List (Nat × String) => l.contains (i, k)) readbacks
+  split <;> omega
 
 theorem getCounts_le_one (captured : List (Nat × String)) :
     ∀ e ∈ getCounts captured [], e.2.2 ≤ 1 := by
   intro e he
-  simp only [getCounts, List.mem_map] at he
-  obtain ⟨⟨i, k⟩, _, rfl⟩ := he
-  simp only [List.contains_nil, Bool.false_eq_true, if_false, Nat.add_zero]
-  split <;> omega
-
-theorem eraseDups_nil_of {α : Type} [BEq α] (l : List α) (h : l = []) : l.eraseDups = [] := by
-  subst h
-  rfl
-
-theorem readbackKeys_nil (input : Input) (kept : Array (Option Nat)) :
-    readbackKeys input kept [] = [] := by
-  simp only [readbackKeys]
-  apply eraseDups_nil_of
-  rw [List.flatMap_eq_nil_iff]
-  intro j _
-  split <;> simp
+  have := getCounts_le captured [] e he
+  simpa using this
 
 /-- The getter counts of a run: none when the call is rejected or has nothing to do, else the
-capture reads and the readback reads of the written objects. -/
+capture reads and one readback per pass, and none when nothing is written. -/
 theorem run_gets (input : Input) : (run input).gets = [] ∨
-    ∃ al kept, (run input).gets =
-      getCounts (capturedKeys (normalized input) al)
-        (readbackKeys (normalized input) kept (run input).writes) := by
+    ∃ captured readbacks, readbacks.length ≤ (run input).passes ∧
+      ((run input).writes = [] → readbacks = []) ∧
+      (run input).gets = getCounts captured readbacks := by
   simp only [run]
   split
   · split
@@ -152,36 +139,44 @@ theorem run_gets (input : Input) : (run input).gets = [] ∨
     · split
       · exact Or.inl rfl
       · simp only [publish]
-        exact Or.inr ⟨_, _, rfl⟩
+        refine Or.inr ⟨_, _, ?_, ?_, rfl⟩
+        · split <;> simp
+        · intro hw
+          rw [hw]
+          rfl
   · exact Or.inl rfl
 
-/-- A getter of `current` runs at most twice: once when its object is read, once in readback. -/
-theorem get_bound (input : Input) : ∀ e ∈ (run input).gets, e.2.2 ≤ 2 := by
-  rcases run_gets input with h | ⟨al, kept, h⟩ <;> rw [h]
+/-- A getter of `current` runs at most once when its object is read, and once per pass that reads
+it back: twice in a call that writes and never demotes. -/
+theorem get_bound (input : Input) : ∀ e ∈ (run input).gets, e.2.2 ≤ 1 + (run input).passes := by
+  rcases run_gets input with h | ⟨captured, readbacks, hlen, _, h⟩ <;> rw [h]
   · simp
-  · exact getCounts_le_two _ _
+  · intro e he
+    have := getCounts_le captured readbacks e he
+    omega
 
 /-- When nothing is written, a getter of `current` runs at most once. -/
 theorem read_once_before_write (input : Input) (hw : (run input).writes = []) :
     ∀ e ∈ (run input).gets, e.2.2 ≤ 1 := by
-  rcases run_gets input with h | ⟨al, kept, h⟩ <;> rw [h]
+  rcases run_gets input with h | ⟨captured, readbacks, _, hnil, h⟩ <;> rw [h]
   · simp
-  · rw [hw, readbackKeys_nil]
+  · rw [hnil hw]
     exact getCounts_le_one _
 
 /-! ## Passes -/
 
-theorem demote_rounds_le (input : Input) (al : Discovery) (pin : Array Bool) :
-    ∀ fuel forbidden, (demote input al pin fuel forbidden).2 ≤ fuel := by
+theorem demote_length_le (input : Input) (al : Discovery) (pin : Array Bool) :
+    ∀ fuel forbidden written, (demote input al pin fuel forbidden written).length ≤ fuel + 1 := by
   intro fuel
   induction fuel with
-  | zero => intro forbidden; simp [demote]
+  | zero => intro forbidden written; simp [demote]
   | succ fuel ih =>
-    intro forbidden
+    intro forbidden written
     simp only [demote]
     split
-    · exact Nat.zero_le _
-    · exact Nat.succ_le_succ (ih _)
+    · simp
+    · simp only [List.length_cons]
+      exact Nat.succ_le_succ (ih _ _)
 
 /-- The number of decision passes is at most one per pair of a next node and a current object,
 plus two: a decision is final after as many demotions as there are pairs to forbid, and no plan is
@@ -190,11 +185,12 @@ theorem fuelOf_normalized (input : Input) :
     fuelOf (normalized input) = input.next.nodes.size * (input.cur.nodes.size + 1) + 1 := by
   simp [fuelOf, normalized, Graph.normalize]
 
-/-- The passes of a run: none when the call is rejected statically or has nothing to do, else one
-decision plus the demotion rounds of the budget. -/
+/-- The passes of a run: none when the call is rejected statically or has nothing to do, else the
+decision passes of the budget. -/
 theorem run_passes (input : Input) : (run input).passes = 0 ∨
-    (run input).passes = 1 + (demote (normalized input) (discover (normalized input))
-      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input)) []).2 := by
+    (run input).passes = (demote (normalized input) (discover (normalized input))
+      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input))
+      [] []).length := by
   simp only [run]
   split
   · split
@@ -208,8 +204,8 @@ theorem passes_le (input : Input) :
     (run input).passes ≤ input.next.nodes.size * (input.cur.nodes.size + 1) + 2 := by
   rcases run_passes input with h | h <;> rw [h]
   · exact Nat.zero_le _
-  · have := demote_rounds_le (normalized input) (discover (normalized input))
-      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input)) []
+  · have := demote_length_le (normalized input) (discover (normalized input))
+      (pinned (normalized input) (discover (normalized input))) (fuelOf (normalized input)) [] []
     have hf := fuelOf_normalized input
     omega
 

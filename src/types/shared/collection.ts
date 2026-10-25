@@ -83,6 +83,12 @@ export function collectionSurface(operations: {
         present.push(operations.read(step.value, slot, true))
     return present
   }
+  // Puts `value` at `key` unless the entry already holds it; whether it wrote.
+  const put = (current: object, key: unknown, held: unknown, value: unknown): boolean => {
+    if (Object.is(held, value)) return false
+    access.put(current, key, value)
+    return true
+  }
   const matches: NativePolicy['matches'] = (node, current, visit) =>
     access.size(current) === node.edges.length / width && walk(node.edges, current, visit, true)
   return {
@@ -103,34 +109,35 @@ export function collectionSurface(operations: {
       const present = entriesOf(current)
       const count = present.length / width
       const wanted = edges.length / width
-      // Entries match by position. Up to the first position whose key or member differs, each
-      // stays in place and a Map entry takes its next value; from there on the current entries
-      // are deleted and the next ones appended, which is the only way to reach their order
-      // (CollectionPlan.plan_eq).
+      // The current entries that form, in order, the longest prefix of next's entries keep their
+      // place, a Map entry among them taking its next value; every other current entry is
+      // deleted, and the next entries past that prefix are added in order. Deleting and adding
+      // an entry appends it, so this reaches next's order with the fewest moves
+      // (Spec.Reconcile.collectionWrites, retainPrefix_longest).
+      let unchanged = true
       let position = 0
-      while (
-        position < count &&
-        position < wanted &&
-        sameKey(present[position * width], resolve(edges[position * width]))
-      )
-        position += 1
-      let unchanged = position === count && position === wanted
-      if (width === 2)
-        for (let index = 0; index < position; index += 1) {
-          const value = resolve(edges[index * 2 + 1])
-          if (!Object.is(present[index * 2 + 1], value)) {
-            access.put(current, present[index * 2], value)
+      for (let index = 0; index < count; index += 1) {
+        const key = present[index * width]
+        if (position < wanted && sameKey(key, resolve(edges[position * width]))) {
+          if (
+            width === 2 &&
+            put(current, key, present[index * 2 + 1], resolve(edges[position * 2 + 1]))
+          )
             unchanged = false
-          }
+          position += 1
+        } else {
+          access.remove(current, key)
+          unchanged = false
         }
-      for (let index = position; index < count; index += 1)
-        access.remove(current, present[index * width])
-      for (let index = position; index < wanted; index += 1)
+      }
+      for (; position < wanted; position += 1) {
         access.put(
           current,
-          resolve(edges[index * width]),
-          width === 2 ? resolve(edges[index * width + 1]) : undefined,
+          resolve(edges[position * width]),
+          width === 2 ? resolve(edges[position * width + 1]) : undefined,
         )
+        unchanged = false
+      }
       // Every entry in place with its value: readback would accept
       // (WriteFreeReadback.collection_writeFree_matches).
       if (note !== undefined) note.unchanged = unchanged

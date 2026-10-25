@@ -1,40 +1,47 @@
 import { isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
 import { isObject } from '../object-property'
+import { ownValue } from '../types/shared/properties'
 import { EMPTY_FACTS, UNREAD } from '../constants'
 import type {
+  Candidate,
+  Candidates,
   CapturedGraph,
   CapturedNode,
-  Choice,
-  Domains,
   Edge,
-  PreflightFacts,
   PublicationNote,
   PublicationRegistry,
+  SlotRead,
 } from '../types'
 import { denseArray } from '../standard-prototypes'
+import { tableOf } from './capture'
 
-// This native boundary compiles fixed own references and view construction into
-// the same Requires rule. It does not select a target or mutate captured records.
-// Labels are the aligned objects themselves; a fresh choice is labelled by its node index,
-// which cannot collide with an object. A pinned node has exactly one retained choice.
+/**
+ * Discovers the candidates of every node: the aligned current objects of its kind that pass the
+ * preflight, in discovery order, each with the objects its fixed slots require other nodes to
+ * keep. The root's only candidate is `root`; a pinned node's is itself. Nothing is selected or
+ * written here (Spec.Reconcile.discover).
+ */
 export function candidates(
   types: PublicationRegistry,
   records: readonly CapturedNode[],
   root: object,
   alignment?: Pick<
     CapturedGraph,
+    | 'alignedAt'
     | 'candidateReads'
     | 'currents'
+    | 'firstAligned'
+    | 'firstAlignedAt'
     | 'kinds'
     | 'occupants'
     | 'protectedStorage'
     | 'prototypes'
+    | 'reads'
     | 'sources'
   >,
   note?: PublicationNote,
-  preflight?: Array<PreflightFacts | undefined>,
-): Domains {
+): Candidates {
   const aligned = collect(types, root, records, alignment)
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
   // a captured node whose own object lies inside one is already published: it is pinned to
@@ -52,13 +59,13 @@ export function candidates(
         (node as { pinned?: object }).pinned = source
     })
   }
-  // A candidate's retained choice, or undefined when it cannot be retained.
-  const retainedChoice = (
+  // A candidate that passes the preflight, or undefined when it cannot be kept.
+  const admitted = (
     node: CapturedNode,
     index: number,
     candidate: object,
     policy: PublicationRegistry['policies'][symbol],
-  ): Choice | undefined => {
+  ): Candidate | undefined => {
     const prototype = ingressOf(types, node, index, candidate, alignment)
     if (prototype === MISMATCH || !policy.compatible(node, candidate)) return undefined
     if (index !== 0 && protectedStorage?.has(candidate) === true) return undefined
@@ -66,46 +73,78 @@ export function candidates(
     const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)
     if (required === undefined) return undefined
-    // The first passing candidate's facts serve the publication that retains it.
-    if (note?.facts !== undefined) preflight![index] ??= note.facts
-    return { identity: candidate, required, retained: true, storage: candidate }
+    // The candidate's facts serve the publication that keeps it.
+    return { facts: note?.facts, identity: candidate, required }
   }
-  return records.map((node, index): Choice[] => {
+  const domains = records.map((node, index): Candidate[] => {
     if (node.pinned !== undefined)
-      return [
-        {
-          identity: node.pinned,
-          required: EMPTY_FACTS,
-          retained: true,
-          storage: node.pinned,
-        },
-      ]
+      return [{ facts: undefined, identity: node.pinned, required: EMPTY_FACTS }]
     const policy = types.policies[node.layout.kind]
     const list = index === 0 ? undefined : aligned[index]
     const count = index === 0 ? 1 : list === undefined ? 0 : list.length
-    // At most one choice per candidate plus the fresh one, written in place and trimmed.
-    const choices = denseArray<Choice>(index === 0 ? count : count + 1)
+    // At most one candidate per aligned object, written in place and trimmed.
+    const choices = denseArray<Candidate>(count)
     let written = 0
     for (let at = 0; at < count; at += 1) {
-      const choice = retainedChoice(node, index, index === 0 ? root : list![at], policy)
+      const choice = admitted(node, index, index === 0 ? root : list![at], policy)
       if (choice !== undefined) choices[written++] = choice
     }
-    if (index !== 0)
-      choices[written++] = {
-        identity: index,
-        required: EMPTY_FACTS,
-        retained: false,
-        storage: index,
-      }
     if (written !== choices.length) choices.length = written
     return choices
   })
+  promoteDemanded(domains)
+  return domains
+}
+
+/**
+ * Orders each node's candidates for the decision: first those an admitted candidate of some node
+ * requires there, then the rest, each in discovery order. A fixed slot of a kept object must hold
+ * the object the decision keeps at its node, so keeping what it holds keeps the slot's owner too
+ * (Spec.Reconcile.orderedCandidates).
+ */
+function promoteDemanded(domains: Candidate[][]): void {
+  const demanded = demandedObjects(domains)
+  if (demanded === undefined) return
+  for (let node = 0; node < domains.length; node += 1) {
+    const wanted = demanded[node]
+    if (wanted !== undefined) domains[node] = promoted(domains[node], wanted)
+  }
+}
+
+// The objects the candidates' fixed slots require at each node that has a choice; undefined
+// when none.
+function demandedObjects(domains: Candidates): Array<Set<object> | undefined> | undefined {
+  let demanded: Array<Set<object> | undefined> | undefined
+  for (let node = 0; node < domains.length; node += 1) {
+    const domain = domains[node]
+    for (let at = 0; at < domain.length; at += 1) {
+      const required = domain[at].required
+      for (let edge = 0; edge < required.length; edge += 1) {
+        const target = required[edge].node
+        if (domains[target].length > 1)
+          ((demanded ??= denseArray<Set<object> | undefined>(domains.length))[target] ??=
+            new Set()).add(required[edge].identity)
+      }
+    }
+  }
+  return demanded
+}
+
+// The candidates with those in `wanted` first, each part in its order.
+function promoted(domain: readonly Candidate[], wanted: ReadonlySet<object>): Candidate[] {
+  const ordered: Candidate[] = []
+  for (let at = 0; at < domain.length; at += 1)
+    if (wanted.has(domain[at].identity)) ordered.push(domain[at])
+  for (let at = 0; at < domain.length; at += 1)
+    if (!wanted.has(domain[at].identity)) ordered.push(domain[at])
+  return ordered
 }
 
 /**
  * What the call read at the slots of `candidate` for node `index` before any write: the occupants
  * capture recorded for the object it aligned, or the values discovery read for another aligned
- * object (WriteFreeReadback.publishPre).
+ * object (WriteFreeReadback.publishPre). Discovery reads every slot of a candidate it walks, so
+ * its first publication reads nothing it already read.
  */
 export const alignedReads = (
   alignment: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'occupants'> | undefined,
@@ -177,11 +216,43 @@ function align(aligned: Array<object[] | undefined>, index: number, candidate: o
 // without one holds the shared empty `VISITED`.
 // Pinned nodes are fixed and never aligned; a first visit through the object aligned
 // capture already recognized reuses the occupant reads recorded for its edges.
+/** The edge of the root node. */
+const ROOT_EDGE: Edge = /* @__PURE__ */ Object.freeze({ node: 0 })
+
+/** The alignment facts discovery reads. */
+type Alignment = Pick<
+  CapturedGraph,
+  | 'alignedAt'
+  | 'candidateReads'
+  | 'currents'
+  | 'firstAligned'
+  | 'firstAlignedAt'
+  | 'kinds'
+  | 'occupants'
+  | 'reads'
+>
+
+// The node capture first aligned with `candidate`, if any.
+const alignedAt = (alignment: Alignment, candidate: object): number | undefined =>
+  alignment.alignedAt?.get(candidate) ??
+  (candidate === alignment.firstAligned ? alignment.firstAlignedAt : undefined)
+
+// The positional reads of `candidate` at the node it was first aligned or walked at: what capture
+// read of the object it aligned there, else what discovery's walk there read; undefined when
+// nothing was read.
+const readsAt = (
+  alignment: Alignment,
+  candidate: object,
+  first: number,
+): readonly unknown[] | undefined =>
+  (candidate === alignment.currents?.[first] ? alignment.occupants?.[first] : undefined) ??
+  alignment.candidateReads?.[first]?.get(candidate)
+
 function collect(
   types: PublicationRegistry,
   old: unknown,
   records: readonly CapturedNode[],
-  alignment?: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'kinds' | 'occupants'>,
+  alignment?: Alignment,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
@@ -210,6 +281,34 @@ function collect(
     while (read.length < position) read.push(UNREAD)
     read.push(current)
   }
+  // The node discovery first walked each candidate at, when capture aligned none with it, and
+  // the reader of shared candidates; both created on the first walk of a candidate.
+  let walked: Map<object, number> | undefined
+  let readShared: SlotRead | undefined
+  // Gives a candidate walked or aligned before the table of its reads so far, and reads every
+  // walked candidate through the table it has, so no key of an object walked or aligned at more
+  // than one node is read twice; the table can appear while a walk is under way, when a cycle
+  // reaches the same candidate again. A candidate walked at the node capture aligned it with,
+  // where capture read nothing of it, has no reads to share yet: `note` records this walk's.
+  const readerFor = (index: number, candidate: object): SlotRead | undefined => {
+    if (alignment === undefined) return undefined
+    if (alignment.reads?.has(candidate) !== true) {
+      const first = alignedAt(alignment, candidate) ?? walked?.get(candidate)
+      if (first === undefined) (walked ??= new Map()).set(candidate, index)
+      else {
+        const reads = readsAt(alignment, candidate, first)
+        if (first !== index || reads !== undefined)
+          (alignment.reads ??= new Map()).set(candidate, tableOf(records[first].keys, reads))
+      }
+    }
+    return (readShared ??= (current, key) => {
+      const table = alignment.reads?.get(current)
+      if (table?.has(key) === true) return table.get(key)
+      const value = ownValue(current, key)
+      table?.set(key, value)
+      return value
+    })
+  }
   // Walks the aligned slots of `candidate` for node `index`, noting what it reads.
   const walk = (index: number, node: CapturedNode, candidate: object | undefined): void => {
     const outer = reading
@@ -218,7 +317,12 @@ function collect(
     reading = index
     readingObject = alignment === undefined ? undefined : candidate
     read = undefined
-    types.policies[node.layout.kind].aligned(node, candidate, visit)
+    types.policies[node.layout.kind].aligned(
+      node,
+      candidate,
+      visit,
+      candidate === undefined ? undefined : readerFor(index, candidate),
+    )
     reading = outer
     readingObject = outerObject
     read = outerRead
@@ -245,6 +349,6 @@ function collect(
     if (slots === undefined) walk(index, node, candidate)
     else replayOccupants(node, slots, visit)
   }
-  visit(old, { node: 0 })
+  visit(old, ROOT_EDGE)
   return aligned
 }

@@ -275,13 +275,45 @@ def fixedPairs (c n : Obj) : List (Val × Val) :=
 /-- A requirement: next node `c` keeps current object `x`. -/
 abbrev Requirement := Nat × Nat
 
+/-- Whether current object `x` passes the preflight for next node `c`: its static checks pass and
+every fixed slot holding a primitive holds the value `next` has there. -/
+def admitted (input : Input) (c x : Nat) : Bool :=
+  let cur := input.cur.node x
+  let nxt := input.next.node c
+  admitsStatic cur nxt && (fixedPairs cur nxt).all fun
+    | (.prim p, .prim q) => p == q
+    | (.ref _, .ref _) => true
+    | _ => false
+
+/-- The requirements the admitted candidates of every node make: that the node at each fixed slot
+holding an object keeps that object. -/
+def demands (input : Input) (al : Discovery) : List Requirement :=
+  (List.range input.next.nodes.size).flatMap fun c =>
+    (al.candidates[c]?.getD []).flatMap fun x =>
+      if admitted input c x then
+        (fixedPairs (input.cur.node x) (input.next.node c)).filterMap fun
+          | (.ref x', .ref c') => some (c', x')
+          | _ => none
+      else []
+
+/-- The candidates of next node `j` in decision order: those some admitted candidate requires
+there first, then the rest, each in discovery order. Keeping what a fixed slot holds lets the
+decision keep the slot's owner too. -/
+def orderedCandidates (input : Input) (al : Discovery) (j : Nat) : List Nat :=
+  let found := al.candidates[j]?.getD []
+  let wanted := (demands input al).filterMap fun (c, x) => if c = j then some x else none
+  found.filter wanted.contains ++ found.filter (fun x => !wanted.contains x)
+
 /-- Establishes that next node `c` can keep current object `x`: `x` is a candidate of `c`, not
-kept elsewhere, its static checks pass, and every fixed slot holds its value, a fixed slot holding
-an object requiring the next node at that position to keep that object. Nodes already decided
-must agree; pairs being established may repeat. Returns the requirements to reserve, `c` keeping
-`x` first. -/
-def establish (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Requirement)
-    (kept : Array (Option Nat)) (decided : Array Bool) (used : List Nat) :
+blocked by an earlier pass, not reserved for another node, its static checks pass, and every
+fixed slot holds its value, a fixed slot holding an object requiring the next node at that
+position to keep that object. Nodes already decided, and nodes an earlier decision requires an
+object at, must agree; pairs being established may repeat. An object is reserved for another node
+when an earlier decision of this pass kept it, or an earlier pass wrote it at another node
+(`written`). Returns the requirements to reserve, `c` keeping `x` first. -/
+def establish (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (written : List Requirement) (kept : Array (Option Nat)) (decided : Array Bool)
+    (required : Array (Option Nat)) (used : List Nat) :
     Nat → List Requirement → Nat → Nat → Option (List Requirement)
   | 0, _, _, _ => none
   | fuel + 1, chain, c, x =>
@@ -289,7 +321,10 @@ def establish (input : Input) (candidatesOf : Nat → List Nat) (forbidden : Lis
     else if chain.any (fun (c', x') => c' = c || x' = x) then none
     else if decided[c]?.getD false then
       if kept[c]?.bind id = some x then some chain else none
-    else if forbidden.contains (c, x) || used.contains x || !(candidatesOf c).contains x then
+    else if (required[c]?.bind id).isSome then
+      if required[c]?.bind id = some x then some chain else none
+    else if forbidden.contains x || (used.contains x && !written.contains (c, x)) ||
+        !(candidatesOf c).contains x then
       none
     else
       let cur := input.cur.node x
@@ -301,7 +336,8 @@ def establish (input : Input) (candidatesOf : Nat → List Nat) (forbidden : Lis
             match cv, nv with
             | .prim p, .prim q => if p = q then some chain else none
             | .ref x', .ref c' =>
-              establish input candidatesOf forbidden kept decided used fuel chain c' x'
+              establish input candidatesOf forbidden written kept decided required used fuel chain
+                c' x'
             | _, _ => none) (some ((c, x) :: chain))
 
 /-- The decision state: the object kept per next node, the current objects reserved, the nodes
@@ -313,22 +349,29 @@ structure Decision where
   required : Array (Option Nat)
 
 /-- Decides which next nodes keep a current object, in visit order: a pinned node keeps the
-object it is; a node a decided parent requires keeps that object; another node keeps its first
-candidate that can be established, reserving the objects its fixed slots require. A pair that a
-write phase found blocked is `forbidden`. -/
-def decide (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Requirement) :
-    Array (Option Nat) :=
+object it is; a node a decided parent requires keeps that object; another node keeps the object
+an earlier pass wrote there when it still can, else its first candidate that can be established,
+reserving the objects its fixed slots require. An object a write phase found blocked is
+`forbidden`, and one an earlier pass wrote is `written` at its node: it stays there or is dropped,
+so no object holds another node's writes. -/
+def decide (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
+    (written : List Requirement) : Array (Option Nat) :=
   let n := input.next.nodes.size
   let fuel := input.cur.nodes.size + 1
-  -- The root's only candidate is `current` itself; a cycle back to the root offers no other.
+  -- The root's only candidate is `current` itself; a cycle back to the root offers no other. The
+  -- object an earlier pass wrote at a node comes first.
   let candidatesOf (j : Nat) : List Nat :=
     if input.next.root.refId = some j then input.cur.root.refId.toList
-    else al.candidates[j]?.getD []
+    else
+      let found := orderedCandidates input al j
+      match written.lookup j with
+      | some y => if found.contains y then y :: found.filter (· != y) else found
+      | none => found
   let start : Decision :=
     { kept := (Array.range n).map (fun j =>
         if pin[j]?.getD false then input.same[j]?.bind id else none),
       used := (List.range n).filterMap (fun j =>
-        if pin[j]?.getD false then input.same[j]?.bind id else none),
+        if pin[j]?.getD false then input.same[j]?.bind id else none) ++ written.map Prod.snd,
       decided := pin,
       required := Array.replicate n none }
   (al.order.foldl (fun (d : Decision) j =>
@@ -339,7 +382,9 @@ def decide (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List
       | some x => { d with kept := d.kept.setIfInBounds j (some x), decided }
       | none =>
         match (candidatesOf j).findSome? fun x =>
-            establish input candidatesOf forbidden d.kept d.decided d.used fuel [] j x with
+            establish input candidatesOf forbidden written d.kept d.decided d.required d.used fuel
+              [] j x
+          with
         | none => { d with decided }
         | some pairs =>
           pairs.foldl (fun (d : Decision) (c, x) =>
@@ -470,30 +515,36 @@ def writesOf (identity : Nat → Option Nat) (c n : Obj) : List (String × Strin
 /-- The identity a next node resolves to under a decision. -/
 def identityOf (kept : Array (Option Nat)) (j : Nat) : Option Nat := kept[j]?.bind id
 
-/-- The kept, unpinned nodes whose writes block, with the objects they keep. -/
-def blockedPairs (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
-    List Requirement :=
+/-- The objects kept at unpinned nodes whose writes block. -/
+def blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) : List Nat :=
   (List.range input.next.nodes.size).filterMap fun j =>
     if pin[j]?.getD false then none
     else match kept[j]?.bind id with
       | some i =>
-        if (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).2 then some (j, i)
+        if (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).2 then some i
         else none
       | none => none
 
-/-- Decides, and while a kept node's writes block, forbids that node keeping that object and
-decides again; returns the final decision and the number of rounds after the first. Each round
-forbids a pair, so there are at most as many rounds as pairs. -/
+/-- The objects a decision keeps at unpinned nodes, which its pass writes, with their nodes. -/
+def writtenPairs (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
+    List Requirement :=
+  (List.range input.next.nodes.size).filterMap fun j =>
+    if pin[j]?.getD false then none
+    else (kept[j]?.bind id).map fun i => (j, i)
+
+/-- Decides, and while a kept object's writes block, forbids those objects and decides again with
+the written objects at their nodes: the decision of each pass in order, the last one final. Each
+pass forbids an object, so there are at most as many passes as objects, plus one. -/
 def demote (input : Input) (al : Discovery) (pin : Array Bool) :
-    Nat → List Requirement → Array (Option Nat) × Nat
-  | 0, forbidden => (decide input al pin forbidden, 0)
-  | fuel + 1, forbidden =>
-    let kept := decide input al pin forbidden
-    let blocked := blockedPairs input pin kept
-    if blocked.isEmpty then (kept, 0)
+    Nat → List Nat → List Requirement → List (Array (Option Nat))
+  | 0, forbidden, written => [decide input al pin forbidden written]
+  | fuel + 1, forbidden, written =>
+    let kept := decide input al pin forbidden written
+    let blocked := blockedObjects input pin kept
+    if blocked.isEmpty then [kept]
     else
-      let next := demote input al pin fuel (forbidden ++ blocked)
-      (next.1, next.2 + 1)
+      kept :: demote input al pin fuel (forbidden ++ blocked)
+        (written ++ writtenPairs input pin kept)
 
 /-! ## Outcome -/
 
@@ -505,34 +556,48 @@ structure Outcome where
   origins : Array (Option Nat)
   nodes : Array Obj
   root : Val
+  /-- The number of decision passes: one, plus one per demotion. -/
   passes : Nat
   gets : List (Nat × String × Nat)
   writes : List (Nat × String × String)
   deriving Lean.ToJson, Repr
 
-/-- The keys the read phase reads: each key of a next node that a candidate of it also owns, once
-per current object and key however many nodes share the candidate. -/
+/-- Whether current object `i` holds `k` as an accessor, whose getter a read of the key runs. -/
+def accessorKey (input : Input) (i : Nat) (k : String) : Bool :=
+  match input.cur.node i with
+  | .object _ cf _ =>
+    match cf.lookup k with
+    | some (.accessor ..) => true
+    | _ => false
+  | _ => false
+
+/-- The getters the read phase runs: each accessor of a candidate at a key of a next node it is a
+candidate of, once per current object and key however many nodes share the candidate. -/
 def capturedKeys (input : Input) (al : Discovery) : List (Nat × String) :=
   ((List.range input.next.nodes.size).flatMap fun j =>
     (al.candidates[j]?.getD []).flatMap fun i =>
-      match input.next.node j, input.cur.node i with
-      | .object _ nf _, .object _ cf _ =>
-        nf.filterMap fun (k, _) => if (cf.lookup k).isSome then some (i, k) else none
-      | _, _ => []).eraseDups
+      (keysOf (input.next.node j)).filterMap fun k =>
+        if accessorKey input i k then some (i, k) else none).eraseDups
 
-/-- The keys readback reads after the writes: every key of the next node kept as each written
-current object, once. -/
-def readbackKeys (input : Input) (kept : Array (Option Nat))
-    (writes : List (Nat × String × String)) : List (Nat × String) :=
+/-- The getters a pass's readback runs after its writes: each accessor of each current object the
+pass keeps, unpinned, at a key of the next node kept as it, once per object and key. A write
+anywhere can change any kept object, so every kept object is read back. -/
+def readbackKeys (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
+    List (Nat × String) :=
   ((List.range input.next.nodes.size).flatMap fun j =>
-    match kept[j]?.bind id with
-    | some i => if writes.any (·.1 = i) then (keysOf (input.next.node j)).map ((i, ·)) else []
-    | none => []).eraseDups
+    if pin[j]?.getD false then []
+    else match kept[j]?.bind id with
+      | some i => (keysOf (input.next.node j)).filterMap fun k =>
+          if accessorKey input i k then some (i, k) else none
+      | none => []).eraseDups
 
-/-- The getter count per current object and key: one for its capture read, one for its readback. -/
-def getCounts (captured readback : List (Nat × String)) : List (Nat × String × Nat) :=
-  (captured ++ readback).eraseDups.map fun (i, k) =>
-    (i, k, (if captured.contains (i, k) then 1 else 0) + (if readback.contains (i, k) then 1 else 0))
+/-- The getter count per current object and key: one for its capture read and one per pass that
+reads it back. -/
+def getCounts (captured : List (Nat × String)) (readbacks : List (List (Nat × String))) :
+    List (Nat × String × Nat) :=
+  (captured ++ readbacks.flatten).eraseDups.map fun (i, k) =>
+    (i, k, (if captured.contains (i, k) then 1 else 0) +
+      (readbacks.filter (·.contains (i, k))).length)
 
 /-- The writes of a decision: per kept, unpinned node, the writes its object needs. -/
 def writesOfDecision (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
@@ -545,10 +610,11 @@ def writesOfDecision (input : Input) (pin : Array Bool) (kept : Array (Option Na
         fun (k, w) => (i, k, w)
     | none => []
 
-/-- The result of a successful decision: per next node the kept object's contents or a fresh
-copy, the writes and the getter counts. -/
-def publish (input : Input) (al : Discovery) (pin : Array Bool) (kept : Array (Option Nat))
-    (r : Nat) (rounds : Nat) : Outcome :=
+/-- The result of a successful final decision `kept` after the passes `rounds`: per next node the
+kept object's contents or a fresh copy, the writes and the getter counts. A call that writes
+nothing reads nothing back; otherwise each pass reads back the objects its decision keeps. -/
+def publish (input : Input) (al : Discovery) (pin : Array Bool)
+    (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r : Nat) : Outcome :=
   let n := input.next.nodes.size
   let nodes := (Array.range n).map fun j =>
     match kept[j]?.bind id with
@@ -556,14 +622,15 @@ def publish (input : Input) (al : Discovery) (pin : Array Bool) (kept : Array (O
       else keptObj (input.cur.node i) (input.next.node j)
     | none => freshCopy (input.next.node j)
   let writes := writesOfDecision input pin kept
-  { ok := true, origins := kept, nodes, root := .ref r, passes := 1 + rounds,
-    gets := getCounts (capturedKeys input al) (readbackKeys input kept writes), writes }
+  let readbacks := if writes.isEmpty then [] else rounds.map (readbackKeys input pin)
+  { ok := true, origins := kept, nodes, root := .ref r, passes := rounds.length,
+    gets := getCounts (capturedKeys input al) readbacks, writes }
 
 /-- The input with every array's extensibility as observed. -/
 def normalized (raw : Input) : Input :=
   { raw with cur := raw.cur.normalize, next := raw.next.normalize }
 
-/-- The demotion budget: one round per pair of a next node and a current object, plus one. -/
+/-- The demotion budget: one pass per pair of a next node and a current object, plus one. -/
 def fuelOf (input : Input) : Nat := input.next.nodes.size * (input.cur.nodes.size + 1) + 1
 
 /-- Runs the reference. -/
@@ -580,14 +647,15 @@ def run (raw : Input) : Outcome :=
   | .ref _, .ref r =>
     let al := discover input
     let pin := pinned input al
-    let initial := decide input al pin []
+    let initial := decide input al pin [] []
     -- A root that cannot be kept rejects the call before any write.
     if (initial[r]?.bind id).isNone then rejected 0
     else
-      let final := demote input al pin (fuelOf input) []
+      let rounds := demote input al pin (fuelOf input) [] []
+      let final := rounds.getLastD initial
       -- A root blocked by a write is rejected after the passes that found it.
-      if (final.1[r]?.bind id).isNone then rejected (1 + final.2)
-      else publish input al pin final.1 r final.2
+      if (final[r]?.bind id).isNone then rejected rounds.length
+      else publish input al pin rounds final r
   | _, _ => asIs
 
 end Reconcile.Spec.Reconcile

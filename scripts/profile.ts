@@ -175,7 +175,6 @@ function diagnosticOverlay(original: string): string {
     `
 import { createDiagnostic } from ${JSON.stringify(path.join(ROOT, 'scripts/profile-scenarios.ts'))}
 import * as api from ${JSON.stringify(path.join(config.root, 'src/index.ts'))}
-import { selections } from ${JSON.stringify(path.join(config.root, 'src/graph/selection.ts'))}
 import { dateType } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}
 import { arrayBufferType } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}
 const copyOperations = { date: dateType.policy.immutable.operations, buffer: arrayBufferType.policy.immutable.operations }
@@ -191,7 +190,7 @@ const copyOperations = { date: dateType.policy.immutable.operations, buffer: arr
 const serialization = { deserialize: Reflect.get(api, 'deserialize'),
   requiredMaxBytes: Reflect.get(api, 'requiredMaxBytes'), serialize: Reflect.get(api, 'serialize') }
 const diagnostic = createDiagnostic(scenario, { produce: api.produce, reconcile: api.reconcile,
-  snapshot: api.snapshot, ...serialization, selections,
+  snapshot: api.snapshot, ...serialization,
   copyDate: copyOperations.date.copy, sameBuffer: copyOperations.buffer.equivalent }, ${config.diagnosticSize})
 console.log('RECONCILE_DIAGNOSTIC ' + JSON.stringify(diagnostic.metadata))
 const profileScenarios = { [scenario]: () => () => {

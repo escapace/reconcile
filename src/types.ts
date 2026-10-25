@@ -162,8 +162,14 @@ export interface SpecialPolicy {
  * the finite Lean proofs do not establish these JavaScript premises.
  */
 export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
-  /** Visits the current object's children aligned with the node's edges. */
-  readonly aligned: (node: CapturedNode<L>, current: object | undefined, visit: Align) => void
+  /** Visits the current object's slots aligned with the node's edges, reading each own value
+   * once, through `read` when given. */
+  readonly aligned: (
+    node: CapturedNode<L>,
+    current: object | undefined,
+    visit: Align,
+    read?: SlotRead,
+  ) => void
   readonly compatible: (node: CapturedNode<L>, current: object) => boolean
   /** The preflight; a policy may leave in `note` the facts it read, for the first publication. */
   readonly requirements: (
@@ -273,14 +279,10 @@ export interface PublicationNote {
   prototype: object | null | undefined
   unchanged: boolean
   /** What the call already read of the object being preflighted or published, by edge position:
-   * before the first write, the occupants that aligned capture read, with `UNREAD` or no entry at
-   * a position capture did not read; in a retried plan, what the previous readback saw, when that
-   * readback matched the object; undefined otherwise. */
+   * before the first write, the occupants that aligned capture or discovery read, with `UNREAD`
+   * or no entry at a position neither read; in a later pass, what the previous pass read back of
+   * the object at this node; undefined otherwise. */
   reads: readonly unknown[] | undefined
-  /** The value of each fixed slot that a preflight read before the publication's first write, by
-   * object and key, so that publication decides from it instead of reading again; created on the
-   * first such read and cleared before each later publication. */
-  held: Map<object, Map<PropertyKey, unknown>> | undefined
 }
 
 /** Native facets retained by each public operation. */
@@ -481,6 +483,15 @@ export interface CapturedGraph {
   readonly protectedStorage?: ReadonlySet<unknown>
   /** The prototype capture read of each node's aligned current object; undefined when unread. */
   readonly prototypes?: ReadonlyArray<object | null | undefined>
+  /** The node capture first aligned with each current object, once a second object is aligned;
+   * before that, `firstAligned` and its node. */
+  readonly alignedAt?: ReadonlyMap<object, number>
+  readonly firstAligned?: object | undefined
+  readonly firstAlignedAt?: number
+  /** For each current object read at more than one node, the value read at each of its keys, so
+   * that no key is read twice before the first write; created on the first such object, and
+   * extended by discovery. */
+  reads?: Map<object, Map<PropertyKey, unknown>> | undefined
 }
 
 /** Installs native layout state at the observer-defined begin boundary. */
@@ -502,9 +513,11 @@ export type DraftEdge = (
   attributes?: number,
 ) => void
 
-/** Reports a fixed-correspondence child pair for candidate discovery. */
 /** Visits one aligned child; a property slot passes its edge's position. */
 export type Align = (actual: unknown, expected: Edge, position?: number) => void
+
+/** Reads the own value of `current` at `key`, or `undefined` when it has none. */
+export type SlotRead = (current: object, key: PropertyKey) => unknown
 
 /** Checks one observed child against the selected image of a captured edge. */
 export type Compare = (actual: unknown, expected: Edge) => boolean
@@ -514,6 +527,17 @@ export interface BoundEdge {
   readonly identity: object
   readonly node: number
 }
+
+/** A current object a node may keep, with the objects its fixed slots require other nodes to
+ * keep and the facts its preflight read, when it left any. */
+export interface Candidate {
+  readonly facts: PreflightFacts | undefined
+  readonly identity: object
+  readonly required: readonly BoundEdge[]
+}
+
+/** The candidates of each node in discovery order; a pinned node's only candidate is itself. */
+export type Candidates = ReadonlyArray<readonly Candidate[]>
 
 /**
  * Resolves an edge through the current selected image, leaving atoms unchanged; `key` is the
@@ -548,7 +572,7 @@ export interface Requirement {
   readonly node: number
 }
 
-/** Combines visible identity, exclusive storage ownership and conditional child requirements. */
+/** A choice of an immutable selection problem, as the test fixtures state one. */
 export interface Choice {
   readonly identity: Label
   readonly required: readonly Requirement[]
@@ -556,109 +580,8 @@ export interface Choice {
   readonly storage: Label
 }
 
-/** Lists candidates in deterministic node and choice order for exact finite selection. */
+/** The choices of each node of an immutable selection problem, as the test fixtures state them. */
 export type Domains = ReadonlyArray<readonly Choice[]>
-
-/** A row-major literal position, independent of possibly equal choice identities. */
-export interface ChoicePosition {
-  readonly choice: number
-  readonly node: number
-}
-
-/** Per-call identity support count and requirements awakened by its last deletion. */
-export interface SupportBucket {
-  readonly dependents: ChoicePosition[]
-  remaining: number
-}
-
-/** Complete-domain unique-support implications over dense literal positions. */
-export interface SupportGraph {
-  readonly edges: ReadonlyArray<readonly number[]>
-  readonly positions: readonly ChoicePosition[]
-}
-
-/** Mutually forced choice positions, ordered by node, with distinct owners and storage. */
-export type ForcedGroup = readonly ChoicePosition[]
-
-/**
- * Nontrivial components indexed by node and choice position.
- *
- * @remarks
- * Undefined entries are singleton components. Null entries belong to an impossible
- * component with an owner or storage conflict. All facts are private to one sealed stream.
- */
-export type ForcedGroups = ReadonlyArray<ReadonlyArray<ForcedGroup | null | undefined> | undefined>
-
-/** Indexes one choice per node in the corresponding domains. */
-export type Selection = readonly number[]
-
-/** Separates a selected choice, fixed writer, live exposure and owning storage. */
-export interface Binding {
-  readonly choice: Label
-  readonly construction: readonly Requirement[]
-  readonly exposed: Label
-  readonly fixed: boolean
-  readonly mode: number
-  readonly palette: readonly number[]
-  readonly storage: Label
-  /** Remains fixed when readback changes the visible exposure. */
-  readonly writer: Label
-}
-
-/**
- * Summarizes equality demands: undefined is empty, a label is one identity, null is conflict.
- * Identity labels cannot be null or undefined. This replaces incoming-label lists entirely;
- * original requirements remain authoritative in selection choices and execution bindings.
- */
-export type IncomingConsensus = Label | null | undefined
-
-/** Carries one publication attempt and its revision-scoped binding facts. */
-export interface PlanState {
-  readonly bindings: readonly Binding[]
-  /** Persistent mode histories; earlier revisions keep their own claims. Undefined until the
-   * first rebind, before which each node claims its bound mode. */
-  readonly claims: readonly Claims[] | undefined
-  readonly id: number | object
-  /** Undefined until the first rebind, which derives it from the bindings. */
-  readonly incoming: readonly IncomingConsensus[] | undefined
-  readonly revision: number
-}
-
-/** Checked-node membership for one publication revision. */
-export interface CheckedSet extends Iterable<number> {
-  readonly size: number
-  add: (node: number) => void
-}
-
-/** Restricts checked-node membership to the checking phase of a publication attempt. */
-export type Execution =
-  | ({ readonly checked: CheckedSet; readonly phase: 'checking' } & PlanState)
-  | ({ readonly phase: 'done' } & PlanState)
-  | ({ readonly phase: 'publishing' } & PlanState)
-  | ({ readonly phase: 'rejected' } & PlanState)
-
-/** Identifies the attempt and revision that an execution event may update. */
-export interface Receipt {
-  readonly id: number | object
-  readonly revision: number
-}
-
-/** Requests an execution transition authenticated by its attempt and revision receipt. */
-export type Event = (
-  | {
-      readonly exposed: Label
-      readonly mode: number
-      readonly node: number
-      readonly storage: Label
-      readonly tag: 'rebind'
-    }
-  | { readonly node: number; readonly tag: 'checked' }
-  | { readonly tag: 'finish' | 'published' | 'reject' }
-) &
-  Receipt
-
-/** Private finite membership: bits 0–30, or a Set for arbitrary numeric labels. */
-export type Claims = number | ReadonlySet<number>
 
 /** Supplies native equivalence and provenance facts to the finite special-value decision. */
 export interface SpecialFacts {
@@ -672,30 +595,6 @@ export interface SpecialFacts {
 
 /** Selects an explicit base, registered copy, fresh copy or unchanged source. */
 export type SpecialDecision = 'base' | 'copy' | 'fresh' | 'source'
-
-/** Reports exact agreement, an exposure rebind, or an uncertifiable publication. */
-export type Readback =
-  | {
-      readonly exposed: Label
-      readonly kind: 'rebind'
-      readonly mode: number
-      readonly node: number
-      readonly storage: Label
-    }
-  | { readonly kind: 'match' }
-  | { readonly kind: 'reject'; readonly node?: number }
-
-/** Connects finite selection and revision handling to native preparation and readback. */
-export interface Adapter {
-  prepare: (selection: Selection) => readonly Binding[] | undefined
-  publish: (state: Execution) => boolean | { readonly rejected: number }
-  readback: (state: Execution, node: number) => Readback
-  retention?: (state: Execution) => number
-}
-
-/** Reports whether a completed publication attempt certified the selected image. */
-export type Result =
-  { readonly kind: 'accepted'; readonly state: Execution } | { readonly kind: 'rejected' }
 
 /** Stores a settled special identity or a structural payload eligible for fresh allocation. */
 export interface ImmutableRecord {
@@ -719,12 +618,6 @@ export interface EngineOptions {
 export interface MaterializationTraversal {
   readonly parent: object
   readonly visited: Set<object>
-}
-
-/** Records an observed-score candidate that must be replayed before it can be returned. */
-export interface ScoredSelection {
-  readonly score: number
-  readonly selection: Selection
 }
 
 /** Supplies sealed immutable proposals, storage owners and closed reuse failures. */

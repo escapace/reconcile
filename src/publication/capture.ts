@@ -1,5 +1,6 @@
 import { atomValue, isNode } from '../graph/edge'
-import { hasOwn, isObject, prototypeOf } from '../object-property'
+import { isObject, prototypeOf } from '../object-property'
+import { ownValue } from '../types/shared/properties'
 import { ATOM_KIND, UNREAD } from '../constants'
 import { atomPrototype } from '../object-property'
 import { OBJECT_KIND } from '../types/object'
@@ -54,6 +55,14 @@ class AlignedCapture extends Detached {
   declare occupants: Array<unknown[] | undefined>
   // The prototype capture read of each node's aligned current object; undefined when unread.
   declare prototypes: Array<object | null | undefined>
+  // The node first aligned with each current object: the first such object and its node in two
+  // fields, the rest in a map created on the second; and for an object aligned at more than one
+  // node the value read at each of its keys, so that a key is read once, created on the first
+  // object aligned twice.
+  declare alignedAt: Map<object, number> | undefined
+  declare firstAligned: object | undefined
+  declare firstAlignedAt: number
+  declare reads: Map<object, Map<PropertyKey, unknown>> | undefined
   // The one prototype read shared by recognition and its caller for the object at hand.
   declare private readonly read: PrototypeRead
   // The root's prototypes, read by the caller before capture.
@@ -85,6 +94,10 @@ class AlignedCapture extends Detached {
     this.nodes = []
     this.occupants = []
     this.prototypes = []
+    this.alignedAt = undefined
+    this.firstAligned = undefined
+    this.firstAlignedAt = 0
+    this.reads = undefined
     this.read = { known: false, prototype: null }
     this.nextPrototype = valuePrototype
     this.pendingPrototype = currentPrototype
@@ -149,21 +162,54 @@ class AlignedCapture extends Detached {
       observed: undefined,
       pinned: undefined,
     }
+    const aligned = this.pending
     // The first node's tables are exact literals; a later node grows them.
     if (index === 0) {
       this.nodes = [node]
-      this.currents = [this.pending]
+      this.currents = [aligned]
       this.prototypes = [this.pendingPrototype]
       this.occupants = [undefined]
     } else {
       this.nodes[index] = node
-      this.currents[index] = this.pending
+      this.currents[index] = aligned
       this.prototypes[index] = this.pendingPrototype
       this.occupants[index] = undefined
     }
+    if (aligned !== undefined) this.alignAt(aligned, index)
     this.pending = undefined
     this.pendingPrototype = undefined
     return { node: index }
+  }
+
+  // Records the node aligned with `object`; an object aligned a second time gets the table of
+  // its reads so far, which every later read of it goes through.
+  private alignAt(object: object, index: number): void {
+    let alignedAt = this.alignedAt
+    if (alignedAt === undefined) {
+      const first = this.firstAligned
+      if (first === undefined) {
+        this.firstAligned = object
+        this.firstAlignedAt = index
+        return
+      }
+      alignedAt = this.alignedAt = new Map<object, number>([[first, this.firstAlignedAt]])
+    }
+    const first = alignedAt.get(object)
+    if (first === undefined) alignedAt.set(object, index)
+    else if (this.reads?.has(object) !== true)
+      (this.reads ??= new Map()).set(
+        object,
+        tableOf((this.nodes[first] as BuildingNode).keys, this.occupants[first]),
+      )
+  }
+
+  // The occupant of `aligned` at `key`: the value read for another node, else one read now.
+  private occupantOf(aligned: object, key: PropertyKey): unknown {
+    const table = this.reads?.get(aligned)
+    if (table?.has(key) === true) return table.get(key)
+    const value = ownValue(aligned, key)
+    table?.set(key, value)
+    return value
   }
 
   // The driver calls begin/edge only while this node is under construction.
@@ -198,10 +244,12 @@ class AlignedCapture extends Detached {
     construction: boolean | undefined,
   ): unknown {
     const reference = this.currentReference!
-    const child = this.adopt(reference.node, value, key, construction, knownKind)
     const node = this.nodes[reference.node] as BuildingNode
-    node.edges.push(child)
+    // The key precedes its edge while the child is captured, so that the table of a shared
+    // object's reads, built then, names the occupant read for it.
     if (key !== undefined) node.keys.push(key)
+    const child = this.adopt(reference.node, value, key, construction, knownKind)
+    node.edges.push(child)
     if (construction === true) {
       if (isNode(child)) {
         const layout = this.nodes[child.node]?.layout
@@ -225,8 +273,9 @@ class AlignedCapture extends Detached {
       : structural
   }
 
-  // Own-property edges may keep the current occupant as an atom; construction edges never do.
-  // The reference lookup happens once here, not again inside the visit.
+  // The occupant of each own-property edge of an aligned object is read once here and serves
+  // every later phase; an own-property edge may keep the occupant as an atom; construction edges
+  // read none. The reference lookup happens once here, not again inside the visit.
   private adopt(
     parent: number,
     child: unknown,
@@ -235,12 +284,13 @@ class AlignedCapture extends Detached {
     kind: symbol | undefined,
   ): Edge {
     const aligned = this.currents[parent]
-    if (aligned === undefined || key === undefined || construction === true || !isObject(child))
+    if (aligned === undefined || key === undefined || construction === true)
       return this.visit(child, kind)
+    const occupant = this.occupantOf(aligned, key)
+    this.recordOccupant(parent, occupant)
+    if (!isObject(child)) return child as Primitive
     const references = this.references
     const known = references.get(child)
-    const occupant: unknown = hasOwn(aligned, key) ? Reflect.get(aligned, key) : undefined
-    this.recordOccupant(parent, occupant)
     const childKind = known === undefined ? this.classify(child, kind) : kind
     if (childKind === ATOM_KIND) return atom(references, child)
     const prototype = known === undefined ? this.classified : undefined
@@ -256,7 +306,7 @@ class AlignedCapture extends Detached {
   }
 
   // Records the occupant read for the parent's next edge, at that edge's position; an earlier edge
-  // whose occupant was not read holds `UNREAD`.
+  // whose occupant was not read, a construction edge, holds `UNREAD`.
   private recordOccupant(parent: number, occupant: unknown): void {
     const slots = (this.occupants[parent] ??= [])
     const position = (this.nodes[parent] as BuildingNode).edges.length
@@ -320,18 +370,29 @@ class AlignedCapture extends Detached {
   }
 }
 
+/** The values read at `keys`, by key, from the positional `reads`; an unread position is left out. */
+export function tableOf(
+  keys: readonly PropertyKey[],
+  reads: readonly unknown[] | undefined,
+): Map<PropertyKey, unknown> {
+  const table = new Map<PropertyKey, unknown>()
+  if (reads === undefined) return table
+  for (let index = 0; index < keys.length && index < reads.length; index += 1)
+    if (reads[index] !== UNREAD) table.set(keys[index], reads[index])
+  return table
+}
+
 /**
  * Captures `value`, aligned with `current` when supplied.
  *
  * @remarks
  * Aligned capture reads, for each own-property edge of a node whose aligned current object
- * has the same kind, the occupant of that slot right after the next value. A child that is
- * the occupant itself is walked once and kept as an atom edge holding the object when its
- * kind needs no construction input and has independent bindings and the walk meets neither
- * root. Everything the walk met is protected: no other position may retain it, and a later
- * child found inside it is kept the same way or, once captured, pinned to itself. Candidate
- * discovery reuses the recorded occupants, so captured regions perform the same reads as an
- * unaligned capture.
+ * has the same kind, the occupant of that slot right after the next value, once; the read
+ * serves discovery, the preflight and the first publication. A child that is the occupant
+ * itself is walked once and kept as an atom edge holding the object when its kind needs no
+ * construction input and has independent bindings and the walk meets neither root. Everything
+ * the walk met is protected: no other position may retain it, and a later child found inside it
+ * is kept the same way or, once captured, pinned to itself.
  */
 export function capture(
   types: PublicationRegistry,
@@ -343,13 +404,17 @@ export function capture(
   const run = new AlignedCapture(types, value, current, valuePrototype, currentPrototype)
   const root = run.visit(value)
   return {
+    alignedAt: run.alignedAt,
     candidateReads: undefined,
     currents: run.currents,
+    firstAligned: run.firstAligned,
+    firstAlignedAt: run.firstAlignedAt,
     kinds: run.kinds,
     nodes: run.nodes as CapturedNode[],
     occupants: run.occupants,
     protectedStorage: run.protectedStorage,
     prototypes: run.prototypes,
+    reads: run.reads,
     root,
     sources: run.sources,
   }

@@ -23,8 +23,8 @@ A theorem therefore reads: if the runtime supplies these facts, the algorithm pr
 No whole-library correctness, resource-exhaustion, memory or speed claim follows from the proofs.
 
 A _reference model_ is a direct definition that optimized code must agree with: `GraphPolicy`
-defines the ranked selection stream, `Construction` the construction schedule, and
-`SelectionUnwind` ordinary backtracking. The `Spec` modules are reference models of the public
+defines the ranked selection stream that `produce`'s identity restoration refines, and
+`Construction` the construction schedule. The `Spec` modules are reference models of the public
 functions themselves: executable definitions of `reconcile`, `produce` and `snapshot` over graphs
 with descriptors, which the `Spec` bridge compares with the runtime on seeded random graphs, and
 about which `Spec.Promises` proves the documented promises.
@@ -64,8 +64,8 @@ aliases.
    `lakefile.toml`. The axiom audit rejects unlisted files and roots without a file, so change
    both together.
 5. **Add an oracle and a bridge.** Give the oracle a namespaced `run` function, add its family to
-   `Oracle/RuntimeOracle.lean`, and call it from a bridge run by `check-lean.ts` or
-   `lean-policy-bridge.ts`. Keep hand-written fixtures as JSON in `lean/fixtures/`. Prefer comparing
+   `Oracle/RuntimeOracle.lean`, and call it from a bridge run by `check-lean.ts`. Keep
+   hand-written fixtures as JSON in `lean/fixtures/`. Prefer comparing
    production code, and say so when a bridge runs a reference transition. Renaming an oracle
    namespace or a fixture file breaks the bridge that uses it.
 6. **Document it** in this guide: the correspondence row, its obligations and a bridge-table row.
@@ -140,8 +140,9 @@ the integrity test does.
 `Spec.Reconcile.run` is the deterministic reference: a read phase that aligns `next` with `current`
 and pins objects already in place, a decision in visit order that keeps an aligned object when it
 admits `next`'s contents statically, and a write phase that demotes a kept object whose write
-reaches a setter that drops its value and decides again. It returns the result graph with the
-object kept at each node, the writes, the number of passes and the getter counts. `retainPrefix`,
+reaches a setter that drops its value and decides again, never keeping a demoted object and
+keeping each object a pass wrote at its node. It returns the result graph with the object kept at
+each node, the writes, the number of passes and the getter counts. `retainPrefix`,
 the longest prefix of `next`'s key or entry order that is a subsequence of `current`'s, decides
 which keys and entries keep their place. `Spec.Produce.run` applies a recipe of draft operations to
 a draft heap and keeps the greatest set of unchanged subtrees (`kept`); `Spec.Produce.snapshot`
@@ -149,8 +150,9 @@ copies every node.
 
 `Spec.Promises` proves, about these definitions: the retained prefix is a prefix of `next`'s order,
 a subsequence of `current`'s and the longest such prefix (`retainPrefix_prefix`,
-`retainPrefix_sublist`, `retainPrefix_longest`); a getter of `current` runs at most twice, and at
-most once when nothing is written (`get_bound`, `read_once_before_write`); the decision passes are
+`retainPrefix_sublist`, `retainPrefix_longest`); a getter of `current` runs at most once when its
+object is read and once per decision pass, and at most once when nothing is written (`get_bound`,
+`read_once_before_write`); the decision passes are
 bounded by the number of node pairs, so no plan is searched (`passes_le`); and `produce` keeps a
 current object exactly when its subtree is unchanged, `kept` being the greatest set closed under
 the keep conditions (`kept_closed`, `kept_greatest`). The runtime meets these promises exactly as
@@ -178,7 +180,6 @@ and caller-supplied memos keep their `WeakMap` reads and writes and callback ord
 | Module(s)                             | Key theorems                                                                                                                                                                                                                                                                                                                                                                             | Runtime                                                                                                                                                                                                                                                                                       | Bridge                                                    | Obligations                                       |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- |
 | `ReconcileSpec`, `ReconcileSoundness` | `reconcile_root_retained`, `reconcile_no_collapse`, `reconcile_sharing`, `reconcile_cycle_preservation`                                                                                                                                                                                                                                                                                  | `src/reconcile.ts` `reconcile`                                                                                                                                                                                                                                                                | imported by Pruned                                        | Capture, Identity and storage                     |
-| `PrunedReconcile`                     | `pruned_untouched`, `pruned_full_soundness`, `pruned_full_equivalence` (definition)                                                                                                                                                                                                                                                                                                      | `src/reconcile.ts`; pinning in `src/publication/capture.ts`, `candidates.ts`                                                                                                                                                                                                                  | Pruned                                                    | Full capture                                      |
 | `PropertyOrder`                       | `step_equivalence`, `stream_equivalence`, `aligned_mem`                                                                                                                                                                                                                                                                                                                                  | `src/types/shared/property-publication.ts` `PropertyOrder`; aligned publication in `src/types/object.ts`                                                                                                                                                                                      | PropertyOrder                                             | Capture                                           |
 | `DeferredOrder`                       | `catchUp_eq`, `execute_eq`                                                                                                                                                                                                                                                                                                                                                               | `src/types/shared/property-publication.ts`                                                                                                                                                                                                                                                    | DeferredOrder (instrumented copy)                         | Property order                                    |
 | `PropertyWrite`                       | `reconcileKey_no_inherited_setter`, `publish_missing`, `construct_data`, `constructFrom_data`, `constructOn_fresh`, `constructOn_eq_construct`, `constructFromOn_fresh`, `draftSet_eq`, `assignStrict_eq`, `draftThroughSetter_eq`, `draftThroughSetter_refused`, `draftThroughSetter_tamed`, `publish_accessor`, `reconcileKey_rejected`, `reconcileKey_sound`, `reconcileKey_complete` | `src/types/shared/property-publication.ts` `canPublishProperties`, `publishProperty`; `src/types/shared/draft-properties.ts` `set`, `defineProperty`; `setOwnProperty` (`src/set-own-property.ts`); `define` in `src/serialization/common.ts`; the fresh-shell write in `src/types/object.ts` | PropertyWrite, PropertyConstructOn, PropertyThroughSetter | Property writes                                   |
@@ -191,12 +192,10 @@ preserves sharing and cycles, and never merges distinct nodes (`reconcile_no_col
 plain object keeps its current prototype. Failure is an error and does not promise rollback.
 `src/__tests__/reconcile-semantics.spec.ts` tests the contract case by case.
 
-`PrunedReconcile` adds pinned nodes to the _witness_ (`ReconcileWitness`, whose `image` maps each
-captured `next` node to its result node): current objects found at the same own-property slot of the
-aligned current node, kept as fixed images that stay unchanged (`pruned_untouched`). Under
-`FullCapture`, the pruned result equals publishing the full `next` graph: the definition
-`pruned_full_equivalence` builds that `ReconcileSpec`, and `pruned_full_soundness` concludes from
-it.
+Pinning is `Spec.Reconcile.pinned`: a `next` object that is the current object at the same
+own-property slot of the aligned current object, whose subtree reaches neither root, stays as it
+is with everything inside it, which no other position may keep (`pinnedAt`); the Spec bridge
+checks it on random graphs.
 
 `PropertyOrder` keeps the cursor's decisions while bounding its work. `aligned_mem` proves that when
 duplicate-free current keys start with the requested order, a current key is requested exactly when
@@ -218,11 +217,10 @@ proxy whose `set` trap refuses a write is not overridden.
 
 `CollectionPlan` models a `Map` or `Set` as its entries in insertion order, with the built-in
 `set` keeping an existing key in place; `reconcile` uses the built-in methods (see _Built-in
-contents_ below). Publication keeps each
-entry up to the first position whose key differs, setting only changed values, then deletes the
-current entries from there and appends the next ones; with duplicate-free keys this reaches exactly
-the next entries (`plan_eq`), and a put of an entry's own value changes nothing (`put_same`), so the
-runtime skips it.
+contents_ below). Publication keeps the current entries that form, in order, the longest prefix of
+the next entries (`Spec.Reconcile.retainPrefix`, the fewest moves by `retainPrefix_longest`),
+setting only changed values, deletes every other current entry and appends the next entries past
+that prefix. A put of an entry's own value changes nothing (`put_same`), so the runtime skips it.
 
 `PropertyPlacement` shows that publication's key order is best effort and never rejects early: a
 placement keeping every fixed key exists exactly when greedy matching keeps them (`feasible_iff`),
@@ -245,37 +243,12 @@ accepts exactly that definition, so the assignment has the object's outcome
 (`draftThroughSetter_eq`, `draftThroughSetter_tamed`), and refuses any other definition
 (`draftThroughSetter_refused`).
 
-### Selection kernel
-
-The selector, its supporting state and the execution driver serve `reconcile` publication
-(`publishGraph`); `Provenance` serves `produce` finalization.
-
-| Module(s)                                                     | Key theorems                                                                            | Runtime                                                     | Bridge                                  | Obligations                                           |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------- | ----------------------------------------------------- |
-| `GraphPolicy`                                                 | `feasiblePlans_exact`, `rankedPlans_exact`, `rankedPreferred_head`                      | `src/graph/selection.ts` `selections`; reference stream     | Policy                                  | Preferred attempts                                    |
-| `ActiveDemands`, `ForwardDemands`                             | `maintained_iff_scan`, `search_eq`, `ranked_eq`                                         | `src/graph/selection.ts`                                    | Policy                                  | none                                                  |
-| `SelectionUnwind`                                             | `unassign_assign`, `unwind_assignments`                                                 | backtracking in `src/graph/selection.ts`                    | SelectionUnwind (reference transitions) | none                                                  |
-| `FiniteReachability`, `ForcedGroups`, `ForcedGroupsReference` | `closure_iff`, `component_forced`, `reference_reaches`                                  | `src/graph/forced-groups.ts`                                | Policy                                  | none                                                  |
-| `SupportedChoices`                                            | `completed_exact`, `survivors_fixed`                                                    | `src/graph/supported-choices.ts` `unsupportedChoices`       | Policy                                  | none                                                  |
-| `IncomingConsensus`                                           | `foldl_eq`, `summarize_accepts`                                                         | `src/graph/incoming-consensus.ts`, `src/graph/execution.ts` | Policy                                  | none                                                  |
-| `DenseChecks`                                                 | `complete_iff_count`, `mark_valid`                                                      | `src/graph/checked.ts` `CheckedNodes`                       | proof-only                              | none                                                  |
-| `Claims`                                                      | `has_iff`, `no_alias`                                                                   | `src/graph/claims.ts`                                       | Policy                                  | none                                                  |
-| `Execution`, `Driver`                                         | `stale_plan_ignored`, `finish_requires_complete_readback`, `run_certified`, `run_fresh` | `src/graph/execution.ts`, `src/graph/driver.ts` `execute`   | Policy                                  | Identity and storage, Preferred attempts, Termination |
-| `Provenance`                                                  | `base_iff`, `source_iff`, `choose_currentBacked`, `untracked_source_iff`                | `src/graph/provenance.ts` `chooseSpecial`                   | Policy                                  | Capture                                               |
-
-`GraphPolicy` defines domains, storage separation, identity requirements,
-feasible plans and the ranked stream, which keeps domain order within equal scores.
-`rankedPreferred_head` concerns the plan that takes each domain's first choice. When that plan is
-feasible, each first choice is retained or its domain offers no retained choice, and the plan's
-score marks no domain as preferred, the plan heads the ranked stream, so the driver attempts it
-before searching. The other modules prove the state the selector maintains. `Execution` shows that
-a stale receipt cannot certify a changed binding and that finishing requires current readback for
-the whole domain; `Driver` separates earlier observations from fresh certification of the result.
-
 ### `produce`
 
 | Module(s)                                                                                                                                                                                                                | Key theorems                                                                                                                | Runtime                                                                                                                                                                                     | Bridge                                                                          | Obligations                |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------- |
+| `GraphPolicy`                                                                                                                                                                                                            | `feasiblePlans_exact`, `rankedPlans_exact`, `rankedPreferred_head`                                                          | `src/graph/selection.ts` `selections`; reference stream                                                                                                                                     | Policy                                                                          | Preferred attempts         |
+| `Provenance`                                                                                                                                                                                                             | `base_iff`, `source_iff`, `choose_currentBacked`, `untracked_source_iff`                                                    | `src/graph/provenance.ts` `chooseSpecial`                                                                                                                                                   | Policy                                                                          | Capture                    |
 | `ProduceDefs`, `ProduceSpec`, `ProduceSoundness`                                                                                                                                                                         | `draft_lazy_child_creation`, `draft_copy_on_write`, `draft_delete_is_explicit`, `draft_finalize_produces_next_graph`        | `src/produce.ts`, `src/draft-session.ts`, `src/finalization.ts`                                                                                                                             | proof-only                                                                      | Drafts, Capture            |
 | `SettledChildren`                                                                                                                                                                                                        | `check_step`, `needs_settled`, `needs_unchanged`, `settled_reach_recorded`, `recorded_getD`                                 | `checkDescendantsForMaterialization` in `src/finalization.ts`; `compileImmutable` in `src/restore-identities.ts`                                                                            | SettledChildren                                                                 | Finalization reads         |
 | `ProduceFinalizeCoherence`, `ProduceFinalizeCoherenceSoundness`                                                                                                                                                          | `draft_shared_finalized_image_coherence`, `draft_moved_reference_final_location_correctness`                                | `src/finalization.ts`                                                                                                                                                                       | proof-only                                                                      | Drafts                     |
@@ -302,7 +275,9 @@ assignment, copy-on-write and finalization. `DraftExecSpec` describes the return
 later `reconcile`. `ProduceFinalizeCoherence` shows that shared draft references finalize to one
 image.
 
-Immutable restoration chooses which current objects an immutable result reuses. `CompactImmutable`
+`GraphPolicy` defines domains, storage separation, identity requirements, feasible plans and the
+ranked stream, which keeps domain order within equal scores; `Provenance` decides a special value's
+copy. Immutable restoration chooses which current objects an immutable result reuses. `CompactImmutable`
 encodes choices as retained bits and relates them to the ranked streams; `ranked_head` proves that
 an admissible, separated and closed eligibility mask is the first ranked mask. The compact planner
 does not replace the general selector. `ImmutableAssembly` shows that filling one private record
@@ -478,10 +453,9 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   written before a rejection the reference decides before any write, and `produce` and `snapshot`
   leave `current` unchanged. The bridge checks this on seeded random graphs, so its evidence is for
   the generated cases; the models cover objects, arrays, maps, sets and dates, not buffers, URLs,
-  Temporal values or proxies. Until the deterministic engine replaces the current one, the gate
-  allows one class of `reconcile` difference and reports getter counts without failing: an object
-  the current engine's plan search keeps where the deterministic decision does not, or the reverse
-  (`retention`); and reads beyond the reference's counts (`getters`).
+  Temporal values or proxies. The gate allows no difference: results, rejections, writes before a
+  rejection and the getter counts of the current objects `next` does not hold must agree; the
+  getters of an object `next` holds run while `next` is read, which the promise leaves out.
 
 ### `snapshot`
 
@@ -500,8 +474,8 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Full capture.** The pinned closure must sit in the current heap at its occupants, be closed and
   separate from captured nodes, have observed buffer extents and receive no write. The runtime walks
   a subtree before pinning it, refuses to pin when the walk meets either root, excludes walked
-  objects from other domains, and pins to itself any captured node the walk met. Each pinned
-  slot's edge holds that slot's occupant (`pinnedImage`). Only plain-object and array slots
+  objects from other candidates, and pins to itself any captured node the walk met. Each pinned
+  slot's edge holds that slot's occupant (`Spec.Reconcile.pinned`). Only plain-object and array slots
   pin, and captured views never pin their buffers.
 - **Buffer shape.** An `arrayBuffer` node holds bytes only, and `compatibleShape` compares their
   count. The runtime also keeps a buffer only when it has next's resizability and maximum length,
@@ -519,8 +493,8 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   `Object.prototype` holds a key once per shape, since only built-in code and the global `Temporal`
   run before records are filled. Multi-key order is `PropertyOrder`'s; an own accessor is treated as
   a slot that keeps its place.
-- **Write-free readback.** When the first publication of an attempt wrote nothing to any node,
-  `publishGraph` answers each readback without reading. `WriteFreeReadback` proves that a plain
+- **Write-free readback.** When the first pass wrote nothing to any node, `publishGraph` reads
+  nothing back. `WriteFreeReadback` proves that a plain
   object or an array whose publication wrote nothing would read back as accepted, given the same
   observation, and so would a `Map` or `Set` whose publication left its entries as they were
   (`collection_writeFree_matches`, from `CollectionPlan.plan_eq`). A `Date`, buffer, URL,
@@ -530,47 +504,39 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   which is what readback compares. The runtime supplies that observation: no write means no setter
   or write trap ran, and a repeated read answers as the first did, provided no getter or read trap
   that the call runs, in `current` or in `next`, changes a value the call already read (README:
-  _Getters must not change values_). Only the first publication
-  counts, since its targets are the objects the preflight read, each exposed as it is written;
-  plain objects must also list exactly their own keys. That publication takes its key list and
-  each aligned key's presence and attributes from the preflight's descriptors (`publishKnown_eq`).
+  _Getters must not change values_). Only the first pass counts, since its targets are the objects
+  the preflight read; plain objects must also list exactly their own keys. That pass takes its key
+  list and each aligned key's presence and attributes from the preflight's descriptors
+  (`publishKnown_eq`).
 - **Reads before the first write.** Capture records the value it read at each key of an aligned
-  object, and each index of an aligned array, whose value in `next` is an object (`occupants`), and
-  candidate discovery records the same for each other object aligned with a node
-  (`candidateReads`). The preflight of each candidate takes a fixed slot's value from those reads
-  or reads it once (`held`). Reads follow the captured node's edges; a kept object's node, which
-  drops `next`'s `markRaw` marker, drops that edge's read too. The first
-  publication of the object decides from either value whether the key needs a write, without
-  reading it again: `publishPre_eq` when the current keys begin in the requested order, so the
-  preflight's descriptor gives the attributes, and otherwise, as for an array, `publishSeen_eq`,
-  whose write takes the live slot's attributes. A retried plan decides each key of a node that its
-  previous readback matched from the value that readback saw, which is the value the previous
-  attempt wanted (`publishSeen_eq`); its preflight reads any other fixed slot once. Readback reads
-  every node again after any write, so a decision that a write in between made stale can only
-  reject the attempt (`accepts_readsAs`, `acceptsRetry_readsAs`). The runtime supplies only the
-  premise of _Write-free readback_: a repeated read with no write in between answers as the first
-  did. An own getter of `current` therefore runs at most once when the call writes nothing, twice
-  when it writes, and once more for each retried plan, apart from reads of `next` and of proxy
-  traps (`write-free-readback.spec.ts`).
-- **Ordinal candidates.** `ReconcileWitness` leaves the candidate relation abstract (its `candidates`
-  field). The runtime offers each captured node other than the root the current objects aligned
-  with it, at the same key of an object, the same index of an array and the same insertion position
-  among `Map` entries (key and value) and `Set` members, plus a fresh copy; the root gets `current`
-  only. A current object is a candidate only at its own
-  position; another position gets it only as a pinned fixed image (_Full capture_)
-  (`candidates.ts` `collect`). The Pruned bridge checks this on plain-object graphs, including
-  swapped and rotated shared leaves; `readme-publication-semantics.spec.ts` and
+  object, and each index of an aligned array (`occupants`), and candidate discovery records the
+  same for each other object aligned with a node (`candidateReads`). An object aligned or walked at
+  more than one node is read through one table of its reads (`reads`), so no key of it is read
+  twice. The preflight of each candidate takes a fixed slot's value from those reads. The first
+  publication of the object decides from them whether a key needs a write, without reading it
+  again: `publishPre_eq` when the current keys begin in the requested order, so the preflight's
+  descriptor gives the attributes, and otherwise, as for an array, `publishSeen_eq`, whose write
+  takes the live slot's attributes. A later pass decides each key of a kept object from the value
+  the previous pass read back (`publishSeen_eq`), and its preflight reads descriptors again.
+  Readback reads every unpinned node again after any write, so a decision that a write in between
+  made stale can only block the object (`accepts_readsAs`, `acceptsRetry_readsAs`). The runtime
+  supplies only the premise of _Write-free readback_: a repeated read with no write in between
+  answers as the first did. An own getter of `current` therefore runs at most once when the call
+  writes nothing, twice when it writes, and once more for each demotion pass, apart from reads of
+  `next` and of proxy traps (`write-free-readback.spec.ts`); the Spec bridge checks the counts
+  against `Spec.Reconcile.run`.
+- **Ordinal candidates.** The runtime offers each captured node other than the root the current
+  objects aligned with it, at the same key of an object, the same index of an array and the same
+  insertion position among `Map` entries (key and value) and `Set` members, inside any candidate of
+  any parent, in discovery order; the root gets `current` only; an object some admitted candidate's
+  fixed slot requires at a node comes first there (`candidates.ts` `collect`,
+  `Spec.Reconcile.discover`, `orderedCandidates`). A current object is a candidate only at its own
+  position; another position gets it only as a pinned fixed image (_Full capture_). The Spec bridge
+  checks this on random graphs; `readme-publication-semantics.spec.ts` and
   `shared-identity-bug.spec.ts` cover arrays, `Map` and `Set`.
 - **Exposed handles.** Readback compares each read with the handle a node is bound to, so a value
   written must read back as that handle; a trap that returns another object for a stored one makes
   readback reject.
-
-### Selection kernel
-
-- **Preferred attempts.** After attempting the preferred plan (`rankedPreferred_head`), the driver
-  skips exactly the stream's first plan. Finalization builds the head eligibility mask
-  (`ranked_head`) before searching.
-- **Termination.** The driver's attempt and round bounds assume that native operations terminate.
 
 ### `produce`
 
@@ -752,8 +718,6 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | Oracle family             | Bridge in `scripts/`                        | Runtime comparison                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Contract`                | `lean-captured-bridge.ts`                   | graphs from `reuse-fixtures.json`: values, aliases, cycles, identity restoration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `Policy`                  | `lean-policy-bridge.ts`                     | complete selection streams, with support, groups and preferred streams on the same fixtures; construction, requirement, consensus, strongly connected component, claim, driver, execution, provenance and forward-pruned cases                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Pruned`                  | `lean-pruned-bridge.ts`                     | graphs from `pruned-fixtures.json`: spread roots, aliases into replaced positions, cycles                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `PropertyOrder`           | `check-property-order-runtime.ts`           | cursor traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `PropertyWrite`           | `check-property-write-runtime.ts`           | single-key outcomes, run through `reconcile` on ordinary objects and forwarding proxies: status, final descriptor, own and inherited setter calls, and no write before a rejection                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `PropertyPlacement`       | `check-property-placement-runtime.ts`       | pairs of own-key orders with an integer key, names and symbols, and every set of accessors they share: `reconcile` succeeds with the desired order exactly where Lean keeps every accessor, and otherwise writes nothing                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -775,7 +739,6 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | `DeferredOrder`           | `check-deferred-order-runtime.ts`           | preflights, demanded checkpoints and original error identities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `FactRenaming`            | `check-fact-renaming-runtime.ts`            | histories with queries and live cursor reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CompactImmutable`        | `check-compact-immutable-runtime.ts`        | cases and ranked plans, including construction rejections                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `SelectionUnwind`         | `check-selection-unwind-runtime.ts`         | admitted prefixes with assignment and undo transitions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `NativeValue`             | `check-native-value-runtime.ts`             | fixtures from `native-value-fixtures.json`: facet compatibility, immutable reuse, publication and readback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `OwnedNativeChild`        | `check-owned-native-child-runtime.ts`       | production carrier adoption projections: raw and canonical query, ordered entries, owner and child identities; then bulk-versus-sequential parameter publications compared natively, without the oracle                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `Serialization`           | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below                                                                                                                                                                                                                                                                                                                                               |
@@ -787,9 +750,8 @@ Read the table with these limits:
 - A corpus bounds the test enumeration, not production graphs. "Strictly less work" marks cases
   where the optimized algorithm does less work than the reference, so the optimization is not
   vacuous.
-- `SelectionUnwind` executes reference transitions with the runtime's demand updates, not a
-  production code path. No bridge executes `DraftExecSpec`; the Contract bridge compares
-  `produce`'s identity restoration with `Immutable`.
+- No bridge executes `DraftExecSpec`; the Contract bridge compares `produce`'s identity
+  restoration with `Immutable`.
 - The `Serialization` domain is records, null-prototype records, dense and sparse arrays, JSON
   literals and shared scalar nodes. Its hand-written JSON importer uses Lean numbers, so `-0` and
   overflowing literal roots are compared with `JSON.parse` at runtime only.
@@ -799,6 +761,6 @@ three fields; the reply is the oracle's JSON between record-separator lines, the
 `null` or the error.
 
 ```sh
-echo '{"family":"Pruned","args":["lean/fixtures/pruned-fixtures.json"],"input":""}' \
+echo '{"family":"Contract","args":["lean/fixtures/reuse-fixtures.json"],"input":""}' \
   | .lake/build/bin/reconcile-oracle
 ```
