@@ -1,7 +1,6 @@
 import { OBJECT_KIND, OBSERVED_ACCESSOR, UNREAD } from '../constants'
 import { snapshotValue, type SnapshotReceiver } from '../graph/edge'
-import { freeze, independentBindings, yes } from './shared/empty'
-import { noValue } from './shared/empty'
+import { freeze, independentBindings, noValue, same, yes } from './shared/empty'
 import type {
   CapturedNode,
   CapturePolicy,
@@ -22,21 +21,21 @@ import { createPropertyHandle, PropertyDraftState, writeDataSlot } from './share
 import type { PropertySurface } from './shared/property-publication'
 import {
   alignedPrefix,
+  priorRead,
   PropertyOrder,
   propertyRequirements,
   propertySlots,
-  priorRead,
   publishKnown,
   publishRead,
   REFUSED,
   UNCHANGED,
   WROTE,
+  wrote,
 } from './shared/property-publication'
 
 import { alignedProperties, backedProperty } from './shared/properties'
 import { defineData, hide, isDataDescriptor, restoreAttributes } from '../standard-prototypes'
 
-/** Stable global identity owned by the object module. */
 /** Stable global identity owned by the object module. */
 export { OBJECT_KIND }
 
@@ -101,7 +100,7 @@ function writeDefinedSlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey |
   )
 }
 
-export const objectSnapshot = /* @__PURE__ */ (() =>
+const objectSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...objectCapture,
     snapshot(layout, _resolve, writer) {
@@ -123,7 +122,7 @@ export const objectSnapshot = /* @__PURE__ */ (() =>
 function writeProperties(
   node: CapturedNode<ObjectLayout>,
   target: object,
-  image: (edge: Edge, key?: PropertyKey) => unknown,
+  image: (edge: Edge) => unknown,
   known: ReadonlyArray<PropertyDescriptor | undefined> | undefined,
   reads: readonly unknown[] | undefined,
   removed: readonly PropertyKey[] | undefined,
@@ -142,7 +141,7 @@ function writeProperties(
       hidden?.has(key) === true &&
       !hasOwn(target, key)
     const read = lookup ? priorRead(reads, index, key, removed) : UNREAD
-    const value = image(node.edges[index], key)
+    const value = image(node.edges[index])
     // Without a read the key takes `publishKnown` as it is, kept small enough to inline.
     const written =
       read === UNREAD
@@ -189,8 +188,6 @@ function deleteUnrequested(
   }
   return result
 }
-
-const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
 
 /** Deletes a requested key that is out of order so that it can move, recording it in `removed`
  * and, followed by its data descriptor, in `moved`; a non-configurable key stays. */
@@ -266,7 +263,7 @@ export const objectPublication = /* @__PURE__ */ (() =>
     },
     requirements: (node, current, note) => propertyRequirements(node, current, objectSurface, note),
     // Object slots are indexed on first demand; see objectSurface.
-    seal: (node) => node,
+    seal: same,
   }))() satisfies PublicationPolicy<ObjectLayout>
 
 // Packs a data descriptor's configurable, enumerable and writable flags into bits 1, 2 and 4.

@@ -17,7 +17,7 @@ export const TYPED_ARRAY_KIND = Symbol.for('@escapace/reconcile/typed-array')
 const typedArrayCapture = /* @__PURE__ */ viewCapture(TYPED_ARRAY_KIND, copyTypedArray)
 const typedArrayConstruction =
   /* @__PURE__ */ viewConstruction<typeof TYPED_ARRAY_KIND>(copyTypedArray)
-export const typedArraySnapshot = /* @__PURE__ */ (() =>
+const typedArraySnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...typedArrayCapture,
     .../* @__PURE__ */ viewSnapshot<typeof TYPED_ARRAY_KIND>(),

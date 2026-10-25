@@ -113,9 +113,9 @@ export class PropertyDraftState<K extends symbol = symbol>
   // fills it after its last call into other code, the engine reads it as the trap returns, and it
   // inherits nothing.
   declare private reported: DataDescriptor | undefined
+  declare readonly rules: PropertyDraftRules<K>
   // The key whose inherited setter is running with this draft as receiver; its definition of
   // that key is the one reflective definition the draft accepts.
-  declare readonly rules: PropertyDraftRules<K>
   declare private settingThrough: PropertyKey | undefined
 
   source(): object {
@@ -133,6 +133,7 @@ export class PropertyDraftState<K extends symbol = symbol>
     this.kind = rules.kind
     this.modified = false
     this.properties = this
+    this.provided = undefined
     this.reported = undefined
     this.settingThrough = undefined
     this.rules = rules

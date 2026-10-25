@@ -125,21 +125,15 @@ const recognition = /* @__PURE__ */ (() => {
   }
 })()
 
+// `snapshot` copies objects, arrays, Maps, Sets, Dates, buffers and views inline when it walks
+// with this registry, so only the kinds it observes through their facets are listed.
 export const snapshotTypes: SnapshotRegistry = /* @__PURE__ */ (() =>
   freeze({
-    policies: table([
-      array.arraySnapshot,
-      date.dateSnapshot,
-      map.mapSnapshot,
-      set.setSnapshot,
-      arrayBuffer.arrayBufferSnapshot,
-      dataView.dataViewSnapshot,
-      typedArray.typedArraySnapshot,
-      temporal.temporalSnapshot,
-      url.urlSnapshot,
-      urlSearchParameters.urlSearchParametersSnapshot,
-      object.objectSnapshot,
-    ]) as unknown as SnapshotRegistry['policies'],
+    policies: freeze({
+      [temporal.TEMPORAL_KIND]: temporal.temporalSnapshot,
+      [url.URL_KIND]: url.urlSnapshot,
+      [urlSearchParameters.URL_SEARCH_PARAMS_KIND]: urlSearchParameters.urlSearchParametersSnapshot,
+    }) as unknown as SnapshotRegistry['policies'],
     recognize: builtinRecognize,
   }))()
 

@@ -132,7 +132,6 @@ export function frame(id: number, tag: number, detail: number | undefined, value
     keys: undefined,
     length: 0,
     mapValue: undefined,
-    next: undefined,
     phase: 0,
     reference: false,
     row: undefined,

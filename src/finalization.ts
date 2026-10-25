@@ -325,11 +325,10 @@ export class Finalization extends Detached {
   }
 
   /** Memoizes a resolved object identity that needs no structural reuse analysis. */
-  private recordLeaf(target: object, memoKey: object, leaf?: true): FinalizedReference {
+  private recordLeaf(target: object, memoKey: object): FinalizedReference {
     const reference = {
       discoveredBy: undefined,
       layout: undefined,
-      leaf,
       target,
     }
     this.phase.values.set(memoKey, reference)
@@ -370,7 +369,7 @@ export class Finalization extends Detached {
     }
     const kind = this.kindOf(copyBase ?? value)
     // An atom is a fixed leaf kept by identity, as a function slot keeps its function.
-    if (kind === ATOM_KIND) return this.recordLeaf(value, value, true)
+    if (kind === ATOM_KIND) return this.recordLeaf(value, value)
     const policy = this.session.types.specials[kind]
     if (policy === undefined) {
       const active = this.needsMaterialization(value, kind)
@@ -380,8 +379,7 @@ export class Finalization extends Detached {
       // could only pass, and the selector's best choices keep it. If the
       // kernel finds no plan, or a special clone sets the projection, the sealed pass
       // materializes everything.
-      if (!active && this.materializationPlan !== undefined)
-        return this.recordLeaf(value, value, true)
+      if (!active && this.materializationPlan !== undefined) return this.recordLeaf(value, value)
       return this.materializeDraftableObject(
         kind,
         value,
@@ -473,7 +471,7 @@ export class Finalization extends Detached {
     const active = state.modified || this.needsMaterialization(state.base)
     // A drafted but unchanged object is backed by `current`; see materializeContainerSlot.
     if (!active && this.materializationPlan !== undefined)
-      return this.recordLeaf(state.base, state.base, true)
+      return this.recordLeaf(state.base, state.base)
 
     const source = state.source()
 
@@ -625,7 +623,6 @@ class DraftObservation extends Detached {
       discoveredBy: undefined,
       keys: undefined,
       layout,
-      leaf: undefined,
       observed: undefined,
       settled: !this.active,
       target: this.target,
@@ -650,7 +647,6 @@ class DraftObservation extends Detached {
           : {
               discoveredBy: undefined,
               layout: undefined,
-              leaf: undefined,
               target: value,
             },
       )

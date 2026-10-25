@@ -11,8 +11,6 @@ import { node, slot } from './emit'
 import { intern } from './radix'
 import { openBuiltin, closeIteratorAfterThrow, hasElement } from '../standard-prototypes'
 
-const object = (value: unknown): value is Record<PropertyKey, unknown> =>
-  value !== null && (typeof value === 'object' || typeof value === 'function')
 // True when the last slot pushed a frame that must complete first.
 const pushed = (frame: Frame, context: EncodeContext) =>
   context.stack[context.stack.length - 1] !== frame
@@ -58,7 +56,7 @@ function array(frame: Frame, context: EncodeContext) {
 // `next`; its steps are fresh native results, which nothing can observe.
 function builtinIterator(frame: Frame, collection: object, map: boolean) {
   const opened = openBuiltin(collection, map, map ? 'entries' : 'values')
-  frame.iterator = opened.iterator as Frame['iterator']
+  frame.iterator = opened.iterator
   frame.step = opened.step
   frame.active = false
 }
@@ -94,13 +92,8 @@ function map(frame: Frame, context: EncodeContext) {
 }
 function next(frame: Frame) {
   frame.active = false // step/done/value failures do not close this iterator.
-  const result: unknown =
-    frame.step === undefined
-      ? Reflect.apply(frame.next, frame.iterator, [])
-      : frame.step(frame.iterator)
-  if (!object(result)) throw new TypeError('iterator result is not an object')
-  const done = Boolean(result.done)
-  if (done) return false
+  const result = frame.step(frame.iterator)
+  if (result.done === true) return false
   frame.child = result.value
   frame.active = true
   return true

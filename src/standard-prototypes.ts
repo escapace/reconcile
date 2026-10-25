@@ -204,15 +204,11 @@ export function builtinValue(owner: object, key: PropertyKey): unknown {
 /**
  * The built-in iterator methods of `Map` and `Set`, read as own properties when the module loads.
  * Called on an instance of its kind, each returns a fresh native iterator whose steps no other
- * code observes; any other call fails as the built-in fails. They are compared and applied, never
- * called as methods.
- * @internal
+ * code observes; any other call fails as the built-in fails. They are applied, never called as
+ * methods.
  */
-export const nativeMapEntries: unknown = /* @__PURE__ */ (() =>
-  builtinValue(Map.prototype, 'entries'))()
-/** @internal */
-export const nativeSetValues: unknown = /* @__PURE__ */ (() =>
-  builtinValue(Set.prototype, 'values'))()
+const nativeMapEntries: unknown = /* @__PURE__ */ (() => builtinValue(Map.prototype, 'entries'))()
+const nativeSetValues: unknown = /* @__PURE__ */ (() => builtinValue(Set.prototype, 'values'))()
 
 const functionCall = /* @__PURE__ */ (() => builtinValue(Function.prototype, 'call'))() as (
   ...parameters: unknown[]

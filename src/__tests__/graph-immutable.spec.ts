@@ -15,7 +15,6 @@ function record(target: Record<string, unknown>, n: number): ReuseNode<ObjectLay
     discoveredBy: undefined,
     keys: Object.keys(target),
     layout: { hidden: undefined, kind: OBJECT_KIND, prototype: Object.prototype, slots: undefined },
-    leaf: undefined,
     target,
   }
 }

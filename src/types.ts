@@ -20,7 +20,7 @@ export interface DraftContext {
   /** The special-value copy a recipe read of `value` made, if any. */
   copyOf: (value: object) => object | undefined
   /** Draft layers of `Map` and `Set` subclasses, by subclass prototype, for this call. */
-  draftLayers?: Map<object, object>
+  draftLayers: Map<object, object> | undefined
 }
 
 /**
@@ -61,8 +61,6 @@ export type DraftState = BaseDraftState
 export interface FinalizedReference<L extends Layout = Layout> {
   readonly layout: L | undefined
   readonly target: object
-  /** An unchanged structural subtree kept by identity: a fixed node with no edges. */
-  readonly leaf: boolean | undefined
   /** The mark of the identity compile that last discovered this reference. */
   discoveredBy: object | undefined
 }
@@ -229,13 +227,8 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     index: number,
     resolve: Resolve,
   ) => void
-  /** Whether `current` holds the node's contents; `fresh` when the call allocated `current`. */
-  readonly matches: (
-    node: CapturedNode<L>,
-    current: object,
-    visit: Compare,
-    fresh?: boolean,
-  ) => boolean
+  /** Whether `current` holds the node's contents. */
+  readonly matches: (node: CapturedNode<L>, current: object, visit: Compare) => boolean
   /**
    * Writes the node's contents; a policy may use the preflight facts in `note` and set
    * `note.unchanged` when it wrote nothing and its readback would accept.
@@ -258,7 +251,6 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
 
 /** The key list and own descriptors one property preflight read of `current`, in key order. */
 export interface PreflightFacts {
-  readonly current: object
   readonly descriptors: ReadonlyArray<PropertyDescriptor | undefined>
   readonly keys: readonly PropertyKey[]
 }
@@ -270,9 +262,6 @@ export interface PreflightFacts {
  */
 export interface PublicationNote {
   facts: PreflightFacts | undefined
-  /** Whether the object being published is a new one the call allocated, which no one else has
-   * seen. */
-  fresh: boolean
   /** The prototype of the object being preflighted, when capture read it; undefined otherwise. */
   prototype: object | null | undefined
   unchanged: boolean
@@ -535,11 +524,8 @@ export interface Candidate {
 /** The candidates of each node in discovery order; a pinned node's only candidate is itself. */
 export type Candidates = ReadonlyArray<readonly Candidate[]>
 
-/**
- * Resolves an edge through the current selected image, leaving atoms unchanged; `key` is the
- * property key the value is written to, when there is one.
- */
-export type Resolve = (edge: Edge, key?: PropertyKey) => unknown
+/** Resolves an edge through the current selected image, leaving atoms unchanged. */
+export type Resolve = (edge: Edge) => unknown
 
 /** Accumulates a graph node before native sealing makes its layout consumable. */
 export interface BuildingNode {

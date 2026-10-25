@@ -1,4 +1,5 @@
 import type { RadixNode } from './radix'
+import type { Step } from '../standard-prototypes'
 // The size limit in words (maxBytes / 8, rounded down) and the words charged so far.
 export interface Budget {
   limit: number
@@ -71,8 +72,8 @@ export interface Frame {
   id: number
   index: number
   input: number
-  iterator: { next: unknown; return?: unknown }
-  // Whether `iterator` is a fresh native Map iterator, whose entries are read by index.
+  // A fresh native Map or Set iterator, stepped by `step`.
+  iterator: object
   keys: string[]
   length: number
   mapValue: unknown
@@ -90,9 +91,8 @@ export interface Frame {
   tag: number
   value: object
   detail?: number
-  next: (...arguments_: unknown[]) => unknown
-  // The built-in step of a fresh native iterator, called with the iterator; undefined otherwise.
-  step: ((iterator: object) => unknown) | undefined
+  // The built-in step of `iterator`, called with it.
+  step: Step
 }
 export type Leaf = (value: object, context: EncodeContext, kind?: number) => Row
 export type Row = unknown[]

@@ -115,7 +115,7 @@ function writeArraySlot(this: SnapshotReceiver, edge: Edge, key: PropertyKey | u
   fillElement(target, Object.getPrototypeOf(target) as object | null, key!, snapshotValue(edge))
 }
 
-export const arraySnapshot = /* @__PURE__ */ (() =>
+const arraySnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...arrayCapture,
     snapshot(layout, _resolve, writer) {

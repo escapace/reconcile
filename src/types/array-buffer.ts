@@ -36,7 +36,7 @@ const arrayBufferConstruction = {
   allocate: (node) => copyBuffer(node.layout.bytes),
 } satisfies ConstructionPolicy<ArrayBufferLayout>
 
-export const arrayBufferSnapshot = /* @__PURE__ */ (() =>
+const arrayBufferSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...arrayBufferCapture,
     snapshot(layout, _resolve, writer) {
@@ -49,17 +49,17 @@ export const arrayBufferPublication = /* @__PURE__ */ (() =>
     ...arrayBufferCapture,
     ...arrayBufferConstruction,
     aligned: noValue,
-    // A kept buffer takes next's bytes in place, so it must already have next's length and, as a
-    // copy would, its resizability and maximum.
     seal: same,
     matches: (node, current) => bufferEquivalent(current as ArrayBuffer, node.layout.bytes),
+    // A kept buffer takes next's bytes in place, so it must already have next's length and, as a
+    // copy would, its resizability and maximum.
     requirements: (node, current) =>
       bufferByteLength(current) === bufferByteLength(node.layout.bytes) &&
       bufferMaximum(current) === bufferMaximum(node.layout.bytes)
         ? EMPTY_FACTS
         : undefined,
     // Equal bytes are not written, and readback, which compares the same bytes, would accept them;
-    // `compatible` matched the lengths.
+    // the preflight matched the lengths.
     publish(node, current, _resolve, _owner, note) {
       const wrote = copyChangedBytes(current as ArrayBuffer, node.layout.bytes)
       if (note !== undefined) note.unchanged = !wrote

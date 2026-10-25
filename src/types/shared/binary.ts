@@ -78,7 +78,6 @@ export function viewPublication<K extends symbol>(): Omit<
   keyof CapturePolicy | keyof ConstructionPolicy
 > {
   return {
-    // A kept view must have next's shape over a buffer of next's length.
     seal: same,
     aligned: (node, current, visit) =>
       visit(current === undefined ? undefined : bufferOfView(current), node.edges[0]),
@@ -86,6 +85,7 @@ export function viewPublication<K extends symbol>(): Omit<
       const actual = current as ArrayBufferView
       return viewShape(actual, node.layout.sample) && visit(bufferOfView(actual), node.edges[0])
     },
+    // A kept view must have next's shape over a buffer of next's length.
     requirements(node, current) {
       const actual = current as ArrayBufferView
       const sample = node.layout.sample

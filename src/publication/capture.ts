@@ -39,8 +39,8 @@ function atom(references: Map<object, Edge>, source: object): Edge {
  * pair of callbacks serves every node.
  */
 class AlignedCapture extends Detached {
-  // The prototype `classify` read for a plain-object kind, handed to that object's observer.
   declare private readonly beginCallback: (layout: Layout) => void
+  // The prototype `classify` read for a plain-object kind, handed to that object's observer.
   declare private classified: object | null | undefined
   // Every object inside a kept subtree, marked by the walk that kept it; created on the first
   // walk, and unmarked again when a walk reaches a root.
@@ -67,7 +67,8 @@ class AlignedCapture extends Detached {
   // The root's prototypes, read by the caller before capture.
   declare private readonly nextPrototype: object | null | undefined
   declare private pendingPrototype: object | null | undefined
-  // Occupant handed from the parent's aligned read to the child's reservation.
+  // The walk's state; `pending` is the occupant handed from the parent's aligned read to the
+  // child's reservation.
   declare private count: number
   declare private currentReference: NodeEdge | undefined
   declare private currentSource: object | undefined
@@ -351,7 +352,7 @@ class AlignedCapture extends Detached {
     }
     while (source !== undefined) {
       if (!closure.has(source)) {
-        // A subtree that reaches a root is captured (PrunedReconcile.FullCapture.closed).
+        // A subtree that reaches a root is captured.
         if (source === this.nextRoot || source === this.root) {
           visited.forEach((marked) => closure.delete(marked))
           return false

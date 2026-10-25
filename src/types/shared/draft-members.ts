@@ -19,7 +19,7 @@ export function draftedForm<C>(
 
 /**
  * The identity a draft compares when it decides membership, its key: the object a drafted value
- * drafts, whichever of its forms the draft was made from (DraftMembers.drafted_key); the original
+ * drafts, whichever of its forms the draft was made from; the original
  * of the copy a read of a `Date`, buffer, view or URL makes; and any other value itself. Each read
  * therefore keeps its element's identity (DraftMembers.includesBy_drafted, includesBy_form).
  */

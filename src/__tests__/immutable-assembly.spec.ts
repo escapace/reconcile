@@ -14,7 +14,6 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
     children: [],
     discoveredBy: undefined,
     layout: { kind: cellType.kind },
-    leaf: undefined,
     get settled() {
       trace.push('parent.settled')
       return false
@@ -29,7 +28,6 @@ it('preserves reservation and completion reads through child-first cyclic reuse'
     children: [parent],
     discoveredBy: undefined,
     layout: { kind: cellType.kind },
-    leaf: undefined,
     get settled() {
       trace.push('child.settled')
       return false

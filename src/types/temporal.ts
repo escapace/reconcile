@@ -166,8 +166,8 @@ export const temporalPublication = /* @__PURE__ */ (() =>
     ...temporalCapture,
     ...temporalConstruction,
     aligned: noValue,
-    // A Temporal value is kept only when equal.
     seal: same,
+    // A Temporal value is kept only when equal.
     matches: (node, current) => matches(node.layout, current),
     requirements: (node, current) => (matches(node.layout, current) ? EMPTY_FACTS : undefined),
     // A Temporal value is never written: it is kept when equal, which readback would accept.

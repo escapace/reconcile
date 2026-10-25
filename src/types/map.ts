@@ -76,7 +76,7 @@ const mapConstruction = {
     adoptPrototype(new Map<unknown, unknown>(), node.layout.prototype, Map.prototype),
 } satisfies ConstructionPolicy<MapLayout>
 
-export const mapSnapshot = /* @__PURE__ */ (() =>
+const mapSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...mapCapture,
     /**

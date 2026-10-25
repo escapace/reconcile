@@ -90,7 +90,7 @@ function writeSetMember(this: SnapshotReceiver, edge: Edge): void {
   builtinSetAdd(this.target!, snapshotValue(edge))
 }
 
-export const setSnapshot = /* @__PURE__ */ (() =>
+const setSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...setCapture,
     snapshot(layout, _resolve, writer) {

@@ -1,6 +1,6 @@
 import { hasOwn, isObject } from '../../object-property'
 import type { BaseDraftState } from '../../types'
-import { defineData, openBuiltin } from '../../standard-prototypes'
+import { defineData, openBuiltin, type Step } from '../../standard-prototypes'
 
 /**
  * Reads a collection's current working value, using its base until a copy exists.
@@ -122,56 +122,30 @@ export function draftCollectionBase(
 export const draftChild = (state: BaseDraftState, value: unknown): unknown =>
   isObject(value) ? state.context.materializeChild(value) : value
 
-/** The prototypes of native `Map` and `Set` iterators. */
-const nativeIterators: ReadonlySet<unknown> = /* @__PURE__ */ (() =>
-  new Set([
-    Object.getPrototypeOf(new Map().entries()),
-    Object.getPrototypeOf(new Set().values()),
-  ]))()
-const iteratorPrototype = /* @__PURE__ */ (() =>
-  Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]())) as object)()
-
 /**
  * Walks an iterator over a draft's working copy, giving each value through `project`.
  *
  * @remarks
  * Making the working copy is not a change, and every later write through the draft changes that
  * same copy, so the walk sees writes as a native iteration does (DraftIteration.iterate_kept,
- * DraftIteration.write_after_iterate). The walk is a native iterator's own kind: over a native
- * iterator it has that iterator's prototype and, like it, no `return`, so leaving a loop early
- * does not end it; over a subclass's iterator it forwards `return`.
+ * DraftIteration.write_after_iterate). The walk is a native iterator's own kind: it has that
+ * iterator's prototype and, like it, no `return`, so leaving a loop early does not end it.
  */
 export function draftWalk<T, R>(
   steps: Iterator<T>,
   project: (value: T) => R,
-  // The built-in step of a native iterator, read when the module loads, called with the iterator.
-  builtinStep?: (iterator: object) => IteratorResult<unknown>,
+  // The built-in step of the native iterator, read when the module loads, called with it.
+  builtinStep: Step,
 ): IterableIterator<R> {
-  const next = (builtinStep === undefined ? Reflect.get(steps, 'next') : undefined) as (
-    this: Iterator<T>,
-  ) => IteratorResult<T>
-  const prototype = Object.getPrototypeOf(steps) as object
-  const native = nativeIterators.has(prototype)
-  const result = Object.create(native ? prototype : iteratorPrototype) as IterableIterator<R>
-  const methods = {
-    next: (): IteratorResult<R> => {
-      const step =
-        builtinStep === undefined
-          ? Reflect.apply(next, steps, [])
-          : (builtinStep(steps) as IteratorResult<T>)
-      // eslint-disable-next-line typescript/strict-boolean-expressions -- ToBoolean, as for...of reads done
-      if (step.done) return step
-      // eslint-disable-next-line perfectionist/sort-objects -- a native iterator result's key order
-      return { value: project(step.value), done: false }
-    },
-    return: (value?: unknown): IteratorResult<R> =>
-      Reflect.apply(Reflect.get(steps, 'return') as (value?: unknown) => IteratorResult<R>, steps, [
-        value,
-      ]),
+  const result = Object.create(Object.getPrototypeOf(steps) as object) as IterableIterator<R>
+  const next = (): IteratorResult<R> => {
+    const step = builtinStep(steps) as IteratorResult<T>
+    // eslint-disable-next-line typescript/strict-boolean-expressions -- ToBoolean, as for...of reads done
+    if (step.done) return step
+    // eslint-disable-next-line perfectionist/sort-objects -- a native iterator result's key order
+    return { value: project(step.value), done: false }
   }
-  defineData(result, 'next', methods.next, false)
-  if (!native && Reflect.get(steps, 'return') !== undefined)
-    defineData(result, 'return', methods.return, false)
+  defineData(result, 'next', next, false)
   return result
 }
 

@@ -179,7 +179,7 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
     !ownsDesired(current, previous, desiredKeys, cursor, surface.ordered, properties)
   )
     return false
-  if (note !== undefined) note.facts = { current, descriptors: descriptors!, keys: previous }
+  if (note !== undefined) note.facts = { descriptors: descriptors!, keys: previous }
   return true
 }
 
@@ -443,7 +443,8 @@ function writeProperty(target: object, key: PropertyKey, value: unknown, present
   )
 }
 
-const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
+/** `WROTE` when a native write was accepted, else `REFUSED`. */
+export const wrote = (accepted: boolean): number => (accepted ? WROTE : REFUSED)
 
 /**
  * `publishProperty` with the descriptor the preflight read for this key, when it read one:

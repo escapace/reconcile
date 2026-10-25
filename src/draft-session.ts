@@ -13,16 +13,18 @@ import { Detached } from './standard-prototypes'
 // Held handles retain only recipe state. Observation passes and getter caches
 // are owned by a separate finalizer and cannot become reachable through a handle.
 export class DraftSession extends Detached implements DraftContext {
+  // Created at the first draft of a `Map` or `Set` subclass.
+  declare draftLayers: Map<object, object> | undefined
   // Created at the first special-value copy; until then no value is a copy or has one.
   declare nativeOwners: WeakMap<object, object> | undefined
   declare specialCloneBaseToClone: WeakMap<object, object> | undefined
   declare specialCloneCloneToBase: WeakMap<object, object> | undefined
   declare readonly statesByIdentity: WeakMap<object, DraftState>
   declare readonly types: ImmutableRegistry
-  declare draftLayers?: Map<object, object>
   constructor(types: ImmutableRegistry) {
     super()
     this.types = types
+    this.draftLayers = undefined
     this.nativeOwners = undefined
     this.specialCloneBaseToClone = undefined
     this.specialCloneCloneToBase = undefined

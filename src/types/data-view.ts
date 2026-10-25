@@ -16,7 +16,7 @@ export const DATA_VIEW_KIND = Symbol.for('@escapace/reconcile/data-view')
 
 const dataViewCapture = /* @__PURE__ */ viewCapture(DATA_VIEW_KIND, copyDataView)
 const dataViewConstruction = /* @__PURE__ */ viewConstruction<typeof DATA_VIEW_KIND>(copyDataView)
-export const dataViewSnapshot = /* @__PURE__ */ (() =>
+const dataViewSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...dataViewCapture,
     .../* @__PURE__ */ viewSnapshot<typeof DATA_VIEW_KIND>(),

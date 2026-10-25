@@ -41,7 +41,7 @@ const dateConstruction = {
     adoptPrototype(new Date(node.layout.time), node.layout.prototype, Date.prototype),
 } satisfies ConstructionPolicy<DateLayout>
 
-export const dateSnapshot = /* @__PURE__ */ (() =>
+const dateSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
     ...dateCapture,
     snapshot(layout, _resolve, writer) {

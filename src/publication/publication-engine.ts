@@ -199,7 +199,6 @@ export function publishGraph(
   // The channel between this call's preflights and publications.
   const note: PublicationNote = {
     facts: undefined,
-    fresh: false,
     prototype: undefined,
     reads: undefined,
     unchanged: false,
@@ -372,7 +371,6 @@ function publishAll(
     false,
   )
   note.facts = undefined
-  note.fresh = false
   note.reads = undefined
   return run.unchanged ? WRITE_FREE : blocked
 }
@@ -437,7 +435,6 @@ function publishNode(
     note.facts = undefined
     note.reads = undefined
   } else if (!prepareKept(types, graph, domains, index, target, note, passes)) return false
-  note.fresh = fresh
   const node = graph.nodes[index]
   return types.policies[node.layout.kind].publish(node, target, resolve, owner, note)
 }
@@ -503,7 +500,7 @@ function readback(
     const fresh = kept[index] === undefined
     if (
       matchesKind(types, target, node.layout.kind) &&
-      types.policies[node.layout.kind].matches(node, target, compare, fresh)
+      types.policies[node.layout.kind].matches(node, target, compare)
     )
       continue
     if (fresh) return REJECTED

@@ -6,6 +6,8 @@ import { MODULE_BRAND } from '../constants'
 import { draftState } from '../types/shared/draft-collection'
 import { builtinModules, snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
 
+const SNAPSHOT_FACETS = ['temporal', 'url', 'url-search-params']
+
 it('uses global identities for the built-in protocol symbols', () => {
   for (const symbol of [MODULE_BRAND, ...builtinModules.map((type) => type.kind)]) {
     const key = Symbol.keyFor(symbol)
@@ -16,7 +18,10 @@ it('uses global identities for the built-in protocol symbols', () => {
 
 it('projects the same native callbacks into each public registry', () => {
   for (const module of builtinModules) {
-    for (const registry of [snapshotTypes, publicationTypes, produceTypes]) {
+    const registries = SNAPSHOT_FACETS.includes(module.name)
+      ? [snapshotTypes, publicationTypes, produceTypes]
+      : [publicationTypes, produceTypes]
+    for (const registry of registries) {
       const policy = registry.policies[module.kind]
       for (const key of Reflect.ownKeys(policy)) {
         const actual: unknown = Reflect.get(policy, key)
@@ -27,6 +32,14 @@ it('projects the same native callbacks into each public registry', () => {
     }
     expect(produceTypes.drafts[module.kind]).toEqual(module.draft)
   }
+})
+
+// The snapshot walk copies every other kind inline, so its registry lists only these.
+it('lists in the snapshot registry only the kinds snapshot observes through their facets', () => {
+  const kinds = builtinModules
+    .filter((module) => SNAPSHOT_FACETS.includes(module.name))
+    .map((module) => module.kind)
+  expect(new Set(Reflect.ownKeys(snapshotTypes.policies))).toEqual(new Set(kinds))
 })
 
 it('accepts global symbols as ordinary Set members without sentinel collisions', () => {
