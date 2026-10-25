@@ -127,6 +127,49 @@ describe('Set drafts combine and compare like native Sets', () => {
       })
     })
 
+  it('rejects an operand that is not set-like with the native error and reads', () => {
+    // Each operand fails one step of GetSetRecord or of walking its keys.
+    const operands: Array<number | Record<string, unknown>> = [
+      1,
+      { size: Number.NaN, has: () => false, keys: () => [].values() },
+      { size: -1, has: () => false, keys: () => [].values() },
+      { has: 1, size: 0, keys: () => [].values() },
+      { keys: 1, size: 0, has: () => false },
+      { size: 0, has: () => false, keys: () => 1 },
+      { size: 0, has: () => false, keys: () => ({ next: () => 1 }) },
+    ]
+    /** The operand, reading through a recorder of the property names read. */
+    const recorded = (fields: number | Record<string, unknown>, log: string[]): unknown =>
+      typeof fields === 'number'
+        ? fields
+        : new Proxy(fields, {
+            get: (target, key, receiver) => {
+              log.push(String(key))
+              return Reflect.get(target, key, receiver) as unknown
+            },
+          })
+    /** The error constructor and the names read when `call` throws. */
+    const failure = (fields: number | Record<string, unknown>, call: (o: unknown) => unknown) => {
+      const log: string[] = []
+      try {
+        call(recorded(fields, log))
+      } catch (error) {
+        return { error: (error as Error).constructor, log }
+      }
+      return { error: undefined, log }
+    }
+    produce({ set: new Set([1]) }, (draft) => {
+      for (const method of [...combinations, ...comparisons])
+        for (const fields of operands)
+          assert.deepEqual(
+            failure(fields, (o) => draft.set[method](o as Set<unknown>)),
+            failure(fields, (o) => new Set([1])[method](o as Set<unknown>)),
+            `${method} ${JSON.stringify(fields)}`,
+          )
+      return draft
+    })
+  })
+
   it('returns object members as their drafts, so a change through one is kept', () => {
     const current = { tags: new Set([{ n: 1 }]) }
     const result = produce(current, (draft) => {
