@@ -3,8 +3,7 @@ import { produce } from '../index'
 
 // An unchanged value stays itself whether it comes from `current` or the recipe assigns it from
 // outside; a linked URL and its `searchParams`, or a buffer and its views, are copied together
-// only when the recipe changes one of them. lean/Graph/Provenance.lean proves the decision
-// (choose_currentBacked, untracked_source_iff) and the policy bridge compares chooseSpecial.
+// only when the recipe changes one of them.
 
 describe('produce keeps unchanged outside values', () => {
   it('keeps a URL assigned next to its searchParams from current', () => {

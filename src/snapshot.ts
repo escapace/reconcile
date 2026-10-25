@@ -45,7 +45,7 @@ const objectPrototype = /* @__PURE__ */ (() => Object.prototype)()
  *
  * @remarks
  * Initialization completes before the target enters the public memo. There is no parallel
- * writer table; SnapshotOwner proves the finite installation/resolution trace correspondence.
+ * writer table: the reference is the writer's state.
  */
 class SnapshotReference extends Detached {
   declare layout: Layout | undefined

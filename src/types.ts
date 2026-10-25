@@ -254,7 +254,6 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
    *
    * @remarks
    * Resolve receives canonical traversal edges; modules must not synthesize or copy references.
-   * This is the native ownership premise for the finite SnapshotOwner refinement.
    */
   readonly snapshot: (layout: L, resolve: Resolve, writer: SnapshotInitializer<L>) => void
 }

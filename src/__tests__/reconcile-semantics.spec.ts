@@ -1,8 +1,8 @@
 /**
  * Comprehensive semantic tests for `reconcile`.
  *
- * This file locks in the intended behavior of `reconcile` as specified by the reconcile
- * contract in the Lean models (ReconcileSpec.lean, ReconcileSoundness.lean; see docs/lean.md).
+ * This file locks in the intended behavior of `reconcile` as the reference model
+ * `Spec.Reconcile` specifies it (see docs/lean.md).
  *
  * Test organization follows the contract: witness invariants, the root rule, the recursive
  * value rule, the shared-object fast path and the entry rule, then kind-specific rules, then

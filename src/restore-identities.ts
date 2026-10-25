@@ -46,8 +46,8 @@ export interface FinalizationFacts {
  * @remarks
  * With `fold`, an object first met inside a fixed node's subtree gets no node of its own: its
  * storage still joins the fixed storages, and its edges to registered nodes become the edges of
- * the fixed node whose walk met it. Produce.FoldedLeaves proves the selector then has the same
- * choices whenever no storage conflicts, which a caller that folds must treat as a rejection.
+ * the fixed node whose walk met it. The selector then has the same choices whenever no storage
+ * conflicts, which a caller that folds must treat as a rejection.
  */
 export function compileImmutable(
   types: ImmutableRegistry,
@@ -238,8 +238,7 @@ interface FixedState {
  * Registers each fixed node's storage and object children, in registration order, and reports
  * whether a storage was claimed twice. A child already registered, or any child without `fold`,
  * becomes an edge; with `fold`, an object first met inside a fixed subtree gets no node: its
- * storage joins the fixed storages and its children become the fixed node's
- * (Produce.FoldedLeaves).
+ * storage joins the fixed storages and its children become the fixed node's.
  */
 function registerFixed(
   state: FixedState,

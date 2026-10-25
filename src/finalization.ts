@@ -401,7 +401,7 @@ export class Finalization extends Detached {
       // The probe settled that nothing below an unchanged object changed, whether `current`
       // backs it or the recipe inserted it, so during discovery it is a fixed leaf kept by
       // identity, without observing, recording or selecting its subtree; as a record its check
-      // could only pass, and the selector's best choices keep it (Produce.PromotedLeaves). If the
+      // could only pass, and the selector's best choices keep it. If the
       // kernel finds no plan, or a special clone sets the projection, the sealed pass
       // materializes everything.
       if (!active && this.materializationPlan !== undefined)

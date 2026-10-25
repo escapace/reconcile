@@ -83,8 +83,8 @@ export const mapSnapshot = /* @__PURE__ */ (() =>
      * Streams pairs with only the unmatched canonical key retained between edge events.
      *
      * @remarks
-     * Resolve both edges when the value arrives, not when the key first arrives. SnapshotStream
-     * proves this pending-key representation preserves finite interleavings with live image changes.
+     * Resolve both edges when the value arrives, not when the key first arrives, so a pair is
+     * written once, after the live image of both edges exists.
      */
     snapshot(layout, resolve, writer) {
       const target = adoptPrototype(new Map<unknown, unknown>(), layout.prototype, Map.prototype)

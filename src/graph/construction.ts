@@ -6,8 +6,8 @@ import { denseArray } from '../standard-prototypes'
  *
  * @remarks
  * The scheduler counts reverse dependency occurrences, including duplicates, then emits stable level
- * buckets. Queue order alone is not the required allocation order. ConstructionScheduler's
- * countedSchedule_eq_schedule proves equality with the original finite wave schedule.
+ * buckets. Queue order alone is not the required allocation order; the result equals the wave
+ * schedule of `Graph.Construction`, which the CompactImmutable bridge checks.
  * Node IDs must form a closed dense domain. Counters are plain numbers, exact far beyond any
  * occurrence count, as the model's naturals are.
  * The caller must finish this schedule before performing any native allocation.
