@@ -2,9 +2,9 @@ import type { Row, Frame, EncodeContext } from './contracts'
 import { leafCaptures } from './leaf'
 import { recognize } from './facets/index'
 import { encodeFail as fail } from './common'
-import { keyed } from './layout'
+import { keyed, TAGS } from './layout'
 import { intern, lookup } from './radix'
-import { sparseArray } from '../standard-prototypes'
+import { filledArray } from '../standard-prototypes'
 // Positional.lean encodeSlots / layoutOf: every value position is a slot. Its kind, literal or
 // reference, is recorded only where it changes, as the run boundary at the slot's position.
 export function slot(frame: Frame, item: unknown, context: EncodeContext): void {
@@ -62,9 +62,13 @@ function leaf(payload: Row, tag: number, context: EncodeContext): number {
   return id
 }
 // Each constant node has its own empty payload, so the returned data holds no array twice and
-// none from another call.
+// none from another call. This table and the plain-layout tables hold an own element at every
+// index they read, so no lookup reaches `Array.prototype`; -1 marks an id not yet assigned.
 function scalar(tag: number, context: EncodeContext): number {
-  return ((context.scalars ??= sparseArray())[tag] ??= leaf([], tag, context))
+  const scalars = (context.scalars ??= filledArray(TAGS, -1))
+  let id = scalars[tag]
+  if (id < 0) id = scalars[tag] = leaf([], tag, context)
+  return id
 }
 // Interns [tag, key?, ...runs] with provisional ids in completion order, the runs being the
 // lengths between boundaries[from ..< top]; Positional.lean renumber_first_use renumbers them.
@@ -77,10 +81,12 @@ export function layout(
   // A layout without runs is identified by its tag and key alone. For one tag it is shorter
   // than every layout with runs, so the two never coincide.
   if (from < 0) {
-    const byKey = ((context.plain ??= sparseArray())[tag] ??= sparseArray())
+    const plain = (context.plain ??= filledArray<number[] | undefined>(TAGS, undefined))
+    const byKey = (plain[tag] ??= [])
     const key = keyed(tag) ? detail! : 0
+    while (byKey.length <= key) byKey.push(-1)
     let id = byKey[key]
-    if (id === undefined) {
+    if (id < 0) {
       id = byKey[key] = context.layouts.length
       context.layouts.push(keyed(tag) ? [tag, detail!] : [tag])
     }
