@@ -22,8 +22,10 @@ theorem shows the reference keeps it on every input, not only the generated ones
   `writesOf_buffer`, `writesOf_view`); no write reaches a slot that already holds `next`'s value
   (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`), and a kept
   node takes no write exactly when its object already holds `next`'s contents
-  (`writesOf_nil_iff`); a kept object keeps the attributes of every property it had and adds the
-  rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
+  (`writesOf_nil_iff`); every decision of the passes keeps each current object at one node at most
+  (`decide_injective`, `demote_injective`), so this holds for the object every unpinned node keeps
+  (`demote_writesOf_nil_iff`); a kept object keeps the attributes of every property it had and
+  adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
   demotion forbids only an object whose writes block (`mem_blockedObjects`) and never one an
   earlier pass forbade, so every pass that continues forbids a new current object
   (`blocked_fresh`); no demand asks a candidate's own node for another object, so a candidate
@@ -37,7 +39,8 @@ theorem shows the reference keeps it on every input, not only the generated ones
 Four counterexamples each show, on one input, a wrong definition that a theorem rules out:
 retaining only the common prefix, reading back after a write-free pass, writing every key and
 re-adding a moved key as plain data. Two examples show that `writesOf_nil_iff` needs distinct keys
-and identities that keep each object at one node.
+and identities that keep each object at one node, and three that `decide_injective` needs each of
+its premises.
 -/
 
 namespace Reconcile.Spec.Reconcile
@@ -1237,6 +1240,533 @@ theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbi
     forbidden.contains i = false := by
   obtain ⟨j, _, hpin, hkept, _⟩ := mem_blockedObjects input pin _ i h
   exact decide_fresh input al pin forbidden written j i hpin hkept
+
+/-! ## Injective decisions -/
+
+/-- Whether a decision state assigns object `x` to node `a`: keeps it there, or a decided parent
+requires it there. -/
+def assigned (d : Decision) (a x : Nat) : Prop :=
+  d.kept[a]?.bind id = some x ∨ d.required[a]?.bind id = some x
+
+/-- Whether object `x` is reserved for node `c` before a pass decides: pinned there, or written
+there by an earlier pass. -/
+def startReserved (input : Input) (pin : Array Bool) (written : List Requirement) (c x : Nat) :
+    Prop :=
+  (c, x) ∈ written ∨
+    (c < input.next.nodes.size ∧ pin[c]?.getD false = true ∧ input.same[c]?.bind id = some x)
+
+/-- What `establish` checks of each pair it reserves: the object is not reserved yet, or an
+earlier pass wrote it at that node, and the static checks pass. -/
+def goodPair (input : Input) (written : List Requirement) (used : List Nat) (p : Requirement) :
+    Prop :=
+  (p.2 ∉ used ∨ p ∈ written) ∧
+    admitsStatic input.classes (input.cur.node p.2) (input.next.node p.1) = true
+
+/-- A chain of reserved pairs: each passed `establish`'s checks, and no two share a node or an
+object. -/
+def chainOK (input : Input) (written : List Requirement) (used : List Nat)
+    (l : List Requirement) : Prop :=
+  (∀ p ∈ l, goodPair input written used p) ∧ ∀ p ∈ l, ∀ q ∈ l, (p.1 = q.1 ∨ p.2 = q.2) → p = q
+
+/-- `establish` extends a chain only with pairs that pass its checks and share neither node nor
+object with the chain. -/
+theorem establish_chainOK (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (written : List Requirement) (kept : Array (Option Nat)) (decided : Array Bool)
+    (required : Array (Option Nat)) (used : List Nat) :
+    ∀ fuel chain c x r,
+      establish input candidatesOf forbidden written kept decided required used fuel chain c x =
+        some r →
+      chainOK input written used chain → chainOK input written used r := by
+  intro fuel
+  induction fuel with
+  | zero => intro chain c x r h; simp [establish] at h
+  | succ fuel ih =>
+    intro chain c x r h hchain
+    simp only [establish] at h
+    split at h
+    · cases h; exact hchain
+    split at h
+    · simp at h
+    rename_i hany
+    split at h
+    · split at h
+      · cases h; exact hchain
+      · simp at h
+    split at h
+    · split at h
+      · cases h; exact hchain
+      · simp at h
+    split at h
+    · simp at h
+    rename_i hcond
+    split at h
+    · simp at h
+    rename_i hadm
+    have hstart : chainOK input written used ((c, x) :: chain) := by
+      simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true', not_or, not_and,
+        Bool.not_eq_false] at hcond
+      have hgood : goodPair input written used (c, x) := by
+        refine ⟨?_, by simpa using hadm⟩
+        by_cases hu : x ∈ used
+        · right
+          have := hcond.1.2 (List.contains_iff_mem.mpr hu)
+          simpa using this
+        · exact Or.inl hu
+      simp only [List.any_eq_true, not_exists, not_and, Bool.or_eq_true, decide_eq_true_eq,
+        not_or] at hany
+      refine ⟨?_, ?_⟩
+      · intro p hp
+        rcases List.mem_cons.mp hp with rfl | hp
+        · exact hgood
+        · exact hchain.1 p hp
+      · intro p hp q hq hpq
+        rcases List.mem_cons.mp hp with rfl | hp <;> rcases List.mem_cons.mp hq with rfl | hq
+        · rfl
+        · obtain ⟨a, b⟩ := q
+          have := hany (a, b) hq
+          simp only at this hpq
+          rcases hpq with h1 | h1
+          · exact absurd h1.symm this.1
+          · exact absurd h1.symm this.2
+        · obtain ⟨a, b⟩ := p
+          have := hany (a, b) hp
+          simp only at this hpq
+          rcases hpq with h1 | h1
+          · exact absurd h1 this.1
+          · exact absurd h1 this.2
+        · exact hchain.2 p hp q hq hpq
+    revert r
+    refine foldl_inv
+      (fun (o : Option (List Requirement)) => ∀ r, o = some r → chainOK input written used r)
+      _ _ _ ?_ ?_
+    · intro r hr
+      cases hr
+      exact hstart
+    · intro acc ⟨cv, nv⟩ _ hacc r hr
+      cases acc with
+      | none => simp at hr
+      | some ch =>
+        simp only [Option.bind_some] at hr
+        cases cv <;> cases nv <;> simp only at hr
+        · split at hr
+          · obtain rfl := Option.some.inj hr; exact hacc _ rfl
+          · simp at hr
+        · simp at hr
+        · simp at hr
+        · exact ih _ _ _ r hr (hacc ch rfl)
+
+/-- The invariant of a decision state: every assigned or start-reserved object is in `used`, each
+object is assigned to one node at most and only to the node it was reserved for, and an
+object kept at an unpinned node, or required anywhere, passed the static checks. -/
+structure DecisionInv (input : Input) (pin : Array Bool) (written : List Requirement)
+    (d : Decision) : Prop where
+  assigned_used : ∀ a x, assigned d a x → x ∈ d.used
+  reserved_used : ∀ c x, startReserved input pin written c x → x ∈ d.used
+  inj : ∀ a b x, assigned d a x → assigned d b x → a = b
+  reserved_at : ∀ b c x, assigned d b x → startReserved input pin written c x → b = c
+  kept_static : ∀ a x, d.kept[a]?.bind id = some x → pin[a]?.getD false = true ∨
+    admitsStatic input.classes (input.cur.node x) (input.next.node a) = true
+  required_static : ∀ c x, d.required[c]?.bind id = some x →
+    admitsStatic input.classes (input.cur.node x) (input.next.node c) = true
+
+/-- A state with the same `used` that assigns only what another state assigned, keeping only what
+it kept or required, keeps the invariant. -/
+theorem DecisionInv.of_sub {input : Input} {pin : Array Bool} {written : List Requirement}
+    {d d' : Decision} (hd : DecisionInv input pin written d) (hu : d'.used = d.used)
+    (hk : ∀ a y : Nat, d'.kept[a]?.bind id = some y →
+      d.kept[a]?.bind id = some y ∨ d.required[a]?.bind id = some y)
+    (hr : ∀ c y : Nat, d'.required[c]?.bind id = some y → d.required[c]?.bind id = some y) :
+    DecisionInv input pin written d' := by
+  have ha : ∀ a y, assigned d' a y → assigned d a y := by
+    intro a y h
+    rcases h with h | h
+    · exact hk a y h
+    · exact Or.inr (hr a y h)
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+  · intro a y h
+    rw [hu]
+    exact hd.assigned_used a y (ha a y h)
+  · intro c y h
+    rw [hu]
+    exact hd.reserved_used c y h
+  · intro a b y h1 h2
+    exact hd.inj a b y (ha a y h1) (ha b y h2)
+  · intro b c y h1 h2
+    exact hd.reserved_at b c y (ha b y h1) h2
+  · intro a y h
+    rcases hk a y h with h | h
+    · exact hd.kept_static a y h
+    · exact Or.inr (hd.required_static a y h)
+  · intro c y h
+    exact hd.required_static c y (hr c y h)
+
+/-- Reserving one more pair of a chain `establish` returned for state `d` keeps the invariant. -/
+theorem DecisionInv.add {input : Input} {pin : Array Bool} {written : List Requirement}
+    (hstart : ∀ c c' x, startReserved input pin written c x →
+      startReserved input pin written c' x → c = c')
+    {d d' d'' : Decision} {pairs : List Requirement} (c y : Nat)
+    (hd : DecisionInv input pin written d) (hd' : DecisionInv input pin written d')
+    (hsub : ∀ a z, assigned d' a z → assigned d a z ∨ (a, z) ∈ pairs)
+    (hused : ∀ z ∈ d.used, z ∈ d'.used)
+    (hpairs : chainOK input written d.used pairs) (hcy : (c, y) ∈ pairs)
+    (hu : d''.used = y :: d'.used)
+    (hk : ∀ a z, d''.kept[a]?.bind id = some z → d'.kept[a]?.bind id = some z ∨ (a = c ∧ z = y))
+    (hr : ∀ a z, d''.required[a]?.bind id = some z →
+      d'.required[a]?.bind id = some z ∨ (a = c ∧ z = y)) :
+    DecisionInv input pin written d'' ∧
+      (∀ a z, assigned d'' a z → assigned d a z ∨ (a, z) ∈ pairs) ∧
+      (∀ z ∈ d.used, z ∈ d''.used) := by
+  have ha : ∀ a z, assigned d'' a z → assigned d' a z ∨ (a = c ∧ z = y) := by
+    intro a z h
+    rcases h with h | h
+    · rcases hk a z h with h | h
+      · exact Or.inl (Or.inl h)
+      · exact Or.inr h
+    · rcases hr a z h with h | h
+      · exact Or.inl (Or.inr h)
+      · exact Or.inr h
+  have hgood := hpairs.1 (c, y) hcy
+  have hnew : ∀ b, assigned d' b y → b = c := by
+    intro b hb
+    rcases hsub b y hb with hb | hb
+    · rcases hgood.1 with hu' | hw
+      · exact absurd (hd.assigned_used b y hb) hu'
+      · exact hd.reserved_at b c y hb (Or.inl hw)
+    · have := hpairs.2 (b, y) hb (c, y) hcy (Or.inr rfl)
+      simp only [Prod.mk.injEq] at this
+      exact this.1
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩
+  · intro a z h
+    rw [hu]
+    rcases ha a z h with h | ⟨-, rfl⟩
+    · exact List.mem_cons_of_mem _ (hd'.assigned_used a z h)
+    · exact List.mem_cons_self
+  · intro c' z h
+    rw [hu]
+    exact List.mem_cons_of_mem _ (hd'.reserved_used c' z h)
+  · intro a b z h1 h2
+    rcases ha a z h1 with h1 | ⟨rfl, rfl⟩
+    · rcases ha b z h2 with h2 | ⟨rfl, rfl⟩
+      · exact hd'.inj a b z h1 h2
+      · exact hnew a h1
+    · rcases ha b z h2 with h2 | ⟨rfl, -⟩
+      · exact (hnew b h2).symm
+      · rfl
+  · intro b c' z h1 h2
+    rcases ha b z h1 with h1 | ⟨rfl, rfl⟩
+    · exact hd'.reserved_at b c' z h1 h2
+    · rcases hgood.1 with hu' | hw
+      · exact absurd (hd.reserved_used c' z h2) hu'
+      · exact hstart b c' z (Or.inl hw) h2
+  · intro a z h
+    rcases hk a z h with h | ⟨rfl, rfl⟩
+    · exact hd'.kept_static a z h
+    · exact Or.inr hgood.2
+  · intro a z h
+    rcases hr a z h with h | ⟨rfl, rfl⟩
+    · exact hd'.required_static a z h
+    · exact hgood.2
+  · intro a z h
+    rcases ha a z h with h | ⟨rfl, rfl⟩
+    · exact hsub a z h
+    · exact Or.inr hcy
+  · intro z hz
+    rw [hu]
+    exact List.mem_cons_of_mem _ (hused z hz)
+
+/-- Every decision state of a pass keeps `DecisionInv`, given that no object is reserved for two
+nodes before the pass. -/
+theorem decide_inv (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
+    (written : List Requirement)
+    (hstart : ∀ c c' x, startReserved input pin written c x →
+      startReserved input pin written c' x → c = c') :
+    ∃ d : Decision, decide input al pin forbidden written = d.kept ∧
+      DecisionInv input pin written d := by
+  unfold decide
+  refine ⟨_, rfl, ?_⟩
+  apply foldl_inv
+  · -- The start state: the pinned objects, each reserved at its own node.
+    have hk : ∀ a x : Nat, ((Array.range input.next.nodes.size).map (fun j =>
+        if pin[j]?.getD false then input.same[j]?.bind id else none))[a]?.bind id = some x →
+        a < input.next.nodes.size ∧ pin[a]?.getD false = true ∧
+          input.same[a]?.bind id = some x := by
+      intro a x h
+      simp only [Array.getElem?_map, Array.getElem?_range] at h
+      split at h
+      · rename_i ha
+        simp only [Option.map_some, Option.bind_some, id] at h
+        split at h
+        · exact ⟨ha, by assumption, h⟩
+        · simp at h
+      · simp at h
+    have hr : ∀ c x : Nat,
+        (Array.replicate input.next.nodes.size (none : Option Nat))[c]?.bind id ≠ some x := by
+      intro c x h
+      simp only [Array.getElem?_replicate] at h
+      split at h <;> simp at h
+    have ha : ∀ a x : Nat, (((Array.range input.next.nodes.size).map (fun j =>
+        if pin[j]?.getD false then input.same[j]?.bind id else none))[a]?.bind id = some x ∨
+        (Array.replicate input.next.nodes.size (none : Option Nat))[a]?.bind id = some x) →
+        a < input.next.nodes.size ∧ pin[a]?.getD false = true ∧
+          input.same[a]?.bind id = some x := by
+      intro a x h
+      rcases h with h | h
+      · exact hk a x h
+      · exact absurd h (hr a x)
+    refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+    · intro a x h
+      obtain ⟨ha, hp, hs⟩ := ha a x h
+      simp only [List.mem_append, List.mem_filterMap, List.mem_range]
+      exact Or.inl ⟨a, ha, by simp [hp, hs]⟩
+    · intro c x h
+      simp only [List.mem_append, List.mem_filterMap, List.mem_range, List.mem_map]
+      rcases h with h | ⟨hc, hp, hs⟩
+      · exact Or.inr ⟨(c, x), h, rfl⟩
+      · exact Or.inl ⟨c, hc, by simp [hp, hs]⟩
+    · intro a b x h1 h2
+      exact hstart a b x (Or.inr (ha a x h1)) (Or.inr (ha b x h2))
+    · intro b c x h1 h2
+      exact hstart b c x (Or.inr (ha b x h1)) h2
+    · intro a x h
+      exact Or.inl (hk a x h).2.1
+    · intro c x h
+      exact absurd h (hr c x)
+  · intro d j _ hd
+    dsimp only
+    split
+    · exact hd
+    split
+    · rename_i x hreq
+      refine DecisionInv.of_sub hd rfl ?_ (fun c y h => h)
+      intro a y h
+      rcases setIfInBounds_bind h with ⟨rfl, rfl⟩ | h
+      · exact Or.inr hreq
+      · exact Or.inl h
+    split
+    · exact DecisionInv.of_sub hd rfl (fun a y h => Or.inl h) (fun c y h => h)
+    rename_i pairs hfind
+    obtain ⟨x0, _, hest⟩ := List.exists_of_findSome?_eq_some hfind
+    have hpairs := establish_chainOK _ _ _ _ _ _ _ _ _ _ _ _ _ hest
+      ⟨by simp, by simp⟩
+    refine (foldl_inv (fun d' : Decision => DecisionInv input pin written d' ∧
+        (∀ a z, assigned d' a z → assigned d a z ∨ (a, z) ∈ pairs) ∧
+        (∀ z ∈ d.used, z ∈ d'.used)) _ pairs _ ?_ ?_).1
+    · exact ⟨DecisionInv.of_sub hd rfl (fun a y h => Or.inl h) (fun c y h => h),
+        fun a z h => Or.inl h, fun z hz => hz⟩
+    intro d' ⟨c, y⟩ hcy ⟨hinv, hsub, hused⟩
+    dsimp only
+    split
+    · rename_i hc
+      subst hc
+      refine DecisionInv.add hstart c y hd hinv hsub hused hpairs hcy rfl ?_
+        (fun a z h => Or.inl h)
+      intro a z h
+      rcases setIfInBounds_bind h with ⟨rfl, rfl⟩ | h
+      · exact Or.inr ⟨rfl, rfl⟩
+      · exact Or.inl h
+    · refine DecisionInv.add hstart c y hd hinv hsub hused hpairs hcy rfl
+        (fun a z h => Or.inl h) ?_
+      intro a z h
+      rcases setIfInBounds_bind h with ⟨rfl, rfl⟩ | h
+      · exact Or.inr ⟨rfl, rfl⟩
+      · exact Or.inl h
+
+/-- No object is reserved for two nodes before a pass when `written` names each object at one
+node, distinct pinned nodes are distinct objects, and no pinned object is written at another
+node. -/
+theorem startReserved_unique (input : Input) (pin : Array Bool) (written : List Requirement)
+    (hw : ∀ c c' x, (c, x) ∈ written → (c', x) ∈ written → c = c')
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
+    (hpw : ∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
+      input.same[b]?.bind id = some x → (c, x) ∈ written → b = c) :
+    ∀ c c' x, startReserved input pin written c x → startReserved input pin written c' x →
+      c = c' := by
+  intro c c' x h1 h2
+  rcases h1 with h1 | ⟨hc, hp, hs⟩ <;> rcases h2 with h2 | ⟨hc', hp', hs'⟩
+  · exact hw c c' x h1 h2
+  · exact (hpw c' c x hc' hp' hs' h1).symm
+  · exact hpw c c' x hc hp hs h2
+  · exact hsame c c' x hc hc' hp hp' hs hs'
+
+/-- A decision keeps each current object at one node at most, given the premises of
+`startReserved_unique`. -/
+theorem decide_injective (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement)
+    (hw : ∀ c c' x, (c, x) ∈ written → (c', x) ∈ written → c = c')
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
+    (hpw : ∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
+      input.same[b]?.bind id = some x → (c, x) ∈ written → b = c)
+    (a b x : Nat) (ha : (decide input al pin forbidden written)[a]?.bind id = some x)
+    (hb : (decide input al pin forbidden written)[b]?.bind id = some x) : a = b := by
+  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written
+    (startReserved_unique input pin written hw hsame hpw)
+  rw [hd] at ha hb
+  exact hinv.inj a b x (Or.inl ha) (Or.inl hb)
+
+/-- A decision keeps an object reserved before the pass only at the node it was reserved for. -/
+theorem decide_reserved (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement)
+    (hstart : ∀ c c' x, startReserved input pin written c x →
+      startReserved input pin written c' x → c = c')
+    (b c x : Nat) (hb : (decide input al pin forbidden written)[b]?.bind id = some x)
+    (hc : startReserved input pin written c x) : b = c := by
+  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written hstart
+  rw [hd] at hb
+  exact hinv.reserved_at b c x (Or.inl hb) hc
+
+/-- An object a decision keeps at an unpinned node passes the static checks there. -/
+theorem decide_static (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement)
+    (hstart : ∀ c c' x, startReserved input pin written c x →
+      startReserved input pin written c' x → c = c')
+    (a x : Nat) (ha : (decide input al pin forbidden written)[a]?.bind id = some x)
+    (hpin : pin[a]?.getD false = false) :
+    admitsStatic input.classes (input.cur.node x) (input.next.node a) = true := by
+  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written hstart
+  rw [hd] at ha
+  rcases hinv.kept_static a x ha with h | h
+  · rw [hpin] at h
+    cases h
+  · exact h
+
+theorem mem_writtenPairs (input : Input) (pin : Array Bool) (kept : Array (Option Nat))
+    (j i : Nat) :
+    (j, i) ∈ writtenPairs input pin kept ↔
+      j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧ kept[j]?.bind id = some i := by
+  simp only [writtenPairs, List.mem_filterMap, List.mem_range]
+  constructor
+  · rintro ⟨j', hj', h⟩
+    split at h
+    · simp at h
+    · rename_i hp
+      simp only [Option.map_eq_some_iff, Prod.mk.injEq] at h
+      obtain ⟨i', hi', rfl, rfl⟩ := h
+      exact ⟨hj', by simpa using hp, hi'⟩
+  · rintro ⟨hj, hp, hi⟩
+    refine ⟨j, hj, ?_⟩
+    simp [hp, hi]
+
+/-- Every decision of the passes is injective and keeps unpinned nodes only with objects that
+pass the static checks: each pass writes objects its decision kept at one node, so the written
+pairs keep naming each object at one node and no pinned object. -/
+theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool)
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b) :
+    ∀ (fuel : Nat) (forbidden : List Nat) (written : List Requirement),
+      (∀ c c' x, (c, x) ∈ written → (c', x) ∈ written → c = c') →
+      (∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
+        input.same[b]?.bind id = some x → (c, x) ∈ written → b = c) →
+      ∀ kept ∈ demote input al pin fuel forbidden written,
+        (∀ a b x : Nat, kept[a]?.bind id = some x → kept[b]?.bind id = some x → a = b) ∧
+        (∀ a x : Nat, kept[a]?.bind id = some x → pin[a]?.getD false = false →
+          admitsStatic input.classes (input.cur.node x) (input.next.node a) = true) := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro forbidden written hw hpw kept hk
+    simp only [demote, List.mem_singleton] at hk
+    subst hk
+    exact ⟨decide_injective input al pin forbidden written hw hsame hpw,
+      decide_static input al pin forbidden written
+        (startReserved_unique input pin written hw hsame hpw)⟩
+  | succ fuel ih =>
+    intro forbidden written hw hpw kept hk
+    have hstart := startReserved_unique input pin written hw hsame hpw
+    have hhead : ∀ a b x, (decide input al pin forbidden written)[a]?.bind id = some x →
+        (decide input al pin forbidden written)[b]?.bind id = some x → a = b :=
+      decide_injective input al pin forbidden written hw hsame hpw
+    simp only [demote] at hk
+    split at hk
+    · simp only [List.mem_singleton] at hk
+      subst hk
+      exact ⟨hhead, decide_static input al pin forbidden written hstart⟩
+    · rcases List.mem_cons.mp hk with rfl | hk
+      · exact ⟨hhead, decide_static input al pin forbidden written hstart⟩
+      · refine ih _ _ ?_ ?_ kept hk
+        · intro c c' x h1 h2
+          simp only [List.mem_append] at h1 h2
+          rcases h1 with h1 | h1 <;> rcases h2 with h2 | h2
+          · exact hw c c' x h1 h2
+          · have := (mem_writtenPairs input pin _ c' x).mp h2
+            exact (decide_reserved input al pin forbidden written hstart c' c x this.2.2
+              (Or.inl h1)).symm
+          · have := (mem_writtenPairs input pin _ c x).mp h1
+            exact decide_reserved input al pin forbidden written hstart c c' x this.2.2
+              (Or.inl h2)
+          · exact hhead c c' x ((mem_writtenPairs input pin _ c x).mp h1).2.2
+              ((mem_writtenPairs input pin _ c' x).mp h2).2.2
+        · intro b c x hb hp hs h
+          simp only [List.mem_append] at h
+          rcases h with h | h
+          · exact hpw b c x hb hp hs h
+          · have := (mem_writtenPairs input pin _ c x).mp h
+            exact (decide_reserved input al pin forbidden written hstart c b x this.2.2
+              (Or.inr ⟨hb, hp, hs⟩)).symm
+
+/-- Every decision of a call's passes keeps each current object at one node at most, given that
+distinct pinned nodes are distinct objects, as distinct next nodes are. -/
+theorem demote_injective (input : Input) (al : Discovery) (pin : Array Bool)
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
+    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin fuel [] [])
+    (a b x : Nat) (ha : kept[a]?.bind id = some x) (hb : kept[b]?.bind id = some x) : a = b :=
+  (demote_inv input al pin hsame fuel [] [] (by simp) (by simp) kept hk).1 a b x ha hb
+
+/-- Write minimality by the object each node keeps: in every decision of the passes, an unpinned
+node takes no write exactly when the object it keeps already holds `next`'s contents, given
+distinct keys. -/
+theorem demote_writesOf_nil_iff (input : Input) (al : Discovery) (pin : Array Bool)
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
+    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin fuel [] [])
+    (j i : Nat) (hpin : pin[j]?.getD false = false) (hj : kept[j]?.bind id = some i)
+    (hkeys : distinctKeys (input.cur.node i) (input.next.node j)) :
+    (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).1 = [] ↔
+      holds (identityOf kept) (input.cur.node i) (input.next.node j) := by
+  have hinv := demote_inv input al pin hsame fuel [] [] (by simp) (by simp) kept hk
+  exact writesOf_nil_iff input.classes _ _ _ (hinv.2 j i hj hpin) hkeys
+    (fun a b x ha hb => hinv.1 a b x ha hb)
+
+private def emptyObject : Obj := .object .object [] true
+
+private def twoPinned : Input where
+  cur := ⟨#[emptyObject], .ref 0⟩
+  next := ⟨#[emptyObject, emptyObject], .ref 0⟩
+  same := #[some 0, some 0]
+
+/-- `decide_injective` needs distinct pinned objects: two pinned nodes that `same` maps to one
+object both keep it. -/
+example :
+    decide twoPinned ⟨[0, 1], #[none, none], #[true, true], #[[], []]⟩ #[true, true] [] [] =
+      #[some 0, some 0] := by
+  decide +kernel
+
+/-- Two next nodes under a primitive root, each with current object 0 as its candidate. -/
+private def twoNodes (same : Array (Option Nat)) : Input where
+  cur := ⟨#[emptyObject], .ref 0⟩
+  next := ⟨#[emptyObject, emptyObject], .prim .null⟩
+  same := same
+
+/-- `decide_injective` needs `written` to name each object at one node: an object written at two
+nodes is kept at both. `demote` never writes one so (`demote_inv`). -/
+example :
+    decide (twoNodes #[none, none]) ⟨[0, 1], #[none, none], #[false, false], #[[0], [0]]⟩
+      #[false, false] [] [(0, 0), (1, 0)] = #[some 0, some 0] := by
+  decide +kernel
+
+/-- `decide_injective` needs no pinned object to be written at another node: such an object is
+kept at both. `demote` never writes one so (`demote_inv`). -/
+example :
+    decide (twoNodes #[some 0, none]) ⟨[0, 1], #[none, none], #[true, false], #[[], [0]]⟩
+      #[true, false] [] [(1, 0)] = #[some 0, some 0] := by
+  decide +kernel
 
 /-! ## Demands -/
 

@@ -166,7 +166,10 @@ original's place, possibly inside a new object. `Spec.Produce.snapshot` copies e
   (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`). A kept node
   takes no write exactly when its object already holds `next`'s contents under the decision's
   identities, given distinct keys and identities that keep each object at one node
-  (`writesOf_nil_iff`). The theorems name array slots and `Map` and `Set` keys structurally
+  (`writesOf_nil_iff`). Every decision of the passes keeps each current object at one node, given
+  that `same` maps distinct pinned nodes to distinct objects (`decide_injective`,
+  `demote_injective`), so the identity premise holds for every node a pass keeps
+  (`demote_writesOf_nil_iff`). The theorems name array slots and `Map` and `Set` keys structurally
   (`ArraySlot`, `EntryKey`), because a `Map` or `Set` write reports its key as text, which two
   distinct keys can share.
 - A kept object keeps the attributes of every property it had and adds each other property
