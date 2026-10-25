@@ -13,5 +13,5 @@ export function recognize(
   if (prototype === null) return { detail: undefined, tag: 1 }
   if (prototype === Map.prototype) return { detail: undefined, tag: 4 }
   if (prototype === Set.prototype) return { detail: undefined, tag: 5 }
-  return nativeKind(value, prototype) ?? fail('unsupported prototype')
+  return nativeKind(prototype) ?? fail('unsupported prototype')
 }

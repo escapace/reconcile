@@ -187,30 +187,3 @@ it('rejects symbol-keyed properties', () => {
     { reason: 'symbol key', type: 'SerializeValueUnsupported' },
   )
 })
-
-it('fails a Temporal encoding with a stringify error when the namespace disappears', () => {
-  // A stand-in Temporal class: recognized by prototype, then looked up again to encode.
-  class Instant {
-    static from(value: unknown) {
-      return value
-    }
-    toString() {
-      return 'instant'
-    }
-  }
-  let reads = 0
-  const original = Object.getOwnPropertyDescriptor(globalThis, 'Temporal')
-  Object.defineProperty(globalThis, 'Temporal', {
-    configurable: true,
-    get: () => (++reads === 1 ? { Instant } : undefined),
-  })
-  try {
-    assert.deepEqual(
-      failure(() => encodeText(new Instant())),
-      { reason: 'Temporal unavailable', type: 'SerializeValueUnsupported' },
-    )
-  } finally {
-    if (original === undefined) Reflect.deleteProperty(globalThis, 'Temporal')
-    else Object.defineProperty(globalThis, 'Temporal', original)
-  }
-})

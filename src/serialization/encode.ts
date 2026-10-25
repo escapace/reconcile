@@ -14,7 +14,6 @@ export function encodeGraph(value: unknown): unknown[] {
     ids: new Map(),
     layoutRoot: radixTrie(),
     layouts: [],
-    owners: undefined,
     payloads: [],
     plain: undefined,
     scalars: undefined,
@@ -28,23 +27,15 @@ export function encodeGraph(value: unknown): unknown[] {
   const literal = enter(value, context)
   if (literal !== undefined) return literal
   // Each advance writes children in place and yields only after a child pushed its own frame, so
-  // that subtree completes before the parent's next observation. A throw propagates as is: the
-  // built-in Map and Set iterators the frames step have no `return`, so there is nothing to close.
+  // that subtree completes before the parent's next observation. A throw propagates as is.
   while (stack.length !== 0) {
     const current = stack[stack.length - 1]
-    if (advances[current.tag](current, context)) {
+    if (advances[current.tag]!(current, context)) {
       payloads[current.id] = current.row
       descriptors[current.id] = layout(current.tag, current.detail, current.runs, context)
       stack.pop()
     }
   }
-  if (context.owners !== undefined)
-    for (const entry of context.owners) {
-      const parameters = entry[0]
-      const owner = entry[1]
-      payloads[parameters] = [owner]
-      descriptors[parameters] = layout(11, undefined, -1, context)
-    }
   return document(context)
 }
 // The root is one slot: a literal document, or node 0 with the control table and payloads.
@@ -61,7 +52,6 @@ function enter(value: unknown, context: EncodeContext): unknown[] | undefined {
   root.row = []
   slot(root, value, context)
   if (!root.reference) return root.row
-  context.top = 0
   return undefined
 }
 // Positional.lean renumber_first_use: interning the provisional ids in node order yields the

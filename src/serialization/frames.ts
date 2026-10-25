@@ -5,9 +5,8 @@ import type { EncodeContext, Frame } from './contracts'
 // serialization) checked by differential tests.
 import { encodeFail as fail, int, maxArrayLength } from './common'
 import { readView, readURL } from './native'
-import { leafCaptures } from './leaf'
 import { lengths } from './layout'
-import { node, slot } from './emit'
+import { layout, node, slot } from './emit'
 import { intern } from './radix'
 import { openBuiltin, hasElement } from '../standard-prototypes'
 import { hasSymbolKey, hiddenNames } from '../object-property'
@@ -53,10 +52,6 @@ function builtinIterator(frame: Frame, collection: object, map: boolean) {
   frame.iterator = opened.iterator
   frame.step = opened.step
 }
-function leaf(frame: Frame, context: EncodeContext) {
-  frame.row = leafCaptures[frame.tag]!(frame.value, context, frame.detail)
-  return true
-}
 function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.row = []
@@ -99,7 +94,6 @@ function record(frame: Frame, context: EncodeContext) {
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
     frame.row = []
-    frame.index = 0
     frame.phase = 1
   }
   const keys = frame.keys
@@ -126,18 +120,24 @@ function startArray(frame: Frame) {
   const initial = (frame.value as unknown[]).length
   if (!int(initial, maxArrayLength)) fail('array length or index invalid')
   frame.length = initial
-  frame.index = 0
   frame.row = []
   frame.phase = 1
 }
+// A URL's `searchParams` is restored from the URL, so its node, reserved here unless another
+// reference met it first, records only its owner.
 function url(frame: Frame, context: EncodeContext) {
-  if (frame.phase === 0) {
-    frame.state = readURL(frame.value) as Frame['state']
-    frame.phase = 1
-    frame.input = node(frame.state.parameters, context)
-    if (pushed(frame, context)) return false
+  frame.state = readURL(frame.value) as Frame['state']
+  const { descriptors, ids, payloads } = context
+  const parameters = frame.state.parameters
+  let id = ids.get(parameters)
+  if (id === undefined) {
+    id = payloads.length
+    ids.set(parameters, id)
+    payloads.push(undefined)
+    descriptors.push(-1)
   }
-  ;(context.owners ??= new Map()).set(frame.input, frame.id)
+  payloads[id] = [frame.id]
+  descriptors[id] = layout(11, undefined, -1, context)
   frame.row = [frame.state.href]
   return true
 }
@@ -154,19 +154,21 @@ function view(frame: Frame, context: EncodeContext) {
   frame.row = [frame.input, frame.state.byteOffset, frame.state.length]
   return true
 }
-// Indexed by node tag; leaf tags are captured on discovery and never pushed.
-export const advances = [
+// Indexed by the tag of a pushed frame: a record, an array, a Map, a Set, a view or a URL. A leaf
+// is captured on discovery and never pushed, and a sparse array takes its tag on completion, so
+// those tags have no advance; every tag has an own element, so no lookup reaches
+// `Array.prototype`.
+export const advances: ReadonlyArray<
+  ((frame: Frame, context: EncodeContext) => boolean) | undefined
+> = /* @__PURE__ */ Object.freeze([
   record,
   record,
   array,
-  array,
+  undefined,
   map,
   set,
-  leaf,
-  leaf,
+  undefined,
+  undefined,
   view,
   url,
-  leaf,
-  leaf,
-  leaf,
-]
+])

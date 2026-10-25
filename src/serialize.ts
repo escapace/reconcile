@@ -37,7 +37,7 @@ import { encodeGraph as encode } from './serialization/encode'
  * @param value - The value to encode.
  * @returns New JSON data representing the value.
  * @throws {@link ReconcileError} with type `SerializeValueUnsupported` for unsupported values.
- * @throws Errors from getters, iterators or native operations, unchanged.
+ * @throws Errors from getters, proxy traps or native operations, unchanged.
  */
 export function serialize(value: unknown): unknown {
   return encode(value)

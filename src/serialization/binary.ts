@@ -54,22 +54,18 @@ export function decodedSize(text: unknown): number {
     end--
     if (text.charCodeAt(end - 1) === 61) end--
   }
-  if (nativeDecoder === undefined && atobDecoder === undefined) {
-    // Without a native decoder: canonical alphabet, and padding only at the end.
-    if (/[^A-Z0-9+/=]/i.exec(text) !== null) decodeFail('base64')
-    const first = text.indexOf('=')
-    if (first !== (end === text.length ? -1 : end)) decodeFail('base64')
-  }
   return (text.length / 4) * 3 - (text.length - end)
 }
-export function encodeBytes(buffer: ArrayBuffer): string {
+/** The base64 text of the `length` bytes of `buffer`. */
+export function encodeBytes(buffer: ArrayBuffer, length: number): string {
   const bytes = new Uint8Array(buffer)
   if (nativeEncoder !== undefined) return Reflect.apply(nativeEncoder, bytes, [])
-  const length = bufferByteLength(buffer)
   if (length >= tableBytes && typeof TextDecoder === 'function') return encodeTable(bytes, length)
-  let binary = ''
   // apply reads the chunk by index rather than through the iterator protocol; fixed-size
-  // chunks keep each call within argument limits and preserve the byte order.
+  // chunks keep each call within argument limits and preserve the byte order. One chunk is the
+  // whole buffer.
+  if (length <= 0x80_00) return btoa(String.fromCharCode.apply(null, bytes as unknown as number[]))
+  let binary = ''
   for (let index = 0; index < length; index += 0x80_00)
     binary += String.fromCharCode.apply(
       null,

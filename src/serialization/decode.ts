@@ -108,9 +108,10 @@ function checkControl(context: DecodeContext): void {
   for (let shape = 0; shape < count; shape++) at = checkShape(context, at)
   const layouts: number[] = []
   while (at < control.length) {
-    checkLayout(control, at + 1, at + 1 + frameLength(control, at), shapes.length)
+    const length = frameLength(control, at)
+    checkLayout(control, at + 1, at + 1 + length, shapes.length)
     layouts.push(at + 1)
-    at += (control[at] as number) + 1
+    at += length + 1
   }
   for (let index = 0; index < payloads.length; index++) {
     const id = control[index]
@@ -158,9 +159,12 @@ function checkKey(tag: number, key: unknown, shapeCount: number): void {
 function checkLayout(control: unknown[], at: number, stop: number, shapeCount: number): void {
   const tag = control[at]
   if (stop === at || !int(tag, decoders.length - 1)) fail('layout')
-  if (keyed(tag)) checkKey(tag, control[at + 1], shapeCount)
-  if (!slotted(tag) && stop !== at + (keyed(tag) ? 2 : 1)) fail('layout')
-  for (let index = at + 1; index < stop; index++) if (!int(control[index])) fail('layout')
+  const key = keyed(tag)
+  const runs = at + (key ? 2 : 1)
+  if (key) checkKey(tag, control[at + 1], shapeCount)
+  if (!slotted(tag) && stop !== runs) fail('layout')
+  // checkKey validated a key; the runs after it must be integers.
+  for (let index = runs; index < stop; index++) if (!int(control[index])) fail('layout')
 }
 // Fresh natives and empty containers first, then dependent natives against their typed targets.
 function allocate(context: DecodeContext): void {

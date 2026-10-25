@@ -29,7 +29,7 @@ export interface DecodeContext extends Budget {
   shapeWords: number[]
   urls: number
   // Each node's words per occurrence (a bigint's digits; 0 otherwise), created by the first
-  // bigint under a finite limit, so that documents without bigints read no weights.
+  // bigint while sizes are charged, so that documents without bigints read no weights.
   weights: number[] | undefined
 }
 // A layout argument is the control offset of the layout's tag; its length precedes it.
@@ -54,7 +54,6 @@ export interface EncodeContext {
   ids: Map<object, number>
   layoutRoot: RadixNode<number>
   layouts: number[][]
-  owners: Map<number, number> | undefined
   payloads: Array<Row | undefined>
   plain: number[][] | undefined
   scalars: number[] | undefined
@@ -93,5 +92,5 @@ export interface Frame {
   // The built-in step of `iterator`, called with it.
   step: Step
 }
-export type Leaf = (value: object, context: EncodeContext, kind?: number) => Row
+export type Leaf = (value: object, kind?: number) => Row
 export type Row = unknown[]

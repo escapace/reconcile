@@ -19,13 +19,13 @@ function sample(length: number, seed: number): Uint8Array<ArrayBuffer> {
 it('encodes every length across the encoder threshold as btoa does', () => {
   for (let length = 0; length <= 2100; length++) {
     const bytes = sample(length, length)
-    assert.equal(encodeBytes(bytes.buffer), reference(bytes), `length ${length}`)
+    assert.equal(encodeBytes(bytes.buffer, length), reference(bytes), `length ${length}`)
   }
   const all = new Uint8Array(3072)
   for (let index = 0; index < all.length; index++) all[index] = index % 256
-  assert.equal(encodeBytes(all.buffer), reference(all))
+  assert.equal(encodeBytes(all.buffer, all.length), reference(all))
   assert.equal(
-    encodeBytes(new Uint8Array(1024).fill(255).buffer),
+    encodeBytes(new Uint8Array(1024).fill(255).buffer, 1024),
     reference(new Uint8Array(1024).fill(255)),
   )
 })

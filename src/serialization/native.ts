@@ -60,9 +60,8 @@ export function constructView(
   length: number,
 ): ArrayBufferView {
   if (kind === dataViewKind) return new DataView(buffer, offset, length)
-  const Constructor = viewConstructors[kind]
-  if (Constructor === undefined) decodeFail('view kind')
-  return new Constructor(buffer, offset, length)
+  // The layout key's check admitted only a kind whose constructor exists.
+  return new viewConstructors[kind]!(buffer, offset, length)
 }
 export function decodeTemporal(kind: number, payload: string | number[]): object {
   const Constructor = temporalConstructor(kind)
@@ -72,8 +71,7 @@ export function decodeTemporal(kind: number, payload: string | number[]): object
   return Constructor.from(payload)
 }
 export function nativeKind(
-  value: object,
-  prototype: object | null = Object.getPrototypeOf(value) as object | null,
+  prototype: object | null,
 ): { detail: number | undefined; tag: number } | undefined {
   if (prototype === Date.prototype) return { detail: undefined, tag: 6 }
   if (prototype === ArrayBuffer.prototype) return { detail: undefined, tag: 7 }
@@ -87,11 +85,12 @@ export function nativeKind(
     return { detail: undefined, tag: 10 }
   return temporalKind(prototype)
 }
-export function readBuffer(value: object): { buffer: ArrayBuffer; byteLength: number } {
+/** The length of the fixed-length buffer `value`; a resizable one is rejected. */
+export function readBuffer(value: object): number {
   const byteLength = bufferByteLength(value)
   if (bufferResizable !== undefined && Reflect.apply(bufferResizable, value, []) === true)
     encodeFail('resizable buffer')
-  return { buffer: value as ArrayBuffer, byteLength }
+  return byteLength
 }
 export function readDate(value: object): number {
   return Reflect.apply(dateTime, value, [])
@@ -99,24 +98,15 @@ export function readDate(value: object): number {
 export function readParameters(value: object): string {
   return nativeParametersText(value as URLSearchParams)
 }
-export function readTemporal(
-  value: object,
-  kind?: number,
-): { kind: number; payload: string | number[] } {
-  const index = kind!
-  // Encoding fails as stringify does, so the decoder's error stays out of stringify bundles.
-  const constructor = temporalNamespace()?.[temporalNames[index]]
-  if (typeof constructor !== 'function') encodeFail('Temporal unavailable')
-  const copy = temporalFrom(constructor, temporalNames[index], value)
-  if (index === 7)
-    return {
-      kind: index,
-      payload: durationFields.map(
-        (field) => getter(constructor.prototype, field)!.call(copy) as number,
-      ),
-    }
-  const options = index === 4 || index === 5 ? { calendarName: 'always' } : undefined
-  return { kind: index, payload: constructor.prototype.toString.call(copy, options) }
+/** A Duration's ten fields, or the ISO text of any other Temporal value, of class `kind`, which
+ * recognition found on the namespace, which callers do not change during the call. */
+export function readTemporal(value: object, kind: number): string | number[] {
+  const constructor = temporalNamespace()![temporalNames[kind]]!
+  const copy = temporalFrom(constructor, temporalNames[kind], value)
+  if (kind === 7)
+    return durationFields.map((field) => getter(constructor.prototype, field)!.call(copy) as number)
+  const options = kind === 4 || kind === 5 ? { calendarName: 'always' } : undefined
+  return constructor.prototype.toString.call(copy, options)
 }
 export function readURL(value: object): { href: string; parameters: URLSearchParams } {
   return { href: nativeURLHref(value as URL), parameters: nativeURLSearchParameters(value as URL) }

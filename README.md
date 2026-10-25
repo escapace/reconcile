@@ -702,7 +702,7 @@ New JSON data representing the value.
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) with type `SerializeValueUnsupported` for unsupported values.
-2. Errors from getters, iterators or native operations, unchanged.
+2. Errors from getters, proxy traps or native operations, unchanged.
 
 ### Remarks
 
@@ -722,7 +722,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as typeof no
 // copy.next === copy; copy.created is a Date
 ```
 
-## function snapshot [↗](src/snapshot.ts#L115-L120 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L103-L108 'snapshot')
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
