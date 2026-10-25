@@ -32,7 +32,11 @@ function preparePropertyCopy(
   const prototype = Object.getPrototypeOf(source) as object | null
   const replacement = Object.create(STORE_PROTOTYPE) as Record<PropertyKey, PropertyDescriptor>
   state.rules.initialize(source, replacement)
-  for (const key of ownKeys(source)) {
+  // Indexed, as every loop that a trap, a getter or a rejection can leave is, so that leaving it
+  // closes no iterator and reads no `return` through `Object.prototype`.
+  const keys = ownKeys(source)
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index]
     // The write that makes this copy already read its key's own data descriptor and value.
     const reused = key === known && knownDescriptor !== undefined
     const descriptor = reused ? knownDescriptor : Object.getOwnPropertyDescriptor(source, key)

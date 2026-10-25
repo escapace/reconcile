@@ -183,6 +183,10 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
   return true
 }
 
+/** Whether a slot can be recreated: a configurable data property. */
+const recreatable = (descriptor: PropertyDescriptor): boolean =>
+  descriptor.configurable !== false && isDataDescriptor(descriptor)
+
 /**
  * Checks the fixed slot of each current key in key order, reading each descriptor once into
  * `descriptors`. A slot that cannot be recreated, a non-configurable one or an accessor written
@@ -211,9 +215,11 @@ function fixedSlotsHold(
   let pinned: Map<number, object> | undefined
   for (let position = 0; position < previous.length; position += 1) {
     const key = previous[position]
-    const descriptor = Object.getOwnPropertyDescriptor(current, key)!
+    const descriptor = Object.getOwnPropertyDescriptor(current, key)
     if (descriptors !== undefined) descriptors[position] = descriptor
-    if (descriptor.configurable !== false && isDataDescriptor(descriptor)) continue
+    // A proxy may list a key it reports no descriptor for: an absent slot, which readback finds
+    // still listed.
+    if (descriptor === undefined || recreatable(descriptor)) continue
     if (order === undefined && ordered) order = orderFor(previous, desiredKeys, properties) ?? null
     const retained = order?.through(previous, key)
     const held = fixedSlot(node, current, key, descriptor, retained, properties(), context)

@@ -31,9 +31,9 @@ const MUTANTS: readonly Mutant[] = [
   },
   {
     file: ENGINE,
-    find: '  return readback(types, graph.nodes, kept, run.targets, compare, published)',
+    find: '  if (published === WRITE_FREE && passes === undefined) return undefined\n',
     name: 'readback-skipped',
-    replace: '  return published',
+    replace: '  return published === WRITE_FREE ? undefined : published\n',
   },
   {
     file: ENGINE,

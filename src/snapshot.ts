@@ -297,7 +297,8 @@ class SnapshotWalk extends Detached {
         else target[key] = value
       }
     else
-      for (const key of names)
+      for (let index = 0; index < names.length; index++) {
+        const key = names[index]
         setOwnProperty(
           target,
           key,
@@ -305,7 +306,10 @@ class SnapshotWalk extends Detached {
           standard,
           hidden?.has(key) !== true,
         )
-    for (const key of Object.getOwnPropertySymbols(source))
+      }
+    const symbols = Object.getOwnPropertySymbols(source)
+    for (let index = 0; index < symbols.length; index++) {
+      const key = symbols[index]
       setOwnProperty(
         target,
         key,
@@ -313,6 +317,7 @@ class SnapshotWalk extends Detached {
         standard,
         isEnumerable(source, key),
       )
+    }
   }
 
   observeArray(reference: SnapshotReference, source: object): void {

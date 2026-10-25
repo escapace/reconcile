@@ -64,8 +64,11 @@ const objectCapture = {
     }
     begin(layout)
     // Symbols are listed after string getters run, so keys those getters add are captured.
-    for (const key of names) edge(Reflect.get(value, key) as unknown, key)
-    for (const key of Object.getOwnPropertySymbols(value)) {
+    for (let index = 0; index < names.length; index += 1)
+      edge(Reflect.get(value, names[index]) as unknown, names[index])
+    const symbols = Object.getOwnPropertySymbols(value)
+    for (let index = 0; index < symbols.length; index += 1) {
+      const key = symbols[index]
       edge(Reflect.get(value, key) as unknown, key)
       if (!isEnumerable(value, key))
         ((layout as { hidden?: Set<PropertyKey> }).hidden ??= new Set()).add(key)
@@ -319,7 +322,8 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
       // would.
       const fromBase =
         base !== undefined && (properties === undefined ? source === base : properties.readsBase())
-      for (const key of keys) observeSlot(source, key, observer, fromBase)
+      for (let index = 0; index < keys.length; index += 1)
+        observeSlot(source, keys[index], observer, fromBase)
     },
     reuse(node, current, visit) {
       for (let index = 0; index < node.keys.length; index += 1) {

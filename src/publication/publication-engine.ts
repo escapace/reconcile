@@ -333,10 +333,18 @@ function write(
 ): object[] | typeof REJECTED | undefined {
   const published = publishAll(types, graph, domains, kept, run, note, passes, resolve, owner)
   if (published === REJECTED) return REJECTED
-  // A pass that wrote nothing that a readback would reject is done: no setter or trap ran, so
-  // each readback would observe what publication compared (Property.WriteFreeReadback).
-  if (published === WRITE_FREE) return undefined
-  return readback(types, graph.nodes, kept, run.targets, compare, published)
+  // A first pass that wrote nothing that a readback would reject is done: no setter or trap ran,
+  // so each readback would observe what publication compared (Property.WriteFreeReadback). A
+  // retry follows the call's own writes and is always read back (acceptsRetry).
+  if (published === WRITE_FREE && passes === undefined) return undefined
+  return readback(
+    types,
+    graph.nodes,
+    kept,
+    run.targets,
+    compare,
+    published === WRITE_FREE ? undefined : published,
+  )
 }
 
 /**

@@ -50,13 +50,14 @@ function chargeObject(context: Budget, value: object, pending: object[]): void {
   const prototype: unknown = Object.getPrototypeOf(value)
   if (prototype === Array.prototype && Array.isArray(value)) {
     charge(context, 1 + value.length)
-    for (const item of value) chargeItem(context, item, pending)
+    for (let index = 0; index < value.length; index++) chargeItem(context, value[index], pending)
     return
   }
   if (prototype !== Object.prototype) fail('literal')
   const keys = Object.keys(value)
   charge(context, 1 + 2 * keys.length)
-  for (const key of keys) {
+  for (let index = 0; index < keys.length; index++) {
+    const key = keys[index]
     charge(context, stringWords(key.length))
     chargeItem(context, (value as Record<string, unknown>)[key], pending)
   }

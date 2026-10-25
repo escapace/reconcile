@@ -93,7 +93,8 @@ export const hasOwn = (value: object, key: PropertyKey): boolean => Object.hasOw
 export function hiddenNames(value: object, names: readonly string[]): Set<PropertyKey> | undefined {
   if (Object.keys(value).length === names.length) return undefined
   const hidden = new Set<PropertyKey>()
-  for (const key of names) if (!isEnumerable(value, key)) hidden.add(key)
+  for (let index = 0; index < names.length; index += 1)
+    if (!isEnumerable(value, names[index])) hidden.add(names[index])
   return hidden
 }
 

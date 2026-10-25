@@ -1,6 +1,6 @@
 import { assert, it } from 'vitest'
 
-import { produce, reconcile, ReconcileError } from '../index'
+import { isReconcileError, produce, reconcile, ReconcileError } from '../index'
 
 it('retains a child reached through repeated fixed references and a fixed root cycle', () => {
   const child = { n: 0 }
@@ -233,4 +233,25 @@ it('redefines a read-only configurable property, keeping its attributes', () => 
     value: 2,
     writable: false,
   })
+})
+
+/** A proxy over an extensible target may list a key it reports no descriptor for. */
+const ghost = (): Record<string, unknown> =>
+  new Proxy({}, { getOwnPropertyDescriptor: () => undefined, ownKeys: () => ['ghost'] })
+
+it('treats a key a proxy lists without a descriptor as absent', () => {
+  let caught: unknown
+  try {
+    reconcile(ghost(), { a: 1 })
+  } catch (error) {
+    caught = error
+  }
+  assert.ok(isReconcileError(caught) && caught.cause.type === 'PublicationRejected')
+  // Inside current, the proxy is replaced by a new object, as any object that cannot hold next is.
+  const current = { x: ghost() }
+  const held = current.x
+  const result = reconcile(current, { x: { a: 1 } })
+  assert.equal(result, current)
+  assert.notEqual(result.x, held)
+  assert.deepEqual(result.x, { a: 1 })
 })

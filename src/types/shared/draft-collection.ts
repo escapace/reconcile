@@ -39,7 +39,7 @@ export interface DraftCollectionWalks {
   entries: () => IterableIterator<[unknown, unknown]>
   forEach: (
     callback: (value: unknown, key: unknown, collection: unknown) => void,
-    ...[thisArgument]: unknown[]
+    ...rest: unknown[]
   ) => void
   keys: () => IterableIterator<unknown>
   values: () => IterableIterator<unknown>
@@ -82,12 +82,15 @@ export function draftCollectionBase(
     }
 
     /** Calls `callback` with each value, its key and this draft, in walk order. */
+    // The rest parameter keeps `length` 1, as on the native method; reading it by index, not by
+    // destructuring, opens no iterator.
     forEach(
       callback: (value: unknown, key: unknown, collection: unknown) => void,
-      ...[thisArgument]: unknown[]
+      ...rest: unknown[]
     ): void {
       if (typeof callback !== 'function')
         throw new TypeError('The forEach callback is not a function')
+      const thisArgument = rest.length === 0 ? undefined : rest[0]
       const state = draftState(this)
       const opened = open(state, 'entries')
       for (;;) {

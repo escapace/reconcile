@@ -127,6 +127,11 @@ const arraySnapshot = /* @__PURE__ */ (() =>
     },
   }))() satisfies SnapshotPolicy<ArrayLayout>
 
+// The attributes of slot `position`: an array's table marks only its getters, so a data slot is a
+// hole, read as none without reaching Array.prototype.
+const slotBits = (bits: readonly number[] | undefined, position: number): number =>
+  bits !== undefined && hasOwn(bits, position) ? bits[position] : 0
+
 // What the call already read at edge `edge`, which holds `key`, or `UNREAD`.
 const readAt = (
   node: CapturedNode<ArrayLayout>,
@@ -266,7 +271,7 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
         if (
           isDataDescriptor(descriptor)
             ? !visit(array[index], node.edges[position])
-            : ((node.attributes?.[position] ?? 0) & OBSERVED_ACCESSOR) === 0 ||
+            : (slotBits(node.attributes, position) & OBSERVED_ACCESSOR) === 0 ||
               !visit(node.observed?.[position], node.edges[position])
         )
           return false
