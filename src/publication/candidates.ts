@@ -4,6 +4,7 @@ import { isObject } from '../object-property'
 import { ownValue } from '../types/shared/properties'
 import { EMPTY_FACTS } from '../constants'
 import type {
+  BoundEdge,
   Candidate,
   Candidates,
   CapturedGraph,
@@ -77,7 +78,8 @@ export function candidates(
     // What capture or discovery read at the candidate's slots serves its fixed slots.
     const reads = alignedReads(alignment, index, candidate)
     const required = preflightOf(policy, node, candidate, note, prototype, reads)
-    if (required === undefined) return undefined
+    if (required === undefined || (pinned !== undefined && pinsAnother(records, required)))
+      return undefined
     // The candidate's facts serve the publication that keeps it.
     return { facts: note?.facts, identity: candidate, required }
   }
@@ -101,6 +103,17 @@ export function candidates(
     keepWithOwner(types, records, domains, owner)
   promoteDemanded(domains)
   return domains
+}
+
+// Whether a candidate's fixed slots require another object at a pinned node, which keeps the
+// object it is: the candidate can never be kept, so it must not reorder a node either; an
+// object at a node kept as an atom edge already failed its preflight (Spec.Reconcile.admitted).
+function pinsAnother(records: readonly CapturedNode[], required: readonly BoundEdge[]): boolean {
+  for (let index = 0; index < required.length; index += 1) {
+    const pinned = records[required[index].node].pinned
+    if (pinned !== undefined && pinned !== required[index].identity) return true
+  }
+  return false
 }
 
 // The children an owner kind creates, a URL's `searchParams`, at `node`; empty for other kinds.

@@ -526,7 +526,7 @@ theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbi
 candidate `x` of some node `c`, through a fixed slot, and names `c` only with `x` itself. -/
 theorem demands_satisfiable (input : Input) (al : Discovery) (c' x' : Nat)
     (h : (c', x') ∈ demands input al) :
-    ∃ c x, x ∈ al.candidates[c]?.getD [] ∧ admitted input c x = true ∧
+    ∃ c x, x ∈ al.candidates[c]?.getD [] ∧ admitted input al.pinned c x = true ∧
       (Val.ref x', Val.ref c') ∈ fixedPairs (input.cur.node x) (input.next.node c) ∧
       (c' = c → x' = x) := by
   simp only [demands, List.mem_flatMap, List.mem_range] at h
@@ -553,6 +553,36 @@ theorem demands_satisfiable (input : Input) (al : Discovery) (c' x' : Nat)
             Decidable.not_not] at hcond
           exact hcond trivial
   · simp at hmem
+
+/-- The fixed slots of an admitted candidate that hold objects require each node to keep one
+object, and a pinned node the object it is. -/
+theorem admitted_pins (input : Input) (pin : Array Bool) (c x x' c' : Nat)
+    (h : admitted input pin c x = true)
+    (hp : (Val.ref x', Val.ref c') ∈ fixedPairs (input.cur.node x) (input.next.node c)) :
+    (pin[c']?.getD false = true → input.same[c']?.bind id = some x') ∧
+      ∀ y, (Val.ref y, Val.ref c') ∈ fixedPairs (input.cur.node x) (input.next.node c) →
+        y = x' := by
+  simp only [admitted, Bool.and_eq_true, List.all_eq_true] at h
+  have hx := h.2 _ hp
+  simp only [Bool.and_eq_true, Bool.or_eq_true, Bool.not_eq_true', beq_iff_eq,
+    List.all_eq_true] at hx
+  refine ⟨fun hpin => ?_, fun y hy => ?_⟩
+  · rcases hx.1 with h1 | h1
+    · simp [hpin] at h1
+    · exact h1
+  · have h2 := hx.2 _ hy
+    simp only [bne_iff_ne, ne_eq, Bool.or_eq_true, beq_iff_eq] at h2
+    rcases h2 with h2 | h2
+    · exact absurd trivial h2
+    · exact h2
+
+/-- A demand on a pinned node asks for the object it is: a candidate that would require another
+object there is not admitted, so it reorders no node. -/
+theorem demands_pinned (input : Input) (al : Discovery) (c' x' : Nat)
+    (h : (c', x') ∈ demands input al) (hpin : al.pinned[c']?.getD false = true) :
+    input.same[c']?.bind id = some x' := by
+  obtain ⟨c, x, _, hadm, hpair, _⟩ := demands_satisfiable input al c' x' h
+  exact (admitted_pins input al.pinned c x x' c' hadm hpair).1 hpin
 
 /-! ## Fresh copies -/
 

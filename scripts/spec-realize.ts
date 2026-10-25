@@ -11,6 +11,7 @@ import {
   isHole,
   isReference,
   type ByKind,
+  type Case,
   type Classes,
   type Extensibility,
   type Graph,
@@ -177,6 +178,21 @@ export function materialize(
   })
   return objects
 }
+
+/** Builds the next graph of a case over its current objects: a next node that is a current
+ * object is that object. */
+export const materializeNext = (
+  c: Case,
+  current: readonly object[],
+  classes: Prototypes,
+): object[] =>
+  materialize(
+    c.next,
+    new Map(),
+    (index) => (c.same[index] === null ? undefined : current[c.same[index]]),
+    undefined,
+    classes,
+  )
 
 function countersOf(counters: Counters, o: object): Map<string, { get: number; set: number }> {
   let byKey = counters.get(o)

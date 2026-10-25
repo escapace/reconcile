@@ -15,6 +15,7 @@ import {
   construct,
   materialize,
   materializeClasses,
+  materializeNext,
   primitiveToJs,
   prototypeIndex,
   setterStores,
@@ -497,13 +498,7 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const classes = materializeClasses(c.classes, prototypeCounters)
   classIndex = new Map(classes.map((p, index) => [p, index]))
   const current = materialize(c.cur, counters, undefined, wrap, classes)
-  const next = materialize(
-    c.next,
-    new Map(),
-    (index) => (c.same[index] === null ? undefined : current[c.same[index]]),
-    undefined,
-    classes,
-  )
+  const next = materializeNext(c, current, classes)
   const held = new Set(c.same.flatMap((index) => (index === null ? [] : [current[index]])))
   const before = stable(recapture(current[0], current))
   getterCounts(counters, current, held)

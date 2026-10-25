@@ -314,23 +314,31 @@ def fixedPairs (c n : Obj) : List (Val × Val) :=
 /-- A requirement: next node `c` keeps current object `x`. -/
 abbrev Requirement := Nat × Nat
 
-/-- Whether current object `x` passes the preflight for next node `c`: its static checks pass and
-every fixed slot holding a primitive holds the value `next` has there. -/
-def admitted (input : Input) (c x : Nat) : Bool :=
+/-- Whether current object `x` passes the preflight for next node `c`: its static checks pass,
+every fixed slot holding a primitive holds the value `next` has there, and the fixed slots holding
+objects require each node to keep one object, a pinned node the object it is. -/
+def admitted (input : Input) (pin : Array Bool) (c x : Nat) : Bool :=
   let cur := input.cur.node x
   let nxt := input.next.node c
-  admitsStatic input.classes cur nxt && (fixedPairs cur nxt).all fun
+  let pairs := fixedPairs cur nxt
+  admitsStatic input.classes cur nxt && pairs.all fun
     | (.prim p, .prim q) => p == q
-    | (.ref _, .ref _) => true
+    | (.ref x', .ref c') =>
+      (!(pin[c']?.getD false) || input.same[c']?.bind id == some x') &&
+        pairs.all fun
+          | (.ref y, .ref d) => d != c' || y == x'
+          | _ => true
     | _ => false
 
 /-- The requirements the admitted candidates of every node make: that the node at each fixed slot
-holding an object keeps that object. A demand that would have the candidate's own node keep another
-object is left out: the candidate could never be kept with it, so it must not reorder the node. -/
+holding an object keeps that object. A candidate whose fixed slots require two objects at one node,
+or another object at a pinned node, is not admitted, and a demand that would have the candidate's
+own node keep another object is left out: the candidate could never be kept with them, so they must
+not reorder a node. -/
 def demands (input : Input) (al : Discovery) : List Requirement :=
   (List.range input.next.nodes.size).flatMap fun c =>
     (al.candidates[c]?.getD []).flatMap fun x =>
-      if admitted input c x then
+      if admitted input al.pinned c x then
         (fixedPairs (input.cur.node x) (input.next.node c)).filterMap fun
           | (.ref x', .ref c') => if c' = c && x' != x then none else some (c', x')
           | _ => none

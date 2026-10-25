@@ -5,6 +5,7 @@ import { checkNativeValueRuntime } from './check-native-value-runtime'
 import { checkOwnedNativeChildRuntime } from './check-owned-native-child-runtime'
 import { checkCapturedRuntime } from './lean-captured-bridge'
 import { checkSpecGate } from './lean-spec-bridge'
+import { checkSpecPhasesGate } from './lean-spec-phases'
 import { startOracle } from './lean-oracle'
 import { checkPropertyOrderRuntime } from './check-property-order-runtime'
 import { checkAtomsRuntime } from './check-atoms-runtime'
@@ -65,6 +66,7 @@ try {
   await checkSerializationRuntime(oracle.run)
   await checkSerializationCollectionRuntime(oracle.run)
   await checkSpecGate(oracle.run)
+  await checkSpecPhasesGate(oracle.run)
   // Bound a response before a whole oversized line can accumulate. Shutdown must
   // preserve the original diagnostic rather than mask it with the killed exit code.
   await assert.rejects(oracle.run('Contract', [], { maxBuffer: 1 }), /output exceeds 1 bytes/)

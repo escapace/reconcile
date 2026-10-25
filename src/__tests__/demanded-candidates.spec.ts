@@ -1,3 +1,4 @@
+/* eslint-disable perfectionist/sort-objects -- Key order is the visit order these cases depend on. */
 import { assert, it } from 'vitest'
 
 import { reconcile } from '../index'
@@ -29,4 +30,42 @@ it('ignores a demand from an object that can never be kept', () => {
   const result = reconcile([keep], [n])
   assert.ok(result[0] === keep)
   assert.ok(keep.a === keep)
+})
+
+const fixed = <T extends object>(o: T, key: string, value: unknown): T =>
+  Object.defineProperty(o, key, { configurable: false, enumerable: true, value, writable: false })
+
+it('ignores a demand from an object whose fixed slots require two objects at one node', () => {
+  // holder could be kept at n.c only if n.o kept both first and second.
+  const first = {}
+  const second = {}
+  const kept = {}
+  const holder = fixed(fixed({}, 'a', first), 'b', second)
+  const current = { o: kept, c: holder }
+  const shared = { x: 1 }
+  const result = reconcile(current, { o: shared, c: { a: shared, b: shared } })
+  assert.ok(result.o === kept)
+  assert.ok(result.c !== holder)
+})
+
+it('ignores a demand from an object whose fixed slot requires another object at a pinned node', () => {
+  // place stays in place, so holder, which holds a copy of it, can never be kept at n.c. Capture
+  // meets place first at a, before the object that keeps it in place, or only inside that object;
+  // the first object read stays either way.
+  for (const early of [false, true]) {
+    const place = { p: 1 }
+    const kept = {}
+    const holder = fixed(fixed({}, 'f', { p: 1 }), 'k', {})
+    const box = { in: place }
+    const current = { a: early ? { p: 0 } : box, o: kept, q: box, c: holder }
+    const shared = { x: 1 }
+    const result = reconcile(current, {
+      a: early ? place : box,
+      o: shared,
+      q: box,
+      c: { f: place, k: shared },
+    })
+    assert.ok(result.o === kept)
+    assert.ok(result.q === box && box.in === place)
+  }
 })

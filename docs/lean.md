@@ -118,12 +118,12 @@ table instead maps the main promises of the public functions to their theorems, 
 
 ### Reference models
 
-| Module(s)        | Key theorems                                                        | Runtime                                                          | Bridge | Obligations    |
-| ---------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- | ------ | -------------- |
-| `Spec.Graph`     | `Graph.normalize` (definition)                                      | the graphs the bridge builds and reads back                      | Spec   | Spec agreement |
-| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions) | `src/reconcile.ts` `reconcile`                                   | Spec   | Spec agreement |
-| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                  | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`         | Spec   | Spec agreement |
-| `Spec.Promises`  | most theorems in [Promises](#promises)                              | the documented promises of `reconcile`, `produce` and `snapshot` | Spec   | Spec agreement |
+| Module(s)        | Key theorems                                                        | Runtime                                                          | Bridge            | Obligations                 |
+| ---------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------- | --------------------------- |
+| `Spec.Graph`     | `Graph.normalize` (definition)                                      | the graphs the bridge builds and reads back                      | Spec              | Spec agreement              |
+| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions) | `src/reconcile.ts` `reconcile`                                   | Spec, Spec phases | Spec agreement, Spec phases |
+| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                  | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`         | Spec              | Spec agreement              |
+| `Spec.Promises`  | most theorems in [Promises](#promises)                              | the documented promises of `reconcile`, `produce` and `snapshot` | Spec              | Spec agreement              |
 
 `Spec.Graph` is a heap of plain objects with ordered fields, each a data property with its
 attributes or an accessor with the value its getter returns and whether its setter stores,
@@ -166,7 +166,9 @@ original's place, possibly inside a new object. `Spec.Produce.snapshot` copies e
   so every pass that continues demotes a current object for the first time (`blocked_fresh`).
 - A candidate whose fixed slot requires another object at the candidate's own node can never be kept
   with that object. The candidate order ignores such a requirement, so it does not reorder that
-  node's candidates (`demands_satisfiable`).
+  node's candidates (`demands_satisfiable`). A candidate whose fixed slots require two objects at
+  one node, or another object at a pinned node, is not admitted, so it reorders no node
+  (`admitted_pins`, `demands_pinned`).
 - A node's origin is the current object it keeps; a node that keeps none holds a fresh copy of
   `next`'s node and has no origin (`publish_origins`, `publish_fresh`).
 - `produce` keeps a current object exactly when its subtree is unchanged; `kept` is the greatest set
@@ -193,7 +195,7 @@ runtime directly. A row whose _Theorems_ cell reads _tested only_ has no proof.
 | A changed property is written, an unchanged one left alone, a moved or added one written                         | `objectWrites_set_iff`                                                                    | `Spec --writes` (writes)                                             | `write-free-readback.spec.ts`, `reconcile-accessors.spec.ts`, `public-api-invariants.spec.ts` (write-free) |
 | A kept property keeps its attributes; an added one is writable and configurable with `next`'s enumerability      | `keptObject_attrs`                                                                        | `Spec` (descriptors), `PropertyWrite`                                | `public-api-invariants.spec.ts`, `property-enumerability.spec.ts`                                          |
 | An object that blocks a change is replaced; a pass demotes no other object                                       | `mem_blockedObjects`                                                                      | `Spec --writes --hazards` (results)                                  | `publication-readback-boundaries.spec.ts`, `publication-failure-boundaries.spec.ts`                        |
-| A node with several candidates keeps the first one read unless an admitted candidate's fixed slot needs another  | `demands_satisfiable`; the order is the definition `orderedCandidates`                    | `Spec` (identities)                                                  | `demanded-candidates.spec.ts`                                                                              |
+| A node with several candidates keeps the first one read unless an admitted candidate's fixed slot needs another  | `demands_satisfiable`, `demands_pinned`; the order is the definition `orderedCandidates`  | `Spec` (identities)                                                  | `demanded-candidates.spec.ts`                                                                              |
 | Added objects are new copies                                                                                     | `publish_origins`, `publish_fresh`                                                        | none; `Spec` identifies only current objects                         | `reconcile-semantics.spec.ts`                                                                              |
 | `produce` keeps every unchanged subtree and no changed object                                                    | `kept_closed`, `kept_greatest`                                                            | `Spec --op produce` (results)                                        | `produce-properties.spec.ts`, `public-api-invariants.spec.ts`                                              |
 | `snapshot` is a detached copy, one new object per source object                                                  | `snapshot_size`, `snapshot_copy`, `snapshot_fresh`                                        | `Spec --op snapshot` (results)                                       | `public-api-invariants.spec.ts`, `graph-capture.spec.ts`                                                   |
@@ -476,6 +478,17 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   more than one decision pass. The `--binary` batches, one per operation, add buffers, some of them
   resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs through the
   recording proxies.
+- **Spec phases.** On the `reconcile` cases, plain, hazard-rich and with buffers and views, the
+  runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
+  order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
+  candidates in decision order with the requirements of their fixed slots, and the decision of
+  every pass up to the first that keeps no root. The phase bridge reads them from a bundle of the
+  sources that records `publishGraph`'s candidates and each `decide`, so the library carries no
+  hook. Capture keeps an object already in place as an atom edge, which has no node, so the bridge
+  compares order and alignment over the nodes that are not pinned and checks that every pinned
+  node keeps the object it is. The runtime also leaves out a candidate that is an object inside a
+  pinned subtree, which the reference keeps in the list but never decides for, since every such
+  object is reserved; the bridge's reference list leaves it out too.
 - **Pass termination.** `publishGraph` in `src/publication/publication-engine.ts` repeats its
   passes with no limit on their number. They end for the reason `blocked_fresh` gives for the
   reference, because the runtime meets both of its premises: a decision keeps no demoted object
@@ -775,6 +788,7 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | `Serialization`           | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `SerializationCollection` | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `Spec`                    | `lean-spec-bridge.ts`                       | seeded random graphs of up to seven objects, arrays, maps, sets, dates, and buffers with views over them, with cycles and sharing, attributes, accessors, non-extensible, sealed and frozen values and prototypes, with data and accessor slots on the class prototypes for `reconcile`: `reconcile` of a mutated `next` that reuses, reorders and moves current objects, `produce` recipes of draft writes, created objects and returned values, and `snapshot`; the results read back as graphs equal the reference's on identities, values, descriptors, prototypes and extensibility, except as _Spec agreement_ allows. Standalone: `pnpm exec tsx scripts/lean-spec-bridge.ts --op produce --seeds 2000`, with `--dump SEED` for one case, `--features` for what the `reconcile` cases exercise, and the flags of the batches that _Spec agreement_ describes |
+| `Spec` (phases)           | `lean-spec-phases.ts`                       | the `Spec` bridge's `reconcile` cases, plain, hazard-rich and with buffers and views, on a bundle of the sources that records discovery and each decision pass: visit order, pinning alignment, pinned nodes, candidates in decision order with their fixed-slot requirements, and every pass's decision equal the reference's, as _Spec phases_ describes. Standalone: `pnpm exec tsx scripts/lean-spec-phases.ts --seeds 2000`, with `--hazards`, `--binary`, `--nodes N` and `--dump SEED`                                                                                                                                                                                                                                                                                                                                                                       |
 
 Read the table with these limits:
 
@@ -789,10 +803,12 @@ Read the table with these limits:
   literals and shared scalar nodes. Its hand-written JSON importer uses Lean numbers, so `-0` and
   overflowing literal roots are compared with `JSON.parse` at runtime only.
 
-The _mutation audit_, `pnpm exec tsx scripts/spec-mutants.ts`, checks that the `Spec` bridge
-detects runtime defects. It applies one deliberate defect, a _mutant_, at a time to the runtime
+The _mutation audit_, `pnpm exec tsx scripts/spec-mutants.ts`, checks that the `Spec` bridges
+detect runtime defects. It applies one deliberate defect, a _mutant_, at a time to the runtime
 sources and runs the bridge without flags, then with `--writes`, then with `--writes --hazards`,
-stopping at the first run that reports a difference or does not end. It restores the sources after
+stopping at the first run that reports a difference or does not end. A mutant that only the
+runtime's discovery or decisions show runs the phase bridge instead, with `--binary`, then without
+flags, then with `--hazards`. It restores the sources after
 each mutant. A mutant the bridge does not detect marks a case the generator does not produce or a
 difference the comparison does not see; the script lists the mutants it expects to go undetected,
 each with the gap it stands for. Run the audit after changing the `Spec` bridge, its generator or

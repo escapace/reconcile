@@ -4,14 +4,7 @@ import { noValue } from './empty'
 import { ARRAY_BUFFER_KIND } from '../array-buffer'
 import { bufferEquivalent } from './bytes'
 import { atomValue, isNode } from '../../graph/edge'
-import {
-  bufferByteLength,
-  bufferOfView,
-  isShared,
-  viewByteLength,
-  viewElement,
-  viewOffset,
-} from './binary-native'
+import { bufferOfView, isShared, viewByteLength, viewElement, viewOffset } from './binary-native'
 import type {
   CapturedNode,
   DraftStrategy,
@@ -77,15 +70,12 @@ export function viewPublication<K extends symbol>(): Omit<
       const actual = current as ArrayBufferView
       return viewShape(actual, node.layout.sample) && visit(bufferOfView(actual), node.edges[0])
     },
-    // A kept view must have next's shape over a buffer of next's length.
-    requirements(node, current) {
-      const actual = current as ArrayBufferView
-      const sample = node.layout.sample
-      return viewShape(actual, sample) &&
-        bufferByteLength(bufferOfView(actual)) === bufferByteLength(bufferOfView(sample))
+    // A kept view must have next's shape; its buffer node keeps its buffer, which that node's own
+    // preflight admits only with next's length (Spec.Reconcile.admitsStatic).
+    requirements: (node, current) =>
+      viewShape(current as ArrayBufferView, node.layout.sample)
         ? viewRequirements(node, current)
-        : undefined
-    },
+        : undefined,
     // A view writes nothing: its bytes are its buffer's, and the preflight bound its buffer, which
     // readback compares with its shape.
     publish: (_node, _current, _resolve, _owner, note) => {

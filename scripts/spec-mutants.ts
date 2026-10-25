@@ -1,5 +1,6 @@
-// Sensitivity audit of the Spec bridge: applies one deliberate defect at a time to the runtime
-// sources, runs the strict reconcile bridge in a child process and expects it to fail. A mutant
+// Sensitivity audit of the Spec bridges: applies one deliberate defect at a time to the runtime
+// sources, runs the strict reconcile bridge, or the phase bridge where a mutant names it, in a
+// child process and expects it to fail. A mutant
 // that survives names a case the generator does not produce or a difference the comparison does
 // not see; a mutant expected to survive names the gap it stands for, and a verdict that differs
 // from the expectation, in either direction, fails the audit. The sources are restored after every
@@ -12,6 +13,9 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 
 interface Mutant {
+  /** The bridge that must see the defect: the outcome bridge unless it names the phase bridge,
+   * for a defect only the runtime's discovery or decisions show. */
+  readonly bridge?: 'phases'
   /** The exact source text, present once, that the defect replaces. */
   readonly file: string
   readonly find: string
@@ -66,6 +70,13 @@ const MUTANTS: readonly Mutant[] = [
     replace: '\n',
   },
   {
+    bridge: 'phases',
+    file: 'src/publication/candidates.ts',
+    find: 'pinsAnother(records, required)',
+    name: 'pinned-demand-admitted',
+    replace: 'pinsAnother(records, [])',
+  },
+  {
     file: 'src/publication/capture.ts',
     find: '    if (key !== undefined) node.keys.push(key)\n    const child = this.adopt(reference.node, value, key, construction, knownKind)\n',
     name: 'key-pushed-after-adopt',
@@ -104,44 +115,51 @@ const MUTANTS: readonly Mutant[] = [
 
 type Verdict = 'hung' | 'killed' | 'survived'
 
-function runBridge(seeds: number, flags: readonly string[]): Verdict {
+/** Each bridge's command, the text its output holds when it saw nothing, and its runs: the
+ * outcome bridge plain, through recording proxies and on hazard-rich cases; the phase bridge
+ * with buffers and views beside the other kinds, plain and on hazard-rich cases. */
+const BRIDGES = {
+  outcome: {
+    agreed: 'reports 0;',
+    command: ['scripts/lean-spec-bridge.ts', '--op', 'reconcile', '--strict'],
+    runs: [[], ['--writes'], ['--writes', '--hazards']],
+  },
+  phases: {
+    agreed: 'differences 0',
+    command: ['scripts/lean-spec-phases.ts'],
+    runs: [['--binary'], [], ['--hazards']],
+  },
+} as const
+
+type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
+
+function runBridge(bridge: Bridge, seeds: number, flags: readonly string[]): Verdict {
   const result = spawnSync(
     'pnpm',
-    [
-      'exec',
-      'tsx',
-      'scripts/lean-spec-bridge.ts',
-      '--op',
-      'reconcile',
-      '--seeds',
-      String(seeds),
-      '--strict',
-      ...flags,
-    ],
+    ['exec', 'tsx', ...bridge.command, '--seeds', String(seeds), ...flags],
     // A bridge run takes a few seconds; a mutant that loops is cut off well inside the round.
     { encoding: 'utf8', timeout: 30_000 },
   )
-  return verdictOf(result)
+  return verdictOf(bridge, result)
 }
 
 type Run = SpawnSyncReturns<string>
 
 /** Whether the bridge finished and saw nothing; a mutant that throws inside the runtime is
  * caught as well, since the bridge reports errors. */
-const agreed = (result: Run): boolean =>
-  result.status === 0 && `${result.stdout}\n${result.stderr}`.includes('reports 0;')
+const agreed = (bridge: Bridge, result: Run): boolean =>
+  result.status === 0 && `${result.stdout}\n${result.stderr}`.includes(bridge.agreed)
 
-function verdictOf(result: Run): Verdict {
+function verdictOf(bridge: Bridge, result: Run): Verdict {
   if (result.error !== undefined || result.signal !== null) return 'hung'
-  return agreed(result) ? 'survived' : 'killed'
+  return agreed(bridge, result) ? 'survived' : 'killed'
 }
 
-/** The bridge plain, then through recording proxies and then on hazard-rich cases, each as long
- * as the previous run saw nothing. */
-function runAll(seeds: number): Verdict {
+/** The bridge's runs in order, each as long as the previous run saw nothing. */
+function runAll(bridge: Bridge, seeds: number): Verdict {
   let verdict: Verdict = 'survived'
-  for (const flags of [[], ['--writes'], ['--writes', '--hazards']]) {
-    verdict = runBridge(seeds, flags)
+  for (const flags of bridge.runs) {
+    verdict = runBridge(bridge, seeds, flags)
     if (verdict !== 'survived') break
   }
   return verdict
@@ -152,7 +170,7 @@ function audit(mutant: Mutant, seeds: number): Verdict {
   assert.equal(original.split(mutant.find).length, 2, `${mutant.name}: find text not present once`)
   writeFileSync(mutant.file, original.replace(mutant.find, mutant.replace))
   try {
-    return runAll(seeds)
+    return runAll(BRIDGES[mutant.bridge ?? 'outcome'], seeds)
   } finally {
     writeFileSync(mutant.file, original)
   }
