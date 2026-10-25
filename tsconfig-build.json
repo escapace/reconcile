@@ -2,7 +2,7 @@
   "compilerOptions": {
     "rootDir": "./src"
   },
-  "exclude": ["**/*.spec.ts", "**/example*.ts", "./src/test-support/**"],
+  "exclude": ["**/*.spec.ts", "**/__tests__/**", "**/example*.ts", "./src/test-support/**"],
   "extends": "./tsconfig.json",
   "include": ["src"]
 }

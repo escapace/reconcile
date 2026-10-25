@@ -59,7 +59,7 @@ export interface Options {
 }
 
 /** A small deterministic PRNG (mulberry32). */
-class Rng {
+export class Rng {
   private state: number
   constructor(seed: number) {
     this.state = seed >>> 0
