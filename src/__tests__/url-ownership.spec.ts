@@ -2,7 +2,7 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-import { ReconcileError } from '../index'
+import { isReconcileError, ReconcileError } from '../index'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
 
@@ -356,5 +356,22 @@ describe('URL owned search parameters', () => {
     assert.strictEqual(current.inside, inside)
     assert.strictEqual(current.url, url)
     assert.strictEqual(current.url?.searchParams, inside.params)
+  })
+
+  it('rejects in reconcile a URL whose search parameters have a replaced prototype', () => {
+    for (const parametersFirst of [true, false]) {
+      const url = new URL('https://example.test/?q=1')
+      Object.setPrototypeOf(url.searchParams, null)
+      const next = parametersFirst
+        ? { params: url.searchParams, url }
+        : { url, params: url.searchParams }
+      let thrown: unknown
+      try {
+        reconcile({}, next)
+      } catch (error) {
+        thrown = error
+      }
+      assert.ok(isReconcileError(thrown) && thrown.cause.type === 'PublicationRejected')
+    }
   })
 })

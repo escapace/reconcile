@@ -11,7 +11,7 @@ import {
   setNativeURLHref,
 } from './shared/url-carrier'
 import { URL_SEARCH_PARAMS_KIND } from './url-search-parameters'
-import { snapshotURLSearchParametersMemoIncompatible } from '../error'
+import { publicationRejected, snapshotURLSearchParametersMemoIncompatible } from '../error'
 import type {
   CapturePolicy,
   ConstructionPolicy,
@@ -54,7 +54,11 @@ const urlCapture = {
       inChain(Object.getPrototypeOf(response) as object | null, URLSearchParams)
         ? new URL(href)
         : undefined)
-    if (carrier === undefined) throw snapshotURLSearchParametersMemoIncompatible()
+    // Only a `seen` entry, or parameters whose prototype was replaced, leave no carrier.
+    if (carrier === undefined)
+      throw mode === 'snapshot'
+        ? snapshotURLSearchParametersMemoIncompatible()
+        : publicationRejected()
     ownedURL(carrier, href, prototype)
     begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })
   },
