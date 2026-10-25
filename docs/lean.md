@@ -129,24 +129,25 @@ table instead maps the main promises of the public functions to their theorems, 
 attributes or an accessor with the value its getter returns and whether its setter stores,
 extensibility, and a prototype label; arrays with holes and an integrity level; maps, sets and
 dates; buffers with their bytes and, when resizable, their maximum length; typed arrays and
-`DataView`s with their constructor, buffer, byte offset and byte length; primitives and atoms. A `reconcile` input also gives each class label its own slots, data
-or accessor, which every object with that label inherits. `Graph.normalize` reads an
-empty non-extensible array as sealed, as the integrity test does.
+`DataView`s with their constructor, buffer, byte offset and byte length; primitives and atoms. A
+`reconcile` input also gives each class label its own slots, data or accessor, which every object
+with that label inherits. `Graph.normalize` reads an empty non-extensible array as sealed, as the
+integrity test does.
 
 `Spec.Reconcile.run` is the deterministic reference: a read phase that aligns `next` with `current`
 and pins objects already in place, a decision in visit order that keeps an aligned object when it
 admits `next`'s contents statically, and a write phase that demotes a kept object whose write
 reaches a fixed slot or a setter that drops its value and decides again, never keeping a demoted
 object and keeping each object a pass wrote at its node. An object cannot be kept when `next` has a
-key that the object lacks and its class holds as an accessor. A buffer is kept only with `next`'s
-length and maximum, a view only with `next`'s constructor, offset and length, and a view's buffer
-is held like a fixed slot. The reference returns the result graph
-with the object kept at each node, the writes, the number of passes and the getter counts.
-`retainPrefix`, the longest prefix of `next`'s key or entry order that is a subsequence of
-`current`'s, decides which keys and entries keep their place. `Spec.Produce.run` applies a recipe of
-draft operations to a draft heap and keeps the greatest set of unchanged subtrees (`kept`); a draft
-reads a `Date`, buffer or view as a copy, which a new object may hold when it differs;
-`Spec.Produce.snapshot` copies every node.
+key that the object lacks and its class holds as an accessor. A buffer is kept only when its length
+and maximum length equal `next`'s, and a view only when its constructor, byte offset and byte length
+do; a view's buffer counts as a fixed slot. The reference returns the result graph with the object
+kept at each node, the writes, the number of passes and the getter counts. `retainPrefix`, the
+longest prefix of `next`'s key or entry order that is a subsequence of `current`'s, decides which
+keys and entries keep their place. `Spec.Produce.run` applies a recipe of draft operations to a
+draft heap and keeps the greatest set of unchanged subtrees (`kept`). A draft reads a `Date`, buffer
+or view as a copy. When the copy differs from the original, the result holds the copy in the
+original's place, possibly inside a new object. `Spec.Produce.snapshot` copies every node.
 
 `Spec.Promises` proves, about these definitions:
 
@@ -163,8 +164,9 @@ reads a `Date`, buffer or view as a copy, which a new object may hold when it di
 - A pass demotes only a blocked object: one with a write that reaches a fixed slot or a setter
   that drops its value (`mem_blockedObjects`). It never demotes an object an earlier pass demoted,
   so every pass that continues demotes a current object for the first time (`blocked_fresh`).
-- No demand asks a candidate's own node for another object, so a candidate that can never be kept
-  does not reorder that node's candidates (`demands_satisfiable`).
+- A candidate whose fixed slot requires another object at the candidate's own node can never be kept
+  with that object. The candidate order ignores such a requirement, so it does not reorder that
+  node's candidates (`demands_satisfiable`).
 - A node's origin is the current object it keeps; a node that keeps none holds a fresh copy of
   `next`'s node and has no origin (`publish_origins`, `publish_fresh`).
 - `produce` keeps a current object exactly when its subtree is unchanged; `kept` is the greatest set
@@ -183,34 +185,34 @@ The table maps the main promises of the public functions to the theorems that st
 the Lean models, the bridges that carry them to the runtime and the tests that check the
 runtime directly. A row whose _Theorems_ cell reads _tested only_ has no proof.
 
-| Promise                                                                                                                                         | Theorems                                                                                  | Bridge                                                               | Tests                                                                                                      |
-| ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Keys and entries keep their place; the retained prefix is the longest                                                                           | `retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`                     | `Spec` (results; not moves inside a `Map` or `Set`), `PropertyOrder` | `reconcile-property-order.spec.ts`                                                                         |
-| An own getter of a kept object runs once without writes, twice with them and at most once more per demotion pass                                | `get_bound`, `read_once_before_write` (upper bounds)                                      | `Spec` (getter counts), `WriteFreeReadback`                          | `write-free-readback.spec.ts`                                                                              |
-| The decision passes are bounded, so no plan is searched                                                                                         | `passes_le`, `blocked_fresh`                                                              | `Spec --writes --hazards` (getter counts and writes of every pass)   | `public-api-invariants.spec.ts` (hostile setters)                                                          |
-| A changed property is written, an unchanged one left alone, a moved or added one written                                                        | `objectWrites_set_iff`                                                                    | `Spec --writes` (writes)                                             | `write-free-readback.spec.ts`, `reconcile-accessors.spec.ts`, `public-api-invariants.spec.ts` (write-free) |
-| A kept property keeps its attributes; an added one is writable and configurable with `next`'s enumerability                                     | `keptObject_attrs`                                                                        | `Spec` (descriptors), `PropertyWrite`                                | `public-api-invariants.spec.ts`, `property-enumerability.spec.ts`                                          |
-| An object that blocks a change is replaced; a pass demotes no other object                                                                      | `mem_blockedObjects`                                                                      | `Spec --writes --hazards` (results)                                  | `publication-readback-boundaries.spec.ts`, `publication-failure-boundaries.spec.ts`                        |
-| An object of `next` with several candidates keeps the one read first, unless a frozen or getter-only property of a kept object requires another | `demands_satisfiable`                                                                     | `Spec` (identities)                                                  | `demanded-candidates.spec.ts`                                                                              |
-| Added objects are new copies                                                                                                                    | `publish_origins`, `publish_fresh`                                                        | none; `Spec` identifies only current objects                         | `reconcile-semantics.spec.ts`                                                                              |
-| `produce` keeps every unchanged subtree and no changed object                                                                                   | `kept_closed`, `kept_greatest`                                                            | `Spec --op produce` (results)                                        | `produce-properties.spec.ts`, `public-api-invariants.spec.ts`                                              |
-| `snapshot` is a detached copy, one new object per source object                                                                                 | `snapshot_size`, `snapshot_copy`, `snapshot_fresh`                                        | `Spec --op snapshot` (results)                                       | `public-api-invariants.spec.ts`, `graph-capture.spec.ts`                                                   |
-| `next` is read once; an object already in place is read as part of `next` and not again                                                         | tested only                                                                               | none; `Spec` leaves out the getter counts of objects `next` holds    | `reconcile-pruning.spec.ts`                                                                                |
-| Each object's prototype is read once before the first write                                                                                     | `Types.Ingress.ownReads_shared` (at recognition); the rest tested only                    | `Ingress`, `RecognitionPlain` (read counts)                          | `builtin-recognition.spec.ts`, `ingress-reads.spec.ts`                                                     |
-| `produce` calls each getter of the result once, depth first, and reads each draft once                                                          | tested only                                                                               | `DraftSurface` (results)                                             | `produce-reads.spec.ts`, `finalization-observation-boundaries.spec.ts` (once; the order is untested)       |
-| `produce` and `snapshot` leave `current` unchanged                                                                                              | tested only (the models are pure)                                                         | `Spec` (`current-changed` report)                                    | `produce-properties.spec.ts` (`produce`)                                                                   |
-| `serialize` calls each getter once, depth first                                                                                                 | tested only                                                                               | none                                                                 | `serialization.spec.ts`                                                                                    |
-| `deserialize` restores ordinary, extensible objects                                                                                             | `PropertyWrite.constructFromOn_fresh` (each restored property); extensibility tested only | `PropertyConstructOn` (descriptors)                                  | `public-api-invariants.spec.ts`                                                                            |
-| `deserialize` accepts at exactly `requiredMaxBytes` and rejects one byte below                                                                  | `Serialization.Size.accepts_iff_bytes` (the boundary)                                     | `Serialization` (the size `requiredMaxBytes` returns)                | `deserialize-limit.spec.ts`, `public-api-invariants.spec.ts`                                               |
+| Promise                                                                                                          | Theorems                                                                                  | Bridge                                                               | Tests                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Keys and entries keep their place; the retained prefix is the longest                                            | `retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`                     | `Spec` (results; not moves inside a `Map` or `Set`), `PropertyOrder` | `reconcile-property-order.spec.ts`                                                                         |
+| An own getter of a kept object runs once without writes, twice with them and at most once more per demotion pass | `get_bound`, `read_once_before_write` (upper bounds)                                      | `Spec` (getter counts), `WriteFreeReadback`                          | `write-free-readback.spec.ts`                                                                              |
+| The decision passes are bounded, so no plan is searched                                                          | `passes_le`, `blocked_fresh`                                                              | `Spec --writes --hazards` (getter counts and writes of every pass)   | `public-api-invariants.spec.ts` (hostile setters)                                                          |
+| A changed property is written, an unchanged one left alone, a moved or added one written                         | `objectWrites_set_iff`                                                                    | `Spec --writes` (writes)                                             | `write-free-readback.spec.ts`, `reconcile-accessors.spec.ts`, `public-api-invariants.spec.ts` (write-free) |
+| A kept property keeps its attributes; an added one is writable and configurable with `next`'s enumerability      | `keptObject_attrs`                                                                        | `Spec` (descriptors), `PropertyWrite`                                | `public-api-invariants.spec.ts`, `property-enumerability.spec.ts`                                          |
+| An object that blocks a change is replaced; a pass demotes no other object                                       | `mem_blockedObjects`                                                                      | `Spec --writes --hazards` (results)                                  | `publication-readback-boundaries.spec.ts`, `publication-failure-boundaries.spec.ts`                        |
+| A node with several candidates keeps the first one read unless an admitted candidate's fixed slot needs another  | `demands_satisfiable`; the order is the definition `orderedCandidates`                    | `Spec` (identities)                                                  | `demanded-candidates.spec.ts`                                                                              |
+| Added objects are new copies                                                                                     | `publish_origins`, `publish_fresh`                                                        | none; `Spec` identifies only current objects                         | `reconcile-semantics.spec.ts`                                                                              |
+| `produce` keeps every unchanged subtree and no changed object                                                    | `kept_closed`, `kept_greatest`                                                            | `Spec --op produce` (results)                                        | `produce-properties.spec.ts`, `public-api-invariants.spec.ts`                                              |
+| `snapshot` is a detached copy, one new object per source object                                                  | `snapshot_size`, `snapshot_copy`, `snapshot_fresh`                                        | `Spec --op snapshot` (results)                                       | `public-api-invariants.spec.ts`, `graph-capture.spec.ts`                                                   |
+| `next` is read once; an object already in place is read as part of `next` and not again                          | tested only                                                                               | none; `Spec` leaves out the getter counts of objects `next` holds    | `reconcile-pruning.spec.ts`                                                                                |
+| Each object's prototype is read once before the first write                                                      | `Types.Ingress.ownReads_shared` (at recognition); the rest tested only                    | `Ingress`, `RecognitionPlain` (read counts)                          | `builtin-recognition.spec.ts`, `ingress-reads.spec.ts`                                                     |
+| `produce` calls each getter of the result once, depth first, and reads each draft once                           | tested only                                                                               | `DraftSurface` (results)                                             | `produce-reads.spec.ts`, `finalization-observation-boundaries.spec.ts` (once; the order is untested)       |
+| `produce` and `snapshot` leave `current` unchanged                                                               | tested only (the models are pure)                                                         | `Spec` (`current-changed` report)                                    | `produce-properties.spec.ts` (`produce`)                                                                   |
+| `serialize` calls each getter once, depth first                                                                  | tested only                                                                               | none                                                                 | `serialization.spec.ts`                                                                                    |
+| `deserialize` restores ordinary, extensible objects                                                              | `PropertyWrite.constructFromOn_fresh` (each restored property); extensibility tested only | `PropertyConstructOn` (descriptors)                                  | `public-api-invariants.spec.ts`                                                                            |
+| `deserialize` accepts at exactly `requiredMaxBytes` and rejects one byte below                                   | `Serialization.Size.accepts_iff_bytes` (the boundary)                                     | `Serialization` (the size `requiredMaxBytes` returns)                | `deserialize-limit.spec.ts`, `public-api-invariants.spec.ts`                                               |
 
 ### `snapshot`
 
 `snapshot` is `Spec.Produce.snapshot` in [Reference models](#reference-models), a new object per
-source object with atoms shared; the Spec bridge checks the runtime against it on random graphs.
-The walk in `src/snapshot.ts` copies most kinds inline, with the reads of their capture facets'
-`observe`, the _Snapshot walk_ coupling that
-[the development guide](development.md#couplings-that-fail-silently) lists. Its runtime
-obligations are _Snapshot memo_ and _Built-in snapshot writer_.
+source object with atoms shared; the Spec bridge checks the runtime against it on random graphs. The
+walk in `src/snapshot.ts` copies most kinds inline and repeats the reads that each kind's capture
+facet makes in `observe`; this is the _Snapshot walk_ coupling that [the development
+guide](development.md#couplings-that-fail-silently) lists. Its runtime obligations are _Snapshot
+memo_ and _Built-in snapshot writer_.
 
 ### `reconcile`
 
@@ -228,11 +230,12 @@ keeps the current root, preserves sharing and cycles and never merges distinct n
 plain object keeps its prototype. A failed call throws without rolling back (README: _Not rolled
 back_).
 
-Pinning is `Spec.Reconcile.pinned`: a `next` object that is the current object at the same
-own-property slot of the aligned current object, on capture's first visit of it, whose subtree
-reaches neither root, stays as it is with everything inside it, which no other position may keep
-(`pinnedAt`). A buffer or view is never pinned, since its construction ties it to its views or its
-buffer. The Spec bridge checks pinning on random graphs.
+Pinning is `Spec.Reconcile.pinned`. A `next` object is pinned when, at capture's first visit, its
+parent's aligned current object holds that same object at the same own-property slot, and the
+object's subtree reaches neither root. A pinned object stays as it is with everything inside it, and
+no other position may keep it (`pinnedAt`). A buffer or view is never pinned, because construction
+ties a buffer to its views and a view to its buffer. The Spec bridge checks pinning on random
+graphs.
 
 `PropertyOrder` keeps the cursor's decisions while bounding its work. `aligned_mem` proves that when
 duplicate-free current keys start with the requested order, a current key is requested exactly when
@@ -450,18 +453,19 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   identities, values, descriptors, prototypes and extensibility, rejections agree, nothing is
   written before a rejection the reference decides before any write, and `produce` and `snapshot`
   leave `current` unchanged. The bridge checks this on seeded random graphs, so its evidence is for
-  the generated cases. The models cover objects, arrays, maps, sets, dates, buffers and views and,
-  for `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`, views that
-  track their buffer's length, URLs, Temporal values or proxies. The gate
-  allows no difference: results, rejections, writes before a rejection and the getter counts of the
-  current objects `next` does not hold must agree; the getters of an object `next` holds run while
-  `next` is read, which the promise leaves out. The gate also runs further batches.
-  The `--writes` batch wraps every current object and array in a recording proxy and compares the
-  writes and deletions each one receives, over every decision pass, with the reference's writes. The
-  `--hazards` batch, also through the proxies, generates more accessors and more setters that drop
-  their value than the default batch, so that about one call in nine needs more than one decision
-  pass. The `--binary` batches, one per operation, add buffers, some resizable, and typed arrays and
-  `DataView`s over them; the `reconcile` one runs through the proxies.
+  the generated cases. The models cover objects, arrays, maps, sets, dates, buffers, views and, for
+  `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`, views that
+  track their buffer's length, buffer and view subclasses, URLs, Temporal values or proxies. The
+  gate allows no difference: results, rejections, writes before a rejection and the getter counts of
+  the current objects `next` does not hold must agree; the getters of an object `next` holds run
+  while `next` is read, which the promise leaves out. The gate also runs the `--writes`, `--hazards`
+  and `--binary` batches. The `--writes` batch wraps every current object and array in a recording
+  proxy and compares the writes and deletions each one receives, over every decision pass, with the
+  reference's writes. The `--hazards` batch, also through the proxies, generates more accessors and
+  more setters that drop their value than the default batch, so that about one call in nine needs
+  more than one decision pass. The `--binary` batches, one per operation, add buffers, some of them
+  resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs through the
+  recording proxies.
 - **Pass termination.** `publishGraph` in `src/publication/publication-engine.ts` repeats its
   passes with no limit on their number. They end for the reason `blocked_fresh` gives for the
   reference, because the runtime meets both of its premises: a decision keeps no demoted object
@@ -477,7 +481,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   (`graph-capture.spec.ts` keeps a counterexample). A fresh URL built around a memo-supplied child
   must carry matching same-call carrier metadata, or `snapshot` rejects it.
 - **Built-in snapshot writer.** Each snapshot facet initializes its writer once and exposes no
-  application callback that can reenter the traversal before the copy is recorded. Its
+  application callback that can reenter the traversal before the copy is recorded. Snapshot facets'
   construction callbacks only create private URL carrier metadata; a new snapshot facet must keep
   this boundary. `url-ownership.spec.ts` covers the memo hits between a URL and its parameters.
 
@@ -637,16 +641,16 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 - **Recognition.** The runtime performs the same live namespace reads, constructor reads and
   predicate calls in the modelled order, and caches no result across calls; within a call, capture's
-  result serves discovery (Ingress). The built-in registries read the prototype once and decide each
-  probe by the prototype chain from it, never by a constructor's `Symbol.hasInstance`; a repeated
-  read answers as that one did, so no probe accepts an object whose prototype is `Object.prototype`
-  or `null`. `builtin-recognition.spec.ts` covers the probes.
+  result serves discovery (Ingress). The built-in registries read the prototype once, after the
+  `Array.isArray` probe, and decide each constructor probe by the prototype chain from it, never by
+  a constructor's `Symbol.hasInstance`. Because of this, and because a repeated read answers as the
+  first one did, no constructor probe accepts an object whose prototype is `Object.prototype` or
+  `null`. `builtin-recognition.spec.ts` covers the probes.
 - **Atoms.** The listed constructors are the live globals, which callers do not modify during a
-  call; membership is decided by the prototype chain, as `instanceof` decides it with the default
-  `Symbol.hasInstance`. A caller that already read
-  an object's prototype, such as `snapshot` and `reconcile` capture, passes it on instead of reading
-  it again. The Atoms bridge checks the classification, the read count and each function's
-  treatment of atoms.
+  call; the runtime decides whether an object is an instance of one by its prototype chain, as
+  `instanceof` does with the default `Symbol.hasInstance`. A caller that already read an object's
+  prototype, such as `snapshot` and `reconcile` capture, passes it on instead of reading it again.
+  The Atoms bridge checks the classification, the read count and each function's treatment of atoms.
 - **Ingress.** The prototype that ingress reads serves every reader of that object until the call's
   first write: `reconcile` capture records it, with the kind, for discovery and the preflight's
   inherited-accessor check, and discovery does not check that kind again;
@@ -657,7 +661,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Native values.** Native brands, constructors, capture, cloning, publication and readback are
   faithful, and Temporal labels keep all ten Duration components and each class's calendar, time
   zone and reference-date distinctions. Lean proves neither native parsing nor `.equals`. `temporal.spec.ts` and `url-values.spec.ts` cover the values.
-- **Lazy ownership metadata.** Runtime maps stay scoped to their session, phase or attempt; custom
+- **Lazy ownership metadata.** Runtime maps stay scoped to their session, phase or attempt;
   construction callbacks still run, and overwriting a shared target clears obsolete metadata.
 - **URL ownership.** Ownership is fixed, allocation is fresh, carrier maps are per call, ordered
   pairs are captured faithfully, and force propagates to sealed replay. Preparation fails before
@@ -713,11 +717,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   which lets the exact-count check reject skipped whitespace; `serialization-boundaries.spec.ts`
   covers this on the `atob` path and with native stand-ins.
 - **Encoder observations.** The traversal models constrain only the order of entering and
-  referencing objects, not application reads such as `length` and getters; collections are
-  stepped by the built-in iterators, which have no `return` to call. The runtime classifies each child slot (`slot` in `emit.ts`) only
-  where the stack machine would, recognizes each object once (`node`), reads a Map entry, URL
-  parameters or a view's buffer before its child, and keeps trie nodes fresh per call.
-  `serialization.spec.ts` and `serialization-collections.spec.ts` cover representative traces.
+  referencing objects, not application reads such as `length` and getters. The encoder iterates
+  collections with the built-in iterators, which have no `return` method to call. The runtime
+  classifies each child slot (`slot` in `emit.ts`) only where the stack machine would, recognizes
+  each object once (`node`), reads a Map entry, URL parameters or a view's buffer before its child,
+  and keeps trie nodes fresh per call. `serialization.spec.ts` and
+  `serialization-collections.spec.ts` cover representative traces.
 
 ## Runtime bridges
 
@@ -755,7 +760,7 @@ its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` i
 | `OwnedNativeChild`        | `check-owned-native-child-runtime.ts`       | production carrier adoption projections: raw and canonical query, ordered entries, owner and child identities; then bulk-versus-sequential parameter publications compared natively, without the oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `Serialization`           | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `SerializationCollection` | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `Spec`                    | `lean-spec-bridge.ts`                       | seeded random graphs of up to six objects, arrays, maps, sets and dates with cycles and sharing, attributes, accessors, non-extensible, sealed and frozen values and prototypes, with data and accessor slots on the class prototypes for `reconcile`: `reconcile` of a mutated `next` that reuses, reorders and moves current objects, `produce` recipes of draft writes, created objects and returned values, and `snapshot`; the results read back as graphs equal the reference's on identities, values, descriptors, prototypes and extensibility, with the allowances under _Spec agreement_. Standalone: `pnpm exec tsx scripts/lean-spec-bridge.ts --op produce --seeds 2000`, with `--dump SEED` for one case, `--features` for what the `reconcile` cases exercise, and `--writes` or `--writes --hazards` for the two batches _Spec agreement_ describes |
+| `Spec`                    | `lean-spec-bridge.ts`                       | seeded random graphs of up to seven objects, arrays, maps, sets, dates, and buffers with views over them, with cycles and sharing, attributes, accessors, non-extensible, sealed and frozen values and prototypes, with data and accessor slots on the class prototypes for `reconcile`: `reconcile` of a mutated `next` that reuses, reorders and moves current objects, `produce` recipes of draft writes, created objects and returned values, and `snapshot`; the results read back as graphs equal the reference's on identities, values, descriptors, prototypes and extensibility, except as _Spec agreement_ allows. Standalone: `pnpm exec tsx scripts/lean-spec-bridge.ts --op produce --seeds 2000`, with `--dump SEED` for one case, `--features` for what the `reconcile` cases exercise, and the flags of the batches that _Spec agreement_ describes |
 
 Read the table with these limits:
 

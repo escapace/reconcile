@@ -18,12 +18,15 @@ import { publicationTypes } from './types/builtins'
  *
  * When `current` holds one object at two positions and `next` holds different objects there, the
  * object is kept at the first of them in the order `reconcile` reads `next`, and the others
- * receive new objects. When `next` holds one object at two positions and `current` holds different
- * objects there, `reconcile` keeps the one at the first position it reads, unless another object
- * it keeps holds a different one of them in a read-only non-configurable property or a getter
- * without a setter; then it keeps that one, so that the other object can be kept too.
- * Afterwards `current` has the key order, array lengths and holes, entry order, shared references
- * and cycles of `next`.
+ * receive new objects. Afterwards `current` has the key order, array lengths and holes, entry
+ * order, shared references and cycles of `next`.
+ *
+ * When `next` holds one object at two positions and `current` holds different objects there,
+ * `reconcile` keeps the current object at the first of them in the order it reads `next`. It keeps
+ * the current object at a later position instead when another object of `current` that
+ * `reconcile` can keep holds that object in a read-only non-configurable property or a getter
+ * without a setter, is a view over it or is the URL whose `searchParams` it is, so that the object
+ * holding it can be kept too.
  *
  * Dates, buffers and views at matched positions take the next value's time or bytes, and buffer
  * sharing follows `next`. A URL or `URLSearchParams` at a matched position takes the next value's

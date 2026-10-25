@@ -36,12 +36,13 @@ private work can change freely.
 Each built-in kind is a module in `src/types/`: plain object, array, `Map`, `Set`, `Date`,
 `ArrayBuffer`, typed arrays, `DataView`, `URL` (`url.ts`), `URLSearchParams`
 (`url-search-parameters.ts`) and the Temporal value classes (`temporal.ts`). A module supplies
-one _facet_ per concern: capture, publication, immutable reuse and draft rules, and a snapshot
-facet for the kinds that `snapshot` does not copy inline (Temporal, `URL` and `URLSearchParams`).
-`types/builtins.ts` holds recognition and builds one registry per graph operation
-(`snapshotTypes`, `publicationTypes`, `produceTypes`), so each bundle contains only its own
-facets. Recognition tries kinds in order; the plain object is the fallback, which recognition
-reaches after one prototype read for an object whose prototype is `Object.prototype` or `null`.
+one _facet_ per concern: capture, publication, immutable reuse and draft rules. Modules of kinds
+that `snapshot` does not observe inline also supply a snapshot facet. `types/builtins.ts` defines
+recognition and builds one registry per graph operation (`snapshotTypes`, `publicationTypes`,
+`produceTypes`), so each bundle contains only its own facets. Recognition tries kinds in order and
+falls back to the plain object. For an object that is not a view and whose prototype is
+`Object.prototype` or `null`, it reaches the fallback after the array probe and one prototype
+read.
 
 The decision never lets two nodes keep one object, and typed-array views reference their buffers
 through explicit edges. `src/standard-prototypes.ts` holds the helpers
@@ -109,14 +110,15 @@ unchanged objects.
 
 `serialize`, `deserialize` and `requiredMaxBytes` (`src/serialization/`) have their own facets in
 `facets/`, use neither the type registries nor the captured graph, and share only `error.ts`,
-`standard-prototypes.ts` and the URL helpers in `types/shared/url-carrier.ts` with the graph
-operations. The [Lean guide](lean.md) describes the format.
+`standard-prototypes.ts`, `object-property.ts` and the URL and binary helpers in
+`types/shared/url-carrier.ts` and `types/shared/binary-native.ts` with the graph operations. The
+[Lean guide](lean.md) describes the format.
 
-- **Encoding** observes. An explicit frame stack (`frames.ts`) reads each record's own string
-  keys and values depth first with the source as receiver and iterates collections with the
-  built-in iterators, which have no `return`, so a throw propagates with nothing to close. Shapes
-  and layouts are interned per call in path-compressed tries (`radix.ts`); output is new JSON data,
-  which the caller writes as text.
+- **Encoding** observes. An explicit frame stack (`frames.ts`) reads each record's own string keys
+  and values depth first with the source as receiver, and iterates collections with the built-in
+  iterators. Those iterators have no `return` method, so a throw propagates with nothing to close.
+  Shapes and layouts are interned per call in path-compressed tries (`radix.ts`); output is new JSON
+  data, which the caller writes as text.
 - **Decoding** takes ownership of the JSON data it is given: payload rows become decoded arrays
   and slots are overwritten, and a literal root is returned as given. It observes nothing in data
   from `JSON.parse`. It checks the control table, allocates nodes, links dependent natives (views,
@@ -162,15 +164,15 @@ A new kind changes every operation's contract and bundle.
    accept a plain or `null`-prototype object also changes `Types.RecognitionPlain`. A kind that is
    kept by reference today also changes `Types.Atoms` and `scripts/check-atoms-runtime.ts`.
    Extend the fixtures of the native-value and copy-prototype bridges.
-2. **Write the module** in `src/types/<kind>.ts`, supplying each facet in
-   [Type modules and storage](#type-modules) and using `src/standard-prototypes.ts`
-   for every internal object and read.
-3. **Register it** in `src/types/builtins.ts` at the same position in `KINDS`, every facet table
-   and the unrolled `builtinRecognize`, `builtinFirstMatch` and `builtinRemainingMatch` chains,
-   adding a `last === <position>` check after the new predicate in the two match chains and
-   renumbering the later ones, and in the ordered scan of `scripts/recognition-scan.ts`, which the
-   tests compare recognition with. Place it before any kind whose recognition also accepts it;
-   the plain object stays last.
+2. **Write the module** in `src/types/<kind>.ts`, supplying each facet that
+   [Type modules](#type-modules) lists for it and using `src/standard-prototypes.ts` for every
+   internal object and read.
+3. **Register it.** Choose its position before any kind whose recognition also accepts it; the
+   plain object stays last. Register it in `src/types/builtins.ts` at that position in `KINDS`,
+   every facet table and the unrolled `builtinFirstMatch` and `builtinRemainingMatch` chains. In
+   the two chains, add a `last === <position>` check after the new predicate, renumber the later
+   ones and increase `FALLBACK_RANK`. Add it at the same position to the ordered scan in
+   `scripts/recognition-scan.ts`, against which the tests check recognition.
 4. **Update the couplings** below: the counter rules in `scripts/profile-counts.ts`, the
    snapshot walk if the kind is observed inline, and for serialization a wire tag with its
    facets, size charge, Lean format and README entries, or else `serialize` rejects it.
@@ -203,7 +205,7 @@ sides together.
 - **Profile harness.** `scripts/profile.ts` rewrites `perf/profile-harness.ts` by exact text (the
   `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for the `diag-*`,
   `serialize` and `deserialize` scenarios, imports the measured tree's `src/index.ts`, and
-  `dateType` and `arrayBufferType` with their copy operations.
+  `dateImmutable` and `arrayBufferImmutable` with their copy operations.
   Renaming or moving any of these breaks `pnpm bench profile` and `ab`, which bundles through the
   same harness. These scenarios always come from the current checkout's
   `scripts/profile-scenarios.ts`.
@@ -230,9 +232,10 @@ sides together.
   bigint charges exist three times: in `facets/*.ts`, in the `charges` of
   `SerializationOracle.lean`, and in the README's size table. The native charges exist only in
   `facets/native.ts` and the README. Nothing checks the README.
-- **Snapshot walk.** `snapshot.ts` copies objects, arrays, `Map`, `Set`, `Date`, `ArrayBuffer`,
-  typed arrays and `DataView` inline, with the reads of their capture facets' `observe` in the
-  same order, and `viewBuffer` repeats the view facets' buffer-edge answer. A capture change for
+- **Snapshot walk.** `snapshot.ts` copies plain objects, arrays, `Map`, `Set`, `Date`,
+  `ArrayBuffer`, typed arrays and `DataView` inline and repeats, in the same order, the reads that
+  each kind's capture facet makes in `observe`; `viewBuffer` repeats the view facets' buffer-edge
+  answer. A capture change for
   these kinds MUST be made there too.
 - **Head shortcut.** Identity restoration tries `immutableHead`'s mask before searching, because
   the head theorem proves it comes first.

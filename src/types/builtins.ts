@@ -48,8 +48,8 @@ const FALLBACK_RANK = 10
  * @remarks
  * After the array probe the value's prototype is read once. A value whose prototype is
  * `Object.prototype` or `null` and that holds no view brand fails every later probe, and the
- * fallback decides it. Otherwise each `instanceof` probe runs from that prototype, in the generic
- * recognizer's order, so the value itself is not read again. Types.RecognitionPlain.
+ * fallback decides it. Otherwise each constructor probe walks the chain from that prototype, in
+ * the ordered scan's order, so the value itself is not read again. Types.RecognitionPlain.
  * recognize_eq_scan proves the result is the ordered scan's.
  */
 function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): symbol | undefined {

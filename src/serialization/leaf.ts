@@ -1,7 +1,7 @@
 import type { EncodeContext, Leaf } from './contracts'
 // Correspondence: Refinement.lean leaf_contract / leaf_step_refines.
 // These facets have no child yield. The caller reserves identity before invoking
-// them and retains parent IteratorClose behavior if native extraction throws.
+// them; an error native extraction throws propagates.
 import { encodeBytes } from './binary'
 import { readDate, readBuffer, readParameters, readTemporal } from './native'
 
