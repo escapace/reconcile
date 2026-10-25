@@ -1335,31 +1335,34 @@ const exactPolicy: ComparePolicy = {
  * - Properties and class instances, and the `produce` Remarks: a changed object keeps its
  *   extensibility and the attributes of its existing data properties, and properties the recipe
  *   adds are writable, enumerable and configurable, as native assignment makes them. The
- *   attribute rule excludes arrays, so a new array is compared by its elements alone.
- * - `produce` limitations, Changed dates, buffers and URLs are not extensible. ECMAScript refuses
- *   to make a typed array over a resizable buffer non-extensible, so the copy of one stays
- *   extensible, against the README; its extensibility is not checked.
+ *   attribute rule excludes arrays: every element of an array that `produce` rebuilds is writable,
+ *   enumerable and configurable (Limitations, Array element attributes are not copied).
+ * - `produce` limitations, Changed dates, buffers and URLs are not extensible: a changed date,
+ *   buffer or view is non-extensible, except a typed array over a resizable buffer, which
+ *   JavaScript cannot make non-extensible.
  * - Properties and class instances: in a new object each getter is replaced by a data property
  *   that holds its value and has its enumerability.
  */
+/** Why an element of a new array, or one added to an array, is not a writable, enumerable and
+ * configurable data property, or undefined when it is; the README states nothing about `length`. */
+const arrayProperty = (key: PropertyKey, actual: PropertyDescriptor): string | undefined =>
+  key === 'length' || ('value' in actual && sameAttributes({ ...PLAIN_DATA, value: 0 }, actual))
+    ? undefined
+    : `an element of a new array is writable, enumerable and configurable, got ${describeDescriptor(actual)}`
+
 function producePolicy(kept: ReadonlySet<object>): ComparePolicy {
   return {
     node(expected, actual, kind) {
       const copied = !kept.has(actual) && (kind === 'date' || kind === 'buffer' || isView(kind))
-      const unchecked = copied && isUnsealable(actual)
-      const extensible = copied ? false : Object.isExtensible(expected)
-      return prototypeAndExtensibility(
-        actual,
-        Object.getPrototypeOf(expected),
-        unchecked ? undefined : extensible,
-      )
+      const extensible = copied ? isUnsealable(actual) : Object.isExtensible(expected)
+      return prototypeAndExtensibility(actual, Object.getPrototypeOf(expected), extensible)
     },
-    property(_expected, actual, _key, expectedDescriptor, actualDescriptor, kind) {
-      if (kept.has(actual) || ('value' in expectedDescriptor && kind !== 'array'))
+    property(_expected, actual, key, expectedDescriptor, actualDescriptor, kind) {
+      if (kind === 'array' && !kept.has(actual)) return arrayProperty(key, actualDescriptor)
+      if (kept.has(actual) || 'value' in expectedDescriptor)
         return attributeFailure(expectedDescriptor, actualDescriptor)
       if (!('value' in actualDescriptor)) return 'expected a data property in a new object'
-      if (kind === 'array' || actualDescriptor.enumerable === expectedDescriptor.enumerable)
-        return undefined
+      if (actualDescriptor.enumerable === expectedDescriptor.enumerable) return undefined
       return 'a replaced getter keeps its enumerability'
     },
   }
@@ -1394,9 +1397,8 @@ function recordStates(root: unknown): Map<object, OwnState> {
  *   attributes, and an own getter or setter is kept; a property it adds is writable and
  *   configurable and takes the enumerability of the property in `next`.
  * - Supported values: a new copy keeps its source's prototype.
- * - The README states the attributes of added properties for plain objects and class instances
- *   (Properties and class instances), so an element added to an array, kept or new, is compared
- *   by value; the library makes it enumerable even where `next`'s element is not.
+ * - Limitations, Array element attributes are not copied: an element added to an array, kept or
+ *   new, is writable, enumerable and configurable, whatever its attributes in `next`.
  */
 function reconcilePolicy(states: ReadonlyMap<object, OwnState>): ComparePolicy {
   return {
@@ -1409,9 +1411,10 @@ function reconcilePolicy(states: ReadonlyMap<object, OwnState>): ComparePolicy {
     property(_expected, actual, key, expectedDescriptor, actualDescriptor, kind) {
       const own = states.get(actual)?.descriptors.get(key)
       if (own !== undefined) return attributeFailure(own, actualDescriptor)
+      if (kind === 'array') return arrayProperty(key, actualDescriptor)
       if (!('value' in actualDescriptor)) return 'expected an added data property'
       const added = { ...PLAIN_DATA, enumerable: expectedDescriptor.enumerable, value: 0 }
-      if (kind === 'array' || sameAttributes(added, actualDescriptor)) return undefined
+      if (sameAttributes(added, actualDescriptor)) return undefined
       return `an added property is writable and configurable with next's enumerability, got ${describeDescriptor(actualDescriptor)}`
     },
   }
