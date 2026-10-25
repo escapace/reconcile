@@ -58,6 +58,10 @@ export function candidates(
       if (source !== undefined && source !== root && pinned.has(source))
         (node as { pinned?: object }).pinned = source
     })
+    // No new URL can own `searchParams` that stay in place, so their URL is kept as it is.
+    for (let index = 1; index < records.length; index += 1)
+      if (records[index].pinned === undefined && ownsPinned(types, records, index))
+        (records[index] as { pinned?: object }).pinned = sources![index]
   }
   // A candidate that passes the preflight, or undefined when it cannot be kept.
   const admitted = (
@@ -92,8 +96,73 @@ export function candidates(
     if (written !== choices.length) choices.length = written
     return choices
   })
+  for (let owner = 0; owner < records.length; owner += 1)
+    keepWithOwner(types, records, domains, owner)
   promoteDemanded(domains)
   return domains
+}
+
+// The children an owner kind creates, a URL's `searchParams`, at `node`; empty for other kinds.
+function ownedChildren(types: PublicationRegistry, node: CapturedNode): readonly number[] {
+  const bindings = types.policies[node.layout.kind].bindings
+  return bindings.tag === 'dependent' && bindings.owns === true
+    ? bindings.dependencies(node)
+    : EMPTY_FACTS
+}
+
+// Whether a child that the node at `index` creates is pinned.
+function ownsPinned(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  index: number,
+): boolean {
+  const children = ownedChildren(types, records[index])
+  for (let at = 0; at < children.length; at += 1)
+    if (records[children[at]].pinned !== undefined) return true
+  return false
+}
+
+// Each object that a candidate in `domain` requires at node `child`, mapped to that candidate.
+function ownersAt(domain: readonly Candidate[], child: number): Map<object, object> {
+  const owners = new Map<object, object>()
+  for (let index = 0; index < domain.length; index += 1) {
+    const required = domain[index].required
+    for (let edge = 0; edge < required.length; edge += 1)
+      if (required[edge].node === child) owners.set(required[edge].identity, domain[index].identity)
+  }
+  return owners
+}
+
+/**
+ * Keeps each child that the node at `owner` creates only together with its owner: a candidate of
+ * the child must be the child of a candidate of the owner node, which the decision must keep
+ * with it. A new owner creates new children, so an owner node that keeps no current object
+ * leaves its children none either.
+ */
+function keepWithOwner(
+  types: PublicationRegistry,
+  records: readonly CapturedNode[],
+  domains: Candidate[][],
+  owner: number,
+): void {
+  if (records[owner].pinned !== undefined) return
+  const children = ownedChildren(types, records[owner])
+  for (let at = 0; at < children.length; at += 1) {
+    const child = children[at]
+    const owners = ownersAt(domains[owner], child)
+    const kept: Candidate[] = []
+    const choices = domains[child]
+    for (let index = 0; index < choices.length; index += 1) {
+      const identity = owners.get(choices[index].identity)
+      if (identity !== undefined)
+        kept.push({
+          facts: choices[index].facts,
+          identity: choices[index].identity,
+          required: [...choices[index].required, { identity, node: owner }],
+        })
+    }
+    domains[child] = kept
+  }
 }
 
 /**

@@ -17,7 +17,7 @@ import type {
   SpecialPolicy,
   SnapshotPolicy,
 } from '../types'
-import { globalTemporal } from '../standard-prototypes'
+import { globalTemporal, temporalFrom } from '../standard-prototypes'
 import { inChain } from '../object-property'
 
 /** Stable global identity owned by the Temporal module. */
@@ -73,7 +73,7 @@ function temporalMatch(holds: (constructor: TemporalConstructor) => boolean) {
   for (let index = 0; index < TEMPORAL_CLASSES.length; index += 1) {
     const constructor = temporal[TEMPORAL_CLASSES[index]]
     if (typeof constructor === 'function' && holds(constructor))
-      return { temporalConstructor: constructor, temporalDuration: index === 0 }
+      return { temporalConstructor: constructor, temporalName: TEMPORAL_CLASSES[index] }
   }
   return undefined
 }
@@ -92,12 +92,12 @@ export const temporalInChain = (first: object | null): boolean => temporalOf(fir
 function equivalentValue(
   source: object,
   other: object,
-  type: Pick<TemporalLayout, 'temporalConstructor' | 'temporalDuration'>,
+  type: Pick<TemporalLayout, 'temporalConstructor' | 'temporalName'>,
 ): boolean {
   // Native copies discard instance shadows without losing Duration components or reference dates.
-  const base = type.temporalConstructor.from(source)
-  const candidate = type.temporalConstructor.from(other)
-  if (type.temporalDuration) {
+  const base = temporalFrom(type.temporalConstructor, type.temporalName, source)
+  const candidate = temporalFrom(type.temporalConstructor, type.temporalName, other)
+  if (type.temporalName === 'Duration') {
     for (let index = 0; index < durationFields.length; index += 1) {
       const field = durationFields[index]
       if ((base as Record<string, number>)[field] !== (candidate as Record<string, number>)[field])
@@ -114,7 +114,7 @@ export interface TemporalLayout {
   /** The source's prototype, which a copy keeps. */
   readonly prototype: object | null
   readonly temporalConstructor: TemporalConstructor
-  readonly temporalDuration: boolean
+  readonly temporalName: (typeof TEMPORAL_CLASSES)[number]
   readonly temporalValue: object
 }
 
@@ -128,10 +128,15 @@ function matches(layout: TemporalLayout, current: object): boolean {
 /** Copies a Temporal value through its class's `from`, on the source's prototype. */
 function copyTemporal(
   value: object,
-  constructor: TemporalConstructor,
+  type: Pick<TemporalLayout, 'temporalConstructor' | 'temporalName'>,
   prototype: object | null,
 ): object {
-  return adoptPrototype(constructor.from(value), prototype, constructor.prototype as object)
+  const constructor = type.temporalConstructor
+  return adoptPrototype(
+    temporalFrom(constructor, type.temporalName, value),
+    prototype,
+    constructor.prototype as object,
+  )
 }
 
 const temporalCapture = {
@@ -143,15 +148,14 @@ const temporalCapture = {
       kind: TEMPORAL_KIND,
       ...type,
       prototype,
-      temporalValue: copyTemporal(value, type.temporalConstructor, prototype),
+      temporalValue: copyTemporal(value, type, prototype),
     })
   },
 } satisfies CapturePolicy<TemporalLayout>
 
 const temporalConstruction = {
   bindings: independentBindings,
-  allocate: (node) =>
-    copyTemporal(node.layout.temporalValue, node.layout.temporalConstructor, node.layout.prototype),
+  allocate: (node) => copyTemporal(node.layout.temporalValue, node.layout, node.layout.prototype),
 } satisfies ConstructionPolicy<TemporalLayout>
 
 export const temporalSnapshot = /* @__PURE__ */ (() =>
@@ -185,7 +189,7 @@ export const temporalImmutable = /* @__PURE__ */ (() => ({
       dependencies: noDependencies,
       copy(value) {
         const prototype = Object.getPrototypeOf(value) as object | null
-        return copyTemporal(value, temporalOf(prototype)!.temporalConstructor, prototype)
+        return copyTemporal(value, temporalOf(prototype)!, prototype)
       },
       equivalent(base, candidate) {
         const type = temporalOf(Object.getPrototypeOf(base) as object | null)!

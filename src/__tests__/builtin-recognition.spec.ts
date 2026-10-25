@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { assert, it, vi } from 'vitest'
 import { orderedScan, recognitionOrder } from '../../scripts/recognition-scan'
 import { publicationTypes, snapshotTypes } from '../types/builtins'
@@ -89,6 +90,17 @@ it('recognizes a typed array by its brand whatever its prototype', () => {
   for (const prototype of [Object.prototype, null, Map.prototype, Date.prototype]) {
     const view = Object.setPrototypeOf(new Uint8Array(1), prototype) as object
     assert.strictEqual(publicationTypes.recognize(view), orderedScan.recognize(view))
+  }
+})
+
+it('does not recognize a view over a buffer this environment does not recognize', () => {
+  const typed = new Uint8Array([1, 2])
+  const data = new DataView(new ArrayBuffer(2))
+  for (const view of [typed, data]) Object.setPrototypeOf(view.buffer, null)
+  const foreign = runInNewContext('new Uint8Array([3, 4])') as object
+  for (const view of [typed, data, foreign]) {
+    assert.strictEqual(publicationTypes.recognize(view), OBJECT_KIND)
+    assert.strictEqual(orderedScan.recognize(view), OBJECT_KIND)
   }
 })
 

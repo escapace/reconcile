@@ -9,11 +9,20 @@ import { TEMPORAL_KIND, temporalInChain } from '../src/types/temporal'
 import { TYPED_ARRAY_KIND } from '../src/types/typed-array'
 import { URL_KIND } from '../src/types/url'
 import { URL_SEARCH_PARAMS_KIND } from '../src/types/url-search-parameters'
+import { bufferOfView } from '../src/types/shared/binary-native'
 
 /** Whether `constructor.prototype` is on the chain of `value`, read from `value` itself as
  * `instanceof` reads it, without a constructor's `Symbol.hasInstance`. */
 const inChainOf = (constructor: { readonly prototype: unknown }, value: object): boolean =>
   Object.prototype.isPrototypeOf.call(constructor.prototype, value)
+
+/** Whether `value` is no view, or a view over a buffer of this environment: one whose chain holds
+ * `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`. */
+const knownView = (value: object): boolean => {
+  if (!ArrayBuffer.isView(value)) return true
+  const buffer = bufferOfView(value)
+  return inChainOf(ArrayBuffer, buffer) || inChainOf(SharedArrayBuffer, buffer)
+}
 
 /**
  * The built-in kinds in recognition order, each with its probe; the plain-object fallback is
@@ -29,8 +38,11 @@ const probes: ReadonlyArray<readonly [symbol, (value: object) => boolean]> = [
   [MAP_KIND, (value) => inChainOf(Map, value)],
   [SET_KIND, (value) => inChainOf(Set, value)],
   [ARRAY_BUFFER_KIND, (value) => inChainOf(ArrayBuffer, value)],
-  [DATA_VIEW_KIND, (value) => inChainOf(DataView, value)],
-  [TYPED_ARRAY_KIND, (value) => ArrayBuffer.isView(value) && !inChainOf(DataView, value)],
+  [DATA_VIEW_KIND, (value) => inChainOf(DataView, value) && knownView(value)],
+  [
+    TYPED_ARRAY_KIND,
+    (value) => ArrayBuffer.isView(value) && knownView(value) && !inChainOf(DataView, value),
+  ],
   [TEMPORAL_KIND, (value) => temporalInChain(Object.getPrototypeOf(value) as object | null)],
   [URL_KIND, (value) => typeof URL !== 'undefined' && inChainOf(URL, value)],
   [

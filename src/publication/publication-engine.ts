@@ -10,7 +10,6 @@ import type {
   Edge,
   NativeOwners,
   PublicationNote,
-  PublicationPolicy,
   PublicationRegistry,
 } from '../types'
 import { alignedReads, candidates } from './candidates'
@@ -305,8 +304,6 @@ function allocate(
   return targets
 }
 
-type DependentBindings = Extract<PublicationPolicy['bindings'], { tag: 'dependent' }>
-
 // The owner of each native child among the targets of one kind: the target whose construction
 // edge names the child, which is the child's target.
 function ownersOf(
@@ -316,12 +313,12 @@ function ownersOf(
   kind: symbol,
 ): WeakMap<object, object> {
   const owners = new WeakMap<object, object>()
-  // The only owner kind, a URL, has dependent bindings that read the children it owns.
-  const read = (types.policies[kind].bindings as DependentBindings).read!
+  // The only owner kind, a URL, names the children it owns as its requirements.
+  const policy = types.policies[kind]
   for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
     if (node.pinned !== undefined || node.layout.kind !== kind) continue
-    const edges = read(node, targets[index])
+    const edges = policy.requirements(node, targets[index])!
     for (let edge = 0; edge < edges.length; edge += 1)
       if (edges[edge].identity === targets[edges[edge].node])
         owners.set(edges[edge].identity, targets[index])

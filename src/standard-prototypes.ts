@@ -473,6 +473,32 @@ export function closeIterator(iterator: object): void {
  * property, and it is much faster than asking for ownership.
  * @internal
  */
+/**
+ * A copy of `value`, a value of the Temporal class `name` whose constructor is `constructor`, made
+ * by the class's `from`. A getter that every value of the class answers runs on `value` first, so
+ * an object that only inherits the class's prototype throws that getter's native `TypeError`, as
+ * a fake `Date` does, before `from` could read its properties.
+ * @internal
+ */
+export function temporalFrom(
+  constructor: { readonly prototype: unknown; from: (value: object) => object },
+  name: string,
+  value: object,
+): object {
+  const brand =
+    name === 'Duration'
+      ? 'sign'
+      : name === 'Instant'
+        ? 'epochMilliseconds'
+        : name === 'PlainTime'
+          ? 'hour'
+          : 'monthCode'
+  // eslint-disable-next-line typescript/unbound-method -- The native getter is called with the value as receiver.
+  const getter = Object.getOwnPropertyDescriptor(constructor.prototype, brand)!.get!
+  Reflect.apply(getter, value, [])
+  return constructor.from(value)
+}
+
 export const globalTemporal = (): unknown =>
   !('Temporal' in Object.prototype) || Object.hasOwn(globalThis, 'Temporal')
     ? (globalThis as { Temporal?: unknown }).Temporal

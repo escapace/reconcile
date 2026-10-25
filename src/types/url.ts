@@ -78,7 +78,7 @@ function urlBindings(node: Pick<CapturedNode, 'edges'>, current: object) {
 
 const urlConstruction = {
   bindings: /* @__PURE__ */ freeze({
-    read: urlBindings,
+    owns: true,
     tag: 'dependent',
     dependencies: (node) => [(node.edges[0] as { node: number }).node],
   }),

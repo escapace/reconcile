@@ -4,7 +4,7 @@ import {
   nativeParametersText,
 } from '../types/shared/url-carrier'
 import { encodeFail, decodeFail } from './common'
-import { globalTemporal } from '../standard-prototypes'
+import { globalTemporal, temporalFrom } from '../standard-prototypes'
 import {
   bufferByteLength,
   bufferResizable,
@@ -107,7 +107,7 @@ export function readTemporal(
   // Encoding fails as stringify does, so the decoder's error stays out of stringify bundles.
   const constructor = temporalNamespace()?.[temporalNames[index]]
   if (typeof constructor !== 'function') encodeFail('Temporal unavailable')
-  const copy = constructor.from(value)
+  const copy = temporalFrom(constructor, temporalNames[index], value)
   if (index === 7)
     return {
       kind: index,

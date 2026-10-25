@@ -2,6 +2,7 @@ import { assert, describe, it, vi } from 'vitest'
 
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
+import { serialize } from '../serialize'
 import { snapshot } from '../snapshot'
 import { decodeText, encodeText } from './fixtures/text-codec'
 
@@ -276,6 +277,29 @@ describe.skipIf(temporal === undefined)('Temporal classes and Symbol.hasInstance
       assert.strictEqual(result.copied.toString(), '2025-01-02')
     } finally {
       Reflect.deleteProperty(PlainDate, Symbol.hasInstance)
+    }
+  })
+})
+
+describe.skipIf(temporal === undefined)('objects that only inherit a Temporal prototype', () => {
+  it("throw the class's native TypeError in every function without having a property read", () => {
+    for (const [name, input] of fixtures) {
+      const reads: PropertyKey[] = []
+      const fake = new Proxy(Object.create(temporal![name].prototype as object) as object, {
+        get(target, key, receiver) {
+          reads.push(key)
+          return Reflect.get(target, key, receiver) as unknown
+        },
+      })
+      for (const run of [
+        () => snapshot(fake),
+        () => serialize(fake),
+        () => reconcile({ value: 1 }, { value: fake }),
+        () => reconcile({ value: temporal![name].from(input) }, { value: fake }),
+        () => produce({ value: fake }, (draft) => ({ copy: draft.value })),
+      ])
+        assert.throws(run, TypeError)
+      assert.deepEqual(reads, [])
     }
   })
 })

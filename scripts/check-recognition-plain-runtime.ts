@@ -68,17 +68,19 @@ function level(prototype: object | null, reads: { count: number }, throws: boole
 const first = (tail: readonly object[]): object | null => tail[0] ?? null
 
 /** An object behind `depth` custom prototypes that count their reads; on the throwing tail the
- * read after them throws. A branded object is a `Uint8Array`, which a proxy would lose. */
-function build(depth: number, tail: number, brand: boolean, reads: Reads): object {
+ * read after them throws. A branded object is a `Uint8Array`, which a proxy would lose, over a
+ * buffer whose prototype is `null` when `foreign`. */
+function build(depth: number, tail: number, brand: boolean, reads: Reads, foreign = false): object {
   // Levels count from the deepest custom prototype, created first, to the object at `depth`; on
   // the throwing tail the deepest level's read throws.
   const throwing = tail === RAISING_TAIL ? 0 : -1
   let prototype = first(tails[tail])
   for (let index = 0; index < depth; index++)
     prototype = level(prototype, reads, index === throwing)
-  return brand
-    ? (Object.setPrototypeOf(new Uint8Array(1), prototype) as object)
-    : level(prototype, ownReads(reads), depth === throwing)
+  if (!brand) return level(prototype, ownReads(reads), depth === throwing)
+  const view = new Uint8Array(1)
+  if (foreign) Object.setPrototypeOf(view.buffer, null)
+  return Object.setPrototypeOf(view, prototype) as object
 }
 
 /** A counter that adds the object's own reads to `own`. */
@@ -107,11 +109,15 @@ function checkKnown(
   depth: number,
   tail: number,
   brand: boolean,
+  foreign: boolean,
 ): void {
   assert.ok(Array.isArray(row.known) && row.known.length === ranked.length)
   for (const [index, expected] of row.known.entries()) {
     const matched = attempt(() =>
-      publicationTypes.matches(ranked[index], build(depth, tail, brand, { count: 0, own: 0 })),
+      publicationTypes.matches(
+        ranked[index],
+        build(depth, tail, brand, { count: 0, own: 0 }, foreign),
+      ),
     )
     assert.equal(
       matched,
@@ -123,9 +129,9 @@ function checkKnown(
 
 /** The custom prototypes' reads of the ordered scan: the walks from the object's prototype,
  * which built-in recognition repeats, while it reads the object itself once. */
-function scannedReads(depth: number, tail: number, brand: boolean): number {
+function scannedReads(depth: number, tail: number, brand: boolean, foreign: boolean): number {
   const scanned = { count: 0, own: 0 }
-  attempt(() => orderedScan.recognize(build(depth, tail, brand, scanned)))
+  attempt(() => orderedScan.recognize(build(depth, tail, brand, scanned, foreign)))
   return scanned.count
 }
 
@@ -139,7 +145,7 @@ function checkReads(row: Record<string, unknown>, depth: number, tail: number, r
   const repeated = brand && row.selected === 6 ? depth : 0
   assert.equal(
     reads.count,
-    row.plain === true ? 0 : scannedReads(depth, tail, brand) - repeated,
+    row.plain === true ? 0 : scannedReads(depth, tail, brand, row.foreign === true) - repeated,
     'reads of its custom prototypes',
   )
 }
@@ -150,23 +156,25 @@ function checkRow(row: Record<string, unknown>): void {
   const depth = integerIn(row.depth, 0, 2)
   const tail = integerIn(row.tail, 0, tails.length - 1)
   assert.ok(typeof row.brand === 'boolean' && typeof row.raised === 'boolean')
-  assert.ok(typeof row.plain === 'boolean')
+  assert.ok(typeof row.plain === 'boolean' && typeof row.foreign === 'boolean')
   const reads = { count: 0, own: 0 }
   const kind = attempt(() =>
-    publicationTypes.recognize(build(depth, tail, row.brand as boolean, reads)),
+    publicationTypes.recognize(
+      build(depth, tail, row.brand as boolean, reads, row.foreign as boolean),
+    ),
   )
   const expected = row.raised ? thrown : ranked[integerIn(row.selected, 1, 10) - 1]
   assert.equal(kind, expected, 'recognized kind')
   checkReads(row, depth, tail, reads)
-  checkKnown(row, depth, tail, row.brand)
+  checkKnown(row, depth, tail, row.brand, row.foreign)
 }
 
 /** Compares built-in recognition with Lean's `Types.RecognitionPlain.recognize`. */
 export async function checkRecognitionPlainRuntime(oracle: Oracle): Promise<void> {
   checkRealChains(tails)
-  // 11 tails behind zero to two custom prototypes, with and without a view brand; a branded
-  // object cannot throw on its own read.
-  const rows = await oracleCorpus(oracle, 'RecognitionPlain', 65, 64 * 1024)
+  // 11 tails behind zero to two custom prototypes, without a view brand and with one over a
+  // recognized or a foreign buffer; a branded object cannot throw on its own read.
+  const rows = await oracleCorpus(oracle, 'RecognitionPlain', 97, 64 * 1024)
   for (const line of rows) checkRow(jsonObject(JSON.parse(line)))
   console.log(
     `RecognitionPlain Lean/native bridge: ${rows.length} prototype chains, full recognition and ` +

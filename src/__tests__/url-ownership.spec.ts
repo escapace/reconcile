@@ -329,4 +329,32 @@ describe('URL owned search parameters', () => {
       ],
     )
   })
+
+  it('gives a new URL new search parameters when current holds others where next holds them', () => {
+    const url = new URL('https://example.test/?q=1')
+    const other = new URL('https://other.test/?r=2')
+    for (const current of [
+      { params: new URLSearchParams('z=9') },
+      { url: 'text', params: new URLSearchParams('z=9') },
+      { url: new Date(0), params: other.searchParams },
+    ] as Array<{ params: URLSearchParams; url?: unknown }>) {
+      const kept = current.params
+      const result = reconcile(current as object, { url, params: url.searchParams })
+      assert.strictEqual(result, current)
+      assert.notStrictEqual(result.url, url)
+      assert.notStrictEqual(result.params, kept)
+      assert.strictEqual(result.params, result.url.searchParams)
+      assert.strictEqual(result.url.href, url.href)
+    }
+  })
+
+  it('keeps the URL whose search parameters stay in place', () => {
+    const url = new URL('https://example.test/?q=1')
+    const inside = { params: url.searchParams }
+    const current: { inside: typeof inside; url: URL | null } = { inside, url: null }
+    assert.strictEqual(reconcile(current, { inside, url }), current)
+    assert.strictEqual(current.inside, inside)
+    assert.strictEqual(current.url, url)
+    assert.strictEqual(current.url?.searchParams, inside.params)
+  })
 })

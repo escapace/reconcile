@@ -212,9 +212,10 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
         readonly tag: 'dependent'
         /** Pure sealed node IDs required before allocating a fresh target. */
         readonly dependencies: (node: CapturedNode<L>) => readonly number[]
-        /** The children a kept object owns; read only for the kind a publication asks its owner
-         * from, a URL. */
-        readonly read?: (node: CapturedNode<L>, current: object) => readonly BoundEdge[]
+        /** A new object of this kind creates the children its dependencies name, so such a child
+         * keeps a current object only together with the owner that `requirements` names for it:
+         * a URL and its `searchParams`. */
+        readonly owns?: true
       }
     | { readonly tag: 'independent' }
   /**

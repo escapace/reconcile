@@ -18,6 +18,7 @@ import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
 import { inChain, prototypeOf } from '../object-property'
+import { bufferOfView } from './shared/binary-native'
 
 /** Built-in kinds in recognition order; every facet table below lists facets in this order. */
 const KINDS = [
@@ -69,16 +70,33 @@ function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): s
   return builtinRemainingMatch(value, first, last)
 }
 
+/**
+ * Whether the buffer of the view `value` is recognized: an `ArrayBuffer` or `SharedArrayBuffer` of
+ * this environment by its prototype chain. A view over any other buffer, such as one from another
+ * environment or one whose prototype was replaced, is not recognized either. Reading a view's own
+ * buffer observes nothing.
+ */
+function recognizedBuffer(value: object): boolean {
+  const prototype = Object.getPrototypeOf(bufferOfView(value)) as object | null
+  return (
+    inChain(prototype, ArrayBuffer) ||
+    (typeof SharedArrayBuffer === 'function' && inChain(prototype, SharedArrayBuffer))
+  )
+}
+
 /** Continues the same ordered prefix without allocating a per-value continuation. A typed array
- * is the brand check alone here, since the `DataView` probe has failed. */
+ * needs no walk for `DataView` here, since the `DataView` probe has decided it. */
 function builtinRemainingMatch(
   value: object,
   first: object | null,
   last: number,
 ): symbol | undefined {
-  if (inChain(first, DataView)) return dataView.DATA_VIEW_KIND
+  const isDataView = inChain(first, DataView)
+  // Undefined without a view brand; otherwise whether the view's buffer is recognized.
+  const view = ArrayBuffer.isView(value) ? recognizedBuffer(value) : undefined
+  if (isDataView && view !== false) return dataView.DATA_VIEW_KIND
   if (last === 5) return undefined
-  if (ArrayBuffer.isView(value)) return typedArray.TYPED_ARRAY_KIND
+  if (!isDataView && view === true) return typedArray.TYPED_ARRAY_KIND
   if (last === 6) return undefined
   if (temporal.temporalInChain(first)) return temporal.TEMPORAL_KIND
   if (last === 7) return undefined

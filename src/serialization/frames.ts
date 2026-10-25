@@ -144,6 +144,9 @@ function url(frame: Frame, context: EncodeContext) {
 function view(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
     frame.state = readView(frame.value, frame.detail) as Frame['state']
+    // deserialize builds a view over a standard buffer, so a view over another one is rejected.
+    if (Object.getPrototypeOf(frame.state.buffer) !== ArrayBuffer.prototype)
+      fail('unsupported prototype')
     frame.phase = 1
     frame.input = node(frame.state.buffer, context)
     if (pushed(frame, context)) return false

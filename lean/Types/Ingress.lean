@@ -43,11 +43,12 @@ inductive Outcome where
   deriving DecidableEq, Repr
 
 /-- Recognition, then the atom split of the fallback rank 10 (`Atoms.ingress`). The split takes
-the chain as input, so it decides the same whether it reads the prototype again or not. -/
+the chain as input, so it decides the same whether it reads the prototype again or not. A branded
+object is a view over a buffer the environment recognizes. -/
 def ingress (isArray : Recognition.ProbeOutcome) (c : Chain) (brand : Bool)
     (ts : RecognitionPlain.Targets) : Outcome :=
-  match
-    RecognitionPlain.outcome (RecognitionPlain.recognize 10 isArray (recognition c) brand ts) with
+  match RecognitionPlain.outcome
+      (RecognitionPlain.recognize 10 isArray (recognition c) brand false ts) with
   | (some rank, _) =>
     match Atoms.ingress 10 rank (atoms c) with
     | .structural r => .structural r

@@ -2,8 +2,9 @@ import Types.RecognitionPlain
 import Lean
 
 /-! Oracle for the `RecognitionPlain` family: recognizes every built-in prototype tail behind up to
-two custom prototypes, with and without a view brand, and behind a custom prototype whose
-prototype read throws, with `Types.RecognitionPlain.recognize`. Each row reports the full
+two custom prototypes, with and without a view brand, a branded object over a recognized buffer
+and over one whose prototype was replaced, and behind a custom prototype whose prototype read
+throws, with `Types.RecognitionPlain.recognize`. Each row reports the full
 recognition, the answer of each known-kind check and whether one read decides the object. -/
 
 namespace Reconcile.RecognitionPlainOracle
@@ -28,6 +29,7 @@ private structure Observation where
   depth : Nat
   tail : Nat
   brand : Bool
+  foreign : Bool
   plain : Bool
   selected : Int
   raised : Bool
@@ -35,20 +37,21 @@ private structure Observation where
   deriving ToJson
 
 def run : IO Unit := do
+  let views := [(false, false), (true, false), (true, true)]
   let cases := (List.range 3).flatMap fun depth => (List.range tails.length).flatMap fun tail =>
-    ([false, true].filter fun brand => !(brand && depth = 0 && tail = raisingTail)).map
-      (depth, tail, ·)
+    (views.filter fun (brand, _) => !(brand && depth = 0 && tail = raisingTail)).map
+      fun (brand, foreign) => (depth, tail, brand, foreign)
   IO.println cases.length
-  for (depth, tail, brand) in cases do
+  for (depth, tail, brand, foreign) in cases do
     let chain : Chain := {
       protos := (List.range depth).map (fun label => Proto.other (100 + label)) ++
         tails.getD tail []
       raises := tail = raisingTail }
-    let full := outcome (recognize 10 .miss chain brand targets)
+    let full := outcome (recognize 10 .miss chain brand foreign targets)
     let known := (List.range 10).map fun r =>
-      decide (outcome (recognize (r + 1) .miss chain brand targets) = (some (r + 1), none))
+      decide (outcome (recognize (r + 1) .miss chain brand foreign targets) = (some (r + 1), none))
     IO.println (toJson ({
-      depth, tail, brand
+      depth, tail, brand, foreign
       plain := Types.RecognitionPlain.plain chain brand
       selected := match full.1 with | some r => (r : Int) | none => -1
       raised := full.2.isSome
