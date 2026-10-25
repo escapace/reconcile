@@ -12,7 +12,7 @@ theorem shows the reference keeps it on every input, not only the generated ones
   the longest such prefix (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`).
   The keys or entries outside it are the moves.
 - `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
-  and at most once when nothing is written (`get_bound`, `read_once_before_write`); the number of
+  and at most once when no pass writes (`get_bound`, `read_once_before_write`); the number of
   decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
 - `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
   key always (`objectWrites_set_iff`); a kept object keeps the attributes of every property it had
@@ -152,10 +152,10 @@ theorem getCounts_le_one (captured : List (Nat × String)) :
   simpa using this
 
 /-- The getter counts of a run: none when the call is rejected or has nothing to do, else the
-capture reads and one readback per pass, and none when nothing is written. -/
+capture reads and one readback per pass, and none when no pass writes. -/
 theorem run_gets (input : Input) : (run input).gets = [] ∨
     ∃ captured readbacks, readbacks.length ≤ (run input).passes ∧
-      ((run input).writes = [] → readbacks = []) ∧
+      ((run input).allWrites = [] → readbacks = []) ∧
       (run input).gets = getCounts captured readbacks := by
   simp only [run]
   split
@@ -180,8 +180,8 @@ theorem get_bound (input : Input) : ∀ e ∈ (run input).gets, e.2.2 ≤ 1 + (r
     have := getCounts_le captured readbacks e he
     omega
 
-/-- When nothing is written, a getter of `current` runs at most once. -/
-theorem read_once_before_write (input : Input) (hw : (run input).writes = []) :
+/-- When no pass writes, a getter of `current` runs at most once. -/
+theorem read_once_before_write (input : Input) (hw : (run input).allWrites = []) :
     ∀ e ∈ (run input).gets, e.2.2 ≤ 1 := by
   rcases run_gets input with h | ⟨captured, readbacks, _, hnil, h⟩ <;> rw [h]
   · simp

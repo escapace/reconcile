@@ -4,7 +4,7 @@
 // on the same case. Getter counts are compared as a report.
 //
 // Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts [--op reconcile|produce|snapshot]
-//   [--seeds N] [--from S] [--strict] [--dump SEED] [--writes] [--hazards] [--features]
+//   [--seeds N] [--from S] [--strict] [--dump SEED] [--writes] [--hazards] [--binary] [--features]
 //   [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited] [--nodes N]
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
@@ -41,6 +41,7 @@ import {
   type Slot,
   type Step,
   type Value,
+  type ViewConstructor,
 } from './spec-generator'
 
 const sortedEntries = (v: Record<string, unknown>): Record<string, unknown> =>
@@ -167,6 +168,18 @@ const encodeObject = (o: object, visit: Visit): GraphNode => ({
   proto: prototypeLabel(o),
 })
 
+const viewConstructors = new Map<object, ViewConstructor>([
+  [DataView.prototype, 'DataView'],
+  [Int16Array.prototype, 'Int16Array'],
+  [Uint8Array.prototype, 'Uint8Array'],
+])
+
+function encodeView(o: ArrayBufferView, visit: Visit): GraphNode {
+  const ctor = viewConstructors.get(Object.getPrototypeOf(o) as object)
+  assert.ok(ctor !== undefined, 'unknown view constructor in result')
+  return { buffer: visit(o.buffer), ctor, kind: 'view', length: o.byteLength, offset: o.byteOffset }
+}
+
 /** Encoders by the test that recognizes their kind; a plain object is the last. */
 const encoders: ReadonlyArray<
   [test: (o: object) => boolean, encode: (o: never, visit: Visit) => GraphNode]
@@ -184,6 +197,16 @@ const encoders: ReadonlyArray<
     (o: Set<unknown>, visit) => ({ kind: 'set', members: [...o].map(visit) }),
   ],
   [(o) => o instanceof Date, (o: Date) => ({ kind: 'date', ms: o.getTime() })],
+  [
+    (o) => o instanceof ArrayBuffer,
+    (o: ArrayBuffer) => ({
+      bytes: [...new Uint8Array(o)],
+      kind: 'buffer',
+      // eslint-disable-next-line baseline-js/use-baseline -- the bridge runs on Node 24, which has resizable buffers
+      max: o.resizable ? o.maxByteLength : null,
+    }),
+  ],
+  [(o) => ArrayBuffer.isView(o), encodeView],
   [() => true, encodeObject],
 ]
 
@@ -244,6 +267,7 @@ interface Report {
 /** The values a node shows, without attributes, prototype or extensibility. */
 const shapes: ByKind<[], unknown> = {
   array: (node) => ({ entries: node.entries, kind: node.kind }),
+  buffer: (node) => node,
   date: (node) => node,
   map: (node) => node,
   object: (node) => ({
@@ -251,6 +275,7 @@ const shapes: ByKind<[], unknown> = {
     kind: node.kind,
   }),
   set: (node) => node,
+  view: (node) => node,
 }
 
 /** The captured graph's values only: no origins, attributes, prototypes or extensibility. Two
@@ -544,6 +569,9 @@ const appliers: {
   mapSet: (op, target, resolve) =>
     (target as Map<unknown, unknown>).set(resolve(op.key), resolve(op.value)),
   setAdd: (op, target, resolve) => (target as Set<unknown>).add(resolve(op.value)),
+  setByte: (op, target) => {
+    new Uint8Array(target as ArrayBuffer)[op.index] = op.byte
+  },
   setDelete: (op, target, resolve) => (target as Set<unknown>).delete(resolve(op.value)),
   setIndex: (op, target, resolve) => {
     ;(target as unknown[])[op.index] = resolve(op.value)
@@ -809,9 +837,27 @@ const outcomeFeatures = (outcome: Outcome): Feature[] => [
   ['threePasses', (outcome.passes ?? 1) > 2],
 ]
 
+/** Whether the reference keeps a current object at some next node of `kind`. */
+const keepsKind = (c: Case, outcome: Outcome, kind: GraphNode['kind']): boolean =>
+  outcome.origins.some((o, index) => o !== null && c.next.nodes[index]?.kind === kind)
+
+/** The buffer and view features of a case and its reference outcome. */
+const binaryFeatures = (c: Case, outcome: Outcome): Feature[] => [
+  ['buffer', c.cur.nodes.some((n) => n.kind === 'buffer')],
+  ['resizable', c.cur.nodes.some((n) => n.kind === 'buffer' && n.max !== null)],
+  ['view', c.cur.nodes.some((n) => n.kind === 'view')],
+  ['keptBuffer', keepsKind(c, outcome, 'buffer')],
+  ['keptView', keepsKind(c, outcome, 'view')],
+]
+
 /** The features of a reconcile case and its reference outcome, for the coverage report. */
 const caseFeatures = (c: Case, outcome: Outcome): string[] =>
-  present([...textFeatures(c), ...graphFeatures(c), ...outcomeFeatures(outcome)])
+  present([
+    ...textFeatures(c),
+    ...graphFeatures(c),
+    ...outcomeFeatures(outcome),
+    ...binaryFeatures(c, outcome),
+  ])
 
 /** Prints how often each feature occurs among the reconcile cases of `seedList`. */
 async function features(
@@ -859,14 +905,34 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
     ...GATE_OPTIONS,
     hazards: true,
   })
-  writesMode = false
   assert.deepEqual(hazardous.reports, [], `Spec hazards: ${hazardous.reports.length} differences`)
+  // Buffers and views beside the other kinds, also through the recording proxies.
+  const binary: Options = { ...GATE_OPTIONS, binary: true }
+  const binaryReconciled = await checkSpec(reconcileCheck, oracle, seeds(1500), binary)
+  writesMode = false
+  assert.deepEqual(
+    binaryReconciled.reports,
+    [],
+    `Spec binary reconcile: ${binaryReconciled.reports.length} differences`,
+  )
   const produced = await checkSpec(produceCheck, oracle, seeds(1500), GATE_OPTIONS)
   assert.deepEqual(produced.reports, [], `Spec produce: ${produced.reports.length} differences`)
+  const binaryProduced = await checkSpec(produceCheck, oracle, seeds(1500), binary)
+  assert.deepEqual(
+    binaryProduced.reports,
+    [],
+    `Spec binary produce: ${binaryProduced.reports.length} differences`,
+  )
   const copied = await checkSpec(snapshotCheck, oracle, seeds(500), GATE_OPTIONS)
   assert.deepEqual(copied.reports, [], `Spec snapshot: ${copied.reports.length} differences`)
+  const binaryCopied = await checkSpec(snapshotCheck, oracle, seeds(500), binary)
+  assert.deepEqual(
+    binaryCopied.reports,
+    [],
+    `Spec binary snapshot: ${binaryCopied.reports.length} differences`,
+  )
   console.log(
-    `Spec bridge: reconcile ${reconciled.cases} cases (${summary(reconciled.reports)}), ${written.cases} through recording proxies (${summary(written.reports)}), ${hazardous.cases} with hazards (${summary(hazardous.reports)}); produce ${produced.cases} cases (${summary(produced.reports)}); snapshot ${copied.cases} cases (${summary(copied.reports)})`,
+    `Spec bridge: reconcile ${reconciled.cases} cases (${summary(reconciled.reports)}), ${written.cases} through recording proxies (${summary(written.reports)}), ${hazardous.cases} with hazards (${summary(hazardous.reports)}), ${binaryReconciled.cases} with buffers and views (${summary(binaryReconciled.reports)}); produce ${produced.cases} cases (${summary(produced.reports)}), ${binaryProduced.cases} with buffers and views (${summary(binaryProduced.reports)}); snapshot ${copied.cases} cases (${summary(copied.reports)}), ${binaryCopied.cases} with buffers and views (${summary(binaryCopied.reports)})`,
   )
 }
 
@@ -916,6 +982,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
     options: {
       accessors: { default: true, type: 'boolean' },
       attributes: { default: true, type: 'boolean' },
+      binary: { default: false, type: 'boolean' },
       dump: { type: 'string' },
       features: { default: false, type: 'boolean' },
       from: { default: '1', type: 'string' },
@@ -937,6 +1004,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
     const options: Options = {
       accessors: values.accessors,
       attributes: values.attributes,
+      binary: values.binary,
       hazards: values.hazards,
       inherited: values.inherited,
       nodes: Number(values.nodes),

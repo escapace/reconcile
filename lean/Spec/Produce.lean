@@ -15,7 +15,9 @@ current node becomes a new object with the draft's contents; a changed object ke
 prototype, its extensibility and the attributes of its existing data properties, an added
 property is writable, enumerable and configurable, and an accessor becomes a data property with
 the getter's value and enumerability. An object the recipe created is kept as itself unless it
-holds a draft, in which case it is copied.
+holds a draft, in which case it is copied. A draft reads a `Date`, buffer or view as a copy, which
+is the result's value only when it differs from the original; a view's copy differs when its
+buffer's does.
 
 `snapshot(value)` copies every node: data properties writable and configurable with their
 enumerability, accessors as data, prototypes kept.
@@ -36,6 +38,8 @@ inductive Op where
   | setAdd (node : Nat) (value : Val)
   | setDelete (node : Nat) (value : Val)
   | setTime (node : Nat) (ms : Int)
+  /-- Writes one byte of a buffer. -/
+  | setByte (node : Nat) (index byte : Nat)
   | create (obj : Obj)
   deriving Repr
 
@@ -125,6 +129,12 @@ def apply (heap : Array Obj) : Op → Option (Array Obj)
     match heap[node]? with
     | some (.date _) => some (heap.setIfInBounds node (.date ms))
     | _ => none
+  | .setByte node index byte =>
+    match heap[node]? with
+    | some (.buffer bytes max) =>
+      if index < bytes.length then some (heap.setIfInBounds node (.buffer (bytes.set index byte) max))
+      else none
+    | _ => none
   | .create obj => some (heap.push obj)
 
 /-- Applies the recipe; `none` when an operation is refused. -/
@@ -132,19 +142,28 @@ def applyAll (heap : Array Obj) : List Op → Option (Array Obj)
   | [] => some heap
   | op :: rest => (apply heap op).bind fun heap => applyAll heap rest
 
-/-- Whether draft heap node `r` is a `Date` the recipe changed: its copy is the result's value, so a
-created object may hold it. -/
-def changedDate (cur : Graph) (heap : Array Obj) (r : Nat) : Bool :=
-  r < cur.nodes.size && (cur.node r).kind == .date && heap[r]? != some (cur.node r)
+/-- Whether draft heap node `r` is a current `Date` or buffer the recipe changed, or a current view
+whose buffer it changed: the copy the recipe holds is the result's value, so a created object may
+hold it. -/
+def changedCopy (cur : Graph) (heap : Array Obj) (r : Nat) : Bool :=
+  let changed (i : Nat) : Bool := i < cur.nodes.size && heap[i]? != some (cur.node i)
+  match cur.node r with
+  | .date _ | .buffer .. => changed r
+  | .view _ storage _ _ =>
+    changed r ||
+      match storage with
+      | .ref b => changed b
+      | .prim _ => false
+  | _ => false
 
 /-- Whether created node `i` may keep reference `r` and stay itself: a kept created object, or a
-changed `Date` copy. A current object the recipe holds is a draft, which the result unwraps. -/
+changed copy. A current object the recipe holds is a draft, which the result unwraps. -/
 def createdKeeps (cur : Graph) (heap : Array Obj) (set : List Nat) (r : Nat) : Bool :=
-  (cur.nodes.size ≤ r && set.contains r) || changedDate cur heap r
+  (cur.nodes.size ≤ r && set.contains r) || (r < cur.nodes.size && changedCopy cur heap r)
 
 /-- The nodes the result keeps as themselves: the greatest set in which every current node equals
 its draft and refers only to nodes of the set, and every created object refers only to kept
-created objects and changed `Date` copies. -/
+created objects and changed copies. -/
 def kept (cur : Graph) (heap : Array Obj) : List Nat :=
   let n := cur.nodes.size
   let start := (List.range heap.size).filter fun i => i < n → heap[i]? = some (cur.node i)
@@ -243,6 +262,8 @@ def Op.fromJson (j : Json) : Except String Op := do
   | "setAdd" => pure (.setAdd node (← fromJson? (← j.getObjVal? "value")))
   | "setDelete" => pure (.setDelete node (← fromJson? (← j.getObjVal? "value")))
   | "setTime" => pure (.setTime node (← fromJson? (← j.getObjVal? "ms")))
+  | "setByte" => pure (.setByte node (← fromJson? (← j.getObjVal? "index"))
+      (← fromJson? (← j.getObjVal? "byte")))
   | "create" => pure (.create (← fromJson? (← j.getObjVal? "obj")))
   | other => throw s!"unknown op {other}"
 

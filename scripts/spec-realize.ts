@@ -1,11 +1,13 @@
 // Realizes graphs in the `Spec` wire form as live objects: plain objects with data and accessor
-// slots on their prototype label, arrays with holes and integrity levels, maps, sets and dates.
+// slots on their prototype label, arrays with holes and integrity levels, maps, sets, dates,
+// buffers, some resizable, and typed arrays and `DataView`s over them.
 // The Spec bridge and the invariant tests share it so that one reading of a graph exists.
 import assert from 'node:assert/strict'
 import {
   ATOMS,
   byKind,
   CLASSES,
+  ELEMENT_SIZE,
   isHole,
   isReference,
   type ByKind,
@@ -42,12 +44,34 @@ export const toJs = (v: Value, objects: readonly object[]): unknown =>
 const prototypeOf = (prototype: NodeOf<'object'>['proto'], classes: Prototypes): object | null =>
   prototype === 'object' ? Object.prototype : prototype === 'null' ? null : classes[prototype.cls]
 
-const shells: ByKind<[classes: Prototypes], object> = {
+/** The typed-array constructors a graph names. */
+const TYPED = { Int16Array, Uint8Array } as const
+
+function bufferShell(node: NodeOf<'buffer'>): ArrayBuffer {
+  const buffer = new ArrayBuffer(
+    node.bytes.length,
+    node.max === null ? undefined : { maxByteLength: node.max },
+  )
+  new Uint8Array(buffer).set(node.bytes)
+  return buffer
+}
+
+/** A view over its buffer, which exists before it. */
+function viewShell(node: NodeOf<'view'>, resolve: Resolve): ArrayBufferView {
+  const buffer = resolve(node.buffer) as ArrayBuffer
+  return node.ctor === 'DataView'
+    ? new DataView(buffer, node.offset, node.length)
+    : new TYPED[node.ctor](buffer, node.offset, node.length / ELEMENT_SIZE[node.ctor])
+}
+
+const shells: ByKind<[classes: Prototypes, resolve: Resolve], object> = {
+  buffer: bufferShell,
   array: () => [],
   date: (node) => new Date(node.ms),
   map: () => new Map(),
   object: (node, classes) => Object.create(prototypeOf(node.proto, classes)) as object,
   set: () => new Set(),
+  view: (node, _classes, resolve) => viewShell(node, resolve),
 }
 
 const levelers: Record<Extensibility, (a: unknown[]) => unknown> = {
@@ -85,6 +109,7 @@ const fillers: ByKind<
     })
     levelers[node.ext](a)
   },
+  buffer: () => undefined,
   date: () => undefined,
   map: (node, o, resolve) => {
     for (const [k, v] of node.entries) (o as Map<unknown, unknown>).set(resolve(k), resolve(v))
@@ -102,11 +127,12 @@ const fillers: ByKind<
   set: (node, o, resolve) => {
     for (const m of node.members) (o as Set<unknown>).add(resolve(m))
   },
+  view: () => undefined,
 }
 
 /** Builds one object from a node without accessors, as a recipe creates it. */
 export function construct(node: GraphNode, resolve: Resolve): object {
-  const o = byKind(shells, node, prototypes)
+  const o = byKind(shells, node, prototypes, resolve)
   byKind(fillers, node, o, resolve)
   return o
 }
@@ -136,10 +162,14 @@ export function materialize(
   wrap: (o: object, index: number) => object = (o) => o,
   classes: Prototypes = prototypes,
 ): object[] {
-  const objects = graph.nodes.map(
-    (node, index) => fixed(index) ?? wrap(byKind(shells, node, classes), index),
-  )
+  const objects: object[] = Array.from({ length: graph.nodes.length })
   const resolve: Resolve = (v) => toJs(v, objects)
+  // A view is built over its buffer, so every other node comes first.
+  for (const views of [false, true])
+    graph.nodes.forEach((node, index) => {
+      if ((node.kind === 'view') === views)
+        objects[index] = fixed(index) ?? wrap(byKind(shells, node, classes, resolve), index)
+    })
   const accessor = (o: object, key: string, slot: Accessor): void =>
     defineAccessor(o, key, slot, resolve, counters)
   graph.nodes.forEach((node, index) => {

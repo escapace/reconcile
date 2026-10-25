@@ -128,7 +128,8 @@ table instead maps the main promises of the public functions to their theorems, 
 `Spec.Graph` is a heap of plain objects with ordered fields, each a data property with its
 attributes or an accessor with the value its getter returns and whether its setter stores,
 extensibility, and a prototype label; arrays with holes and an integrity level; maps, sets and
-dates; primitives and atoms. A `reconcile` input also gives each class label its own slots, data
+dates; buffers with their bytes and, when resizable, their maximum length; typed arrays and
+`DataView`s with their constructor, buffer, byte offset and byte length; primitives and atoms. A `reconcile` input also gives each class label its own slots, data
 or accessor, which every object with that label inherits. `Graph.normalize` reads an
 empty non-extensible array as sealed, as the integrity test does.
 
@@ -137,11 +138,14 @@ and pins objects already in place, a decision in visit order that keeps an align
 admits `next`'s contents statically, and a write phase that demotes a kept object whose write
 reaches a fixed slot or a setter that drops its value and decides again, never keeping a demoted
 object and keeping each object a pass wrote at its node. An object cannot be kept when `next` has a
-key that the object lacks and its class holds as an accessor. The reference returns the result graph
+key that the object lacks and its class holds as an accessor. A buffer is kept only with `next`'s
+length and maximum, a view only with `next`'s constructor, offset and length, and a view's buffer
+is held like a fixed slot. The reference returns the result graph
 with the object kept at each node, the writes, the number of passes and the getter counts.
 `retainPrefix`, the longest prefix of `next`'s key or entry order that is a subsequence of
 `current`'s, decides which keys and entries keep their place. `Spec.Produce.run` applies a recipe of
-draft operations to a draft heap and keeps the greatest set of unchanged subtrees (`kept`);
+draft operations to a draft heap and keeps the greatest set of unchanged subtrees (`kept`); a draft
+reads a `Date`, buffer or view as a copy, which a new object may hold when it differs;
 `Spec.Produce.snapshot` copies every node.
 
 `Spec.Promises` proves, about these definitions:
@@ -149,7 +153,7 @@ draft operations to a draft heap and keeps the greatest set of unchanged subtree
 - The retained prefix is a prefix of `next`'s order, a subsequence of `current`'s and the longest
   such prefix (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`).
 - A getter of `current` runs at most once when its object is read and once per decision pass, and
-  at most once when nothing is written (`get_bound`, `read_once_before_write`).
+  at most once when no pass writes (`get_bound`, `read_once_before_write`).
 - The decision passes are bounded by the number of node pairs, so no plan is searched
   (`passes_le`).
 - A retained key is written exactly when its value differs, and a moved or added key is always
@@ -225,9 +229,10 @@ plain object keeps its prototype. A failed call throws without rolling back (REA
 back_).
 
 Pinning is `Spec.Reconcile.pinned`: a `next` object that is the current object at the same
-own-property slot of the aligned current object, whose subtree reaches neither root, stays as it
-is with everything inside it, which no other position may keep (`pinnedAt`); the Spec bridge
-checks it on random graphs.
+own-property slot of the aligned current object, on capture's first visit of it, whose subtree
+reaches neither root, stays as it is with everything inside it, which no other position may keep
+(`pinnedAt`). A buffer or view is never pinned, since its construction ties it to its views or its
+buffer. The Spec bridge checks pinning on random graphs.
 
 `PropertyOrder` keeps the cursor's decisions while bounding its work. `aligned_mem` proves that when
 duplicate-free current keys start with the requested order, a current key is requested exactly when
@@ -445,16 +450,18 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   identities, values, descriptors, prototypes and extensibility, rejections agree, nothing is
   written before a rejection the reference decides before any write, and `produce` and `snapshot`
   leave `current` unchanged. The bridge checks this on seeded random graphs, so its evidence is for
-  the generated cases. The models cover objects, arrays, maps, sets, dates and, for `reconcile`, the
-  slots of class prototypes; they do not cover buffers, URLs, Temporal values or proxies. The gate
+  the generated cases. The models cover objects, arrays, maps, sets, dates, buffers and views and,
+  for `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`, views that
+  track their buffer's length, URLs, Temporal values or proxies. The gate
   allows no difference: results, rejections, writes before a rejection and the getter counts of the
   current objects `next` does not hold must agree; the getters of an object `next` holds run while
-  `next` is read, which the promise leaves out. The gate also runs two further `reconcile` batches.
+  `next` is read, which the promise leaves out. The gate also runs further batches.
   The `--writes` batch wraps every current object and array in a recording proxy and compares the
   writes and deletions each one receives, over every decision pass, with the reference's writes. The
   `--hazards` batch, also through the proxies, generates more accessors and more setters that drop
   their value than the default batch, so that about one call in nine needs more than one decision
-  pass.
+  pass. The `--binary` batches, one per operation, add buffers, some resizable, and typed arrays and
+  `DataView`s over them; the `reconcile` one runs through the proxies.
 - **Pass termination.** `publishGraph` in `src/publication/publication-engine.ts` repeats its
   passes with no limit on their number. They end for the reason `blocked_fresh` gives for the
   reference, because the runtime meets both of its premises: a decision keeps no demoted object

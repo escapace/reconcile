@@ -15,7 +15,9 @@ graphs, in three phases that mirror the runtime's design:
    protected or already kept, has the same kind and admits `next`'s contents statically: its
    descriptors and extensibility allow the writes, no key it lacks reaches a getter or setter on
    its class prototype, and every key that cannot move lies in the retained prefix of the key
-   order (`retainPrefix`). Nothing is written before this phase ends; a root that cannot be kept
+   order (`retainPrefix`). A buffer is kept only with `next`'s length and maximum, and a view only
+   with `next`'s constructor, offset and length; a view's buffer, which cannot change, is held
+   like a fixed slot. Nothing is written before this phase ends; a root that cannot be kept
    rejects the call.
 3. **Write.** Kept nodes take `next`'s contents, writing only what differs; fresh nodes are
    copies. A kept object whose write reaches a setter that drops its value is *blocked*: it is
@@ -35,10 +37,12 @@ inductive Pos where
   | mapKey (p : Nat)
   | mapValue (p : Nat)
   | member (p : Nat)
+  /-- A view's buffer. -/
+  | buffer
   deriving DecidableEq, Repr
 
 /-- Whether a position is a property or an array element: an object already in place is kept only
-at such a position, never as a `Map` or `Set` entry. -/
+at such a position, never as a `Map` or `Set` entry or a view's buffer. -/
 def Pos.property : Pos → Bool
   | .key _ | .index _ => true
   | _ => false
@@ -50,6 +54,8 @@ def Obj.slots : Obj → List (Pos × Val)
   | .map entries => entries.zipIdx.flatMap fun ((k, v), p) => [(.mapKey p, k), (.mapValue p, v)]
   | .set members => members.zipIdx.map fun (v, p) => (.member p, v)
   | .date _ => []
+  | .buffer .. => []
+  | .view _ storage _ _ => [(.buffer, storage)]
 
 /-- The value a node holds at a position, if any. -/
 def Obj.occupant (o : Obj) (pos : Pos) : Option Val :=
@@ -59,6 +65,7 @@ def Obj.occupant (o : Obj) (pos : Pos) : Option Val :=
   | .map entries, .mapKey p => entries[p]?.map Prod.fst
   | .map entries, .mapValue p => entries[p]?.map Prod.snd
   | .set members, .member p => members[p]?
+  | .view _ storage _ _, .buffer => some storage
   | _, _ => none
 
 def Val.refId : Val → Option Nat
@@ -107,69 +114,58 @@ def retainPrefix {K : Type} [DecidableEq K] (cur next : List K) : List K :=
 /-- Discovery: the next nodes in first-visit order, the current object each is aligned with for
 pinning, and per next node the current objects that are candidates for it, in discovery order.
 
-Two alignments flow from the roots. The *pinning* alignment follows the first visit of each node
-along property and array-element edges only, through parents aligned the same way with an object
-of their kind: it is what "the object at the same position" means for an object already in place,
-and a `Map` or `Set` entry breaks it. A *candidate* of node `j` is the object at the same
-position, of `j`'s kind, inside any candidate of any parent of `j`, through every position; the
-walk is over pairs of a next node and a candidate, each walked once. -/
+Two walks flow from the roots. The first is the depth-first walk of `next` that capture makes,
+children in slot order, each node visited once; it fixes the visit order and the *pinning*
+alignment, which follows property and array-element edges only, through parents aligned the same
+way with an object of their kind: it is what "the object at the same position" means for an
+object already in place, and a `Map` or `Set` entry or a view's buffer breaks it. The second walk
+is over pairs of a next node and a candidate, each walked once: a *candidate* of node `j` is the
+object at the same position, of `j`'s kind, inside any candidate of any parent of `j`, through
+every position. A pinned node has no candidate. -/
 structure Discovery where
   order : List Nat
   first : Array (Option Nat)
   candidates : Array (List Nat)
 
-/-- A pending visit: the next node, the candidate the walked parent offers, and the pinning
-alignment the edge offers. -/
-private abbrev Pending := Nat × Option Nat × Option Nat
+/-- The depth-first walk of `next`: per pending node the pinning alignment its edge offers. Returns
+the nodes in visit order and the alignment of each. -/
+private def visitStep (cur next : Graph) :
+    Nat → List (Nat × Option Nat) → Array Bool → Array (Option Nat) → List Nat →
+      List Nat × Array (Option Nat)
+  | 0, _, _, first, order => (order.reverse, first)
+  | _ + 1, [], _, first, order => (order.reverse, first)
+  | fuel + 1, (j, pinning) :: rest, visited, first, order =>
+    if visited[j]?.getD true then visitStep cur next fuel rest visited first order
+    else
+      let node := next.node j
+      let aligned := pinning.filter fun p => (cur.node p).kind == node.kind
+      let children := node.slots.filterMap fun (pos, v) =>
+        match v with
+        | .ref c => some (c, if pos.property then
+            aligned.bind fun p => ((cur.node p).occupant pos).bind Val.refId else none)
+        | .prim _ => none
+      visitStep cur next fuel (children ++ rest) (visited.setIfInBounds j true)
+        (first.setIfInBounds j aligned) (j :: order)
 
-private def discoverStep (cur next : Graph) :
-    Nat → List Pending → Array Bool → Array (Option Nat) → Array (List Nat) → List Nat →
-      Discovery
-  | 0, _, _, first, candidates, order => ⟨order.reverse, first, candidates⟩
-  | _ + 1, [], _, first, candidates, order => ⟨order.reverse, first, candidates⟩
-  | fuel + 1, (j, candidate, pinning) :: rest, visited, first, candidates, order =>
+/-- The walk over pairs of a next node and the candidate a walked parent offers. -/
+private def candidateStep (cur next : Graph) :
+    Nat → List (Nat × Option Nat) → Array (List Nat) → Array (List Nat)
+  | 0, _, candidates => candidates
+  | _ + 1, [], candidates => candidates
+  | fuel + 1, (j, candidate) :: rest, candidates =>
     let node := next.node j
-    let fresh := !(visited[j]?.getD true)
-    let visited := visited.setIfInBounds j true
-    let sameKind (p : Nat) : Bool := (cur.node p).kind == node.kind
-    let aligned := if fresh then pinning.filter sameKind else none
-    let first := if fresh then first.setIfInBounds j aligned else first
-    let order := if fresh then j :: order else order
-    -- The pinning alignment of a child: through a property edge of a node visited first now.
-    let pinningOf (pos : Pos) : Option Nat :=
-      if fresh && pos.property then aligned.bind fun p => ((cur.node p).occupant pos).bind Val.refId
-      else none
-    match candidate.filter sameKind with
-    | none =>
-      -- A path without a candidate parent offers no candidate below.
-      let children := if fresh then node.slots.filterMap fun (pos, v) =>
-          match v with
-          | .ref c => some (c, none, pinningOf pos)
-          | .prim _ => none
-        else []
-      discoverStep cur next fuel (children ++ rest) visited first candidates order
+    -- A path without a candidate parent offers no candidate below.
+    match candidate.filter fun p => (cur.node p).kind == node.kind with
+    | none => candidateStep cur next fuel rest candidates
     | some p =>
-      let known := (candidates[j]?.getD []).contains p
-      if known && !fresh then discoverStep cur next fuel rest visited first candidates order
+      if (candidates[j]?.getD []).contains p then candidateStep cur next fuel rest candidates
       else
-        let candidates := if known then candidates
-          else candidates.setIfInBounds j ((candidates[j]?.getD []) ++ [p])
         let children := node.slots.filterMap fun (pos, v) =>
           match v with
-          | .ref c => some (c, ((cur.node p).occupant pos).bind Val.refId, pinningOf pos)
+          | .ref c => some (c, ((cur.node p).occupant pos).bind Val.refId)
           | .prim _ => none
-        discoverStep cur next fuel (children ++ rest) visited first candidates order
-
-/-- Discovers the candidates of every next node from the roots. -/
-def discover (input : Input) : Discovery :=
-  let n := input.next.nodes.size
-  match input.next.root with
-  | .prim _ => ⟨[], Array.replicate n none, Array.replicate n []⟩
-  | .ref r =>
-    discoverStep input.cur input.next (input.next.budget * (input.cur.nodes.size + 1))
-      [(r, input.cur.root.refId, input.cur.root.refId)] (Array.replicate n false)
-      (Array.replicate n none)
-      (Array.replicate n []) []
+        candidateStep cur next fuel (children ++ rest)
+          (candidates.setIfInBounds j ((candidates[j]?.getD []) ++ [p]))
 
 /-- The nodes reachable from `start` in `g`, `start` included. -/
 def reach (g : Graph) (start : Nat) : List Nat :=
@@ -182,14 +178,20 @@ where
       if seen.contains id then go fuel rest seen
       else go fuel ((g.node id).refs ++ rest) (id :: seen)
 
-/-- Whether next node `j` is pinned: the current object at its own position whose subtree reaches
-neither root. The current root is never pinned. -/
+/-- Whether a node of this kind can be kept as it is: a buffer, which supplies its views'
+construction, and a view, which its buffer constructs, cannot. -/
+def keepable : Kind → Bool
+  | .buffer | .typedArray | .dataView => false
+  | _ => true
+
+/-- Whether next node `j` is pinned: the current object at its own position, of a kind that can be
+kept as it is, whose subtree reaches neither root. The current root is never pinned. -/
 def pinnedAt (input : Input) (al : Discovery) (j : Nat) : Bool :=
   match input.same[j]?.bind id, al.first[j]?.bind id with
   | some i, some i' =>
     let reached := reach input.cur i
     let nextRootCur := input.next.root.refId.bind fun r => input.same[r]?.bind id
-    i = i' && input.cur.root.refId != some i &&
+    i = i' && keepable (input.next.node j).kind && input.cur.root.refId != some i &&
       !(reached.contains (input.cur.root.refId.getD i)) &&
       !(match nextRootCur with
         | some rootCur => reached.contains rootCur
@@ -207,6 +209,21 @@ def pinned (input : Input) (al : Discovery) : Array Bool :=
       match input.same[j]?.bind id with
       | some i => protectedCur.contains i
       | none => false
+
+/-- Discovers the visit order, the pinning alignments and the candidates of every next node from
+the roots. A pinned node, which capture keeps as it is, has no candidate. -/
+def discover (input : Input) : Discovery :=
+  let n := input.next.nodes.size
+  match input.next.root with
+  | .prim _ => ⟨[], Array.replicate n none, Array.replicate n []⟩
+  | .ref r =>
+    let root := input.cur.root.refId
+    let (order, first) := visitStep input.cur input.next input.next.budget [(r, root)]
+      (Array.replicate n false) (Array.replicate n none) []
+    let pin := pinned input ⟨order, first, Array.replicate n []⟩
+    let found := candidateStep input.cur input.next
+      (input.next.budget * (input.cur.nodes.size + 1)) [(r, root)] (Array.replicate n [])
+    ⟨order, first, found.mapIdx fun j cs => if pin[j]?.getD false then [] else cs⟩
 
 /-! ## Decide -/
 
@@ -273,10 +290,13 @@ def admitsStatic (classes : Array (List (String × Slot))) (c n : Obj) : Bool :=
   | .map _, .map _ => true
   | .set _, .set _ => true
   | .date _, .date _ => true
+  | .buffer cb cm, .buffer nb nm => cb.length == nb.length && cm == nm
+  | .view cc _ co cl, .view nc _ no nl => cc == nc && co == no && cl == nl
   | _, _ => false
 
 /-- The fixed slots of a kept object as pairs of the current value and the next value at the
-same position: every entry of a frozen array, and every fixed key of an object. -/
+same position: every entry of a frozen array, every fixed key of an object, and a view's
+buffer. -/
 def fixedPairs (c n : Obj) : List (Val × Val) :=
   match c, n with
   | .object _ cf _, .object _ nf _ =>
@@ -286,6 +306,7 @@ def fixedPairs (c n : Obj) : List (Val × Val) :=
     (ce.zip ne).filterMap fun
       | (some cv, some nv) => some (cv, nv)
       | _ => none
+  | .view _ cb _ _, .view _ nb _ _ => [(cb, nb)]
   | _, _ => []
 
 /-- A requirement: next node `c` keeps current object `x`. -/
@@ -493,10 +514,15 @@ def arrayWrites (identity : Nat → Option Nat) (ce ne : List (Option Val)) :
     | none, none => none
   length ++ indices
 
-/-- The writes a kept map or set needs under the retained prefix of its entries. -/
+/-- The writes a kept map or set needs under the retained prefix of its entries. A key of `next`
+that is a node stands for the object that node keeps; a fresh node's object is no current key. -/
 def collectionWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
     (cValue nValue : Val → Option Val) : List (String × String) :=
-  let retained := retainPrefix cKeys nKeys
+  let resolve : Val → Option Val
+    | .prim p => some (.prim p)
+    | .ref c => (identity c).map Val.ref
+  let resolved := nKeys.map resolve
+  let retained := retainPrefix (cKeys.map some) resolved
   let label : Val → String
     | .prim .undef => "undefined"
     | .prim .null => "null"
@@ -506,13 +532,17 @@ def collectionWrites (identity : Nat → Option Nat) (cKeys nKeys : List Val)
     | .prim (.atom id) => s!"atom {id}"
     | .ref id => s!"ref {id}"
   let deletes := cKeys.filterMap fun k =>
-    if nKeys.contains k && retained.contains k then none else some (label k, "delete")
+    if resolved.contains (some k) && retained.contains (some k) then none
+    else some (label k, "delete")
   let sets := nKeys.filterMap fun k =>
-    if retained.contains k then
-      match cValue k, nValue k with
-      | some cv, some nv => if differs identity cv nv then some (label k, "set") else none
-      | _, _ => none
-    else some (label k, "set")
+    match resolve k with
+    | some ck =>
+      if retained.contains (some ck) then
+        match cValue ck, nValue k with
+        | some cv, some nv => if differs identity cv nv then some (label ck, "set") else none
+        | _, _ => none
+      else some (label ck, "set")
+    | none => some (label k, "set")
   deletes ++ sets
 
 /-- The writes of keeping `c` with contents `n`, and whether they block. -/
@@ -527,6 +557,7 @@ def writesOf (identity : Nat → Option Nat) (c n : Obj) : List (String × Strin
       false)
   | .set cm, .set nm => (collectionWrites identity cm nm (fun _ => none) (fun _ => none), false)
   | .date cms, .date nms => (if cms = nms then [] else [("time", "set")], false)
+  | .buffer cb _, .buffer nb _ => (if cb = nb then [] else [("bytes", "set")], false)
   | _, _ => ([], false)
 
 /-- The identity a next node resolves to under a decision. -/
@@ -632,7 +663,7 @@ def writesOfDecision (input : Input) (pin : Array Bool) (kept : Array (Option Na
     | none => []
 
 /-- The result of a successful final decision `kept` after the passes `rounds`: per next node the
-kept object's contents or a fresh copy, the writes and the getter counts. A call that writes
+kept object's contents or a fresh copy, the writes and the getter counts. A call whose passes write
 nothing reads nothing back; otherwise each pass reads back the objects its decision keeps. -/
 def publish (input : Input) (al : Discovery) (pin : Array Bool)
     (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r : Nat) : Outcome :=
@@ -643,10 +674,10 @@ def publish (input : Input) (al : Discovery) (pin : Array Bool)
       else keptObj (input.cur.node i) (input.next.node j)
     | none => freshCopy (input.next.node j)
   let writes := writesOfDecision input pin kept
-  let readbacks := if writes.isEmpty then [] else rounds.map (readbackKeys input pin)
+  let allWrites := (rounds.map (writesOfDecision input pin)).flatten.eraseDups
+  let readbacks := if allWrites.isEmpty then [] else rounds.map (readbackKeys input pin)
   { ok := true, origins := kept, nodes, root := .ref r, passes := rounds.length,
-    gets := getCounts (capturedKeys input al) readbacks, writes,
-    allWrites := (rounds.map (writesOfDecision input pin)).flatten.eraseDups }
+    gets := getCounts (capturedKeys input al) readbacks, writes, allWrites }
 
 /-- The input with every array's extensibility as observed. -/
 def normalized (raw : Input) : Input :=

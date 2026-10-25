@@ -11,12 +11,15 @@ A graph has numbered nodes and a root value. A plain object carries its prototyp
 keys in order, each with a data slot (value and attributes) or an accessor slot (the value its
 getter returns and whether it has a setter that stores, a setter that drops, or no setter), and
 its extensibility. An array carries its entries with holes and an extensibility level. Maps and
-sets carry their entries in insertion order; a date its time. Primitives include an `atom`, an
-object kept by reference, such as a function, identified by a label.
+sets carry their entries in insertion order; a date its time. An `ArrayBuffer` carries its bytes
+and, when it is resizable, its maximum length; a typed array or `DataView` carries its constructor
+name, a reference to its buffer and its byte offset and byte length. Primitives include an
+`atom`, an object kept by reference, such as a function, identified by a label.
 
 The own slots of class prototypes are part of a `reconcile` input (`Reconcile.Input.classes`),
 not of a graph. Outside the model: slots on `Object.prototype`, symbol keys, array index keys on
-objects, `-0` and `NaN`, buffers, views, URLs and Temporal values.
+objects, `-0` and `NaN`, `SharedArrayBuffer`, views that track their buffer's length, buffer and
+view subclasses, URLs and Temporal values.
 -/
 
 namespace Reconcile.Spec
@@ -91,6 +94,11 @@ inductive Obj where
   | map (entries : List (Val × Val))
   | set (members : List Val)
   | date (ms : Int)
+  /-- An `ArrayBuffer`: its bytes, and its maximum length when it is resizable. -/
+  | buffer (bytes : List Nat) (max : Option Nat)
+  /-- A typed array or `DataView`: its constructor name, its buffer, and its byte offset and byte
+  length. -/
+  | view (ctor : String) (buffer : Val) (offset length : Nat)
   deriving DecidableEq, Repr, Inhabited
 
 inductive Kind where
@@ -99,6 +107,9 @@ inductive Kind where
   | map
   | set
   | date
+  | buffer
+  | typedArray
+  | dataView
   deriving DecidableEq, Repr, Inhabited
 
 def Obj.kind : Obj → Kind
@@ -107,9 +118,11 @@ def Obj.kind : Obj → Kind
   | .map .. => .map
   | .set .. => .set
   | .date .. => .date
+  | .buffer .. => .buffer
+  | .view ctor .. => if ctor = "DataView" then .dataView else .typedArray
 
 /-- The references a node holds, in traversal order: object slot values in key order, array
-entries in index order, map keys and values entry by entry, set members. -/
+entries in index order, map keys and values entry by entry, set members, a view's buffer. -/
 def Obj.refs : Obj → List Nat
   | .object _ fields _ => fields.filterMap fun (_, slot) =>
       match slot.value with
@@ -125,6 +138,11 @@ def Obj.refs : Obj → List Nat
       | .ref id => some id
       | .prim _ => none
   | .date _ => []
+  | .buffer .. => []
+  | .view _ storage _ _ =>
+    match storage with
+    | .ref id => [id]
+    | .prim _ => []
 
 /-- A graph: nodes by id and a root value. -/
 structure Graph where
@@ -146,8 +164,9 @@ The wire form the bridges use. A value is `null`, a boolean, a number, a string,
 an accessor `{"get":value,"set":null|true|false,"e":bool,"c":bool}`. A node carries `"kind"`;
 an object `"proto"` (`"object"`, `"null"` or `{"cls":n}`), `"fields"` as `[key, slot]` pairs and
 `"extensible"`; an array `"entries"` with `{"hole":true}` for a hole and `"ext"`; a map
-`"entries"` as `[key, value]` pairs; a set `"members"`; a date `"ms"`. A graph is
-`{"nodes":[...],"root":value}`. -/
+`"entries"` as `[key, value]` pairs; a set `"members"`; a date `"ms"`; a buffer `"bytes"` and
+`"max"` (`null` when it is not resizable); a view `"ctor"`, `"buffer"`, `"offset"` and
+`"length"`. A graph is `{"nodes":[...],"root":value}`. -/
 
 private def field (j : Json) (key : String) : Except String Json := j.getObjVal? key
 
@@ -278,6 +297,14 @@ def Obj.fromJson (j : Json) : Except String Obj := do
   | .str "set" =>
     pure (.set (← (← (← field j "members").getArr?).toList.mapM fromJson?))
   | .str "date" => do pure (.date (← fromJson? (← field j "ms")))
+  | .str "buffer" => do
+    let max ← match ← field j "max" with
+      | .null => pure none
+      | m => do pure (some (← fromJson? m))
+    pure (.buffer (← fromJson? (← field j "bytes")) max)
+  | .str "view" => do
+    pure (.view (← (← field j "ctor").getStr?) (← fromJson? (← field j "buffer"))
+      (← fromJson? (← field j "offset")) (← fromJson? (← field j "length")))
   | _ => throw "invalid kind"
 
 def Obj.toJson : Obj → Json
@@ -298,6 +325,12 @@ def Obj.toJson : Obj → Json
   | .set members =>
     Json.mkObj [("kind", .str "set"), ("members", Json.arr (members.map Lean.toJson).toArray)]
   | .date ms => Json.mkObj [("kind", .str "date"), ("ms", Lean.toJson ms)]
+  | .buffer bytes max =>
+    Json.mkObj [("kind", .str "buffer"), ("bytes", Lean.toJson bytes),
+      ("max", match max with | none => .null | some m => Lean.toJson m)]
+  | .view ctor storage offset length =>
+    Json.mkObj [("kind", .str "view"), ("ctor", .str ctor), ("buffer", Lean.toJson storage),
+      ("offset", Lean.toJson offset), ("length", Lean.toJson length)]
 
 instance : FromJson Obj := ⟨Obj.fromJson⟩
 instance : ToJson Obj := ⟨Obj.toJson⟩

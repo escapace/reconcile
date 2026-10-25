@@ -6,11 +6,14 @@ import assert from 'node:assert/strict'
 export type Attributes = [writable: boolean, enumerable: boolean, configurable: boolean]
 export type Extensibility = 'extensible' | 'frozen' | 'nonExtensible' | 'sealed'
 export type GraphNode =
+  | { buffer: Value; ctor: ViewConstructor; kind: 'view'; length: number; offset: number }
+  | { bytes: number[]; kind: 'buffer'; max: number | null }
   | { entries: Array<[Value, Value]>; kind: 'map' }
   | { entries: Array<Value | { hole: true }>; ext: Extensibility; kind: 'array' }
   | { extensible: boolean; fields: Array<[string, Slot]>; kind: 'object'; proto: Prototype }
   | { kind: 'date'; ms: number }
   | { kind: 'set'; members: Value[] }
+/** The view constructors a graph uses, by name; a view's offset and length are in bytes. */
 export type Kind = GraphNode['kind']
 export type NodeOf<K extends Kind> = Extract<GraphNode, { kind: K }>
 export type Prototype = 'null' | 'object' | { cls: number }
@@ -18,6 +21,7 @@ export type Slot =
   { a: Attributes; v: Value } | { c: boolean; e: boolean; get: Value; set: boolean | null }
 export type Value =
   boolean | number | string | { atom: number } | { ref: number } | { undef: true } | null
+export type ViewConstructor = 'DataView' | 'Int16Array' | 'Uint8Array'
 /** A table of one function per node kind, and the call that dispatches on a node's kind. */
 export type ByKind<A extends unknown[], R> = { [K in Kind]: (node: NodeOf<K>, ...rest: A) => R }
 export const byKind = <A extends unknown[], R>(
@@ -51,6 +55,8 @@ export interface Options {
   hazards?: boolean
   /** Data and accessor slots on the class prototypes, and more objects labelled with one. */
   inherited?: boolean
+  /** `ArrayBuffer`s, some resizable, and typed arrays and `DataView`s over them. */
+  binary?: boolean
   /** The largest graph. */
   nodes?: number
   /** Key and entry reorders in `next`. */
@@ -201,11 +207,42 @@ function buildMap(rng: Rng, references: readonly number[]): NodeOf<'map'> {
   return { entries: keys.map((k) => [k, value(rng, references, P_REFERENCE)]), kind: 'map' }
 }
 
+/** The bytes per element of each view constructor. */
+export const ELEMENT_SIZE: Readonly<Record<ViewConstructor, number>> = {
+  DataView: 1,
+  Int16Array: 2,
+  Uint8Array: 1,
+}
+const VIEW_CONSTRUCTORS = Object.keys(ELEMENT_SIZE) as ViewConstructor[]
+
+const bytes = (rng: Rng, length: number): number[] => Array.from({ length }, () => rng.int(256))
+
+/** A buffer of up to six bytes; a third are resizable, to a maximum of up to three more. */
+function buildBuffer(rng: Rng): NodeOf<'buffer'> {
+  const length = rng.int(7)
+  return {
+    bytes: bytes(rng, length),
+    kind: 'buffer',
+    max: rng.chance(0.3) ? length + rng.int(4) : null,
+  }
+}
+
+/** A view whose buffer and bounds `bindViews` settles once every node exists. */
+const buildView = (rng: Rng, references: readonly number[]): NodeOf<'view'> => ({
+  buffer: { ref: rng.pick(references) },
+  ctor: rng.pick(VIEW_CONSTRUCTORS),
+  kind: 'view',
+  length: 0,
+  offset: 0,
+})
+
 const builders: {
   [K in Kind]: (rng: Rng, references: readonly number[], options: Options) => GraphNode
 } = {
   array: buildArray,
+  buffer: buildBuffer,
   object: buildObject,
+  view: buildView,
   date: (rng) => ({ kind: 'date', ms: rng.int(1000) * 1000 }),
   map: (rng, references) => buildMap(rng, references),
   set: (rng, references) => ({
@@ -214,19 +251,65 @@ const builders: {
   }),
 }
 
+const KINDS: readonly Kind[] = [
+  'object',
+  'object',
+  'object',
+  'array',
+  'array',
+  'map',
+  'set',
+  'date',
+]
+const BINARY_KINDS: readonly Kind[] = [...KINDS, 'buffer', 'view', 'view']
+
 /** Builds a node of a graph whose other nodes are `references`. */
 const node = (rng: Rng, references: readonly number[], options: Options, kind?: Kind): GraphNode =>
-  builders[
-    kind ?? rng.pick(['object', 'object', 'object', 'array', 'array', 'map', 'set', 'date'])
-  ](rng, references, options)
+  builders[kind ?? rng.pick(options.binary === true ? BINARY_KINDS : KINDS)](
+    rng,
+    references,
+    options,
+  )
+
+/** Whether `offset` and `length` are a whole number of elements inside a buffer of `size` bytes. */
+const fits = (view: NodeOf<'view'>, size: number): boolean =>
+  view.offset >= 0 &&
+  view.offset % ELEMENT_SIZE[view.ctor] === 0 &&
+  view.length % ELEMENT_SIZE[view.ctor] === 0 &&
+  view.offset + view.length <= size
+
+/** Bounds inside a buffer of `size` bytes, in whole elements. */
+function placeView(rng: Rng, view: NodeOf<'view'>, size: number): void {
+  const element = ELEMENT_SIZE[view.ctor]
+  view.offset = element * rng.int(Math.floor(size / element) + 1)
+  view.length = element * rng.int(Math.floor((size - view.offset) / element) + 1)
+}
+
+/** Points every view that `fixed` leaves free at a buffer node, adding one when the graph has
+ * none, and keeps or replaces its bounds so that they fit that buffer. */
+function bindViews(rng: Rng, nodes: GraphNode[], fixed: (id: number) => boolean): void {
+  const buffers = (): number[] => nodes.flatMap((n, id) => (n.kind === 'buffer' ? [id] : []))
+  nodes.forEach((n, id) => {
+    if (n.kind !== 'view' || fixed(id)) return
+    const target = isReference(n.buffer) ? nodes[n.buffer.ref] : undefined
+    if (target?.kind !== 'buffer') {
+      if (buffers().length === 0) nodes.push(buildBuffer(rng))
+      n.buffer = { ref: rng.pick(buffers()) }
+    }
+    const size = (nodes[(n.buffer as { ref: number }).ref] as NodeOf<'buffer'>).bytes.length
+    if (!fits(n, size) || rng.chance(0.2)) placeView(rng, n, size)
+  })
+}
 
 /** The values a node holds, keys and values alike. */
 const valuesOf: ByKind<[], Value[]> = {
   array: (o) => o.entries.filter((entry): entry is Value => !isHole(entry)),
+  buffer: () => [],
   date: () => [],
   map: (o) => o.entries.flat(),
   object: (o) => o.fields.map(([, s]) => slotValue(s)),
   set: (o) => o.members,
+  view: (o) => [o.buffer],
 }
 
 const referencesOf = (o: GraphNode): number[] =>
@@ -244,9 +327,10 @@ function reachable(graph: Graph): number[] {
   return out
 }
 
-/** Hangs node `missing` off a host; a date holds no child. */
+/** Hangs node `missing` off a host; a date, a buffer or a view holds no such child. */
 const attachers: ByKind<[rng: Rng, missing: number], void> = {
   array: (host, _rng, missing) => host.entries.push({ ref: missing }),
+  buffer: () => undefined,
   date: () => undefined,
   map: (host, rng, missing) => {
     const used = new Set(host.entries.map(([k]) => k))
@@ -261,13 +345,14 @@ const attachers: ByKind<[rng: Rng, missing: number], void> = {
     else host.fields.push([free, held])
   },
   set: (host, _rng, missing) => host.members.push({ ref: missing }),
+  view: () => undefined,
 }
 
 /** A `current` graph: a root object or array and up to `options.nodes` nodes, every one reachable,
  * with extra references for sharing and cycles. */
 function genCurrent(rng: Rng, options: Options): Graph {
   const size = 1 + rng.int(options.nodes ?? 6)
-  const ids = Array.from({ length: size }, (_, index) => index)
+  const slots = Array.from({ length: size }, (_, index) => index)
   // The root takes a class prototype no more often than without `inherited`, and no accessor
   // under `hazards`, so that a hazard rarely rejects the call.
   const rootOptions: Options = {
@@ -275,11 +360,13 @@ function genCurrent(rng: Rng, options: Options): Graph {
     accessors: options.hazards === true ? false : options.accessors,
     inherited: false,
   }
-  const nodes: GraphNode[] = ids.map((id) =>
+  const nodes: GraphNode[] = slots.map((id) =>
     id === 0
-      ? node(rng, ids, rootOptions, rng.pick(['object', 'object', 'array']))
-      : node(rng, ids, options),
+      ? node(rng, slots, rootOptions, rng.pick(['object', 'object', 'array']))
+      : node(rng, slots, options),
   )
+  bindViews(rng, nodes, () => false)
+  const ids = nodes.map((_, index) => index)
   // Make every node reachable: hang each unreachable node off a reachable node.
   for (;;) {
     const seen = reachable({ nodes, root: { ref: 0 } })
@@ -353,11 +440,28 @@ function mutateSet(n: NodeOf<'set'>, rng: Rng, references: readonly number[]): v
   if (rng.chance(0.3)) addDistinct(n.members, value(rng, references, 0.4))
 }
 
+/** Changes a buffer's bytes, now and then its length or maximum. */
+function mutateBuffer(n: NodeOf<'buffer'>, rng: Rng): void {
+  if (rng.chance(0.5)) n.bytes = n.bytes.map((byte) => (rng.chance(0.4) ? rng.int(256) : byte))
+  if (rng.chance(0.15)) n.bytes = bytes(rng, rng.int(7))
+  if (rng.chance(0.1)) n.max = rng.chance(0.5) ? null : n.bytes.length + rng.int(4)
+  if (n.max !== null && n.max < n.bytes.length) n.max = n.bytes.length
+}
+
+/** Changes a view's constructor, bounds or buffer now and then; `bindViews` fits it again. */
+function mutateView(n: NodeOf<'view'>, rng: Rng, references: readonly number[]): void {
+  if (rng.chance(0.15)) n.ctor = rng.pick(VIEW_CONSTRUCTORS)
+  if (rng.chance(0.2)) n.offset = -1
+  if (rng.chance(0.2)) n.buffer = { ref: rng.pick(references) }
+}
+
 const mutators: ByKind<[rng: Rng, references: readonly number[], options: Options], void> = {
   array: mutateArray,
+  buffer: mutateBuffer,
   map: mutateMap,
   object: mutateObject,
   set: mutateSet,
+  view: mutateView,
   date: (n, rng) => {
     if (rng.chance(0.5)) n.ms = rng.int(1000) * 1000
   },
@@ -366,10 +470,12 @@ const mutators: ByKind<[rng: Rng, references: readonly number[], options: Option
 /** The ordered contents of a node, for reordering. */
 const orders: ByKind<[], unknown[]> = {
   array: () => [],
+  buffer: () => [],
   date: () => [],
   map: (n) => n.entries,
   object: (n) => n.fields,
   set: (n) => n.members,
+  view: () => [],
 }
 
 /** Changes the mirror `n` of a current node in place: value edits, key and entry additions,
@@ -393,6 +499,7 @@ function mutateNode(
 /** Puts a reference at a random position of a host, if it has one. */
 const holders: ByKind<[rng: Rng, reference: Value], void> = {
   array: (host, _rng, reference) => host.entries.push(reference),
+  buffer: () => undefined,
   date: () => undefined,
   map: (host, rng, reference) => host.entries.push([rng.int(1000) + 1000, reference]),
   object: (host, rng, reference) => {
@@ -400,6 +507,7 @@ const holders: ByKind<[rng: Rng, reference: Value], void> = {
       host.fields[rng.int(host.fields.length)][1] = { a: [true, true, true], v: reference }
   },
   set: (host, _rng, reference) => addDistinct(host.members, reference),
+  view: () => undefined,
 }
 
 /** The positions that hold the current object they mirror, chosen before any node is remapped so
@@ -466,6 +574,9 @@ function genNext(
     else nodes[index] = mutateNode(rng, nodes[index], references, options)
   }
   if (options.same === true) addHolders(rng, nodes, same.slice(0, size), sameNode)
+  // A view that is a current object keeps its buffer, which is one too.
+  bindViews(rng, nodes, (id) => same[id] !== null && same[id] !== undefined)
+  while (same.length < nodes.length) same.push(null)
   return { next: { nodes, root: { ref: 0 } }, same }
 }
 
@@ -477,10 +588,12 @@ const mappers: ByKind<[map: (v: Value) => Value], GraphNode> = {
     ...o,
     entries: o.entries.map((entry) => (isHole(entry) ? entry : map(entry))),
   }),
+  buffer: (o) => ({ ...o, bytes: [...o.bytes] }),
   date: (o) => ({ ...o }),
   map: (o, map) => ({ ...o, entries: o.entries.map(([k, v]): [Value, Value] => [map(k), map(v)]) }),
   object: (o, map) => ({ ...o, fields: o.fields.map(([k, s]) => [k, mapSlot(s, map)]) }),
   set: (o, map) => ({ ...o, members: o.members.map(map) }),
+  view: (o, map) => ({ ...o, buffer: map(o.buffer) }),
 }
 
 /** A copy of `o` with every reference mapped by `map`. */
@@ -505,6 +618,7 @@ export function genCase(seed: number, options: Options): Case {
 /** A recipe operation in the wire form `lean/Spec/Produce.lean` reads; `node` is a draft heap id:
  * a current node, or `cur.nodes.length + k` for the `k`th created object. */
 export type Op =
+  | { byte: number; index: number; node: number; op: 'setByte' }
   | { index: number; node: number; op: 'setIndex'; value: Value }
   | { key: string; node: number; op: 'deleteKey' }
   | { key: string; node: number; op: 'setKey'; value: Value }
@@ -528,14 +642,17 @@ export interface Recipe {
   returnsCurrent: boolean
 }
 
-/** The children a draft reaches, with the step to each: properties, elements, map values and set
- * members; a node reachable only as a map key has no draft. */
+/** The children a draft reaches, with the step to each: properties, elements, map values, set
+ * members and a view's buffer; a node reachable only as a map key has no draft. */
 const draftChildren: ByKind<[], Array<[Value | { hole: true }, Step]>> = {
   array: (o) => o.entries.map((entry, index) => [entry, { index }]),
+  buffer: () => [],
+  // A view's `buffer` getter returns the buffer's draft.
   date: () => [],
   map: (o) => o.entries.map(([, v], mapValue) => [v, { mapValue }]),
   object: (o) => o.fields.flatMap(([key, s]) => ('v' in s ? [[s.v, { key }]] : [])),
   set: (o) => o.members.map((m, member) => [m, { member }]),
+  view: (o) => [[o.buffer, { key: 'buffer' }]],
 }
 
 /** Records the path to a child not yet reached, and queues it. */
@@ -672,14 +789,23 @@ function setOp(target: NodeOf<'set'>, sim: Simulation, id: number): Op | undefin
 /** A write a draft of the node accepts, applied to the simulation, or none. */
 const draftOps: ByKind<[sim: Simulation, id: number], Op | undefined> = {
   array: arrayOp,
+  // A byte written through a `Uint8Array` over the buffer's copy.
   map: mapOp,
   object: objectOp,
   set: setOp,
+  buffer: (target, sim, id) => {
+    if (target.bytes.length === 0) return undefined
+    const index = sim.rng.int(target.bytes.length)
+    const byte = sim.rng.int(256)
+    target.bytes[index] = byte
+    return { byte, index, node: id, op: 'setByte' }
+  },
   date: (target, sim, id) => {
     const ms = sim.rng.int(1000) * 1000
     target.ms = ms
     return { ms, node: id, op: 'setTime' }
   },
+  view: () => undefined,
 }
 
 /** What the recipe returns: usually the root draft, else a draft or created object, or a primitive. */
@@ -711,7 +837,12 @@ function genRecipe(rng: Rng, current: Graph, options: Options): Recipe {
   }
   for (let count = rng.int(7); count > 0; count -= 1) {
     if (rng.chance(0.15)) {
-      const object = node(rng, anyReference(), { ...options, accessors: false, attributes: false })
+      const object = node(rng, anyReference(), {
+        ...options,
+        accessors: false,
+        attributes: false,
+        binary: false,
+      })
       ops.push({ obj: object, op: 'create' })
       created.push(heap.push(object) - 1)
       continue
