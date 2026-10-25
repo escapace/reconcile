@@ -495,6 +495,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 ### `produce`
 
+- **Special-value decision.** `chooseSpecial` in `src/graph/provenance.ts` decides whether a
+  `Date`, buffer, view, URL or Temporal value keeps its source, its registered copy or a fresh copy
+  from the equivalence and provenance facts finalization reads; it has no model and is tested
+  only (`produce-reads.spec.ts`, `url-ownership.spec.ts`, `hardened-kinds.ts` in
+  `standard-prototypes.spec.ts`).
 - **Drafts.** The recipe is isolated from the input, returning the original `current` cancels draft
   changes, and getters are sealed during finalization.
 - **Finalization reads.** Reading an object again lists the same children, as `SettledChildren`

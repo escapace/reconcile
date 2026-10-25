@@ -117,6 +117,17 @@ theorem retainPrefix_longest (cur next : List K) (p : List K) (hp : p.IsPrefix n
   simp only [retainPrefix, List.length_take]
   exact Nat.le_min.mpr ⟨this, hk⟩
 
+/-- A rule that retains only the common prefix of the two orders. -/
+def commonPrefix (cur next : List K) : List K :=
+  (next.zip cur).takeWhile (fun (a, b) => a == b) |>.map Prod.fst
+
+/-- Retaining only the common prefix breaks the promise: with `b` and `c` swapped, `a, c` is still
+a subsequence of `current`'s order, so only `b` must move, but the common prefix stops at `a`. -/
+example :
+    retainPrefix ["a", "b", "c"] ["a", "c", "b"] = ["a", "c"] ∧
+    commonPrefix ["a", "b", "c"] ["a", "c", "b"] = ["a"] := by
+  decide
+
 end Retention
 
 /-! ## Trace -/
@@ -172,6 +183,16 @@ theorem read_once_before_write (input : Input) (hw : (run input).writes = []) :
   · simp
   · rw [hnil hw]
     exact getCounts_le_one _
+
+/-- A trace that reads every captured key back even when nothing is written. -/
+def getCountsAlwaysReadback (captured : List (Nat × String)) : List (Nat × String × Nat) :=
+  getCounts captured [captured]
+
+/-- Reading back after a write-free pass breaks the promise: the getter of key `a` on object 0
+would run twice although nothing was written. -/
+example : (getCountsAlwaysReadback [(0, "a")]).contains (0, "a", 2) = true ∧
+    (getCounts [(0, "a")] []).contains (0, "a", 1) = true := by
+  decide
 
 /-! ## Passes -/
 
