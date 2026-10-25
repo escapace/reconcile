@@ -36,6 +36,8 @@ function preparePropertyCopy(
   // Indexed, as every loop that a trap, a getter or a rejection can leave is, so that leaving it
   // closes no iterator and reads no `return` through `Object.prototype`.
   const keys = ownKeys(source)
+  // `ownKeys` lists symbols last.
+  if (keys.length !== 0 && typeof keys[keys.length - 1] === 'symbol') state.holdsSymbols = true
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index]
     // The write that makes this copy already read its key's own data descriptor and value.
@@ -87,6 +89,7 @@ function writeProperty(
   else if (!Object.isExtensible(state.base)) return false
   const copy = preparePropertyCopy(state, property, descriptor, current)
   const written = state.rules.write(state, copy, property, value)
+  if (written && typeof property === 'symbol') state.holdsSymbols = true
   if (written) state.modified = true
   return written
 }
@@ -122,6 +125,9 @@ export class PropertyDraftState<K extends symbol = symbol>
   // The key whose inherited setter is running with this draft as receiver; its definition of
   // that key is the one reflective definition the draft accepts.
   declare private settingThrough: PropertyKey | undefined
+  // Whether the working copy may hold a symbol key; without one its key list needs no symbol
+  // listing.
+  declare holdsSymbols: boolean
 
   source(): object {
     return this.base
@@ -141,6 +147,7 @@ export class PropertyDraftState<K extends symbol = symbol>
     this.provided = undefined
     this.reported = undefined
     this.settingThrough = undefined
+    this.holdsSymbols = false
     this.rules = rules
   }
   /** Tests own presence on the object or its working copy, then inherited presence on the
@@ -271,7 +278,9 @@ export class PropertyDraftState<K extends symbol = symbol>
   // The private descriptor store has ordinary own-key ordering; a user source
   // retains the separate string/symbol observations used by finalization.
   keys(source: object): PropertyKey[] {
-    return ownKeys(this.copy ?? source)
+    const copy = this.copy
+    if (copy === undefined) return ownKeys(source)
+    return this.holdsSymbols ? ownKeys(copy) : Object.getOwnPropertyNames(copy)
   }
   /** Borrows the current own descriptor for internal inspection. */
   ownDescriptor(property: PropertyKey): PropertyDescriptor | undefined {

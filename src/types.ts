@@ -110,9 +110,15 @@ export interface PropertyDraftPort {
 /** Receives a structural draft observation: its layout and slots, with base provenance and isolated reads. */
 export interface DraftObservationContext<L extends Layout = Layout> {
   readonly base: object | undefined
+  /**
+   * Whether the call holds a special-value copy. Only a slot holding a value with a copy reads
+   * the slot's current-backed provenance (`DraftEdge`), so without one a kind passes no
+   * provenance it would have to read `base` for.
+   */
   readonly edge: DraftEdge
   readonly properties: PropertyDraftPort | undefined
   readonly begin: (layout: L) => void
+  readonly copies: () => boolean
   readonly read: (source: object, key: PropertyKey) => unknown
 }
 
