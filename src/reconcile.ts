@@ -47,7 +47,7 @@ import { publicationTypes } from './types/builtins'
  * an object lacks, and assigning it would reach such a getter or setter, that object cannot be
  * updated in place: inside `current`, it is replaced by a new object; if it is `current` itself,
  * the call throws before any write. A `__proto__` key is always defined as an own data property, so
- * data never replaces a prototype. A property other than an array element that `reconcile` adds is
+ * data never replaces a prototype. A property that `reconcile` adds, other than an array element, is
  * writable and configurable and takes the enumerability of the property in `next`, so a
  * non-enumerable one stays hidden from key listing, spread and JSON; a property it keeps has its
  * own attributes.
