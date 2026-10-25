@@ -309,7 +309,13 @@ export const objectImmutable = /* @__PURE__ */ (() => ({
             return false
           continue
         }
-        if (!visit(Reflect.get(current, key), node.edges[index])) return false
+        // A key the recipe deleted and assigned again is an ordinary property, which the object
+        // stays only if its property already was one.
+        if (
+          attributeBits(descriptor) !== node.attributes![index] ||
+          !visit(Reflect.get(current, key), node.edges[index])
+        )
+          return false
       }
       const keys = ownKeys(current)
       return (

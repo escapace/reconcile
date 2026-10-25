@@ -110,6 +110,20 @@ function fillElement(
 const slotBits = (bits: readonly number[] | undefined, position: number): number =>
   bits !== undefined && hasOwn(bits, position) ? bits[position] : 0
 
+// Marks the recorded attributes of a configurable element that an assignment would not create.
+const RECONFIGURED = 16
+
+/** The bits of a data element that a recipe could delete and assign again as an ordinary
+ * element, or 0: a non-configurable element cannot be deleted, an ordinary one is recreated as
+ * it was. */
+const reassignable = (descriptor: PropertyDescriptor): number =>
+  descriptor.configurable === true &&
+  (descriptor.enumerable !== true || descriptor.writable !== true)
+    ? RECONFIGURED |
+      (descriptor.enumerable === true ? 2 : 0) |
+      (descriptor.writable === true ? 4 : 0)
+    : 0
+
 // What the call already read at edge `edge`, which holds `key`, or `UNREAD`.
 const readAt = (
   node: CapturedNode<ArrayLayout>,
@@ -212,11 +226,12 @@ function observeElement(
     : properties === undefined
       ? (Reflect.get(array, key) as unknown)
       : properties.ownValue(key, own)
+  const bits = own === undefined ? 0 : data ? reassignable(own) : OBSERVED_ACCESSOR
   observer.edge(
     value,
     key,
     isObject(value) && backedProperty(observer.base, key, value),
-    data || own === undefined ? undefined : OBSERVED_ACCESSOR,
+    bits === 0 ? undefined : bits,
   )
 }
 
@@ -245,10 +260,12 @@ export const arrayImmutable = /* @__PURE__ */ (() => ({
         const descriptor = Object.getOwnPropertyDescriptor(current, index)
         if (descriptor === undefined) continue
         if (position >= node.keys.length || node.keys[position] !== String(index)) return false
-        // An own getter observed in this call stays as on objects (DraftSurface.keeps).
+        // An own getter observed in this call stays as on objects (DraftSurface.keeps); an
+        // element the recipe deleted and assigned again stays only if it was an ordinary one.
         if (
           isDataDescriptor(descriptor)
-            ? !visit(array[index], node.edges[position])
+            ? reassignable(descriptor) !== slotBits(node.attributes, position) ||
+              !visit(array[index], node.edges[position])
             : (slotBits(node.attributes, position) & OBSERVED_ACCESSOR) === 0 ||
               !visit(node.observed?.[position], node.edges[position])
         )
