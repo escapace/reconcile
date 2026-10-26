@@ -418,6 +418,10 @@ export interface CapturedGraph {
    * that no key is read twice before the first write; created on the first such object, and
    * extended by discovery. */
   reads?: Map<object, Map<PropertyKey, unknown>> | undefined
+  /** Whether an edge of an aligned object may offer another current object than the one its child
+   * is aligned with: an edge without a key or with construction input, or an edge to a captured
+   * node whose occupant is another object. Unset for a graph capture did not align. */
+  readonly offersOther?: boolean
 }
 
 /** Installs native layout state at the observer-defined begin boundary. */

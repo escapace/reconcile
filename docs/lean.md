@@ -119,12 +119,13 @@ table instead maps the main promises of the public functions to their theorems, 
 
 ### Reference models
 
-| Module(s)        | Key theorems                                                        | Runtime                                                          | Bridge            | Obligations                 |
-| ---------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------- | --------------------------- |
-| `Spec.Graph`     | `Graph.normalize` (definition)                                      | the graphs the bridge builds and reads back                      | Spec              | Spec agreement              |
-| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions) | `src/reconcile.ts` `reconcile`                                   | Spec, Spec phases | Spec agreement, Spec phases |
-| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                  | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`         | Spec              | Spec agreement              |
-| `Spec.Promises`  | most theorems in [Promises](#promises)                              | the documented promises of `reconcile`, `produce` and `snapshot` | Spec              | Spec agreement              |
+| Module(s)        | Key theorems                                                        | Runtime                                                                                        | Bridge            | Obligations                 |
+| ---------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------- | --------------------------- |
+| `Spec.Graph`     | `Graph.normalize` (definition)                                      | the graphs the bridge builds and reads back                                                    | Spec              | Spec agreement              |
+| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `retainPrefix` (definitions) | `src/reconcile.ts` `reconcile`                                                                 | Spec, Spec phases | Spec agreement, Spec phases |
+| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                  | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`                                       | Spec              | Spec agreement              |
+| `Spec.Promises`  | most theorems in [Promises](#promises)                              | the documented promises of `reconcile`, `produce` and `snapshot`                               | Spec              | Spec agreement              |
+| `Spec.Discovery` | `candidates_eq_aligned`, `offersAligned_needed`                     | `candidates` in `src/publication/candidates.ts`, `offersOther` in `src/publication/capture.ts` | Spec phases       | Ordinal candidates          |
 
 `Spec.Graph` is a heap of plain objects with ordered fields, each a data property with its
 attributes or an accessor with the value its getter returns and whether its setter stores,
@@ -194,6 +195,13 @@ Four counterexamples each show, on one input, a wrong definition that a theorem 
 retaining only the common prefix, reading back after a write-free pass, writing every key and
 re-adding a moved key as plain data. The runtime meets these promises exactly as far as the bridge
 shows it agrees with the reference.
+
+`Spec.Discovery` proves that when no reference of an aligned node offers, at its position, a
+current object of the child's kind other than the one the child is aligned with
+(`OffersAligned`), each node's candidates are its pinning alignment and nothing else
+(`candidates_eq_aligned`). The proof follows `candidateStep` pair by pair alongside `visitStep`,
+whose fuel suffices because each step consumes a pending pair or a node's references.
+`offersAligned_needed` shows a graph where one `next` object at two keys has two candidates.
 
 ### Promises
 
@@ -617,7 +625,13 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   `Spec.Reconcile.discover`, `orderedCandidates`). A current object is a candidate only at its own
   position; another position gets it only as a pinned fixed image (_Full capture_). The Spec bridge
   checks this on random graphs; `readme-publication-semantics.spec.ts` and
-  `shared-identity-bug.spec.ts` cover arrays, `Map` and `Set`.
+  `shared-identity-bug.spec.ts` cover arrays, `Map` and `Set`. Capture sets `offersOther` for an
+  edge of an aligned object without a key or with construction input, and for an edge to a
+  captured node whose occupant is an object other than the node's aligned current one. Otherwise
+  every edge `collect` would walk meets `OffersAligned`, and a kept subtree is an atom edge it does
+  not walk, so `candidates` gives each node its aligned current object alone without walking
+  (`Spec.Discovery.candidates_eq_aligned`). The `alias-offer-ignored` and `entry-offer-ignored`
+  mutants drop each case.
 - **Exposed handles.** Readback compares each read with the handle a node is bound to, so a value
   written must read back as that handle; a trap that returns another object for a stored one makes
   readback reject.

@@ -62,6 +62,9 @@ class AlignedCapture extends Detached {
   declare firstAligned: object | undefined
   declare firstAlignedAt: number
   declare reads: Map<object, Map<PropertyKey, unknown>> | undefined
+  // Whether an edge of an aligned object may offer another current object than the one its child
+  // is aligned with (`CapturedGraph.offersOther`).
+  declare offersOther: boolean
   // The one prototype read shared by recognition and its caller for the object at hand.
   declare private readonly read: PrototypeRead
   // The root's prototypes, read by the caller before capture.
@@ -98,6 +101,7 @@ class AlignedCapture extends Detached {
     this.firstAligned = undefined
     this.firstAlignedAt = 0
     this.reads = undefined
+    this.offersOther = false
     this.read = { known: false, prototype: null }
     this.nextPrototype = valuePrototype
     this.pendingPrototype = currentPrototype
@@ -289,8 +293,12 @@ class AlignedCapture extends Detached {
     kind: symbol | undefined,
   ): Edge {
     const aligned = this.currents[parent]
-    if (aligned === undefined || key === undefined || construction === true)
+    if (aligned === undefined) return this.visit(child, kind)
+    if (key === undefined || construction === true) {
+      // An entry or a construction input may offer an object capture does not align.
+      this.offersOther = true
       return this.visit(child, kind)
+    }
     const occupant = this.occupantOf(aligned, key)
     this.recordOccupant(parent, occupant)
     if (!isObject(child)) return child as Primitive
@@ -305,9 +313,17 @@ class AlignedCapture extends Detached {
       this.keep(child, childKind!)
     )
       return atom(references, child)
-    if (known !== undefined) return known
+    if (known !== undefined) return this.revisit(known, occupant)
     this.pending = isObject(occupant) ? occupant : undefined
     return this.observe(child, childKind!, prototype)
+  }
+
+  // An edge to an object captured already; an occupant other than its node's aligned object may
+  // offer that object to discovery.
+  private revisit(known: Edge, occupant: unknown): Edge {
+    if (isNode(known) && isObject(occupant) && occupant !== this.currents[known.node])
+      this.offersOther = true
+    return known
   }
 
   // Records the occupant read for the parent's next edge. A node's own-property edges all read
@@ -417,6 +433,7 @@ export function capture(
     kinds: run.kinds,
     nodes: run.nodes as CapturedNode[],
     occupants: run.occupants,
+    offersOther: run.offersOther,
     pinned: run.closure,
     prototypes: run.prototypes,
     reads: run.reads,

@@ -84,6 +84,20 @@ const MUTANTS: readonly Mutant[] = [
       '    const child = this.adopt(reference.node, value, key, construction, knownKind)\n    if (key !== undefined) node.keys.push(key)\n',
   },
   {
+    bridge: 'phases',
+    file: 'src/publication/capture.ts',
+    find: 'isObject(occupant) && occupant !== this.currents[known.node]',
+    name: 'alias-offer-ignored',
+    replace: 'false',
+  },
+  {
+    bridge: 'phases',
+    file: 'src/publication/capture.ts',
+    find: '      this.offersOther = true\n      return this.visit(child, kind)\n',
+    name: 'entry-offer-ignored',
+    replace: '      return this.visit(child, kind)\n',
+  },
+  {
     file: 'src/types/shared/properties.ts',
     find: '  hasOwn(current, key) ? Reflect.get(current, key) : undefined',
     name: 'own-value-through-prototype',

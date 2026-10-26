@@ -37,6 +37,7 @@ export function candidates(
     | 'firstAlignedAt'
     | 'kinds'
     | 'occupants'
+    | 'offersOther'
     | 'pinned'
     | 'prototypes'
     | 'reads'
@@ -44,9 +45,17 @@ export function candidates(
   >,
   note?: PublicationNote,
 ): Candidates {
+  // When no edge of the captured graph may offer another object, each node's only candidate is its
+  // aligned current object (Spec.Discovery.candidates_eq_aligned), so discovery does not walk. A
+  // kept subtree is an atom edge, which discovery does not walk either.
+  const currents = alignment?.offersOther === false ? alignment.currents : undefined
   // The prototype discovery's recognition read for each object it aligned, by object.
-  const prototypes = new Map<object, object | null>()
-  const aligned = collect(types, root, records, prototypes, alignment)
+  let prototypes: Map<object, object | null> | undefined
+  let aligned: ReadonlyArray<readonly object[] | undefined> | undefined
+  if (currents === undefined) {
+    prototypes = new Map()
+    aligned = collect(types, root, records, prototypes, alignment)
+  }
   // Objects inside pinned subtrees stay untouched, so no other position may retain one, and
   // a captured node whose own object lies inside one is already published: it is pinned to
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
@@ -87,13 +96,14 @@ export function candidates(
     if (node.pinned !== undefined)
       return [{ facts: undefined, identity: node.pinned, required: EMPTY_FACTS }]
     const policy = types.policies[node.layout.kind]
-    const list = index === 0 ? undefined : aligned[index]
-    const count = index === 0 ? 1 : list === undefined ? 0 : list.length
+    const list = index === 0 ? undefined : aligned?.[index]
+    const only = index === 0 ? root : currents?.[index]
+    const count = list !== undefined ? list.length : only === undefined ? 0 : 1
     // At most one candidate per aligned object, written in place and trimmed.
     const choices = denseArray<Candidate>(count)
     let written = 0
     for (let at = 0; at < count; at += 1) {
-      const choice = admitted(node, index, index === 0 ? root : list![at], policy)
+      const choice = admitted(node, index, list === undefined ? only! : list[at], policy)
       if (choice !== undefined) choices[written++] = choice
     }
     if (written !== choices.length) choices.length = written
@@ -254,11 +264,11 @@ function ingressOf(
   node: CapturedNode,
   index: number,
   candidate: object,
-  prototypes: ReadonlyMap<object, object | null>,
+  prototypes: ReadonlyMap<object, object | null> | undefined,
   alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
 ): object | null | undefined {
   if (candidate === alignment?.currents?.[index]) return alignment.prototypes?.[index]
-  if (index !== 0) return prototypes.get(candidate)
+  if (index !== 0) return prototypes!.get(candidate)
   return matchesKind(types, candidate, node.layout.kind) ? undefined : MISMATCH
 }
 
