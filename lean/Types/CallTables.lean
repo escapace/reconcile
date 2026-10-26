@@ -6,8 +6,8 @@ section models the earlier form as the reference and proves that the new one ans
 the runtime makes as the reference does, over any sequence of the operations the runtime performs.
 
 - The snapshot walk's reference memo (`SnapshotWalk.memoized` in `src/snapshot.ts`) holds the
-  first observed object's reference in two fields and every later one in a map made when a second
-  object is observed (`lazy_run_eq`).
+  first observed object's reference in two fields, which the root's visit fills without a lookup,
+  and makes its map, holding that reference, at the first lookup after it (`lazy_run_eq`).
 - serialize's scalar and plain-layout tables (`scalar` and `layout` in
   `src/serialization/emit.ts`) hold -1 at an index without an id instead of leaving it absent, and
   grow to the index they read (`filled_run_eq`).
@@ -24,30 +24,26 @@ section Memo
 
 variable {K : Type} [DecidableEq K]
 
-/-- The memo the walk keeps: the first observed object's reference, and every later one in a map
-made on the second, newest first. -/
+/-- The memo the walk keeps: the first observed object's reference, and the map made at the first
+lookup after it, holding that reference and every later one, newest first. -/
 structure Lazy (K : Type) where
   first : Option (K × Nat)
   rest : Option (List (K × Nat))
 
 def Lazy.empty : Lazy K := ⟨none, none⟩
 
-/-- `memoized`: the first object's reference, else the map's, if the map exists. -/
-def Lazy.lookup (m : Lazy K) (k : K) : Option Nat :=
-  match m.first with
-  | some (k', v) => if k = k' then some v else (m.rest.getD []).lookup k
-  | none => (m.rest.getD []).lookup k
+/-- The map a lookup reads: the map, or one made holding the first object's reference. -/
+def Lazy.table (m : Lazy K) : List (K × Nat) := m.rest.getD m.first.toList
 
-/-- `observe`'s memo write: the reference numbered 0 goes to the two fields, every other to the
-map. -/
-def Lazy.insert (m : Lazy K) (k : K) (v : Nat) : Lazy K :=
-  if v = 0 then { m with first := some (k, v) } else { m with rest := some ((k, v) :: m.rest.getD []) }
-
-/-- One visit of a source: its memoized reference, or a new one numbered by the count. -/
+/-- One visit of a source. The first, the root, takes no lookup: nothing is memoized yet. Every
+other looks the source up in the map, made if absent, and returns its reference or a new one
+numbered by the count. -/
 def Lazy.visit (m : Lazy K) (count : Nat) (k : K) : Nat × Lazy K × Nat :=
-  match m.lookup k with
-  | some v => (v, m, count)
-  | none => (count, m.insert k count, count + 1)
+  if count = 0 then (0, { m with first := some (k, 0) }, 1)
+  else
+    match m.table.lookup k with
+    | some v => (v, { m with rest := some m.table }, count)
+    | none => (count, { m with rest := some ((k, count) :: m.table) }, count + 1)
 
 /-- The same visit with the earlier memo, one map for every object. -/
 def plainVisit (m : List (K × Nat)) (count : Nat) (k : K) : Nat × List (K × Nat) × Nat :=
@@ -66,71 +62,26 @@ def plainRun : List (K × Nat) → Nat → List K → List Nat
   | m, count, k :: ks =>
     (plainVisit m count k).1 :: plainRun (plainVisit m count k).2.1 (plainVisit m count k).2.2 ks
 
-omit [DecidableEq K] in
-theorem lookup_cons_ne [BEq K] [LawfulBEq K] {k k' : K} (v : Nat) (l : List (K × Nat))
-    (h : k' ≠ k) : ((k, v) :: l).lookup k' = l.lookup k' := by
-  simp [List.lookup, beq_eq_false_iff_ne.2 h]
-
-/-- The two memos agree on every object, and the two fields stay free until the first insertion. -/
+/-- Before the root both memos are empty; after it, every lookup reads the earlier memo's map. -/
 def MemoAgree (m : Lazy K) (p : List (K × Nat)) (count : Nat) : Prop :=
-  (∀ k, m.lookup k = p.lookup k) ∧ (count = 0 → m.first = none)
+  (count = 0 → m = Lazy.empty ∧ p = []) ∧ (count ≠ 0 → m.table = p)
 
 theorem memoAgree_visit {m : Lazy K} {p : List (K × Nat)} {count : Nat} (k : K)
     (h : MemoAgree m p count) :
     (m.visit count k).1 = (plainVisit p count k).1 ∧
     (m.visit count k).2.2 = (plainVisit p count k).2.2 ∧
     MemoAgree (m.visit count k).2.1 (plainVisit p count k).2.1 (m.visit count k).2.2 := by
-  obtain ⟨hl, hf⟩ := h
+  obtain ⟨hz, hs⟩ := h
   unfold Lazy.visit plainVisit
-  rw [hl k]
-  cases hp : p.lookup k with
-  | some v => exact ⟨rfl, rfl, hl, hf⟩
-  | none =>
-    refine ⟨rfl, rfl, ?_, by simp⟩
-    intro k'
-    have hk' := hl k'
-    unfold Lazy.insert
-    unfold Lazy.lookup at hk' ⊢
-    by_cases hc : count = 0
-    · subst hc
-      rw [hf rfl] at hk'
-      simp only [if_true]
-      by_cases hkk : k' = k
-      · subst hkk
-        simp
-      · simp only [hkk, if_false] at ⊢
-        rw [lookup_cons_ne _ _ hkk, ← hk']
-    · simp only [hc, if_false]
-      by_cases hkk : k' = k
-      · subst hkk
-        have hm : ∀ e, m.first = some e → e.1 ≠ k' := by
-          intro e he hek
-          have := hl k'
-          unfold Lazy.lookup at this
-          rw [he, hp] at this
-          obtain ⟨k1, v1⟩ := e
-          simp only at hek
-          subst hek
-          simp at this
-        cases hfirst : m.first with
-        | none => simp
-        | some e =>
-          obtain ⟨k1, v1⟩ := e
-          have hne : k' ≠ k1 := fun h => hm _ hfirst h.symm
-          simp [hne]
-      · rw [lookup_cons_ne _ _ hkk]
-        cases hfirst : m.first with
-        | none =>
-          rw [hfirst] at hk'
-          simp only [Option.getD_some]
-          rw [lookup_cons_ne _ _ hkk]
-          exact hk'
-        | some e =>
-          obtain ⟨k1, v1⟩ := e
-          rw [hfirst] at hk'
-          simp only [Option.getD_some]
-          rw [lookup_cons_ne _ _ hkk]
-          exact hk'
+  by_cases hc : count = 0
+  · obtain ⟨rfl, rfl⟩ := hz hc
+    subst hc
+    simp [MemoAgree, Lazy.table, Lazy.empty]
+  · simp only [hc, if_false]
+    rw [hs hc]
+    cases hl : p.lookup k with
+    | some v => exact ⟨rfl, rfl, fun h => absurd h hc, fun _ => by simp [Lazy.table]⟩
+    | none => exact ⟨rfl, rfl, fun h => absurd h (Nat.succ_ne_zero _), fun _ => by simp [Lazy.table]⟩
 
 theorem memoAgree_run : ∀ (ks : List K) (m : Lazy K) (p : List (K × Nat)) (count : Nat),
     MemoAgree m p count → Lazy.run m count ks = plainRun p count ks
@@ -142,7 +93,10 @@ theorem memoAgree_run : ∀ (ks : List K) (m : Lazy K) (p : List (K × Nat)) (co
 
 /-- The walk's memo returns the reference the earlier memo returned at every visit. -/
 theorem lazy_run_eq (ks : List K) : Lazy.run Lazy.empty 0 ks = plainRun [] 0 ks :=
-  memoAgree_run ks _ _ _ ⟨fun _ => rfl, fun _ => rfl⟩
+  memoAgree_run ks _ _ _ ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd rfl h⟩
+
+-- A root that holds itself: the first lookup makes the map from the root's reference and finds it.
+example : Lazy.run (K := Nat) Lazy.empty 0 [7, 7, 8, 7] = [0, 0, 1, 0] := by decide
 
 end Memo
 
