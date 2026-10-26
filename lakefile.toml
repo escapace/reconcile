@@ -81,6 +81,7 @@ roots = [
   "Types.RecognitionPlain",
   "Oracle.RecognitionPlainOracle",
   "Types.Ingress",
+  "Types.CallTables",
   "Oracle.IngressOracle",
   "Types.Atoms",
   "Oracle.AtomsOracle",
