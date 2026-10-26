@@ -14,6 +14,9 @@ the runtime makes as the reference does, over any sequence of the operations the
 - deserialize's shape table (`checkShape` in `src/serialization/decode.ts`) holds each shape's
   offset, inheritance flag and key words as three consecutive entries of one list instead of one
   entry in each of three lists (`interleave_length`, `interleave_get`).
+- serialize's payload rows (`push` in `src/serialization/emit.ts`) take each value at the row's
+  count, in a row made at its final length or grown as values arrive, instead of by `push`
+  (`fill_row`, `fill_empty`).
 -/
 
 namespace Reconcile.Types.CallTables
@@ -236,5 +239,62 @@ theorem interleave_get : ∀ (shapes : List (Nat × Bool × Nat)) (j : Nat) (h :
       simpa using ih.2.2
 
 end Shapes
+
+/-! ## serialize's payload rows -/
+
+section Rows
+
+variable {α : Type}
+
+/-- `push`'s write: the value at the row's count, which a row made at its final length holds as a
+placeholder, or appended when the row has no slot there. -/
+def write (row : List α) (count : Nat) (v : α) : List α :=
+  if count < row.length then row.set count v else row ++ [v]
+
+/-- The row and count after writing `vs` in order. -/
+def fill (row : List α) (count : Nat) : List α → List α × Nat
+  | [] => (row, count)
+  | v :: vs => fill (write row count v) (count + 1) vs
+
+/-- Writing after the values `p` already written, into a row made with `n` placeholders, leaves
+the values written so far followed by the placeholders not yet reached. -/
+theorem fill_prefix (d : α) (n : Nat) : ∀ (vs p : List α),
+    fill (p ++ List.replicate (n - p.length) d) p.length vs =
+      (p ++ vs ++ List.replicate (n - p.length - vs.length) d, p.length + vs.length)
+  | [], p => by simp [fill]
+  | v :: vs, p => by
+    have step : write (p ++ List.replicate (n - p.length) d) p.length v =
+        (p ++ [v]) ++ List.replicate (n - (p ++ [v]).length) d := by
+      unfold write
+      by_cases h : p.length < n
+      · have hn : n - p.length = (n - (p.length + 1)) + 1 := by omega
+        rw [if_pos (by simp; omega), hn, List.replicate_succ, List.set_append_right _ _ (by omega)]
+        simp
+      · rw [if_neg (by simp; omega), show n - p.length = 0 by omega,
+          show n - (p ++ [v]).length = 0 by simp; omega]
+        simp
+    simp only [fill]
+    rw [step, show p.length + 1 = (p ++ [v]).length by simp, fill_prefix d n vs (p ++ [v])]
+    have hk : n - (p ++ [v]).length - vs.length = n - p.length - (v :: vs).length := by
+      simp only [List.length_append, List.length_cons, List.length_nil]
+      omega
+    rw [hk]
+    refine Prod.ext ?_ ?_
+    · simp
+    · simp only [List.length_append, List.length_cons, List.length_nil]
+      omega
+
+/-- A row made at its final length, as a short record's is, ends holding exactly its values, and
+its count is the length a pushed row would have. -/
+theorem fill_row (d : α) (vs : List α) :
+    fill (List.replicate vs.length d) 0 vs = (vs, vs.length) := by
+  simpa using fill_prefix d vs.length vs []
+
+/-- A row that starts empty grows by the same writes into the pushed row. -/
+theorem fill_empty : ∀ vs : List α, fill [] 0 vs = (vs, vs.length)
+  | [] => rfl
+  | v :: vs => by simpa using fill_prefix v 0 (v :: vs) []
+
+end Rows
 
 end Reconcile.Types.CallTables
