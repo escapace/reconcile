@@ -35,6 +35,7 @@ export const diagnosticNames = [
   'diag-required-max-bytes',
   'diag-tiny-produce',
   'diag-tiny-reconcile',
+  'diag-tiny-serialize',
   'serialize',
   'deserialize',
   ...smallScenarioNames,
@@ -469,6 +470,11 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
   'diag-tiny-reconcile': ({ api, size }) => ({
     state: 'flat object of n keys updated in place; rotates unchanged, sparse and full nexts',
     ...flatOperation(api, 'reconcile', size),
+  }),
+  'diag-tiny-serialize': ({ api, size }) => ({
+    layer: 'serialization',
+    state: 'flat object of n keys encoded as JSON text',
+    ...flatOperation(api, 'serialize', size),
   }),
   'diag-undo': (context) => produceAlias(context, true),
   'diag-unsupported-cycle': ({ api, size }) => {

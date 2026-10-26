@@ -64,6 +64,8 @@ export interface EncodeContext {
 }
 export interface Frame {
   child: unknown
+  // The number of values the row holds; a row made at its length holds holes after them.
+  count: number
   end: number
   holes: number[] | undefined
   id: number

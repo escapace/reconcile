@@ -30,15 +30,18 @@ export function slot(frame: Frame, item: unknown, context: EncodeContext): void 
   }
 }
 // Frames complete in stack order, so a frame's boundaries are the top of one per-call stack
-// from its first boundary until it completes.
+// from its first boundary until it completes. Each value is written at the row's count, into a
+// row made at its length or one that grows, which ends as the pushed row (Types.CallTables
+// fill_row, fill_empty).
 function push(frame: Frame, value: unknown, reference: boolean, context: EncodeContext): void {
-  const row = frame.row
+  const count = frame.count
   if (reference !== frame.reference) {
     if (frame.runs < 0) frame.runs = context.top
-    context.boundaries[context.top++] = row.length
+    context.boundaries[context.top++] = count
     frame.reference = reference
   }
-  row.push(value)
+  frame.row[count] = value
+  frame.count = count + 1
 }
 function special(item: number, context: EncodeContext): number {
   const tag = Number.isNaN(item) ? 14 : item === Infinity ? 15 : item === -Infinity ? 16 : 17
@@ -128,6 +131,7 @@ export function node(item: object, context: EncodeContext): number {
 export function frame(id: number, tag: number, detail: number | undefined, value: unknown): Frame {
   return {
     child: undefined,
+    count: 0,
     detail,
     end: 0,
     holes: undefined,

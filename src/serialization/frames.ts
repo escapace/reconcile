@@ -11,6 +11,10 @@ import { intern } from './radix'
 import { openBuiltin, hasElement } from '../standard-prototypes'
 import { hasSymbolKey, hiddenNames } from '../object-property'
 
+// Up to this many values, a row made at its length costs less than the first push, which in V8
+// reserves 17 slots; beyond it a pushed row costs no more and stays packed, which JSON.stringify
+// writes faster.
+const presizedRow = 8
 // True when the last slot pushed a frame that must complete first.
 const pushed = (frame: Frame, context: EncodeContext) =>
   context.stack[context.stack.length - 1] !== frame
@@ -96,7 +100,9 @@ function record(frame: Frame, context: EncodeContext) {
     frame.keys = names
     // The shape id is the record layout's key field.
     frame.detail = intern(context.shapeRoot, context.shapes, frame.keys)
-    frame.row = []
+    // push writes every index of a short row before the row is read, so no hole is read; a
+    // longer row grows by push.
+    frame.row = names.length <= presizedRow ? new Array(names.length) : []
     frame.phase = 1
   }
   const keys = frame.keys
