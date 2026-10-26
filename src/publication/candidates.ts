@@ -303,8 +303,8 @@ function align(aligned: Array<object[] | undefined>, index: number, candidate: o
 // Traversal and visitation are graph-owned; native policies only expose aligned slots.
 // Aligned objects per node are few, so a small array replaces a Set per node; a visited node
 // without one holds the shared empty `VISITED`.
-// Pinned nodes are fixed and never aligned; a first visit through the object aligned
-// capture already recognized reuses the occupant reads recorded for its edges.
+// A first visit through the object capture aligned and recognized reuses the occupant reads
+// recorded for its edges.
 /** The edge of the root node. */
 const ROOT_EDGE: Edge = /* @__PURE__ */ Object.freeze({ node: 0 })
 
@@ -427,7 +427,6 @@ function collect(
     if (!isNode(edge)) return
     const index = edge.node
     const node = records[index]
-    if (node.pinned !== undefined) return
     // An already aligned pair carries the selected kind. Repeated aliases do
     // not reopen native recognition or observe the same child surface again.
     const choices = aligned[index]
