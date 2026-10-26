@@ -9,10 +9,9 @@ function record(prototype: null | undefined): Decoder {
     link: undefined,
     allocate(payload, layout, context) {
       const shape = context.control[layout + 1] as number
-      if (payload.length !== context.control[context.shapes[3 * shape] - 1])
-        fail('object shape arity')
+      if (payload.length !== context.control[context.shapes[shape] - 1]) fail('object shape arity')
       // A header, a key slot and a value slot per property, and every key's payload.
-      if (context.limited) charge(context, 1 + 2 * payload.length + context.shapes[3 * shape + 2])
+      if (context.limited) charge(context, 1 + 2 * payload.length + context.shapeWords[shape])
       if (context.measuring) return undefined
       return prototype === null ? (Object.create(null) as object) : {}
     },
@@ -21,10 +20,10 @@ function record(prototype: null | undefined): Decoder {
       if (context.measuring) return
       const { control } = context
       const shape = control[layout + 1] as number
-      const keys = context.shapes[3 * shape]
+      const keys = context.shapes[shape]
       // A key `Object.prototype` lacks is assigned, which reaches nothing; `define` decides each
       // key of a shape that holds one.
-      if (context.shapes[3 * shape + 1] === 1)
+      if (context.shapeInherits[shape])
         for (let index = 0; index < payload.length; index++)
           define(value as object, control[keys + index] as string, payload[index])
       else

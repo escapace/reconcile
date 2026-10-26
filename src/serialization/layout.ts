@@ -4,8 +4,6 @@
 // 0 record, 1 null-prototype record, 2 dense array, 3 sparse array, 4 Map, 5 Set, 6 Date,
 // 7 ArrayBuffer, 8 view, 9 URL, 10 URLSearchParams, 11 a URL's own URLSearchParams,
 // 12 Temporal, 13 undefined, 14 NaN, 15 Infinity, 16 -Infinity, 17 -0, 18 bigint.
-/** The number of node tags. */
-export const TAGS = 19
 export const keyed = (tag: number): boolean => tag <= 1 || tag === 8 || tag === 12
 export const slotted = (tag: number): boolean => tag <= 5
 // Positional.lean runsGo / presenceGo: run boundaries, recorded where the kind changes, become

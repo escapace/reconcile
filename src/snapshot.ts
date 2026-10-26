@@ -117,18 +117,16 @@ type Deliver = (
 
 /**
  * One snapshot call's traversal state. Its methods are the walk's steps, so a call allocates
- * this object rather than one closure per step, and its reference memo only when it observes a
- * second object.
+ * this object and its reference memo rather than one closure per step.
  *
  * @remarks
- * The traversal memoizes the private reference before observing children: the first object's in
- * `firstSource` and `firstReference`, every other in `references`.
+ * The traversal memoizes the private reference in `references` before observing children.
  * Without a caller memo, a completed reference resolves to its target; a pending one stays a
  * node edge. The facets call `begin` and `edge` only while their own `observe` runs and never
  * catch a callback's exception, so one pair of callbacks, created when the first facet runs,
  * serves every node, routed through `currentReference` to the node being observed.
  */
-class SnapshotWalk extends Detached implements PrototypeRead {
+class SnapshotWalk extends Detached {
   declare beginCallback: Begin | undefined
   declare readonly callerMemo: WeakMap<object, object> | undefined
   declare constructed: WeakMap<object, object> | undefined
@@ -136,24 +134,15 @@ class SnapshotWalk extends Detached implements PrototypeRead {
   declare currentReference: SnapshotReference | undefined
   declare currentSource: object | undefined
   declare edgeCallback: Deliver | undefined
-  /** The first object the walk observes and its reference, which `references` never holds. */
-  declare firstReference: SnapshotReference | undefined
-  declare firstSource: object | undefined
-  /** The prototype recognition read for the object `observe` is on, before it recurses: the walk
-   * is its own `PrototypeRead`, so a call allocates no separate record. */
-  declare known: boolean
-  declare prototype: object | null
-  /** Every other observed object's reference, made when the walk observes a second object. */
-  declare references: Map<object, SnapshotReference> | undefined
+  /** The prototype recognition read for the object `observe` is on, before it recurses. */
+  declare readonly read: PrototypeRead
+  declare readonly references: Map<object, SnapshotReference>
 
   constructor(seen: WeakMap<object, object> | undefined) {
     super()
     this.callerMemo = seen
-    this.known = false
-    this.prototype = null
-    this.references = undefined
-    this.firstReference = undefined
-    this.firstSource = undefined
+    this.read = { known: false, prototype: null }
+    this.references = new Map()
     this.constructed = undefined
     this.count = 0
     this.currentReference = undefined
@@ -169,7 +158,7 @@ class SnapshotWalk extends Detached implements PrototypeRead {
       const external = seen.get(source)
       if (external !== undefined) return { node: undefined, value: external }
     }
-    const reference = this.memoized(source)
+    const reference = this.references.get(source)
     if (reference === undefined) return this.observe(source, kind)
     const target = seen === undefined ? reference.target : undefined
     return target === undefined ? reference : { node: undefined, value: target }
@@ -209,19 +198,14 @@ class SnapshotWalk extends Detached implements PrototypeRead {
       const external = seen.get(value)
       if (external !== undefined) return external
     }
-    return (this.memoized(value) ?? this.observe(value)).target
-  }
-
-  // The reference the walk memoized for `source`, if it observed it.
-  memoized(source: object): SnapshotReference | undefined {
-    return source === this.firstSource ? this.firstReference : this.references?.get(source)
+    return (this.references.get(value) ?? this.observe(value)).target
   }
 
   // Objects, arrays, Maps and Sets are observed inline, with the same native reads in the same
   // order as their capture `observe`, then the target, the memo write and each slot.
   // fallow-ignore-next-line complexity -- one copy per object; a helper per object costs snapshot time
   observeObject(reference: SnapshotReference, source: object): void {
-    const prototype = prototypeOf(source, this)
+    const prototype = prototypeOf(source, this.read)
     // The structural scan ends here for atoms too; one more step of the same walk keeps them.
     if (prototype !== Object.prototype && prototype !== null && atomPrototype(prototype)) {
       // Kept by reference.
@@ -296,7 +280,7 @@ class SnapshotWalk extends Detached implements PrototypeRead {
 
   // A Map or Set is read, and its copy filled, with the built-ins, so no override runs.
   observeMap(reference: SnapshotReference, source: object): void {
-    const prototype = prototypeOf(source, this)
+    const prototype = prototypeOf(source, this.read)
     const target = new Map<unknown, unknown>()
     reference.target = target
     this.remember(source, target)
@@ -308,7 +292,7 @@ class SnapshotWalk extends Detached implements PrototypeRead {
   }
 
   observeSet(reference: SnapshotReference, source: object): void {
-    const prototype = prototypeOf(source, this)
+    const prototype = prototypeOf(source, this.read)
     const target = new Set<unknown>()
     reference.target = target
     this.remember(source, target)
@@ -321,7 +305,7 @@ class SnapshotWalk extends Detached implements PrototypeRead {
   // Dates, ArrayBuffers, typed arrays and DataViews are observed inline in the same way.
   observeDate(reference: SnapshotReference, value: object): void {
     const target = new Date(timeOf(value))
-    adoptPrototype(target, prototypeOf(value, this), Date.prototype)
+    adoptPrototype(target, prototypeOf(value, this.read), Date.prototype)
     reference.target = target
     this.callerMemo?.set(value, target)
   }
@@ -341,7 +325,7 @@ class SnapshotWalk extends Detached implements PrototypeRead {
       const external = seen.get(source)
       if (external !== undefined) return this.constructed?.get(external) ?? external
     }
-    const reference = this.memoized(source)
+    const reference = this.references.get(source)
     if (reference === undefined) return this.observe(source, ARRAY_BUFFER_KIND).target
     const target = seen === undefined ? reference.target : undefined
     if (target !== undefined) return this.constructed?.get(target) ?? target
@@ -363,14 +347,12 @@ class SnapshotWalk extends Detached implements PrototypeRead {
   // fallow-ignore-next-line complexity -- one dispatch per node; helper calls here cost snapshot time
   observe(source: object, kind?: symbol): SnapshotReference {
     const reference = new SnapshotReference(this.count++)
-    if (reference.node === 0) {
-      this.firstReference = reference
-      this.firstSource = source
-    } else (this.references ??= new Map()).set(source, reference)
+    this.references.set(source, reference)
     // The built-in object observer splits atoms itself, with the prototype recognition read. The
     // built-in observers take that read before they recurse into children (Types.Ingress).
-    this.known = false
-    const known = kind ?? recognizeStructure(snapshotTypes, source, this)
+    const read = this.read
+    read.known = false
+    const known = kind ?? recognizeStructure(snapshotTypes, source, read)
     if (known === OBJECT_KIND) {
       this.observeObject(reference, source)
       return reference

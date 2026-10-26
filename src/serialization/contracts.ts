@@ -22,9 +22,11 @@ export interface DecodeContext extends Budget {
   owned: number
   parameters: Array<number | undefined> | undefined
   payloads: unknown[][]
-  // Per shape: the offset of its first key, 1 when `Object.prototype` holds one of its keys
-  // (unread while measuring) or 0, and its key words.
+  // Whether any of each shape's keys is a key `Object.prototype` holds; unread while measuring.
+  shapeInherits: boolean[]
   shapes: number[]
+  // Each shape's key words.
+  shapeWords: number[]
   urls: number
   // Each node's words per occurrence (a bigint's digits; 0 otherwise), created by the first
   // bigint while sizes are charged, so that documents without bigints read no weights.
@@ -53,7 +55,7 @@ export interface EncodeContext {
   layoutRoot: RadixNode<number>
   layouts: number[][]
   payloads: Array<Row | undefined>
-  plain: Array<number[] | undefined> | undefined
+  plain: number[][] | undefined
   scalars: number[] | undefined
   scratch: number[]
   shapeRoot: RadixNode<string>
