@@ -11,7 +11,6 @@ import type {
   ImmutablePolicy,
 } from '../types'
 import { emptyEdges, noChildren, noDependencies } from './shared/empty'
-import { knownPrototype } from '../object-property'
 
 // The built-in time accessors: a subclass override or a patched prototype is never called, as
 // for buffers and URLs.
@@ -27,9 +26,9 @@ export const DATE_KIND = Symbol('date')
 
 const dateCapture = {
   construction: noValue,
-  observe(value, begin, _edge, _mode, known) {
+  observe(value, begin) {
     const time = timeOf(value)
-    begin({ kind: DATE_KIND, prototype: knownPrototype(value, known), time })
+    begin({ kind: DATE_KIND, prototype: Object.getPrototypeOf(value) as object | null, time })
   },
 } satisfies CapturePolicy<DateLayout>
 
@@ -62,8 +61,12 @@ export const dateImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value, _resolve, _owners, known) =>
-        adoptPrototype(new Date(timeOf(value)), knownPrototype(value, known), Date.prototype),
+      copy: (value) =>
+        adoptPrototype(
+          new Date(timeOf(value)),
+          Object.getPrototypeOf(value) as object | null,
+          Date.prototype,
+        ),
       equivalent: (base, candidate) => Object.is(timeOf(base), timeOf(candidate)),
     } satisfies SpecialPolicy),
     tag: 'copy',

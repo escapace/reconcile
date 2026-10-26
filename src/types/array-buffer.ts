@@ -23,8 +23,8 @@ export const ARRAY_BUFFER_KIND = Symbol('array-buffer')
 
 const arrayBufferCapture = {
   construction: (layout) => layout.bytes,
-  observe(value, begin, _edge, _mode, known) {
-    begin({ bytes: copyBuffer(value, known), kind: ARRAY_BUFFER_KIND })
+  observe(value, begin) {
+    begin({ bytes: copyBuffer(value), kind: ARRAY_BUFFER_KIND })
   },
 } satisfies CapturePolicy<ArrayBufferLayout>
 
@@ -61,7 +61,7 @@ export const arrayBufferImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy: (value, _resolve, _owners, known) => copyBuffer(value, known),
+      copy: (value) => copyBuffer(value),
       equivalent: (base, candidate) =>
         bufferEquivalent(base as ArrayBuffer, candidate as ArrayBuffer),
     } satisfies SpecialPolicy),

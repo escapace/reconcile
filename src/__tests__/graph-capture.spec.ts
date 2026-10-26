@@ -11,16 +11,6 @@ import { capture } from '../publication/capture'
 import { snapshot } from '../snapshot'
 import { publicationTypes } from '../types/builtins'
 
-/** Captures `value` aligned with an empty object, which holds no occupant to keep or read. */
-const captureAlone = (value: object) =>
-  capture(
-    publicationTypes,
-    value,
-    {},
-    Object.getPrototypeOf(value) as object | null,
-    Object.prototype,
-  )
-
 describe('shared native graph capture', () => {
   it('registers every supported node once, including view construction edges', () => {
     const buffer = new ArrayBuffer(8)
@@ -34,7 +24,7 @@ describe('shared native graph capture', () => {
       view: new DataView(buffer),
     }
     source.array.push(source, source.typed)
-    const graph = captureAlone(source)
+    const graph = capture(publicationTypes, source)
     expect(graph.nodes.map((node) => node.layout.kind)).toEqual([
       OBJECT_KIND,
       ARRAY_KIND,
@@ -67,7 +57,7 @@ describe('shared native graph capture', () => {
       return undefined
     }
     source[Symbol.iterator] = source.entries.bind(source)
-    const graph = captureAlone(source)
+    const graph = capture(publicationTypes, source)
     expect(graph.nodes[0].edges).toEqual([{ node: 1 }, 1, { node: 2 }, 2, 'key', 5])
     expect(graph.nodes).toHaveLength(3)
     expect(overridden).toBe(0)
@@ -150,7 +140,7 @@ describe('shared native graph capture', () => {
     }
     const view = new Uint8Array(8)
     Object.defineProperty(view, 'constructor', { value: Sample })
-    captureAlone({
+    capture(publicationTypes, {
       view,
       get after() {
         events.push('after')
@@ -234,7 +224,9 @@ describe('shared native graph capture', () => {
         return undefined
       }
       source[Symbol.iterator] = source.entries.bind(source)
-      expect(() => (mode === 'snapshot' ? snapshot(source) : captureAlone(source))).toThrow(failure)
+      expect(() =>
+        mode === 'snapshot' ? snapshot(source) : capture(publicationTypes, source),
+      ).toThrow(failure)
       expect(overridden).toBe(0)
     },
   )
@@ -249,8 +241,8 @@ describe('shared native graph capture', () => {
       yield 9
       return undefined
     }
-    const mapEdges = captureAlone(map).nodes[0].edges
-    const setEdges = captureAlone(set).nodes[0].edges
+    const mapEdges = capture(publicationTypes, map).nodes[0].edges
+    const setEdges = capture(publicationTypes, set).nodes[0].edges
     expect(mapEdges).toEqual([0, 2])
     expect(setEdges).toEqual([0])
     expect(Object.is(mapEdges[0], 0) && Object.is(setEdges[0], 0)).toBe(true)

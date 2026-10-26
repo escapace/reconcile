@@ -1,4 +1,4 @@
-import type { PrototypeRead, TemporalClass } from './object-property'
+import type { PrototypeRead } from './object-property'
 
 export type { PrototypeRead }
 
@@ -138,15 +138,11 @@ export interface SpecialPolicy {
     copy: object,
     owners: NativeOwners,
   ) => boolean
-  /** Copies one value; declared dependencies resolve through the caller with their known kind.
-   * `prototype` is the value's prototype and `temporal` the Temporal class when recognition just
-   * found them; the copy reads either only when it is not given (Types.Ingress). */
+  /** Copies one value; declared dependencies resolve through the caller with their known kind. */
   copy: (
     value: object,
     resolve: (dependency: object, kind: symbol) => object,
     owners: NativeOwners,
-    prototype?: object | null,
-    temporal?: TemporalClass,
   ) => object
   equivalent: (base: object, candidate: object) => boolean
   /** Visits declared copy dependencies in native observation order, stopping on false. */
@@ -192,17 +188,13 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     read: (source: object, key: PropertyKey) => unknown,
     test: (value: unknown) => boolean,
   ) => boolean
-  /** Emits synchronously in native read order, propagating consumer failures and construction
-   * responses. `prototype` is the value's prototype and `temporal` the Temporal class when the
-   * caller's recognition found them; the facet reads either only when it is not given
-   * (Types.Ingress.capture_reads_once). */
+  /** Emits synchronously in native read order, propagating consumer failures and construction responses. */
   readonly observe: (
     value: object,
     begin: Begin<L>,
     edge: CaptureEdge,
     mode?: 'publication' | 'snapshot',
     prototype?: object | null,
-    temporal?: TemporalClass,
   ) => void
   /** Finalizes derived layout indexes and native collection normalization after observation. */
   readonly seal: (node: CapturedNode<L>) => CapturedNode<L>
@@ -401,23 +393,22 @@ export interface CapturedNode<L extends { readonly kind: symbol } = Layout> {
  * Candidate discovery and the first publication of the aligned object reuse those reads.
  */
 export interface CapturedGraph {
-  readonly currents: ReadonlyArray<object | undefined>
   readonly nodes: readonly CapturedNode[]
-  readonly occupants: ReadonlyArray<readonly unknown[] | undefined>
   readonly root: Edge
+  readonly currents?: ReadonlyArray<object | undefined>
   /** The kind capture recognized for each aligned object whose kind differs from its node's; a
    * per-call memo that discovery extends. */
   readonly kinds?: Map<object, symbol> | undefined
+  readonly occupants?: ReadonlyArray<readonly unknown[] | undefined>
   /** The values discovery read at the slots of each node's other aligned objects, by object and
    * edge position; discovery creates the table on its first read. */
   candidateReads?: Array<Map<object, unknown[]> | undefined>
   /** Source object of each captured node; pinned nodes record their occupant. */
-  readonly sources: readonly object[]
+  readonly sources?: readonly object[]
   /** Every object inside a pinned subtree; no other position may retain one. */
   readonly pinned?: ReadonlySet<object>
-  /** The prototype capture read of each node's aligned current object, also where its kind
-   * differs from the node's; undefined when unread. */
-  readonly prototypes: ReadonlyArray<object | null | undefined>
+  /** The prototype capture read of each node's aligned current object; undefined when unread. */
+  readonly prototypes?: ReadonlyArray<object | null | undefined>
   /** The node capture first aligned with each current object, once a second object is aligned;
    * before that, `firstAligned` and its node. */
   readonly alignedAt?: ReadonlyMap<object, number>

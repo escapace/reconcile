@@ -3,12 +3,9 @@ import { checkRealChains } from './check-atoms-runtime'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { recognize } from '../src/adapters/recognition'
 import { ATOM_KIND } from '../src/constants'
-import { capture } from '../src/publication/capture'
-import { snapshot } from '../src/snapshot'
 import type { PrototypeRead } from '../src/types'
 import { publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
-import { urlCarrierResponse } from '../src/types/shared/url-carrier'
 import { ranked, tails as recognitionTails } from './check-recognition-plain-runtime'
 
 /** The real chains of `IngressOracle.tails`, from the first prototype to `null`, in its order:
@@ -88,91 +85,12 @@ function expectedKind(row: Record<string, unknown>): unknown {
   return ranked[integerIn(row.rank, 1, 9) - 1]
 }
 
-/** The real objects of the tails a capture can copy, in `tails` order: an ordinary object for a
- * chain that ends at `null` or `Object.prototype` or that only a typed-array brand would make a
- * typed array, else an instance of the tail's class; undefined for the throwing read. */
-const instances: ReadonlyArray<(() => object) | undefined> = [
-  () => ({}),
-  () => ({}),
-  () => new Date(0),
-  () => new Map([[1, 2]]),
-  () => new Set([1]),
-  () => new ArrayBuffer(2),
-  () => new DataView(new ArrayBuffer(2)),
-  () => ({}),
-  () => new URL('https://example.test/?q=1'),
-  () => new URLSearchParams('q=1'),
-  () => /a/,
-  () => new Error('atom'),
-  (): object => Promise.resolve(),
-  () => new Blob([]),
-  () => new TypeError('atom'),
-  undefined,
-]
-
-/** Runs `run`, counting the `Object.getPrototypeOf` calls it makes on `value`: the prototype of a
- * built-in instance is read without a trap a proxy could count. */
-function readsOf(value: object, run: () => void): number {
-  const read = Object.getPrototypeOf
-  let count = 0
-  Object.getPrototypeOf = (target: unknown): object | null => {
-    if (target === value) count += 1
-    return read(target) as object | null
-  }
-  try {
-    run()
-  } finally {
-    Object.getPrototypeOf = read
-  }
-  return count
-}
-
-/** Compares the reads of a real object behind the row's chain through ingress and its kind's
- * capture with Lean's: `snapshot` and `reconcile` capture pass ingress's read on, and the kind's
- * capture facet called without it reads the prototype again. A branded row is a typed array,
- * which only the typed-array tail can capture. Returns whether the object was captured. */
-function checkCapture(row: Record<string, unknown>, depth: number, tail: number): boolean {
-  const make =
-    row.brand === true ? (tail === 7 ? () => new Uint8Array(2) : undefined) : instances[tail]
-  if (make === undefined) return false
-  const value = Object.setPrototypeOf(make(), custom(depth, tail, { count: 0, own: 0 })) as object
-  const captured = integerIn(row.captured, 1, 1)
-  assert.equal(
-    readsOf(value, () => snapshot([value])),
-    captured,
-    'reads through snapshot',
-  )
-  assert.equal(
-    readsOf(value, () => capture(publicationTypes, [value], [], Array.prototype, Array.prototype)),
-    captured,
-    'reads through reconcile capture',
-  )
-  const separate = readsOf(value, () => {
-    const kind = recognize(publicationTypes, value)
-    if (kind !== ATOM_KIND)
-      publicationTypes.policies[kind].observe(
-        value,
-        () => undefined,
-        // Capture answers a URL's parameters with their carrier.
-        (child) => (child instanceof URLSearchParams ? urlCarrierResponse(new URL('a:?')) : child),
-        'publication',
-      )
-  })
-  assert.equal(separate, integerIn(row.capturedSeparate, 2, 3), 'reads, read again in capture')
-  return true
-}
-
-/** Compares one Lean ingress with the runtime, sharing the prototype read and not, and then
- * capturing the object. */
+/** Compares one Lean ingress with the runtime, sharing the prototype read and not. */
 function checkRow(row: Record<string, unknown>): boolean {
   const depth = integerIn(row.depth, 0, 2)
   const tail = integerIn(row.tail, 0, tails.length - 1)
   assert.ok(typeof row.brand === 'boolean')
-  const shared = ingress(depth, tail, row.brand, {
-    known: false,
-    prototype: null,
-    temporal: undefined,
-  })
+  const shared = ingress(depth, tail, row.brand, { known: false, prototype: null })
   const separate = ingress(depth, tail, row.brand, undefined)
   const kind = expectedKind(row)
   assert.equal(shared.kind, kind, 'kind with the prototype read shared')
@@ -184,11 +102,8 @@ function checkRow(row: Record<string, unknown>): boolean {
   }
   // Sharing the first read leaves the walk over the custom prototypes as it was.
   assert.equal(shared.reads.count, separate.reads.count, 'reads of the custom prototypes')
-  if (checkCapture(row, depth, tail)) captures += 1
   return shared.reads.own < separate.reads.own
 }
-
-let captures = 0
 
 /** Compares shared-read ingress with Lean's `Types.Ingress.ingress`. */
 export async function checkIngressRuntime(oracle: Oracle): Promise<void> {
@@ -197,11 +112,9 @@ export async function checkIngressRuntime(oracle: Oracle): Promise<void> {
   // object cannot throw on its own read.
   const rows = await oracleCorpus(oracle, 'Ingress', 95, 64 * 1024)
   let saved = 0
-  captures = 0
   for (const line of rows) if (checkRow(jsonObject(JSON.parse(line)))) saved += 1
   console.log(
     `Ingress Lean/native bridge: ${rows.length} prototype chains, each object read once with the ` +
-      `read shared; ${saved} fallbacks read twice by a separate atom split; ${captures} real ` +
-      `objects read once through capture`,
+      `read shared; ${saved} fallbacks read twice by a separate atom split`,
   )
 }

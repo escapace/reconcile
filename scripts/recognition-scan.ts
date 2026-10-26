@@ -51,10 +51,7 @@ const probes: ReadonlyArray<readonly [symbol, (value: object) => boolean]> = [
       !inChainOf(DataView, value) &&
       inChainOf(typedArrayClass, value),
   ],
-  [
-    TEMPORAL_KIND,
-    (value) => temporalInChain(Object.getPrototypeOf(value) as object | null, undefined),
-  ],
+  [TEMPORAL_KIND, (value) => temporalInChain(Object.getPrototypeOf(value) as object | null)],
   [URL_KIND, (value) => typeof URL !== 'undefined' && inChainOf(URL, value)],
   [
     URL_SEARCH_PARAMS_KIND,

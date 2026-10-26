@@ -1,4 +1,3 @@
-import { knownPrototype } from '../object-property'
 import { freeze, noValue, same } from './shared/empty'
 import { finalizationConstructionImpossible } from '../error'
 import {
@@ -37,9 +36,9 @@ export interface URLLayout {
 
 const urlCapture = {
   construction: noValue,
-  observe(value, begin, edge, mode, known) {
+  observe(value, begin, edge, mode) {
     const url = value as URL
-    const prototype = knownPrototype(url, known)
+    const prototype = Object.getPrototypeOf(url) as object | null
     const href = nativeURLHref(url)
     const response = edge(
       nativeURLSearchParameters(url),
@@ -121,13 +120,13 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
   immutable: freeze({
     operations: freeze({
       ownsDependencies: true,
-      copy(value, resolve, owners, known) {
+      copy(value, resolve, owners) {
         const url = value as URL
         const href = nativeURLHref(url)
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
         const carrier = owners.nativeOwners?.get(parameters) as URL | undefined
         if (carrier === undefined) throw finalizationConstructionImpossible()
-        return ownedURL(carrier, href, knownPrototype(url, known))
+        return ownedURL(carrier, href, Object.getPrototypeOf(url) as object | null)
       },
       dependencies: (value, visit) =>
         visit(nativeURLSearchParameters(value as URL), URL_SEARCH_PARAMS_KIND),

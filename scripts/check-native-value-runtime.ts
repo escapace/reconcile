@@ -89,14 +89,7 @@ function checkGraph(value: object, kind: string) {
 
 /** Runs native facets at their own capture, publication and readback boundaries. */
 function evaluateFacets(current: object, desired: object, kind: symbol, name: string): Result {
-  // Aligned with `current`, as `reconcile` captures.
-  const graph = capture(
-    publicationTypes,
-    desired,
-    current,
-    Object.getPrototypeOf(desired) as object | null,
-    Object.getPrototypeOf(current) as object | null,
-  )
+  const graph = capture(publicationTypes, desired)
   const node = graph.nodes[0]
   const policy = publicationTypes.policies[kind]
   const special = produceTypes.specials[kind]

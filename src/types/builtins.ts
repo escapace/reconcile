@@ -67,7 +67,7 @@ function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): s
   if (last === 3) return undefined
   if (inChain(first, ArrayBuffer)) return arrayBuffer.ARRAY_BUFFER_KIND
   if (last === 4) return undefined
-  return builtinRemainingMatch(value, first, last, read)
+  return builtinRemainingMatch(value, first, last)
 }
 
 /**
@@ -87,12 +87,11 @@ function recognizedBuffer(value: object): boolean {
 /** Continues the same ordered prefix without allocating a per-value continuation. A typed array
  * holds the typed-array brand and inherits `%TypedArray%.prototype`, so a `DataView` that inherits
  * a typed array's prototype is not one; it needs no walk for `DataView` here, since the `DataView`
- * probe has decided it. The Temporal probe keeps the class it finds in `read`. */
+ * probe has decided it. */
 function builtinRemainingMatch(
   value: object,
   first: object | null,
   last: number,
-  read: PrototypeRead | undefined,
 ): symbol | undefined {
   const isDataView = inChain(first, DataView)
   // Undefined without a view brand; otherwise whether the view's buffer is recognized.
@@ -107,7 +106,7 @@ function builtinRemainingMatch(
   )
     return typedArray.TYPED_ARRAY_KIND
   if (last === 6) return undefined
-  if (temporal.temporalInChain(first, read)) return temporal.TEMPORAL_KIND
+  if (temporal.temporalInChain(first)) return temporal.TEMPORAL_KIND
   if (last === 7) return undefined
   if (typeof URL !== 'undefined' && inChain(first, URL)) return url.URL_KIND
   if (last === 8) return undefined

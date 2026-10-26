@@ -74,9 +74,8 @@ can.
    objects, recognizes the kind of each that capture did not, and checks, before any write,
    which of them must stay the same object (_identity requirements_). This is the _preflight_.
    Among a node's candidates, those that an admitted candidate's fixed slot requires there come
-   first, then the rest, each group in discovery order. Capture's kind and prototype read of each
-   object serve discovery and the preflight, also where discovery meets the object at another node
-   (`Types.Ingress`).
+   first, then the rest, each group in discovery order. Capture's prototype read of each object
+   serves discovery and the preflight (`Types.Ingress`).
 3. _Decision_ (private; `publication/publication-engine.ts` `decide`) keeps, in node order, the
    first candidate of each node that qualifies: it is not blocked, it is not kept at another
    node, and each object its fixed slots hold is kept at that slot's node. A different decision

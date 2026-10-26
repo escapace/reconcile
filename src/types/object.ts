@@ -9,7 +9,7 @@ import type {
   DraftObservationContext,
   DraftStrategy,
 } from '../types'
-import { hasOwn, hiddenNames, isObject, knownPrototype, ownKeys } from '../object-property'
+import { hasOwn, hiddenNames, isObject, ownKeys } from '../object-property'
 import type { Edge, Resolve } from '../types'
 import type { PropertyDraftRules } from './shared/draft-properties'
 import { createPropertyHandle, PropertyDraftState, writeDataSlot } from './shared/draft-properties'
@@ -49,7 +49,7 @@ const objectCapture = {
   construction: noValue,
   // A caller that classified the value passes the prototype it read.
   observe(value, begin, edge, _mode, known) {
-    const prototype = knownPrototype(value, known)
+    const prototype = known === undefined ? (Object.getPrototypeOf(value) as object | null) : known
     const names = Object.getOwnPropertyNames(value)
     const layout: ObjectLayout = {
       hidden: hiddenNames(value, names),

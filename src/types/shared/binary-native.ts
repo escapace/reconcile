@@ -1,6 +1,6 @@
 import { freeze } from './empty'
 import { adoptPrototype } from './prototype'
-import { inChain, knownPrototype } from '../../object-property'
+import { inChain } from '../../object-property'
 import { builtinValue, uncurried } from '../../standard-prototypes'
 
 /**
@@ -120,16 +120,12 @@ export function sliceBytes(buffer: ArrayBuffer, offset: number, length: number):
  * A copy of a buffer's bytes on the buffer's prototype, made without calling its constructor, as
  * `slice` would through `Symbol.species`. A resizable buffer's copy is resizable to the same
  * maximum. A `SharedArrayBuffer` is its own copy, so a view copied over it shares its memory.
- * The prototype is `known` when the caller read it, otherwise read once here; it decides both
- * whether the buffer is shared and the copy's prototype.
  */
-export function copyBuffer(buffer: object, known?: object | null): ArrayBuffer {
-  const prototype = knownPrototype(buffer, known)
-  if (sharedLength !== undefined && inChain(prototype, SharedArrayBuffer))
-    return buffer as ArrayBuffer
-  const copy = emptyBuffer(buffer, Reflect.apply(bufferLength, buffer, []) as number)
+export function copyBuffer(buffer: object): ArrayBuffer {
+  if (isShared(buffer)) return buffer as ArrayBuffer
+  const copy = emptyBuffer(buffer, bufferByteLength(buffer))
   copyBytes(copy, buffer as ArrayBuffer)
-  return adoptPrototype(copy, prototype, ArrayBuffer.prototype)
+  return adoptPrototype(copy, Object.getPrototypeOf(buffer) as object | null, ArrayBuffer.prototype)
 }
 
 /** A new zero-filled buffer of `length` bytes, resizable to the same maximum as `buffer` is. */
@@ -179,13 +175,9 @@ function elementConstructor(name: string): ViewConstructor {
 
 /**
  * A typed array with the source's element type, offset and length over `buffer`, on the source's
- * prototype, `known` when the caller read it, made with the built-in constructor.
+ * prototype, made with the built-in constructor.
  */
-export function copyTypedArray(
-  value: object,
-  buffer: ArrayBuffer,
-  known?: object | null,
-): ArrayBufferView {
+export function copyTypedArray(value: object, buffer: ArrayBuffer): ArrayBufferView {
   const Constructor = elementConstructor(viewElement(value)!)
   return adoptPrototype(
     new Constructor(
@@ -193,18 +185,17 @@ export function copyTypedArray(
       Reflect.apply(typedOffset, value, []) as number,
       Reflect.apply(typedLength, value, []) as number,
     ),
-    knownPrototype(value, known),
+    Object.getPrototypeOf(value) as object | null,
     Constructor.prototype,
   )
 }
 
-/** A `DataView` with the source's offset and length over `buffer`, on the source's prototype,
- * `known` when the caller read it. `dataView` says whether the source has no element type; a
- * caller that tested it passes the answer. */
+/** A `DataView` with the source's offset and length over `buffer`, on the source's prototype.
+ * `dataView` says whether the source has no element type; a caller that tested it passes the
+ * answer. */
 export function copyDataView(
   value: object,
   buffer: ArrayBuffer,
-  known?: object | null,
   dataView = viewElement(value) === undefined,
 ): DataView {
   return adoptPrototype(
@@ -213,7 +204,7 @@ export function copyDataView(
       Reflect.apply(dataView ? dataOffset : typedOffset, value, []) as number,
       Reflect.apply(dataView ? dataLength : typedByteLength, value, []) as number,
     ),
-    knownPrototype(value, known),
+    Object.getPrototypeOf(value) as object | null,
     DataView.prototype,
   )
 }

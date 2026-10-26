@@ -18,13 +18,7 @@ import type {
   SnapshotPolicy,
 } from '../types'
 import { globalTemporal, temporalFrom } from '../standard-prototypes'
-import {
-  inChain,
-  knownPrototype,
-  type PrototypeRead,
-  type TemporalClass,
-  type TemporalConstructor,
-} from '../object-property'
+import { inChain } from '../object-property'
 
 /** The Temporal kind. */
 export const TEMPORAL_KIND = Symbol('temporal')
@@ -41,6 +35,11 @@ const durationFields = [
   'microseconds',
   'nanoseconds',
 ] as const
+
+export interface TemporalConstructor {
+  new (...arguments_: never[]): object
+  from: (value: object) => object
+}
 
 type TemporalNamespace = Partial<
   Record<
@@ -68,9 +67,7 @@ const TEMPORAL_CLASSES = [
 ] as const
 
 /** The first live Temporal class that `holds` accepts, in declared order; Temporal is read live. */
-function temporalMatch(
-  holds: (constructor: TemporalConstructor) => boolean,
-): TemporalClass | undefined {
+function temporalMatch(holds: (constructor: TemporalConstructor) => boolean) {
   const temporal = globalTemporal() as TemporalNamespace | null | undefined
   if (temporal == null) return undefined
   for (let index = 0; index < TEMPORAL_CLASSES.length; index += 1) {
@@ -89,19 +86,14 @@ function temporalMatch(
 const temporalOf = (first: object | null) =>
   temporalMatch((constructor) => inChain(first, constructor))
 
-/**
- * The Temporal probe of built-in recognition from the prototype `first` already read. The class it
- * finds is kept in `read`, so the value's capture does not probe the classes again
- * (Types.Ingress.temporalCapture_passed).
- */
-export function temporalInChain(first: object | null, read: PrototypeRead | undefined): boolean {
-  const type = temporalOf(first)
-  if (type === undefined) return false
-  if (read !== undefined) read.temporal = type
-  return true
-}
+/** The Temporal probe of built-in recognition from the prototype `first` already read. */
+export const temporalInChain = (first: object | null): boolean => temporalOf(first) !== undefined
 
-function equivalentValue(source: object, other: object, type: TemporalClass): boolean {
+function equivalentValue(
+  source: object,
+  other: object,
+  type: Pick<TemporalLayout, 'temporalConstructor' | 'temporalName'>,
+): boolean {
   // Native copies discard instance shadows without losing Duration components or reference dates.
   const base = temporalFrom(type.temporalConstructor, type.temporalName, source)
   const candidate = temporalFrom(type.temporalConstructor, type.temporalName, other)
@@ -117,10 +109,12 @@ function equivalentValue(source: object, other: object, type: TemporalClass): bo
 }
 
 /** Stores a detached native immutable value, retaining all native fields. */
-export interface TemporalLayout extends TemporalClass {
+export interface TemporalLayout {
   readonly kind: typeof TEMPORAL_KIND
   /** The source's prototype, which a copy keeps. */
   readonly prototype: object | null
+  readonly temporalConstructor: TemporalConstructor
+  readonly temporalName: (typeof TEMPORAL_CLASSES)[number]
   readonly temporalValue: object
 }
 
@@ -132,7 +126,11 @@ function matches(layout: TemporalLayout, current: object): boolean {
 }
 
 /** Copies a Temporal value through its class's `from`, on the source's prototype. */
-function copyTemporal(value: object, type: TemporalClass, prototype: object | null): object {
+function copyTemporal(
+  value: object,
+  type: Pick<TemporalLayout, 'temporalConstructor' | 'temporalName'>,
+  prototype: object | null,
+): object {
   const constructor = type.temporalConstructor
   return adoptPrototype(
     temporalFrom(constructor, type.temporalName, value),
@@ -143,10 +141,9 @@ function copyTemporal(value: object, type: TemporalClass, prototype: object | nu
 
 const temporalCapture = {
   construction: noValue,
-  // The prototype and class recognition found, when its caller passes them.
-  observe(value, begin, _edge, _mode, known, found) {
-    const prototype = knownPrototype(value, known)
-    const type = found ?? temporalOf(prototype)!
+  observe(value, begin) {
+    const prototype = Object.getPrototypeOf(value) as object | null
+    const type = temporalOf(prototype)!
     begin({
       kind: TEMPORAL_KIND,
       ...type,
@@ -189,9 +186,9 @@ export const temporalImmutable = /* @__PURE__ */ (() => ({
   immutable: /* @__PURE__ */ freeze({
     operations: /* @__PURE__ */ freeze({
       dependencies: noDependencies,
-      copy(value, _resolve, _owners, known, found) {
-        const prototype = knownPrototype(value, known)
-        return copyTemporal(value, found ?? temporalOf(prototype)!, prototype)
+      copy(value) {
+        const prototype = Object.getPrototypeOf(value) as object | null
+        return copyTemporal(value, temporalOf(prototype)!, prototype)
       },
       equivalent(base, candidate) {
         const type = temporalOf(Object.getPrototypeOf(base) as object | null)!

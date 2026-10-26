@@ -7,7 +7,7 @@ import type {
   ImmutablePolicy,
   PublicationPolicy,
 } from '../types'
-import { isObject, knownPrototype } from '../object-property'
+import { isObject } from '../object-property'
 import type { BaseDraftState } from '../types'
 import {
   collectionSurface,
@@ -67,8 +67,8 @@ const setAccess: CollectionAccess = {
 const setPolicySurface = /* @__PURE__ */ collectionSurface(setAccess)
 const setCapture = {
   construction: noValue,
-  observe(value, begin, edge, _mode, known) {
-    const prototype = knownPrototype(value, known)
+  observe(value, begin, edge) {
+    const prototype = Object.getPrototypeOf(value) as object | null
     begin({ kind: SET_KIND, prototype })
     forEachBuiltinMember(value, (child) => {
       edge(child)
