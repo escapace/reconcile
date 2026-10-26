@@ -35,6 +35,8 @@ minimumReleaseAgeExclude:
   - syncpack-windows-arm64
   - syncpack-windows-x64
   - typescript
+  # Renovate security update: fallow@3.34.0
+  - fallow@3.34.0
 minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeStrict: true
 strictDepBuilds: true
