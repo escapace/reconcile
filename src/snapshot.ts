@@ -141,7 +141,7 @@ class SnapshotWalk extends Detached {
   constructor(seen: WeakMap<object, object> | undefined) {
     super()
     this.callerMemo = seen
-    this.read = { known: false, prototype: null }
+    this.read = { known: false, prototype: null, temporal: undefined }
     this.references = new Map()
     this.constructed = undefined
     this.count = 0
@@ -311,7 +311,7 @@ class SnapshotWalk extends Detached {
   }
 
   observeBuffer(reference: SnapshotReference, value: object): void {
-    const target = copyBuffer(value)
+    const target = copyBuffer(value, this.read.known ? this.read.prototype : undefined)
     reference.target = target
     this.callerMemo?.set(value, target)
   }
@@ -335,11 +335,15 @@ class SnapshotWalk extends Detached {
       : snapshotTypes.policies[layout.kind].construction(layout)
   }
 
+  // The prototype recognition read is held before the buffer, whose observation reads another.
   observeView(reference: SnapshotReference, source: object, kind: symbol): void {
     const view = source as ArrayBufferView
+    const prototype = this.read.known ? this.read.prototype : undefined
     const buffer = this.viewBuffer(bufferOfView(view)) as ArrayBuffer
     const target =
-      kind === DATA_VIEW_KIND ? copyDataView(view, buffer) : copyTypedArray(view, buffer)
+      kind === DATA_VIEW_KIND
+        ? copyDataView(view, buffer, prototype)
+        : copyTypedArray(view, buffer, prototype)
     reference.target = target
     this.callerMemo?.set(source, target)
   }
@@ -385,10 +389,11 @@ class SnapshotWalk extends Detached {
     return reference
   }
 
-  // Observes `source` through its kind's facet, which copies it in `begin`; a URL first asks
-  // `edge` for its `searchParams`.
+  // Observes `source` through its kind's facet, which copies it in `begin` and takes the prototype
+  // and Temporal class recognition found; a URL first asks `edge` for its `searchParams`.
   observePolicy(reference: SnapshotReference, source: object, known: symbol): void {
     const policy = snapshotTypes.policies[known]
+    const read = this.read
     const begin = (this.beginCallback ??= (layout) => {
       this.begin(layout)
     })
@@ -397,7 +402,14 @@ class SnapshotWalk extends Detached {
     const parentSource = this.currentSource
     this.currentReference = reference
     this.currentSource = source
-    policy.observe(source, begin, edge, 'snapshot')
+    policy.observe(
+      source,
+      begin,
+      edge,
+      'snapshot',
+      read.known ? read.prototype : undefined,
+      read.temporal,
+    )
     this.currentReference = parent
     this.currentSource = parentSource
   }

@@ -121,6 +121,28 @@ describe.skipIf(temporal === undefined)('Temporal values', () => {
     )
   })
 
+  it('keeps each class in a graph that mixes all eight', () => {
+    const classes = fixtures.map(([name]) => temporal![name])
+    const values = () => fixtures.map(([name, input]) => temporal![name].from(input))
+    const assertClasses = (list: readonly TemporalValue[], label: string) => {
+      for (const [index, value] of list.entries())
+        assert.strictEqual(Object.getPrototypeOf(value), classes[index].prototype, label)
+    }
+    assertClasses(snapshot(values()) as TemporalValue[], 'snapshot')
+    // Each current element has another class than the element reconcile puts there.
+    const current = values().reverse()
+    assert.strictEqual(reconcile(current, values()), current)
+    assertClasses(current, 'reconcile')
+    const base = { list: values().reverse(), next: values() }
+    const result = produce(base, (draft) => {
+      draft.list.reverse()
+      draft.next = values()
+      return draft
+    })
+    assertClasses(result.list, 'produce, moved')
+    assertClasses(result.next, 'produce, new')
+  })
+
   it('does not conflate equal instants in different time zones', () => {
     const utc = temporal!.ZonedDateTime.from('2025-01-02T00:00+00:00[UTC]')
     const offset = temporal!.ZonedDateTime.from('2025-01-02T01:00+01:00[+01:00]')

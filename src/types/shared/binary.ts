@@ -15,13 +15,21 @@ import type {
   NativePolicy,
 } from '../../types'
 
+/** A view's copy over `buffer`, on the prototype `known` when its caller read it. */
+export type ViewCopy = (
+  value: ArrayBufferView,
+  buffer: ArrayBuffer,
+  known?: object | null,
+) => ArrayBufferView
+
 export function viewCapture<K extends symbol>(
   kind: K,
-  copy: (value: ArrayBufferView, buffer: ArrayBuffer) => ArrayBufferView,
+  copy: ViewCopy,
 ): CapturePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }> {
   return {
     construction: noValue,
-    observe(value, begin, edge) {
+    // The prototype is held before the buffer edge, whose capture recognizes the buffer.
+    observe(value, begin, edge, _mode, known) {
       const view = value as ArrayBufferView
       const storage = bufferOfView(view)
       // A `SharedArrayBuffer` is kept by reference, as an atom edge; any other buffer is a node.
@@ -31,13 +39,13 @@ export function viewCapture<K extends symbol>(
         isShared(storage) ? undefined : ARRAY_BUFFER_KIND,
         true,
       ) as ArrayBuffer
-      begin({ kind, sample: copy(view, buffer) })
+      begin({ kind, sample: copy(view, buffer, known) })
     },
   }
 }
 
 export function viewConstruction<K extends symbol>(
-  copy: (value: ArrayBufferView, buffer: ArrayBuffer) => ArrayBufferView,
+  copy: ViewCopy,
 ): ConstructionPolicy<{ readonly kind: K; readonly sample: ArrayBufferView }> {
   return {
     bindings: /* @__PURE__ */ freeze({
@@ -86,7 +94,7 @@ export function viewPublication<K extends symbol>(): Omit<
 }
 
 export function viewImmutable<K extends symbol>(
-  copy: (value: ArrayBufferView, buffer: ArrayBuffer) => ArrayBufferView,
+  copy: ViewCopy,
 ): {
   readonly immutable: Extract<
     ImmutablePolicy<{ readonly kind: K; readonly sample: ArrayBufferView }>['immutable'],
@@ -96,10 +104,11 @@ export function viewImmutable<K extends symbol>(
   return {
     immutable: /* @__PURE__ */ freeze({
       operations: /* @__PURE__ */ freeze({
-        copy: (value, resolve) =>
+        copy: (value, resolve, _owners, known) =>
           copy(
             value as ArrayBufferView,
             resolve(bufferOfView(value), ARRAY_BUFFER_KIND) as ArrayBuffer,
+            known,
           ),
         dependencies: (value, visit) => visit(bufferOfView(value), ARRAY_BUFFER_KIND),
         equivalent: (base, candidate) =>

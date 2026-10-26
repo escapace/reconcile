@@ -3,11 +3,35 @@ import { atomValue, isNode } from '../graph/edge'
 import { describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { candidates } from '../publication/candidates'
+import type { PublicationNote } from '../types'
 
+/** Captures `next` aligned with `current`, as `reconcile` does, and discovers the candidates. */
 function problem(current: object, next: object) {
-  const records = capture(publicationTypes, next).nodes
-  return { domains: candidates(publicationTypes, records, current), records }
+  const graph = capture(
+    publicationTypes,
+    next,
+    current,
+    Object.getPrototypeOf(next) as object | null,
+    Object.getPrototypeOf(current) as object | null,
+  )
+  const note: PublicationNote = {
+    facts: undefined,
+    prototype: undefined,
+    reads: undefined,
+    unchanged: false,
+  }
+  return { domains: candidates(publicationTypes, graph.nodes, current, graph, note) }
 }
+
+/** Captures `value` aligned with an empty object, which holds no occupant to keep or read. */
+const captureAlone = (value: object) =>
+  capture(
+    publicationTypes,
+    value,
+    {},
+    Object.getPrototypeOf(value) as object | null,
+    Object.prototype,
+  )
 
 describe('native candidate discovery', () => {
   it('compiles fixed cycles and shared references without deciding or writing input', () => {
@@ -103,7 +127,7 @@ describe('native candidate discovery', () => {
   })
   it('reads collection sizes with the built-in getter, never an own size', () => {
     for (const current of [new Map([['key', 1]]), new Set(['key'])]) {
-      const node = capture(publicationTypes, current).nodes[0]
+      const node = captureAlone(current).nodes[0]
       let coercions = 0
       Object.defineProperty(current, 'size', {
         value: {
@@ -131,7 +155,7 @@ describe('native candidate discovery', () => {
         return key !== 'second' && Reflect.set(object, key, value)
       },
     })
-    const root = capture(publicationTypes, { first: 1, second: 2 }).nodes[0]
+    const root = captureAlone({ first: 1, second: 2 }).nodes[0]
     expect(
       publicationTypes.policies[root.layout.kind].publish(root, current, (edge) =>
         isNode(edge) ? undefined : atomValue(edge),

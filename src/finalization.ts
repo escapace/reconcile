@@ -66,7 +66,7 @@ export class Finalization extends Detached {
     this.kinds = undefined
     this.guards = 0
     this.unsettled = undefined
-    this.read = { known: false, prototype: null }
+    this.read = { known: false, prototype: null, temporal: undefined }
     this.phase = {
       kind: 'probe',
       nativeOwners: undefined,
@@ -82,17 +82,16 @@ export class Finalization extends Detached {
   }
 
   /** Recognizes once per unknown-identity certificate lifetime; accessor effects end it.
-   * `undrafted` says the caller just found no draft of `value`. */
+   * `undrafted` says the caller just found no draft of `value`. `read.known` holds afterwards only
+   * when a recognition of `value` ran now and read its prototype, which `read` then holds with,
+   * for a Temporal value, its class. */
   kindOf(value: object, undrafted = false): symbol {
+    this.read.known = false
     let kind = this.kinds?.get(value)
     if (kind === undefined) {
       // A drafted object's kind was established when its state was created.
       kind = undrafted ? undefined : this.session.statesByIdentity.get(value)?.kind
-      if (kind === undefined) {
-        const read = this.read
-        read.known = false
-        kind = recognize(this.session.types, value, read)
-      }
+      kind ??= recognize(this.session.types, value, this.read)
       ;(this.kinds ??= new Map()).set(value, kind)
     }
     return kind
@@ -403,13 +402,19 @@ export class Finalization extends Detached {
     return this.materializeSpecial(value, copyBase, copy, policy)
   }
 
-  /** Applies a special value's proven provenance decision before observing copy dependencies. */
+  /** Applies a special value's proven provenance decision before observing copy dependencies.
+   * Called right after `kindOf`, so `read` holds what recognizing `value` found if it just ran. */
   private materializeSpecial(
     value: object,
     copyBase: object | undefined,
     copy: object | undefined,
     policy: SpecialPolicy,
   ): unknown {
+    // A new copy is made only of a value without a copy base, which `kindOf` recognized here; its
+    // copy takes what that recognition found.
+    const read = this.read
+    const prototype = read.known ? read.prototype : undefined
+    const temporal = read.known ? read.temporal : undefined
     const memo = this.phase.values
     const decision = chooseSpecial(this.specialFacts(value, copyBase, copy, policy))
     if (decision === 'base') return this.recordLeaf(copyBase!, value)
@@ -432,6 +437,8 @@ export class Finalization extends Detached {
       value,
       (child) => (this.materializeContainerSlot(child, false) as FinalizedReference).target,
       this.phase,
+      prototype,
+      temporal,
     )
     // A copy, like a copy a read made, is not extensible; a value that is its own copy, such as a
     // `SharedArrayBuffer`, belongs to `current`.

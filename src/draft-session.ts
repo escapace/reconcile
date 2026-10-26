@@ -38,12 +38,14 @@ export class DraftSession extends Detached implements DraftContext {
    *
    * @remarks
    * Dependencies reuse an existing registered copy, otherwise they are copied through their
-   * known kind before the dependent copy is constructed, in the kind's native read order.
+   * known kind before the dependent copy is constructed, in the kind's native read order. The
+   * copy of `value` takes the prototype and Temporal class its recognition found in `read`.
    */
   private cloneSpecialValueAfterMiss(
     value: object,
     kind: symbol,
     strategy: Extract<DraftStrategy, { tag: 'copy' }>,
+    read: PrototypeRead,
   ): object {
     const links = strategy.links
     if (
@@ -64,7 +66,13 @@ export class DraftSession extends Detached implements DraftContext {
     }
     // A copy carries only its native content, so like a non-extensible object it refuses a new
     // property instead of accepting one the result would drop (DraftSurface.admits).
-    const replacement = specials[kind]!.copy(value, resolve, this)
+    const replacement = specials[kind]!.copy(
+      value,
+      resolve,
+      this,
+      read.known ? read.prototype : undefined,
+      read.temporal,
+    )
     if (replacement !== value) Reflect.preventExtensions(replacement)
     ;(this.specialCloneBaseToClone ??= new WeakMap()).set(value, replacement)
     ;(this.specialCloneCloneToBase ??= new WeakMap()).set(replacement, value)
@@ -82,16 +90,16 @@ export class DraftSession extends Detached implements DraftContext {
       return current
     }
 
-    // Recognition reads the prototype at most once and the handle's target reuses it
+    // Recognition reads the prototype at most once and the handle's target or the copy reuses it
     // (Types.Ingress).
-    const read: PrototypeRead = { known: false, prototype: null }
+    const read: PrototypeRead = { known: false, prototype: null, temporal: undefined }
     const kind = recognize(this.types, current, read)
     // An atom is not drafted: the recipe reads and changes the value itself.
     if (kind === ATOM_KIND) return current
 
     const strategy = this.types.drafts[kind]
     if (strategy.tag === 'copy')
-      return this.cloneSpecialValueAfterMiss(current, kind, strategy) as T
+      return this.cloneSpecialValueAfterMiss(current, kind, strategy, read) as T
 
     const prototype = read.known ? read.prototype : undefined
     const state = strategy.state(current, this)

@@ -28,7 +28,7 @@ export function candidates(
   types: PublicationRegistry,
   records: readonly CapturedNode[],
   root: object,
-  alignment?: Pick<
+  alignment: Pick<
     CapturedGraph,
     | 'alignedAt'
     | 'candidateReads'
@@ -42,7 +42,7 @@ export function candidates(
     | 'reads'
     | 'sources'
   >,
-  note?: PublicationNote,
+  note: PublicationNote,
 ): Candidates {
   // The prototype discovery's recognition read for each object it aligned, by object.
   const prototypes = new Map<object, object | null>()
@@ -52,11 +52,11 @@ export function candidates(
   // itself, which keeps sharing across the boundary. Every kind converts: a view's buffer
   // edge still resolves through its own pinned node, and construction inputs were already
   // read during capture. The root is exempt: a reference to the current root is the live root.
-  const walked = alignment?.pinned
+  const walked = alignment.pinned
   const pinned = walked !== undefined && walked.size !== 0 ? walked : undefined
   if (pinned !== undefined) {
     // Capture records every node's source, and its walk never marks a root.
-    const sources = alignment!.sources!
+    const sources = alignment.sources
     records.forEach((node, index) => {
       if (pinned.has(sources[index])) (node as { pinned?: object }).pinned = sources[index]
     })
@@ -81,7 +81,7 @@ export function candidates(
     if (required === undefined || (pinned !== undefined && pinsAnother(records, required)))
       return undefined
     // The candidate's facts serve the publication that keeps it.
-    return { facts: note?.facts, identity: candidate, required }
+    return { facts: note.facts, identity: candidate, required }
   }
   const domains = records.map((node, index): Candidate[] => {
     if (node.pinned !== undefined)
@@ -232,15 +232,13 @@ function promoted(domain: readonly Candidate[], wanted: ReadonlySet<object>): Ca
  * its first publication reads nothing it already read.
  */
 export const alignedReads = (
-  alignment: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'occupants'> | undefined,
+  alignment: Pick<CapturedGraph, 'candidateReads' | 'currents' | 'occupants'>,
   index: number,
   candidate: object,
 ): readonly unknown[] | undefined =>
-  alignment === undefined
-    ? undefined
-    : candidate === alignment.currents?.[index]
-      ? alignment.occupants?.[index]
-      : alignment.candidateReads?.[index]?.get(candidate)
+  candidate === alignment.currents[index]
+    ? alignment.occupants[index]
+    : alignment.candidateReads?.[index]?.get(candidate)
 
 // A candidate of another kind than its node's.
 const MISMATCH: object = /* @__PURE__ */ Object.freeze(Object.create(null) as object)
@@ -255,9 +253,9 @@ function ingressOf(
   index: number,
   candidate: object,
   prototypes: ReadonlyMap<object, object | null>,
-  alignment: Pick<CapturedGraph, 'currents' | 'prototypes'> | undefined,
+  alignment: Pick<CapturedGraph, 'currents' | 'prototypes'>,
 ): object | null | undefined {
-  if (candidate === alignment?.currents?.[index]) return alignment.prototypes?.[index]
+  if (candidate === alignment.currents[index]) return alignment.prototypes[index]
   if (index !== 0) return prototypes.get(candidate)
   return matchesKind(types, candidate, node.layout.kind) ? undefined : MISMATCH
 }
@@ -267,15 +265,13 @@ function preflightOf(
   policy: PublicationRegistry['policies'][symbol],
   node: CapturedNode,
   candidate: object,
-  note: PublicationNote | undefined,
+  note: PublicationNote,
   prototype: object | null | undefined,
   reads: readonly unknown[] | undefined,
 ): ReturnType<PublicationRegistry['policies'][symbol]['requirements']> {
-  if (note !== undefined) {
-    note.facts = undefined
-    note.prototype = prototype
-    note.reads = reads
-  }
+  note.facts = undefined
+  note.prototype = prototype
+  note.reads = reads
   return policy.requirements(node, candidate, note)
 }
 
@@ -318,6 +314,7 @@ type Alignment = Pick<
   | 'firstAlignedAt'
   | 'kinds'
   | 'occupants'
+  | 'prototypes'
   | 'reads'
 >
 
@@ -334,7 +331,7 @@ const readsAt = (
   candidate: object,
   first: number,
 ): readonly unknown[] | undefined =>
-  (candidate === alignment.currents?.[first] ? alignment.occupants?.[first] : undefined) ??
+  (candidate === alignment.currents[first] ? alignment.occupants[first] : undefined) ??
   alignment.candidateReads?.[first]?.get(candidate)
 
 function collect(
@@ -342,25 +339,36 @@ function collect(
   old: unknown,
   records: readonly CapturedNode[],
   prototypes: Map<object, object | null>,
-  alignment?: Alignment,
+  alignment: Alignment,
 ): ReadonlyArray<readonly object[] | undefined> {
   const aligned = denseArray<object[] | undefined>(records.length)
   // Per-call recognition memo for alias visits, created on the first; first visits reuse the
-  // capture's recognition, which also recorded each aligned object of another kind. Each
-  // recognition here reads the prototype once and keeps it for the candidate's preflight.
-  let kinds = alignment?.kinds
-  const recognition: PrototypeRead = { known: false, prototype: null }
+  // capture's recognition, which also recorded each aligned object of another kind, and an object
+  // capture aligned with another node takes the kind and prototype capture found there
+  // (Types.Ingress.meetAll_once). Each recognition here reads the prototype once and keeps it
+  // for the candidate's preflight.
+  let kinds = alignment.kinds
+  const recognition: PrototypeRead = { known: false, prototype: null, temporal: undefined }
   const kindOf = (object: object): symbol => {
     let kind = (kinds ??= new Map<object, symbol>()).get(object)
     if (kind === undefined) {
-      recognition.known = false
-      kinds.set(object, (kind = recognize(types, object, recognition)))
-      if (recognition.known) prototypes.set(object, recognition.prototype)
+      // Capture recorded an object of another kind than its first node's in `kinds`.
+      const first = alignedAt(alignment, object)
+      if (first !== undefined) {
+        kind = records[first].layout.kind
+        const prototype = alignment.prototypes[first]
+        if (prototype !== undefined) prototypes.set(object, prototype)
+      } else {
+        recognition.known = false
+        kind = recognize(types, object, recognition)
+        if (recognition.known) prototypes.set(object, recognition.prototype)
+      }
+      kinds.set(object, kind)
     }
     return kind
   }
-  const currents = alignment?.currents
-  const occupants = alignment?.occupants
+  const currents = alignment.currents
+  const occupants = alignment.occupants
   // The candidate whose slots the walk is reading, by node, and the values read so far, created
   // at its first slot; each value serves that candidate's preflight and first publication.
   let reading = -1
@@ -370,7 +378,7 @@ function collect(
     if (position === undefined || readingObject === undefined) return
     if (read === undefined) {
       read = []
-      const table = (alignment!.candidateReads ??= denseArray(records.length))
+      const table = (alignment.candidateReads ??= denseArray(records.length))
       ;(table[reading] ??= new Map()).set(readingObject, read)
     }
     // The aligned walk reads every slot, in edge order.
@@ -385,8 +393,7 @@ function collect(
   // than one node is read twice; the table can appear while a walk is under way, when a cycle
   // reaches the same candidate again. A candidate walked at the node capture aligned it with,
   // where capture read nothing of it, has no reads to share yet: `note` records this walk's.
-  const readerFor = (index: number, candidate: object): SlotRead | undefined => {
-    if (alignment === undefined) return undefined
+  const readerFor = (index: number, candidate: object): SlotRead => {
     if (alignment.reads?.has(candidate) !== true) {
       const first = alignedAt(alignment, candidate) ?? walked?.get(candidate)
       if (first === undefined) (walked ??= new Map()).set(candidate, index)
@@ -410,7 +417,7 @@ function collect(
     const outerObject = readingObject
     const outerRead = read
     reading = index
-    readingObject = alignment === undefined ? undefined : candidate
+    readingObject = candidate
     read = undefined
     types.policies[node.layout.kind].aligned(
       node,
@@ -434,13 +441,13 @@ function collect(
     const object = isObject(current) ? current : undefined
     if (object !== undefined && choices?.includes(object) === true) return
     const first = choices === undefined
-    const recorded = first && object !== undefined && object === currents?.[index]
+    const recorded = first && object !== undefined && object === currents[index]
     const candidate =
       recorded || (object !== undefined && kindOf(object) === node.layout.kind) ? object : undefined
     if (candidate !== undefined) align(aligned, index, candidate)
     else if (!first) return
     else aligned[index] = VISITED as object[]
-    const slots = recorded ? occupants![index] : undefined
+    const slots = recorded ? occupants[index] : undefined
     if (slots === undefined) walk(index, node, candidate)
     else replayOccupants(node, slots, visit)
   }

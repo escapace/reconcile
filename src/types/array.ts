@@ -11,7 +11,7 @@ import type {
   ImmutablePolicy,
   DraftStrategy,
 } from '../types'
-import { isObject, ownKeys } from '../object-property'
+import { isObject, knownPrototype, ownKeys } from '../object-property'
 import { draftArrayIndexRejected, draftArrayLengthRejected } from '../error'
 import { arrayIndex, hasOwn } from '../object-property'
 import type { Edge } from '../types'
@@ -66,15 +66,11 @@ const arraySurface: PropertySurface<ArrayLayout> = {
 
 const arrayCapture = {
   construction: noValue,
-  observe(value, begin, edge) {
+  // Recognition does not read an array's prototype; a caller that read it passes it.
+  observe(value, begin, edge, _mode, known) {
     const array = value as unknown[]
     const length = array.length
-    begin({
-      kind: ARRAY_KIND,
-      length,
-      prototype: Object.getPrototypeOf(array) as object | null,
-      slots: undefined,
-    })
+    begin({ kind: ARRAY_KIND, length, prototype: knownPrototype(array, known), slots: undefined })
     // The first bound is the length read above; an element read can change it, so each later
     // bound is read again.
     let bound = length

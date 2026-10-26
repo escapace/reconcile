@@ -17,6 +17,7 @@ import {
   nativeParametersText,
   urlCarrierResponse,
 } from './shared/url-carrier'
+import { knownPrototype } from '../object-property'
 import type {
   CapturePolicy,
   ConstructionPolicy,
@@ -40,8 +41,8 @@ export interface URLSearchParametersLayout {
 
 const urlSearchParametersCapture = {
   construction: (layout) => urlCarrierResponse(layout.carrier),
-  observe(value, begin) {
-    const prototype = Object.getPrototypeOf(value) as object | null
+  observe(value, begin, _edge, _mode, known) {
+    const prototype = knownPrototype(value, known)
     const text = nativeParametersText(value as URLSearchParams)
     const carrier = parametersCarrier(text, prototype)
     begin({ carrier, kind: URL_SEARCH_PARAMS_KIND, prototype, text })
@@ -87,8 +88,8 @@ export const urlSearchParametersImmutable = /* @__PURE__ */ (() => ({
   immutable: freeze({
     operations: freeze({
       dependencies: noDependencies,
-      copy(value, _resolve, owners) {
-        const prototype = Object.getPrototypeOf(value) as object | null
+      copy(value, _resolve, owners, known) {
+        const prototype = knownPrototype(value, known)
         const text = nativeParametersText(value as URLSearchParams)
         return carriedParameters(text, prototype, owners)
       },

@@ -1,5 +1,5 @@
 import { atomValue, isNode } from '../graph/edge'
-import { isObject, prototypeOf } from '../object-property'
+import { isObject, prototypeOf, type TemporalClass } from '../object-property'
 import { ownValue } from '../types/shared/properties'
 import { ATOM_KIND } from '../constants'
 import { atomPrototype } from '../object-property'
@@ -40,8 +40,9 @@ function atom(references: Map<object, Edge>, source: object): Edge {
  */
 class AlignedCapture extends Detached {
   declare private readonly beginCallback: (layout: Layout) => void
-  // The prototype `classify` read for a plain-object kind, handed to that object's observer.
+  // The prototype and Temporal class `classify` found for a child, handed to its observer.
   declare private classified: object | null | undefined
+  declare private classifiedTemporal: TemporalClass | undefined
   // Every object inside a kept subtree, marked by the walk that kept it; created on the first
   // walk, and unmarked again when a walk reaches a root.
   declare closure: Set<object> | undefined
@@ -52,7 +53,8 @@ class AlignedCapture extends Detached {
   declare kinds: Map<object, symbol> | undefined
   declare nodes: Array<BuildingNode | CapturedNode>
   declare occupants: Array<unknown[] | undefined>
-  // The prototype capture read of each node's aligned current object; undefined when unread.
+  // The prototype capture read of each node's aligned current object, also at a node whose kind
+  // it does not match; undefined when unread.
   declare prototypes: Array<object | null | undefined>
   // The node first aligned with each current object: the first such object and its node in two
   // fields, the rest in a map created on the second; and for an object aligned at more than one
@@ -65,7 +67,7 @@ class AlignedCapture extends Detached {
   // The one prototype read shared by recognition and its caller for the object at hand.
   declare private readonly read: PrototypeRead
   // The root's prototypes, read by the caller before capture.
-  declare private readonly nextPrototype: object | null | undefined
+  declare private readonly nextPrototype: object | null
   declare private pendingPrototype: object | null | undefined
   // The walk's state; `pending` is the occupant handed from the parent's aligned read to the
   // child's reservation.
@@ -81,13 +83,14 @@ class AlignedCapture extends Detached {
 
   constructor(
     types: PublicationRegistry,
-    value: unknown,
-    current: object | undefined,
-    valuePrototype: object | null | undefined,
-    currentPrototype: object | null | undefined,
+    value: object,
+    current: object,
+    valuePrototype: object | null,
+    currentPrototype: object | null,
   ) {
     super()
     this.classified = undefined
+    this.classifiedTemporal = undefined
     this.closure = undefined
     this.currents = []
     this.kinds = undefined
@@ -98,7 +101,7 @@ class AlignedCapture extends Detached {
     this.firstAligned = undefined
     this.firstAlignedAt = 0
     this.reads = undefined
-    this.read = { known: false, prototype: null }
+    this.read = { known: false, prototype: null, temporal: undefined }
     this.nextPrototype = valuePrototype
     this.pendingPrototype = currentPrototype
     // One begin/edge pair per capture serves every node: the observed node is a field.
@@ -121,7 +124,8 @@ class AlignedCapture extends Detached {
   }
 
   // The plain-object fallback reads the prototype once: an atom becomes a value edge, kept by
-  // reference like a function, and an object's observer receives the prototype read here.
+  // reference like a function. Every observer receives the prototype read here, and a Temporal
+  // value's observer the class recognition found (Types.Ingress.capture_reads_once).
   visit(source: unknown, kind?: symbol): Edge {
     if (!isObject(source)) return source as Primitive
     const known = this.references.get(source)
@@ -129,7 +133,13 @@ class AlignedCapture extends Detached {
     // The root's prototype was read before capture; any other object's is read once here.
     const read = this.share(source === this.nextRoot ? this.nextPrototype : undefined)
     const structural = kind ?? recognizeStructure(this.types, source, read)
-    if (structural !== OBJECT_KIND) return this.observe(source, structural)
+    if (structural !== OBJECT_KIND)
+      return this.observe(
+        source,
+        structural,
+        read.known ? read.prototype : undefined,
+        read.temporal,
+      )
     const prototype = prototypeOf(source, read)
     // reconcile already found that the next root is no atom.
     return source !== this.nextRoot &&
@@ -140,7 +150,12 @@ class AlignedCapture extends Detached {
       : this.observe(source, structural, prototype)
   }
 
-  private observe(source: object, kind: symbol, prototype?: object | null): Edge {
+  private observe(
+    source: object,
+    kind: symbol,
+    prototype: object | null | undefined,
+    temporal?: TemporalClass,
+  ): Edge {
     const reference = this.reserve(this.count++)
     this.references.set(source, reference)
     const policy = this.types.policies[kind]
@@ -148,7 +163,14 @@ class AlignedCapture extends Detached {
     const outerReference = this.currentReference
     this.currentSource = source
     this.currentReference = reference
-    policy.observe(source, this.beginCallback, this.edgeCallback, 'publication', prototype)
+    policy.observe(
+      source,
+      this.beginCallback,
+      this.edgeCallback,
+      'publication',
+      prototype,
+      temporal,
+    )
     this.currentSource = outerSource
     this.currentReference = outerReference
     // Native policies supply begin before returning; all graph nodes are sealed.
@@ -215,7 +237,9 @@ class AlignedCapture extends Detached {
     return value
   }
 
-  // The driver calls begin/edge only while this node is under construction.
+  // The driver calls begin/edge only while this node is under construction. An aligned object
+  // is recognized at the first node it aligns with; a later node takes the kind and prototype
+  // found there (Types.Ingress.meetAll_once).
   private begin(layout: Layout): void {
     const index = this.currentReference!.node
     ;(this.nodes[index] as BuildingNode).layout = layout
@@ -223,17 +247,31 @@ class AlignedCapture extends Detached {
     else this.sources[index] = this.currentSource!
     const aligned = this.currents[index]
     if (aligned === undefined) return
+    const kind = this.alignedKind(aligned, index)
+    if (kind !== layout.kind) {
+      this.currents[index] = undefined
+      ;(this.kinds ??= new Map()).set(aligned, kind)
+    }
+  }
+
+  // The kind of the object aligned at `index`, recording its prototype there: from the node it
+  // first aligned with, once that node began, otherwise recognized now.
+  private alignedKind(aligned: object, index: number): symbol {
+    // Without the table only one alignment was made, this one.
+    const first = this.alignedAt?.get(aligned) ?? index
+    const layout = first === index ? undefined : this.nodes[first].layout
+    if (layout !== undefined) {
+      this.prototypes[index] = this.prototypes[first]
+      return this.currents[first] === aligned ? layout.kind : this.kinds!.get(aligned)!
+    }
     const read = this.share(this.prototypes[index])
     // reconcile already found that the current root is no atom.
     const kind =
       index === 0
         ? recognizeStructure(this.types, aligned, read)
         : recognize(this.types, aligned, read)
-    if (kind === layout.kind) this.prototypes[index] = read.known ? read.prototype : undefined
-    else {
-      this.currents[index] = undefined
-      ;(this.kinds ??= new Map()).set(aligned, kind)
-    }
+    this.prototypes[index] = read.known ? read.prototype : undefined
+    return kind
   }
 
   // Resets the shared prototype read for a new object, holding `prototype` when already known.
@@ -268,7 +306,8 @@ class AlignedCapture extends Detached {
   private classify(child: object, kind: symbol | undefined): symbol {
     const read = this.share(undefined)
     const structural = kind ?? recognizeStructure(this.types, child, read)
-    this.classified = undefined
+    this.classified = read.known ? read.prototype : undefined
+    this.classifiedTemporal = read.temporal
     if (structural !== OBJECT_KIND) return structural
     this.classified = prototypeOf(child, read)
     return this.classified !== Object.prototype &&
@@ -298,7 +337,9 @@ class AlignedCapture extends Detached {
     const known = references.get(child)
     const childKind = known === undefined ? this.classify(child, kind) : kind
     if (childKind === ATOM_KIND) return atom(references, child)
+    // Held before `keep`, whose walk classifies other objects.
     const prototype = known === undefined ? this.classified : undefined
+    const temporal = known === undefined ? this.classifiedTemporal : undefined
     if (
       known === undefined &&
       (Object.is(occupant, child) || this.closure?.has(child) === true) &&
@@ -307,7 +348,7 @@ class AlignedCapture extends Detached {
       return atom(references, child)
     if (known !== undefined) return known
     this.pending = isObject(occupant) ? occupant : undefined
-    return this.observe(child, childKind!, prototype)
+    return this.observe(child, childKind!, prototype, temporal)
   }
 
   // Records the occupant read for the parent's next edge. A node's own-property edges all read
@@ -332,6 +373,7 @@ class AlignedCapture extends Detached {
     const stack: object[] = []
     let source: object | undefined = candidate
     let prototype: object | null | undefined
+    let temporal: TemporalClass | undefined
     const edge = (child: unknown) => {
       if (isObject(child)) stack.push(child)
     }
@@ -344,7 +386,8 @@ class AlignedCapture extends Detached {
       for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
         const read = this.share(undefined)
         const nextKind = recognizeStructure(types, next, read)
-        prototype = undefined
+        prototype = read.known ? read.prototype : undefined
+        temporal = read.temporal
         if (nextKind === OBJECT_KIND) {
           prototype = prototypeOf(next, read)
           if (prototype !== Object.prototype && prototype !== null && atomPrototype(prototype))
@@ -366,7 +409,7 @@ class AlignedCapture extends Detached {
         visited.push(source)
         // A kind that `someChild` lists needs no observation, which would copy its value.
         if (policy.someChild === undefined)
-          policy.observe(source, noValue, edge, 'publication', prototype)
+          policy.observe(source, noValue, edge, 'publication', prototype, temporal)
         else policy.someChild(source, ownValue, push)
       }
       source = pop()
@@ -388,7 +431,8 @@ export function tableOf(
 }
 
 /**
- * Captures `value`, aligned with `current` when supplied.
+ * Captures `value`, aligned with `current`; `valuePrototype` and `currentPrototype` are the roots'
+ * prototypes, which the caller read.
  *
  * @remarks
  * Aligned capture reads, for each own-property edge of a node whose aligned current object
@@ -401,10 +445,10 @@ export function tableOf(
  */
 export function capture(
   types: PublicationRegistry,
-  value: unknown,
-  current?: object,
-  valuePrototype?: object | null,
-  currentPrototype?: object | null,
+  value: object,
+  current: object,
+  valuePrototype: object | null,
+  currentPrototype: object | null,
 ): CapturedGraph {
   const run = new AlignedCapture(types, value, current, valuePrototype, currentPrototype)
   const root = run.visit(value)

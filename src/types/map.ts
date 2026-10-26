@@ -7,7 +7,7 @@ import type {
   ImmutablePolicy,
   PublicationPolicy,
 } from '../types'
-import { isObject } from '../object-property'
+import { isObject, knownPrototype } from '../object-property'
 import type { BaseDraftState } from '../types'
 import {
   collectionSurface,
@@ -54,8 +54,8 @@ const mapAccess: CollectionAccess = {
 const mapPolicySurface = /* @__PURE__ */ collectionSurface(mapAccess)
 const mapCapture = {
   construction: noValue,
-  observe(value, begin, edge) {
-    const prototype = Object.getPrototypeOf(value) as object | null
+  observe(value, begin, edge, _mode, known) {
+    const prototype = knownPrototype(value, known)
     begin({ kind: MAP_KIND, prototype })
     forEachBuiltinEntry(value, (child, key) => {
       edge(key)

@@ -1,5 +1,17 @@
 import { builtinValue, uncurried } from './standard-prototypes'
 
+/** A Temporal class's constructor, as the runtime calls it. */
+export interface TemporalConstructor {
+  new (...arguments_: never[]): object
+  from: (value: object) => object
+}
+
+/** A live Temporal class: its constructor and its name. */
+export interface TemporalClass {
+  readonly temporalConstructor: TemporalConstructor
+  readonly temporalName: string
+}
+
 /**
  * One object's prototype, shared by every reader in a call that meets the object: `known` once
  * a reader read it (Types.Ingress).
@@ -7,6 +19,12 @@ import { builtinValue, uncurried } from './standard-prototypes'
 export interface PrototypeRead {
   known: boolean
   prototype: object | null
+  /** The Temporal class found on the chain from `prototype` by the last recognition that selected
+   * the Temporal kind, for the value's capture (Types.Ingress.temporalCapture_passed). Only that
+   * selection writes it and nothing resets it, so it describes an object whose Temporal kind was
+   * just recognized; a reader that may hold a kind recognized earlier takes it only when `known`
+   * says recognition just read the prototype. */
+  temporal: TemporalClass | undefined
 }
 
 /**
@@ -190,6 +208,16 @@ export function prototypeOf(value: object, read: PrototypeRead | undefined): obj
   }
   return prototype
 }
+
+/**
+ * An object's prototype: `known` when its caller already read it, otherwise read now. Every
+ * capture and copy of a kind takes the prototype ingress read this way
+ * (Types.Ingress.capture_reads_once).
+ *
+ * @internal
+ */
+export const knownPrototype = (value: object, known: object | null | undefined): object | null =>
+  known === undefined ? (Object.getPrototypeOf(value) as object | null) : known
 
 /**
  * The walk after the first read, from an object's prototype: a caller that already read it
