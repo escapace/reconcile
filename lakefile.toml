@@ -28,6 +28,7 @@ roots = [
   "Spec.Reconcile",
   "Spec.Produce",
   "Spec.Promises",
+  "Spec.Discovery",
   "Oracle.SpecOracle",
   "Serialization.Collection",
   "Oracle.SerializationCollectionOracle",

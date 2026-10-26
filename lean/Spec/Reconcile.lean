@@ -130,7 +130,7 @@ structure Discovery where
 
 /-- The depth-first walk of `next`: per pending node the pinning alignment its edge offers. Returns
 the nodes in visit order and the alignment of each. -/
-private def visitStep (cur next : Graph) :
+def visitStep (cur next : Graph) :
     Nat → List (Nat × Option Nat) → Array Bool → Array (Option Nat) → List Nat →
       List Nat × Array (Option Nat)
   | 0, _, _, first, order => (order.reverse, first)
@@ -149,7 +149,7 @@ private def visitStep (cur next : Graph) :
         (first.setIfInBounds j aligned) (j :: order)
 
 /-- The walk over pairs of a next node and the candidate a walked parent offers. -/
-private def candidateStep (cur next : Graph) :
+def candidateStep (cur next : Graph) :
     Nat → List (Nat × Option Nat) → Array (List Nat) → Array (List Nat)
   | 0, _, candidates => candidates
   | _ + 1, [], candidates => candidates
