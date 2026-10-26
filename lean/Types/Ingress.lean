@@ -177,6 +177,23 @@ theorem bufferCopy_once (shared resizable : Bool) :
     bufferCopyOnce shared resizable = (bufferCopyEach shared resizable).eraseDups := by
   cases shared <;> cases resizable <;> decide
 
+/-- A typed array met before its buffer, before: the buffer's copy (`bufferCopyOnce`), then the
+view's offset and length as `copyTypedArray` reads them. -/
+def typedFirstEach (shared resizable : Bool) : List Read :=
+  bufferCopyOnce shared resizable ++ [.offset true, .length true]
+
+/-- Now (`copyTypedFirst` in `src/types/shared/binary-native.ts`) the same reads in the same order
+decide whether the array is copied from itself, its buffer then copied at the first lookup that
+needs it, or the buffer is copied first: the choice reads nothing more. -/
+def typedFirstOnce (shared resizable : Bool) : List Read :=
+  if shared then [.prototype, .offset true, .length true]
+  else [.prototype, .byteLength, .resizable] ++ (if resizable then [.maximum] else []) ++
+    [.offset true, .length true]
+
+theorem typedFirst_once (shared resizable : Bool) :
+    typedFirstOnce shared resizable = (typedFirstEach shared resizable).eraseDups := by
+  cases shared <;> cases resizable <;> decide
+
 /-- Counterexample: a `DataView`-kind copy of a typed array (whose prototype was set to
 `DataView.prototype`) must take the typed-array getters its element type selects; the `DataView`
 getters would be the wrong reads. -/

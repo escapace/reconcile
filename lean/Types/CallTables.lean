@@ -1,13 +1,18 @@
 /-!
 # Per-call tables
 
-Three per-call tables hold their entries in a cheaper form than a map or one list per field. Each
-section models the earlier form as the reference and proves that the new one answers every lookup
-the runtime makes as the reference does, over any sequence of the operations the runtime performs.
+Per-call tables hold their entries in a cheaper form than a map, one list per field or an eager
+copy. Each section models the earlier form as the reference and proves that the new one answers
+every lookup the runtime makes as the reference does, over any sequence of the operations the
+runtime performs.
 
 - The snapshot walk's reference memo (`SnapshotWalk.memoized` in `src/snapshot.ts`) holds the
   first observed object's reference in two fields, which the root's visit fills without a lookup,
   and makes its map, holding that reference, at the first lookup after it (`lazy_run_eq`).
+- The same memo's entry for a buffer first met through a typed array that covers it
+  (`SnapshotWalk.typedCopy`, `copyTypedFirst`) holds that array's copy, made from the array
+  itself, and reads the copy's buffer at the first lookup that needs it instead of copying the
+  buffer when the entry is stored (`pending_run_eq`).
 - serialize's scalar and plain-layout tables (`scalar` and `layout` in
   `src/serialization/emit.ts`) hold -1 at an index without an id instead of leaving it absent, and
   grow to the index they read (`filled_run_eq`).
@@ -102,6 +107,112 @@ theorem lazy_run_eq (ks : List K) : Lazy.run Lazy.empty 0 ks = plainRun [] 0 ks 
 example : Lazy.run (K := Nat) Lazy.empty 0 [7, 7, 8, 7] = [0, 0, 1, 0] := by decide
 
 end Memo
+
+/-! ## Buffers copied through their first view -/
+
+section Pending
+
+variable {K T V : Type} [DecidableEq K] (bufferOf : V → T)
+
+/-- A memo entry: a copy stored when made, or a view's copy whose buffer stands for the copy of
+the source buffer. `bufferOf` is the engine's buffer getter on that copy, which answers one object
+every time (a runtime obligation). -/
+inductive Entry (T V : Type) where
+  | ready (t : T)
+  | pending (v : V)
+
+/-- The copy an entry stands for. -/
+def Entry.value : Entry T V → T
+  | .ready t => t
+  | .pending v => bufferOf v
+
+/-- An operation of the walk on the memo: storing a copy, storing a view's copy for its buffer, or
+looking a source up. -/
+inductive Op (K T V : Type) where
+  | store (k : K) (t : T)
+  | storeView (k : K) (v : V)
+  | lookup (k : K)
+
+/-- The memo now: a lookup that finds a view's copy reads its buffer and keeps it as the copy. -/
+def lazyStep (m : List (K × Entry T V)) : Op K T V → Option T × List (K × Entry T V)
+  | .store k t => (none, (k, .ready t) :: m)
+  | .storeView k v => (none, (k, .pending v) :: m)
+  | .lookup k =>
+    match m.lookup k with
+    | none => (none, m)
+    | some e => (some (e.value bufferOf), (k, .ready (e.value bufferOf)) :: m)
+
+/-- The memo before: the buffer is copied when its entry is stored. -/
+def eagerStep (m : List (K × T)) : Op K T V → Option T × List (K × T)
+  | .store k t => (none, (k, t) :: m)
+  | .storeView k v => (none, (k, bufferOf v) :: m)
+  | .lookup k => (m.lookup k, m)
+
+/-- The answers a sequence of operations gets. -/
+def lazyRun : List (K × Entry T V) → List (Op K T V) → List (Option T)
+  | _, [] => []
+  | m, o :: os => (lazyStep bufferOf m o).1 :: lazyRun (lazyStep bufferOf m o).2 os
+
+def eagerRun : List (K × T) → List (Op K T V) → List (Option T)
+  | _, [] => []
+  | m, o :: os => (eagerStep bufferOf m o).1 :: eagerRun (eagerStep bufferOf m o).2 os
+
+/-- Both memos answer every lookup alike. -/
+def PendingAgree (m : List (K × Entry T V)) (e : List (K × T)) : Prop :=
+  ∀ k, (m.lookup k).map (Entry.value bufferOf) = e.lookup k
+
+theorem pendingAgree_step {m : List (K × Entry T V)} {e : List (K × T)} (o : Op K T V)
+    (h : PendingAgree bufferOf m e) :
+    (lazyStep bufferOf m o).1 = (eagerStep bufferOf e o).1 ∧
+    PendingAgree bufferOf (lazyStep bufferOf m o).2 (eagerStep bufferOf e o).2 := by
+  cases o with
+  | store k t =>
+    refine ⟨rfl, fun j => ?_⟩
+    by_cases hj : j = k
+    · subst hj; simp [lazyStep, eagerStep, Entry.value]
+    · have hb : (j == k) = false := by simpa using hj
+      simp [lazyStep, eagerStep, List.lookup, hb, h j]
+  | storeView k v =>
+    refine ⟨rfl, fun j => ?_⟩
+    by_cases hj : j = k
+    · subst hj; simp [lazyStep, eagerStep, Entry.value]
+    · have hb : (j == k) = false := by simpa using hj
+      simp [lazyStep, eagerStep, List.lookup, hb, h j]
+  | lookup k =>
+    have hk := h k
+    cases hm : m.lookup k with
+    | none =>
+      rw [hm] at hk
+      exact ⟨by simp [lazyStep, eagerStep, hm, ← hk],
+        by simpa [lazyStep, eagerStep, hm] using h⟩
+    | some x =>
+      rw [hm] at hk
+      refine ⟨by simp [lazyStep, eagerStep, hm, ← hk], fun j => ?_⟩
+      by_cases hj : j = k
+      · subst hj; simp [lazyStep, eagerStep, hm, Entry.value, ← hk]
+      · have hb : (j == k) = false := by simpa using hj
+        simp [lazyStep, eagerStep, hm, List.lookup, hb, h j]
+
+theorem pendingAgree_run :
+    ∀ (os : List (Op K T V)) (m : List (K × Entry T V)) (e : List (K × T)),
+    PendingAgree bufferOf m e → lazyRun bufferOf m os = eagerRun bufferOf e os
+  | [], _, _, _ => rfl
+  | o :: os, m, e, h => by
+    obtain ⟨ho, hagree⟩ := pendingAgree_step bufferOf o h
+    simp only [lazyRun, eagerRun]
+    rw [ho, pendingAgree_run os _ _ hagree]
+
+/-- A memo whose buffer entries hold their first view's copy answers every lookup with the buffer
+the eager memo copied, given that the copy's buffer getter answers one object. -/
+theorem pending_run_eq (os : List (Op K T V)) : lazyRun bufferOf [] os = eagerRun bufferOf [] os :=
+  pendingAgree_run bufferOf os [] [] (fun _ => rfl)
+
+-- A buffer stored through its view's copy, then met twice: both lookups find the copy's buffer.
+example :
+    lazyRun (K := Nat) (V := Nat) (· + 100) [] [.storeView 1 5, .lookup 1, .lookup 1, .lookup 2] =
+    [none, some 105, some 105, none] := by decide
+
+end Pending
 
 /-! ## serialize's sentinel-filled tables -/
 
