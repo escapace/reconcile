@@ -3,7 +3,9 @@ import Mathlib.Data.List.Perm.Basic
 
 /-! Reference model of the construction schedule (`src/graph/construction.ts`): `schedule` orders
 the nodes that are not retained so that every dependency is known before its dependent, and a
-schedule exists exactly when such a safe order does (`schedule_exists_iff`). -/
+schedule exists exactly when such a safe order does (`schedule_exists_iff`). The runtime computes
+`flatSchedule`, which is the schedule when no prerequisite has prerequisites of its own
+(`schedule_flat`). -/
 
 namespace Reconcile.Construction
 
@@ -176,6 +178,62 @@ theorem schedule_shells_only {deps : Dependencies} {retained : Finset Nat} {node
   unfold schedule
   simp only [pending, all]
   cases nodes.length <;> simp [waves]
+
+theorem waves_nil {deps : Dependencies} {fuel : Nat} {known : Finset Nat} :
+    waves deps fuel known [] = some [] := by
+  cases fuel <;> rfl
+
+/-- A wave that finds every pending node ready is the last one. -/
+theorem waves_all_ready {deps : Dependencies} {fuel : Nat} {known : Finset Nat}
+    {pending : List Nat} (bound : pending.length ≤ fuel)
+    (allReady : ∀ node ∈ pending, ready deps known node = true) :
+    waves deps fuel known pending = some pending := by
+  cases pending with
+  | nil => exact waves_nil
+  | cons node rest =>
+    obtain ⟨fuel, rfl⟩ : ∃ smaller, fuel = smaller + 1 :=
+      ⟨fuel - 1, by simp only [List.length_cons] at bound; omega⟩
+    have wave : (node :: rest).filter (ready deps known) = node :: rest :=
+      List.filter_eq_self.mpr allReady
+    have waiting : (node :: rest).filter (fun node => !ready deps known node) = [] :=
+      List.filter_eq_nil_iff.mpr fun other member => by simp [allReady other member]
+    simp only [waves, List.isEmpty_cons, Bool.false_eq_true, ↓reduceIte, wave, waiting, waves_nil,
+      Option.map_some, List.append_nil]
+
+/-- The construction order when every prerequisite has none of its own: the fresh nodes without
+prerequisites, then the fresh nodes with some, each in the given order. -/
+def flatSchedule (deps : Dependencies) (retained : Finset Nat) (nodes : List Nat) : List Nat :=
+  let fresh := nodes.filter fun node => decide (node ∉ retained)
+  fresh.filter (fun node => (deps node).isEmpty) ++ fresh.filter fun node => !(deps node).isEmpty
+
+/-- When each prerequisite of a fresh node is retained or a node without prerequisites, the
+fresh nodes with prerequisites all form the wave after the shells, so the schedule exists and is
+`flatSchedule`, which `schedule_safe` and `schedule_perm` therefore cover. -/
+theorem schedule_flat {deps : Dependencies} {retained : Finset Nat} {nodes : List Nat}
+    (flat : ∀ node ∈ nodes, node ∉ retained → ∀ dependency ∈ deps node,
+      dependency ∈ retained ∨ (dependency ∈ nodes ∧ deps dependency = [])) :
+    schedule deps retained nodes = some (flatSchedule deps retained nodes) := by
+  let fresh := nodes.filter fun node => decide (node ∉ retained)
+  let shells := fresh.filter fun node => (deps node).isEmpty
+  let pending := fresh.filter fun node => !(deps node).isEmpty
+  have bound : pending.length ≤ nodes.length :=
+    (List.length_filter_le _ _).trans (List.length_filter_le _ _)
+  have allReady : ∀ node ∈ pending, ready deps (retained ∪ shells.toFinset) node = true := by
+    intro node member
+    obtain ⟨inNodes, isFresh⟩ := List.mem_filter.mp (List.mem_filter.mp member).1
+    simp only [ready, List.all_eq_true, decide_eq_true_eq]
+    intro dependency hd
+    by_cases kept : dependency ∈ retained
+    · exact Finset.mem_union_left _ kept
+    · obtain ⟨dependencyInNodes, none⟩ :=
+        (flat node inNodes (by simpa using isFresh) dependency hd).resolve_left kept
+      apply Finset.mem_union_right
+      apply List.mem_toFinset.mpr
+      exact List.mem_filter.mpr
+        ⟨List.mem_filter.mpr ⟨dependencyInNodes, by simpa using kept⟩, by simp [none]⟩
+  have last := waves_all_ready bound allReady
+  simp only [schedule, flatSchedule]
+  exact congrArg (Option.map (shells ++ ·)) last
 
 /-- A plan retaining every node constructs nothing: its order is empty, so publication allocates
 and writes nothing and each node keeps its own target. -/

@@ -5,7 +5,8 @@ import Lean
 /-! Oracle for the `CompactImmutable` family: for each bounded case, whose rows have distinct
 storages as the runtime's records do, it checks that the compact ranked masks
 (`CompactImmutable.ranked`) decode to the reference ranked plans and schedules construction for
-each plan with `Construction.schedule`. -/
+each plan with `Construction.schedule`, over dependencies one level deep as the runtime's are
+(`Construction.schedule_flat`). -/
 
 namespace Reconcile.CompactImmutableOracle
 
@@ -41,6 +42,9 @@ private def emit (input : Input) : IO Unit := do
       !(input.dependencies.all fun row => row.length ≤ 128 && row.all (· < size)) ||
       !(input.rows.all fun row => row.children.length ≤ 128) then
     throw (IO.userError "Compact immutable fixture exceeds finite bridge bounds")
+  if !(input.dependencies.all fun row => row.all fun dependency =>
+      (input.dependencies[dependency]?.getD []).isEmpty) then
+    throw (IO.userError "Compact immutable fixture has a dependency with dependencies")
   if checked : input.rows.all (bounded size) then
     have bounds (i : Fin size) : size ≤ input.rows[i.val].proposed ∧
         size ≤ input.rows[i.val].storage ∧
@@ -78,11 +82,11 @@ private def emitCorpus : IO Unit := do
       emit { rows, dependencies := [[], [], []] }
       let fixed := rows.zipIdx |>.map fun (row, i) =>
         { row with eligible := true, fixed := flags.testBit i }
-      emit { rows := fixed, dependencies := [[1], [0], []] }
+      emit { rows := fixed, dependencies := [[1], [], [1]] }
   emit { rows := [], dependencies := [] }
   let self : InputRow := {
     proposed := 1, storage := 2, eligible := true, fixed := false, children := [0, 0] }
-  emit { rows := [self], dependencies := [[0]] }
+  emit { rows := [self], dependencies := [[]] }
   let impossible : InputRow := {
     proposed := 1, storage := 2, eligible := false, fixed := true, children := [] }
   emit { rows := [impossible], dependencies := [[]] }

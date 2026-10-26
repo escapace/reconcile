@@ -260,8 +260,9 @@ function ownersIn(run: Run, kind: symbol): WeakMap<object, object> {
 
 /**
  * The target of each node: the object it keeps, or a new object allocated in construction order,
- * after the targets it is built from; the kept objects themselves when every node keeps one.
- * Undefined when no order exists or an allocation fails.
+ * after the targets it is built from; the kept objects themselves when every node keeps one, whose
+ * construction order is empty (Construction.schedule_all_retained). Undefined when an allocation
+ * fails.
  */
 function allocate(
   types: PublicationRegistry,
@@ -279,7 +280,8 @@ function allocate(
     retained[index] = target !== undefined
     if (target !== undefined) targets[index] = target
   }
-  // Construction dependencies are sealed facts: only a dependent kind, a view or a URL, has any.
+  // Construction dependencies are sealed facts: only a dependent kind, a view or a URL, has any,
+  // the node of its buffer or `searchParams`, which has none.
   const order = constructionOrder(
     records.map((node) => {
       const bindings = types.policies[node.layout.kind].bindings
@@ -287,7 +289,6 @@ function allocate(
     }),
     retained,
   )
-  if (order === undefined) return undefined
   // Native ownership found while allocating; a literal holds the field as its own data.
   const owners: NativeOwners = { nativeOwners: undefined }
   const resolve = (edge: Edge): unknown => (isNode(edge) ? targets[edge.node] : atomValue(edge))
