@@ -19,13 +19,6 @@ def accepts : List Bool → Nat → Bool
   | true :: _, _ + 1 => false
   | false :: rest, rank + 1 => accepts rest rank
 
-theorem accepts_iff (flags : List Bool) (rank : Nat) :
-    accepts flags rank = true ↔ first flags = some rank := by
-  induction flags generalizing rank with
-  | nil => simp [accepts, first]
-  | cons flag rest ih =>
-    cases flag <;> cases rank <;> simp [accepts, first, ih]
-
 /-- Supplied native outcomes; a throw terminates the observed predicate prefix. -/
 inductive ProbeOutcome where
   | miss

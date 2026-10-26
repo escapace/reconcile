@@ -290,8 +290,4 @@ theorem schedule_exists_iff {deps : Dependencies} {retained : Finset Nat} {nodes
     exact ⟨order, schedule_safe h, schedule_perm h⟩
   · exact schedule_complete
 
-theorem schedule_nodup {deps : Dependencies} {retained : Finset Nat} {nodes order : List Nat}
-    (hn : nodes.Nodup) (h : schedule deps retained nodes = some order) : order.Nodup := by
-  exact (schedule_perm h).nodup_iff.mpr (hn.filter _)
-
 end Reconcile.Construction

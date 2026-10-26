@@ -345,17 +345,6 @@ theorem ofHex_hexDigits (m : Nat) : ofHex (hexDigits m) = m := by
   · subst m; simp
   · simp [Nat.ofDigits_digits]
 
-theorem hexDigits_canonical (m : Nat) : Canonical (hexDigits m) := by
-  unfold Canonical hexDigits
-  split
-  · simp
-  · rename_i hm
-    have hne : Nat.digits 16 m ≠ [] := Nat.digits_ne_nil_iff_ne_zero.2 hm
-    refine ⟨by simpa using hne, fun d hd => Nat.digits_lt_base (by norm_num) (List.mem_reverse.1 hd),
-      fun h0 => ?_⟩
-    rw [List.head?_reverse, List.getLast?_eq_some_getLast hne] at h0
-    exact absurd (Option.some.inj h0) (Nat.getLast_digit_ne_zero 16 hm)
-
 theorem hexDigits_ofHex (digits : List Nat) (h : Canonical digits) :
     hexDigits (ofHex digits) = digits := by
   obtain ⟨hne, hlt, hlead⟩ := h
@@ -387,11 +376,6 @@ def CanonicalInt (text : Bool × List Nat) : Prop :=
 theorem decodeInt_encodeInt (z : Int) : decodeInt (encodeInt z) = z := by
   simp only [decodeInt, encodeInt, ofHex_hexDigits, decide_eq_true_eq]
   split <;> omega
-
-theorem encodeInt_canonical (z : Int) : CanonicalInt (encodeInt z) := by
-  refine ⟨hexDigits_canonical _, fun h => ?_⟩
-  simp only [encodeInt, decide_eq_true_eq] at h ⊢
-  rw [ofHex_hexDigits]; omega
 
 theorem encodeInt_decodeInt (text : Bool × List Nat) (h : CanonicalInt text) :
     encodeInt (decodeInt text) = text := by

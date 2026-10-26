@@ -34,10 +34,6 @@ def choice {size : Nat} (p : Problem size) (i : Fin size) (keep : Bool) : Choice
 def plan {size : Nat} (p : Problem size) (keep : Mask size) : Plan :=
   (List.finRange size).map fun i => choice p i (keep i)
 
-def Admissible {size : Nat} (p : Problem size) (keep : Mask size) : Prop :=
-  (∀ i, keep i = true → (p.row i).eligible = true) ∧
-  (∀ i, (p.row i).fixed = true → keep i = true)
-
 def Closed {size : Nat} (p : Problem size) (keep : Mask size) : Prop :=
   ∀ i, keep i = true → ∀ child ∈ (p.row i).children, keep child = true
 
@@ -132,52 +128,6 @@ def options {size : Nat} (row : Row size) : List Bool :=
 
 def domains {size : Nat} (p : Problem size) : Domains :=
   (List.finRange size).map fun i => (options (p.row i)).map (choice p i)
-
-theorem allowed_map {A : Type} (indices : List A) (domain : A → List Choice)
-    (chosen : A → Choice) :
-    allowed (indices.map domain) (indices.map chosen) ↔
-      ∀ i ∈ indices, chosen i ∈ domain i := by
-  induction indices with
-  | nil => simp [allowed]
-  | cons i indices ih => simp [allowed, ih]
-
-theorem choice_injective {size : Nat} (p : Problem size) (i : Fin size) :
-    Function.Injective (choice p i) := by
-  intro a b same
-  simpa using congrArg Choice.retained same
-
-theorem allowed_iff {size : Nat} (p : Problem size) (keep : Mask size) :
-    allowed (domains p) (plan p keep) ↔ Admissible p keep := by
-  simp only [domains, plan, allowed_map, List.mem_finRange, forall_const,
-    List.mem_map_of_injective (choice_injective p _), mem_options]
-  exact forall_and
-
-theorem allowed_representation {size : Nat} (p : Problem size) (selected : Plan)
-    (ha : allowed (domains p) selected) :
-    ∃ keep : Mask size, Admissible p keep ∧ plan p keep = selected := by
-  have length : selected.length = size := by
-    simpa [domains] using allowed_length ha
-  let keep : Mask size := fun i => (selected[i.val]'(by omega)).retained
-  have equal : plan p keep = selected := by
-    apply List.ext_getElem
-    · simp [length]
-    · intro index left right
-      have bound : index < size := by simpa using left
-      let i : Fin size := ⟨index, bound⟩
-      obtain ⟨domain, hd, hm⟩ := allowed_at ha (List.getElem?_eq_getElem right)
-      have domainAt : (domains p)[i.val]? =
-          some ((options (p.row i)).map (choice p i)) := by simp [domains]
-      have hd' : domain = (options (p.row i)).map (choice p i) :=
-        Option.some.inj (hd.symm.trans domainAt)
-      rw [hd'] at hm
-      obtain ⟨bit, _, hb⟩ := List.mem_map.mp hm
-      have retained : keep i = bit := by
-        simpa [keep, i] using congrArg Choice.retained hb.symm
-      have lookup : (plan p keep)[index]? = some (choice p i bit) := by
-        simpa only [retained] using plan_at p keep i
-      rw [List.getElem?_eq_getElem left] at lookup
-      exact (Option.some.inj lookup).trans hb
-  exact ⟨keep, (allowed_iff p keep).mp (equal ▸ ha), equal⟩
 
 /-- Stable ordered enumeration uses bits rather than Choice objects. -/
 def assignments {size : Nat} (p : Problem size) : List (Fin size) → List (List Bool)
@@ -411,40 +361,5 @@ theorem selected_decode {size : Nat} (p : Problem size) (build : List Bool → B
         build (selected.map Choice.retained)).head? := by
   rw [← constructible_decode p build]
   simp
-
-/-- Every admitted feasible bit completion inherits the existing prefix pruning law. -/
-theorem prefix_survives {size : Nat} (p : Problem size) (keep : Mask size)
-    (admitted : Admissible p keep) (separated : Separated p keep)
-    (closed : Closed p keep) (count : Nat) :
-    ((plan p keep).take count).Pairwise (fun a b => a.storage ≠ b.storage) ∧
-    ∀ candidate ∈ (plan p keep).take count, ∀ edge ∈ candidate.required,
-      if edge.node < count then
-        (((plan p keep).take count)[edge.node]?).map Choice.identity = some edge.identity
-      else ∃ domain candidate, (domains p)[edge.node]? = some domain ∧
-        candidate ∈ domain ∧ candidate.identity = edge.identity :=
-  completion_survives_prefix_pruning ((allowed_iff p keep).mpr admitted)
-    ((feasible_iff p keep).mpr ⟨separated, closed⟩) count
-
-/-- All incoming requirements for one immutable child demand its single proposal. -/
-theorem incoming_bit_iff {size : Nat} (p : Problem size) (owners : List (Fin size))
-    (node : Fin size) (bit : Bool) :
-    (∀ owner ∈ owners, ∀ child ∈ (p.row owner).children, child = node →
-      (choice p node bit).identity = (p.row child).proposed) ↔
-      ((∃ owner ∈ owners, node ∈ (p.row owner).children) → bit = true) := by
-  constructor
-  · intro accepted ⟨owner, ho, hc⟩
-    exact (identity_iff p node bit).mp (accepted owner ho node hc rfl)
-  · intro accepted owner ho child hc same
-    subst child
-    exact (identity_iff p node bit).mpr (accepted ⟨owner, ho, hc⟩)
-
-/-- A Boolean demand trail records only new bits; undo preserves every older demand. -/
-theorem undo_admission (known : Finset Nat) (incoming : List Nat) :
-    SDiff.sdiff (known ∪ incoming.toFinset) (RequirementAdmission.admit known incoming).toFinset =
-      known := by
-  ext node
-  simp only [Finset.mem_sdiff, Finset.mem_union, List.mem_toFinset,
-    RequirementAdmission.admit_mem]
-  tauto
 
 end Reconcile.CompactImmutable

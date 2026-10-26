@@ -443,8 +443,6 @@ so a rebuilt object keeps those its draft holds. -/
 /-- The attributes a new object's property takes from a source property with this enumerability. -/
 def copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
 
-theorem copied_true : copied true = plain := rfl
-
 /-- The write that creates a new object's property from a source property: `construct` for an
 enumerable one, and a definition for a non-enumerable one, which assignment cannot create. -/
 def constructFrom (env : Env V) (s : Slot V) (v : V) (standard proto enumerable : Bool) :

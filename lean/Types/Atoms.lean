@@ -108,11 +108,6 @@ theorem classify_reads (chain : Chain) (h : chain.head? ≠ some .array) :
   | .data label :: tail, _ => exact scan_reads _ 1
   | .array :: tail, h => exact absurd rfl h
 
-/-- Plain objects, arrays and `null`-prototype objects take one read and are not atoms. -/
-theorem classify_plain :
-    classify [.object] = (false, 1) ∧ classify [.array, .object] = (false, 1) ∧
-      classify [] = (false, 1) := ⟨rfl, rfl, rfl⟩
-
 /-- Ingress recognition: the structural scan of `Types.Recognition` selects a rank; the
 plain-object fallback is then split by the walk. Known-kind checks keep the structural scan. -/
 inductive Ingress where

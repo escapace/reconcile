@@ -41,9 +41,11 @@ type ObservationPhase = {
 // Failed observations abandon the entire phase; there is no shared state to restore.
 export class Finalization extends Detached {
   declare private accessorObservations: WeakMap<object, Map<PropertyKey, unknown>> | undefined
+  // Registered child copies that a changed native owner keeps (forceOwnedChildren); created on
+  // the first.
+  declare private forcedOwnedCopies: WeakSet<object> | undefined
   // The complete object-child list of each object whose walk found no child needing a copy, in
   // slot order; created on the first. Produce.SettledChildren.
-  declare private forcedOwnedCopies: WeakSet<object> | undefined
   declare private walked: Map<object, readonly object[]> | undefined
   // Native kind knowledge for one observation phase, created on the first recognition; never
   // attached to application objects.
@@ -171,13 +173,15 @@ export class Finalization extends Detached {
       this.materializationPlan?.closure.imply(state?.base ?? value, traversal.parent)
       return this.checkState(value, state, knownKind, traversal.visited)
     }
-    // A handle needs unwrapping whatever its base holds, which is checkMaterialization's first
-    // answer; it needs no visited set.
-    if (isObject(value) && this.session.statesByIdentity.get(value)?.handle === value) return true
+    if (!isObject(value)) return false
+    // One draft lookup serves both answers. A handle needs unwrapping whatever its base holds,
+    // which is checkState's first answer; it needs no visited set.
+    const state = this.session.stateOf(value)
+    if (state?.handle === value) return true
     const visited = new Set<object>()
     const outer = this.unsettled
     this.unsettled = undefined
-    const result = this.checkMaterialization(value, knownKind, visited)
+    const result = this.checkState(value, state, knownKind, visited)
     // The check may have created the list, which narrowing cannot see.
     const unsettled = this.unsettled as object[] | undefined
     this.unsettled = outer
@@ -188,18 +192,8 @@ export class Finalization extends Detached {
     return result
   }
 
-  /** Checks one reachable value; a cycle-guard hit makes the answers that lean on it pending. */
-  private checkMaterialization(
-    value: unknown,
-    knownKind: symbol | undefined,
-    visited: Set<object>,
-  ): boolean {
-    return (
-      isObject(value) && this.checkState(value, this.session.stateOf(value), knownKind, visited)
-    )
-  }
-
-  /** `checkMaterialization` of an object whose draft state, if any, is `state`. */
+  /** Checks one reachable object whose draft state, if any, is `state`; a cycle-guard hit makes
+   * the answers that lean on it pending. */
   private checkState(
     value: object,
     state: DraftState | undefined,
@@ -578,7 +572,7 @@ export class Finalization extends Detached {
       value,
       (source, key) => this.readTraversalProperty(source, key),
       (child) => {
-        // A primitive needs nothing and implies nothing (checkMaterialization's first answer).
+        // A primitive needs nothing and implies nothing, as needsMaterialization answers it.
         if (!isObject(child)) return false
         ;(children ??= []).push(child)
         return this.needsMaterialization(child, undefined, { parent: value, visited })

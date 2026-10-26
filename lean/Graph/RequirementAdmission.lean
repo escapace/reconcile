@@ -45,32 +45,7 @@ theorem admit_append (known : Finset Nat) (left right : List Nat) :
       simp [admit, hh, ih, he]
     · simp [admit, hh, ih, Finset.insert_union, Finset.union_insert]
 
-theorem admission_bound (known vertices : Finset Nat) (input : List Nat)
-    (bounded : ∀ fact ∈ input, fact ∈ vertices) :
-    (admit known input).length ≤ vertices.card := by
-  rw [← List.toFinset_card_of_nodup (admit_nodup known input)]
-  apply Finset.card_le_card
-  intro fact hf
-  exact bounded fact ((admit_mem known input fact).mp (List.mem_toFinset.mp hf)).1
-
 example : admit {3} [2, 1, 2, 3, 1, 4] = [2, 1, 4] := by decide
-
-theorem admit_of_unique_fresh (known : Finset Nat) (input : List Nat)
-    (unique : input.Nodup) (fresh : ∀ fact ∈ input, fact ∉ known) : admit known input = input := by
-  induction input generalizing known with
-  | nil => rfl
-  | cons head rest ih =>
-    rw [admit, if_neg (fresh head (by simp))]
-    congr 1
-    apply ih (insert head known) unique.tail
-    intro fact hf
-    simp only [Finset.mem_insert, not_or]
-    exact ⟨fun he => (List.nodup_cons.mp unique).1 (he ▸ hf), fresh fact (by simp [hf])⟩
-
-theorem admit_idempotent (known : Finset Nat) (input : List Nat) :
-    admit known (admit known input) = admit known input := by
-  apply admit_of_unique_fresh known _ (admit_nodup known input)
-  exact fun fact hf => ((admit_mem known input fact).mp hf).2
 
 theorem admitted_queue_append (known : Finset Nat) (pending incoming : List Nat) :
     admit known (pending ++ incoming) =

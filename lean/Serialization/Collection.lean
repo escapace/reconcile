@@ -20,27 +20,6 @@ def lookup (key : K) : List (K × V) → Option V
   | [] => none
   | (first, value) :: rest => if key = first then some value else lookup key rest
 
-theorem mem_remember (key query : K) (keys : List K) :
-    query ∈ remember key keys ↔ query = key ∨ query ∈ keys := by
-  induction keys with
-  | nil => simp [remember]
-  | cons first rest ih =>
-    by_cases h : key = first
-    · subst key; simp [remember]
-    · simp only [remember, if_neg h, List.mem_cons, ih]
-      aesop
-
-theorem remember_nodup (key : K) (keys : List K) (h : keys.Nodup) :
-    (remember key keys).Nodup := by
-  induction keys with
-  | nil => simp [remember]
-  | cons first rest ih =>
-    by_cases equal : key = first
-    · simpa [remember, equal] using h
-    · have parts := List.nodup_cons.mp h
-      simp only [remember, if_neg equal, List.nodup_cons, mem_remember]
-      exact ⟨by aesop, ih parts.2⟩
-
 theorem keys_put (key : K) (value : V) (rows : List (K × V)) :
     (put key value rows).map Prod.fst = remember key (rows.map Prod.fst) := by
   induction rows with
@@ -85,31 +64,6 @@ theorem last_value (query : K) (rows entries : List (K × V)) :
   | cons pair rest ih =>
     simp only [foldMap, List.foldl_cons, lastValue] at *
     rw [ih, lookup_put]
-
-theorem first_order_nodup (keys incoming : List K) (h : keys.Nodup) :
-    (firstOrder keys incoming).Nodup := by
-  induction incoming generalizing keys with
-  | nil => exact h
-  | cons key rest ih => exact ih _ (remember_nodup key keys h)
-
-theorem fold_unique (entries : List (K × V)) :
-    ((foldMap [] entries).map Prod.fst).Nodup := by
-  rw [first_insertion_order]
-  exact first_order_nodup [] _ (by simp)
-
--- Set is the same first-occurrence order, without a value field.
-theorem set_unique (entries : List K) : (firstOrder [] entries).Nodup :=
-  first_order_nodup [] entries (by simp)
-
-theorem remember_existing (key : K) (keys : List K) (h : key ∈ keys) :
-    remember key keys = keys := by
-  induction keys with
-  | nil => simp at h
-  | cons first rest ih =>
-    by_cases equal : key = first
-    · simp [remember, equal]
-    · simp only [List.mem_cons] at h
-      simp [remember, equal, ih (h.resolve_left equal)]
 
 -- The finite reader is deterministic over private transport tokens. Its failures
 -- carry their identity code. The separate trace records every attempted read.
@@ -166,17 +120,6 @@ theorem map_reads_every_occurrence (canonical : Nat → Nat) (read : Nat → Exc
       | ok decodedValue =>
         simp [decodeMap, flatten, validate, hk, hv, ih, prepend]
 
-theorem successful_map_fold (canonical decoded : Nat → Nat)
-    (rows entries : List (Nat × Nat)) :
-    decodeMap canonical (fun token => .ok (decoded token)) rows entries =
-      ⟨foldMap rows (entries.map fun (key, value) => (canonical (decoded key), decoded value)),
-        ⟨flatten entries, none⟩⟩ := by
-  induction entries generalizing rows with
-  | nil => rfl
-  | cons pair rest ih =>
-    rcases pair with ⟨key, value⟩
-    simp [decodeMap, ih, foldMap, flatten, prepend]
-
 def decodeSet (canonical : Nat → Nat) (read : Nat → Except Nat Nat)
     (keys : List Nat) : List Nat → SetResult
   | [] => ⟨keys, ⟨[], none⟩⟩
@@ -193,13 +136,6 @@ theorem set_reads_every_occurrence (canonical : Nat → Nat) (read : Nat → Exc
   | nil => rfl
   | cons token rest ih =>
     cases h : read token <;> simp [decodeSet, validate, h, ih]
-
-theorem successful_set_fold (canonical decoded : Nat → Nat) (keys tokens : List Nat) :
-    decodeSet canonical (fun token => .ok (decoded token)) keys tokens =
-      ⟨firstOrder keys (tokens.map (canonical ∘ decoded)), ⟨tokens, none⟩⟩ := by
-  induction tokens generalizing keys with
-  | nil => rfl
-  | cons token rest ih => simp [decodeSet, ih, firstOrder, prepend]
 
 -- The positional decoder resolves every slot of a collection before its first insertion, so
 -- a failed occurrence leaves the destination untouched; on success it is the same fold.

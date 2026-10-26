@@ -209,10 +209,6 @@ def Node.childRefs {A : Type} {ι : Type} : Node A ι → List ι
 
 /-! ## Well-formedness predicates -/
 
-/-- Plain-object fields are well-formed when keys are duplicate-free. -/
-def ObjFieldsWF {A : Type} {ι : Type} (fields : ObjFields A ι) : Prop :=
-  fields.NodupKeys
-
 /-- A map entry sequence is well-formed if keys are pairwise related by the
     abstract key-equivalence relation (no duplicate keys). We parameterize by
     a decidable key-equivalence to stay JS-free. -/

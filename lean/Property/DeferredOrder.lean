@@ -95,15 +95,6 @@ theorem execute_eq (advance : Cursor → Key → Cursor) (native : Native Cursor
       deferred advance native commands cursor [] world :=
   catchUp_eq advance native commands cursor [] world
 
-/-- When the ordering certificate establishes an absent cursor, every pure step
-fixes that state. The helper can omit the fold, not the native continuation. -/
-theorem fold_fixed (advance : Cursor → Key → Cursor) (cursor : Cursor)
-    (fixed : ∀ key, advance cursor key = cursor) (keys : List Key) :
-    keys.foldl advance cursor = cursor := by
-  induction keys with
-  | nil => rfl
-  | cons key rest ih => simpa only [List.foldl_cons, fixed key] using ih
-
 /-- Dropping pending advancement is wrong when a native continuation demands it. -/
 def demanding : Native Nat (List Nat) where
   probe _ world := (world ++ [10], .ok true)

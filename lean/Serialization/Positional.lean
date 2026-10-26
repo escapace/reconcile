@@ -381,12 +381,6 @@ theorem canonical_intern {α : Type} [DecidableEq α] (t : List α) (hn : t.Nodu
           simp only [internAll, intern, hnot, if_false, hlen, htake, ih vs (i + 1) (by omega) hf hrest]
         · cases hf
 
-theorem intern_extends {α : Type} [DecidableEq α] (table : List α) (x : α) :
-    ∃ suffix, (intern table x).2 = table ++ suffix := by
-  unfold intern; split
-  · exact ⟨[], by simp⟩
-  · exact ⟨[x], rfl⟩
-
 /-- Encoder output satisfies the decoder's checks and indexes back to the input values. -/
 theorem intern_canonical {α : Type} [DecidableEq α] :
     ∀ (xs table : List α), table.Nodup →

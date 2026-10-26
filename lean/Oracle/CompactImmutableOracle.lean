@@ -91,9 +91,6 @@ private def emitCorpus : IO Unit := do
     proposed := 1, storage := 2, eligible := false, fixed := true, children := [] }
   emit { rows := [impossible], dependencies := [[]] }
 
-def run (args : List String) : IO Unit := do
-  match args with
-  | [] => emitCorpus
-  | _ => throw (IO.userError "Expected no argument")
+def run : IO Unit := emitCorpus
 
 end Reconcile.CompactImmutableOracle

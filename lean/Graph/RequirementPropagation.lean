@@ -115,17 +115,6 @@ def run (successors : Nat → List Nat) : Nat → State → State
     | [] => state
     | head :: rest => run successors fuel (step successors state.processed head rest state.admitted)
 
-theorem run_invariant (successors : Nat → List Nat) (initial : Finset Nat)
-    (fuel : Nat) (state : State) (h : Invariant initial state) :
-    Invariant initial (run successors fuel state) := by
-  induction fuel generalizing state with
-  | zero => exact h
-  | succ fuel ih =>
-    rcases state with ⟨processed, pending, admitted⟩
-    cases pending with
-    | nil => exact h
-    | cons head rest => exact ih _ (step_invariant successors initial processed head rest admitted h)
-
 theorem run_trace (successors : Nat → List Nat) (fuel : Nat) (state : State) :
     (run successors fuel state).processed =
       state.processed ++ eagerTrace successors fuel state.admitted state.pending := by
@@ -170,23 +159,6 @@ theorem run_drains (successors : Nat → List Nat) (initial vertices : Finset Na
       · simp only [step, List.length_append, List.length_singleton]
         dsimp at enough
         omega
-
-theorem completed_facts (successors : Nat → List Nat) (initial vertices : Finset Nat)
-    (seeds : List Nat) (initialBound : initial ⊆ vertices)
-    (seedBound : ∀ fact ∈ seeds, fact ∈ vertices)
-    (closed : ∀ fact ∈ vertices, ∀ next ∈ successors fact, next ∈ vertices) :
-    (run successors vertices.card (start initial seeds)).admitted =
-      initial ∪ (lazyTrace successors vertices.card initial seeds).toFinset := by
-  have inv := run_invariant successors initial vertices.card (start initial seeds)
-    (start_invariant initial seeds)
-  have drained := run_drains successors initial vertices closed vertices.card (start initial seeds)
-    (start_invariant initial seeds) (by
-      intro fact hf
-      rcases Finset.mem_union.mp hf with hi | hs
-      · exact initialBound hi
-      · exact seedBound fact (List.mem_toFinset.mp hs)) (by simp [start])
-  rw [inv.2, drained, List.append_nil, run_trace]
-  simp only [start, List.nil_append, trace_eq]
 
 /-- New Set insertions during expansion; seed insertions happen before this log. -/
 def insertionTrace (successors : Nat → List Nat) : Nat → Finset Nat → List Nat → List Nat

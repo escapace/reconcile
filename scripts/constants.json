@@ -31,7 +31,6 @@
         "carrier",
         "changedBefore",
         "checkDescendantsForMaterialization",
-        "checkMaterialization",
         "checkState",
         "children",
         "classified",

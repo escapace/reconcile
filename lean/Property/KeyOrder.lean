@@ -165,10 +165,6 @@ theorem produce_key_order (base : List Key) (ops : List Op) (h : base.Nodup) :
     exact ownKeys_nodup base h
   exact rebuild_preserves _ (run_nodup _ ops hcopy)
 
-/-- The copy a draft or a plain copy starts from has the base's own keys. -/
-theorem copy_preserves (base : List Key) (h : base.Nodup) :
-    ownKeys (build (ownKeys base)) = ownKeys base := rebuild_preserves base h
-
 /-- Deleting and assigning again moves a key to the end of its sector, as the engine does. -/
 example : ownKeys (run [.name 0, .name 1, .symbol 0] [.remove (.name 0), .assign (.name 0)]) =
     [.name 1, .name 0, .symbol 0] := by

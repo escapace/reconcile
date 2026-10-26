@@ -74,9 +74,6 @@ private def corpus : IO Unit := do
   emit ⟨64, swaps, (List.range 64).map (fun fact => [0, fact]) ++ cycle ++ [[1, 63]]⟩
   emit ⟨64, swaps, [[1, 0]] ++ cycle ++ cycle ++ [[0, 63], [1, 0]]⟩
 
-def run (args : List String) : IO Unit := do
-  match args with
-  | [] => corpus
-  | _ => throw (IO.userError "Expected no argument")
+def run : IO Unit := corpus
 
 end Reconcile.FactRenamingOracle

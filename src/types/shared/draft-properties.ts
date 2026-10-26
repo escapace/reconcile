@@ -366,7 +366,7 @@ export class PropertyDraftState<K extends symbol = symbol>
  * @internal
  */
 export function createPropertyHandle(state: PropertyDraftState, prototype?: object | null): object {
-  const target = state.rules.target(state.base, prototype)
+  const target = state.rules.target(prototype)
 
   return new Proxy(target, state)
 }
@@ -390,7 +390,7 @@ export interface PropertyDraftRules<K extends symbol = symbol> {
   readonly configurable: (key: PropertyKey) => boolean
   readonly initialize: (source: Record<PropertyKey, unknown>, copy: DescriptorStore) => void
   /** The proxy target; `prototype` is the base's prototype when ingress read it. */
-  readonly target: (base: object, prototype: object | null | undefined) => object
+  readonly target: (prototype: object | null | undefined) => object
   readonly write: (
     state: PropertyDraftState,
     copy: DescriptorStore,

@@ -174,20 +174,6 @@ theorem lookup_faithful {α : Type} [DecidableEq α] (recognize : α → Outcome
       simp only [List.lookup, hne] at hk
       exact ih (fun o k hm => h o k (by simp [hm])) hk
 
-theorem lookup_none {α : Type} [DecidableEq α] (memo : List (α × Outcome)) (o : α) :
-    memo.lookup o = none ↔ ∀ k, (o, k) ∉ memo := by
-  induction memo with
-  | nil => simp
-  | cons head tail ih =>
-    obtain ⟨o', k'⟩ := head
-    by_cases ho : o = o'
-    · subst ho
-      simp only [List.lookup, beq_self_eq_true, reduceCtorEq, List.mem_cons, Prod.mk.injEq,
-        true_and, false_iff, not_forall, not_not]
-      exact ⟨k', Or.inl rfl⟩
-    · have hne : (o == o') = false := by simpa using ho
-      simp only [List.lookup, hne, ih, List.mem_cons, Prod.mk.injEq, ho, false_and, false_or]
-
 /-- Every meeting uses the kind recognizing the object there would give. -/
 theorem meetAll_kinds {α : Type} [DecidableEq α] (recognize : α → Outcome)
     (objects : List α) (memo : List (α × Outcome)) (h : Faithful recognize memo) :

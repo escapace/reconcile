@@ -87,20 +87,6 @@ theorem reuseSurvivors_propagates (parents : I → List I) (pending : List I)
     · exact ih child (Finset.mem_erase.mpr ⟨he, hc⟩) hgone parent hp
   | case3 remaining c rest hm ih => exact ih
 
-/-- If all dependencies belong to the finite domain, survivors are closed. -/
-theorem reuseSurvivors_closed (parents : I → List I) (seeds : List I) (domain : Finset I)
-    (hdeps : ∀ child parent, parent ∈ parents child → parent ∈ domain → child ∈ domain) :
-    DependencyClosed parents (reuseSurvivors parents seeds domain) := by
-  intro child parent hp hs
-  by_contra hn
-  have hc := hdeps child parent hp (reuseSurvivors_subset parents seeds domain hs)
-  exact reuseSurvivors_propagates parents seeds domain child hc hn parent hp hs
-
-/-- Undo/no-op restoration: no rejected proposals means every identity survives,
-    regardless of modification bits or cycles. -/
-theorem reuseSurvivors_undo (parents : I → List I) (domain : Finset I) :
-    reuseSurvivors parents [] domain = domain := by simp [reuseSurvivors]
-
 /-- Identity proposals come from provenance-aware capture. A rejected proposal
     receives its reserved fresh shell; there is no search for equal authored nodes. -/
 def reuseImage {J : Type} (survivors : Finset I) (proposed fresh : I → J) (i : I) : J :=
@@ -112,21 +98,6 @@ def publishFresh {A J : Type} [DecidableEq J] (survivors : Finset I)
     (records : List (I × Node A I)) (before : Heap A J) : Heap A J :=
   publishRecords (reuseImage survivors proposed fresh) proto
     (records.filter fun entry => entry.1 ∉ survivors) before
-
-/-- Fresh-only publication preserves every existing input node, provided reserved
-    shells occupy storage outside the input heap. This is the immutable core's
-    isolation theorem; recipe and capture isolation remain adapter obligations. -/
-theorem publishFresh_frame {A J : Type} [DecidableEq J] (survivors : Finset I)
-    (proposed fresh : I → J) (proto : I → ProtoLabel → ProtoLabel)
-    (records : List (I × Node A I)) (before : Heap A J)
-    (hfresh : ∀ i, fresh i ∉ before.keys) {r : J} (hr : r ∈ before.keys) :
-    (publishFresh survivors proposed fresh proto records before).lookup r = before.lookup r := by
-  apply publishRecords_frame
-  intro entry he
-  have hn : entry.1 ∉ survivors := of_decide_eq_true (List.mem_filter.mp he).2
-  simp only [reuseImage, if_neg hn]
-  intro heq
-  exact hfresh entry.1 (heq ▸ hr)
 
 /-- The immutable finalizer publishes a coherent graph once surviving local
     payloads have been certified. Both reused and fresh nodes share one image. -/

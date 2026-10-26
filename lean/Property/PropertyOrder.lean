@@ -167,15 +167,6 @@ def initial (desired : List Key) : Cursor :=
     symbols := desired.dropWhile (fun key => match key with | .symbol _ => false | _ => true)
     retained := 0 }
 
-theorem initial_equivalence (desired current : List Key) :
-    (runCandidate desired current (initial desired) false).keeps =
-        (runReference desired current (initial desired)).keeps ∧
-      (runCandidate desired current (initial desired) false).cursor =
-        (runReference desired current (initial desired)).cursor ∧
-      (runCandidate desired current (initial desired) false).checks ≤
-        (runReference desired current (initial desired)).checks :=
-  stream_equivalence desired current (initial desired) false (by simp [Valid])
-
 -- Nonempty executable witnesses: repeated misses save work; numeric-only input
 -- does not prepare the name cursor; later numeric positions still get skipped.
 example : (runCandidate [.name 0] [.name 1, .name 1, .name 0]
@@ -281,11 +272,6 @@ theorem reaches_aligned {α : Type} [DecidableEq α] (previous desired : List α
     intro member
     have := (aligned_desired_mem previous desired unique aligned _ (by omega)).mp member
     omega
-
-/-- When the current keys cover the whole requested prefix, nothing is read. -/
-theorem reachesFrom_covered {α : Type} (inherited : α → Bool) (owned : Nat) (desired : List α)
-    (covered : desired.length ≤ owned) : reachesFrom inherited owned desired = false := by
-  simp [reachesFrom, List.drop_eq_nil_of_le covered]
 
 
 end Reconcile.PropertyOrder

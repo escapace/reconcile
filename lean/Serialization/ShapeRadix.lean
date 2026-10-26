@@ -110,13 +110,6 @@ def common : List κ → List κ → Nat
   | l :: ls, k :: ks => if l = k then common ls ks + 1 else 0
   | _, _ => 0
 
-theorem common_le (ls ks : List κ) : common ls ks ≤ ls.length := by
-  induction ls generalizing ks with
-  | nil => simp [common]
-  | cons l ls ih => cases ks with
-    | nil => simp [common]
-    | cons k ks => by_cases h : l = k <;> simp [common, h, ih]
-
 theorem take_common (ls ks : List κ) : ks.take (common ls ks) = ls.take (common ls ks) := by
   induction ls generalizing ks with
   | nil => simp [common]

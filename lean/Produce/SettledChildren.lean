@@ -78,7 +78,7 @@ def walk (f : State → Nat → Result) : State → List Nat → Result
       let r' := walk f r.state cs
       ⟨r'.needs, r.pending || r'.pending, r'.state⟩
 
-/-- `checkMaterialization` with `fuel` nested walks; out of fuel it answers that a copy is
+/-- `checkState` with `fuel` nested walks; out of fuel it answers that a copy is
 needed and keeps nothing. A walk that found no changed child keeps the child list, and settles
 the object unless it is pending. -/
 def check (g : Graph) (o : Oracle) : Nat → State → Nat → Result

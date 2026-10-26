@@ -11,11 +11,6 @@ def lookup (table : Option Table) : Table := table.getD (fun _ => none)
 def put (table : Option Table) (key value : Nat) : Option Table :=
   some (fun query => if query = key then some value else lookup table query)
 
-theorem absent_is_empty (key : Nat) : lookup none key = none := rfl
-
-theorem present_lookup (table : Table) (key : Nat) :
-    lookup (some table) key = table key := rfl
-
 theorem put_refines_eager (table : Option Table) (key value query : Nat) :
     lookup (put table key value) query =
       (if query = key then some value else lookup table query) := rfl

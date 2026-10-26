@@ -37,18 +37,6 @@ def unchanged (s : Slot V) (v : V) : Bool :=
   | some own => decide (read own = v)
   | none => false
 
-/-- In the write-free branch publication keeps the slot, calls no setter and reads back as `v`. -/
-theorem unchanged_publish (env : Env V) (s : Slot V) (v : V) (proto : Bool)
-    (h : unchanged s v = true) :
-    publish env s v proto = ⟨true, s, []⟩ ∧ readsAs s v = true := by
-  unfold unchanged at h
-  unfold publish readsAs
-  split at h
-  · rename_i own hown
-    simp only [hown, decide_eq_true_eq] at h ⊢
-    simp [h]
-  · cases h
-
 /-- The runtime's publication with the descriptor the pre-write check read: presence and
 attributes come from `pre`, the value is read from the live slot `s`. -/
 def publishKnown (env : Env V) (pre s : Slot V) (v : V) (proto : Bool) : Outcome V :=

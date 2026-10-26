@@ -23,13 +23,6 @@ def edge {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) (a b : ι) : Pr
 def Reachable {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) : ι → ι → Prop :=
   ReflTransGen (edge h)
 
-/-- A node is reachable from a root value. -/
-def ReachableFromRoot {A : Type} {ι : Type} [DecidableEq ι]
-    (h : Heap A ι) (root : Value A ι) (target : ι) : Prop :=
-  match root with
-  | .atom _ => False
-  | .ref r  => Reachable h r target
-
 /-! ## Surface equivalence -/
 
 /-- Abstract atomic equality. Parameterized to stay JS-free.

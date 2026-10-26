@@ -125,20 +125,6 @@ theorem selected_published {A : Type} {plan : Plan} {domains : Domains} (input :
     intro i nd hn hs
     exact retained_payload input ha hf hc hn hs
 
--- Requiring fresh storage outside the input domain is stronger than merely
--- giving shells new visible labels. Native allocation must justify this premise.
-theorem selected_frame {A : Type} {plan : Plan} {domains : Domains} (input : Input A plan)
-    (selected : select domains = some plan) (hc : Compiled input domains)
-    (freshStorage : ∀ i r, r ∈ input.before.keys →
-      input.storage (input.fresh i) ≠ input.storage r)
-    {r : Nat} (hr : r ∈ input.before.keys) :
-    (publish input).lookup r = input.before.lookup r := by
-  have ha := (select_sound selected).1
-  rw [publish_eq_fresh input ha hc]
-  apply publishFresh_frame _ input.proposed input.fresh input.proto input.records input.before _ hr
-  intro i hi
-  exact freshStorage i (input.fresh i) hi rfl
-
 theorem selected_storage_distinct {A : Type} {plan : Plan} {domains : Domains}
     (input : Input A plan) (selected : select domains = some plan) (hc : Compiled input domains) :
     Function.Injective (fun i => input.storage (image plan i)) :=
@@ -157,100 +143,9 @@ def checkChoiceFacts {A : Type} [DecidableEq A] {plan : Plan} (input : Input A p
       nd.childRefs.all fun child => choice.required.contains
         { node := child.val, identity := input.proposed child })
 
-theorem checkChoiceFacts_iff {A : Type} [DecidableEq A] {plan : Plan} (input : Input A plan)
-    (i : Fin plan.length) (choice : Choice) :
-    checkChoiceFacts input i choice = true ↔ ChoiceFacts input i choice := by
-  cases hr : choice.retained <;> cases hn : input.source.lookup i <;>
-    simp [checkChoiceFacts, ChoiceFacts, hr, hn, List.all_eq_true, and_assoc]
-
 def checkCompiled {A : Type} [DecidableEq A] {plan : Plan} (input : Input A plan)
     (domains : Domains) : Bool :=
   (List.finRange plan.length).all fun i =>
     ((domains[i.val]?).getD []).all (checkChoiceFacts input i)
-
-theorem checkCompiled_iff {A : Type} [DecidableEq A] {plan : Plan} (input : Input A plan)
-    (domains : Domains) : checkCompiled input domains = true ↔ Compiled input domains := by
-  simp only [checkCompiled, List.all_eq_true, checkChoiceFacts_iff]
-  constructor
-  · intro h i domain choice hd hm
-    have hi := h i (List.mem_finRange i)
-    simpa [hd] using hi choice (by simpa [hd] using hm)
-  · intro h i _ choice hm
-    cases hd : domains[i.val]? with
-    | none => simp [hd] at hm
-    | some domain => exact h i domain choice hd (by simpa [hd] using hm)
-
--- Settled specials occupy a fixed prefix. Their payloads are supplied by native
--- finalization, while their ownership and buffer edges remain in the finite graph.
-def fixedDomains (fixed : Plan) (domains : Domains) : Domains :=
-  fixed.map (fun choice => [choice]) ++ domains
-
-theorem allowed_fixed_prefix (fixed : Plan) (domains : Domains) (plan : Plan) :
-    allowed (fixedDomains fixed domains) plan ↔
-      ∃ rest, plan = fixed ++ rest ∧ allowed domains rest := by
-  induction fixed generalizing plan with
-  | nil => simp [fixedDomains]
-  | cons head fixed ih =>
-    cases plan with
-    | nil => simp [fixedDomains, allowed]
-    | cons choice plan =>
-      simp only [fixedDomains, List.map_cons, List.cons_append, allowed,
-        List.mem_singleton] at *
-      constructor
-      · rintro ⟨rfl, hp⟩
-        obtain ⟨rest, rfl, hr⟩ := (ih plan).mp hp
-        exact ⟨rest, rfl, hr⟩
-      · rintro ⟨rest, he, hr⟩
-        cases he
-        exact ⟨rfl, (ih _).mpr ⟨rest, rfl, hr⟩⟩
-
--- The fixed score is constant: maximizing the whole graph still maximizes the
--- variable structural choices. No algorithm-created special earns a preference.
-theorem selected_variable_optimal {fixed plan : Plan} {domains : Domains}
-    (selected : select (fixedDomains fixed domains) = some plan) :
-    ∃ rest, plan = fixed ++ rest ∧ allowed domains rest ∧
-      ∀ other, allowed domains other → feasible (fixed ++ other) → score other ≤ score rest := by
-  obtain ⟨rest, hp, hr⟩ := (allowed_fixed_prefix fixed domains plan).mp (select_sound selected).1
-  refine ⟨rest, hp, hr, ?_⟩
-  intro other ho hf
-  have h := select_optimal selected
-    ((allowed_fixed_prefix fixed domains (fixed ++ other)).mpr ⟨other, rfl, ho⟩) hf
-  rw [hp, score_append, score_append] at h
-  omega
-
--- A closed, storage-separated fixed subgraph plus private fresh structural
--- shells always supplies a feasible fallback. Buffer edges stay inside fixed.
-theorem fixed_fresh_feasible (fixed : Plan) (rows : List (Nat × Option Choice))
-    (hf : feasible fixed) (hu : (rows.map Prod.fst).Nodup)
-    (hd : ∀ choice ∈ fixed, ∀ row ∈ rows, choice.storage ≠ row.1) :
-    feasible (fixed ++ freshAssignment rows) := by
-  constructor
-  · apply List.pairwise_append.mpr
-    refine ⟨hf.1, (freshAssignment_feasible rows hu).1, ?_⟩
-    intro choice hc fresh hm
-    obtain ⟨row, hr, rfl⟩ := List.mem_map.mp hm
-    exact hd choice hc row hr
-  · intro choice hc edge he
-    rcases List.mem_append.mp hc with hc | hc
-    · have h := hf.2 choice hc edge he
-      obtain ⟨target, ht, _⟩ := Option.map_eq_some_iff.mp h
-      have hb := (List.getElem?_eq_some_iff.mp ht).1
-      rw [List.getElem?_append_left hb]
-      exact h
-    · obtain ⟨row, _, rfl⟩ := List.mem_map.mp hc
-      simp [freshChoice] at he
-
-theorem fixed_fallback_select_exists (fixed : Plan) (rows : List (Nat × Option Choice))
-    (hf : feasible fixed) (hu : (rows.map Prod.fst).Nodup)
-    (hd : ∀ choice ∈ fixed, ∀ row ∈ rows, choice.storage ≠ row.1) :
-    ∃ plan, select (fixedDomains fixed (fallbackDomains rows)) = some plan := by
-  cases hs : select (fixedDomains fixed (fallbackDomains rows)) with
-  | none =>
-    apply False.elim
-    apply (select_complete _).mp hs
-    exact ⟨fixed ++ freshAssignment rows,
-      (allowed_fixed_prefix _ _ _).mpr ⟨freshAssignment rows, rfl, freshAssignment_allowed rows⟩,
-      fixed_fresh_feasible fixed rows hf hu hd⟩
-  | some plan => exact ⟨plan, rfl⟩
 
 end Reconcile.Immutable

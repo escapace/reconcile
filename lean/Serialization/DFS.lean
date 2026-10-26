@@ -149,22 +149,6 @@ def run (g : Graph) : Nat → Config → List Event × Config
       let (trace, final) := run g fuel next
       (events ++ trace, final)
 
-theorem run_sound (g : Graph) (fuel : Nat) (c : Config) :
-    Steps g c (run g fuel c).1 (run g fuel c).2 := by
-  induction fuel generalizing c with
-  | zero => exact Steps.done c
-  | succ fuel ih =>
-    simp only [run]
-    cases h : step g c with
-    | none => exact Steps.done c
-    | some pair =>
-      rcases pair with ⟨events, next⟩
-      cases hr : run g fuel next with
-      | mk trace final =>
-        have hi := ih next
-        simp only [hr] at hi
-        simpa [run, h, hr] using Steps.next h hi
-
 def exampleGraph : Graph := fun n => if n = 0 then [1, 1] else [0]
 example : (run exampleGraph 20 ⟨[.visit 0], []⟩).1 =
     [.enter 0, .edge 0 0 1, .enter 1, .edge 1 0 0, .edge 0 1 1] := by decide

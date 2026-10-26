@@ -674,8 +674,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   asked for each form of a member, which its `has` cannot observe; any other operand's `has`
   receives the draft. The draft's members and size are read with the built-ins, past a subclass's
   iterator and `size`, and the draft runs the built-in algorithm even when the class overrides the
-  method. The DraftSetMethods bridge checks results, and that a result holds
-  this draft's object members as drafts.
+  method. `intersection_drafted`, `union_drafted`, `difference_drafted`,
+  `symmetricDifference_drafted`, `isSubsetOf_drafted`, `isSupersetOf_drafted` and
+  `isDisjointFrom_drafted` prove that a draft holding drafts of its members gives each method's
+  result the same identities and answers as one holding the members. The DraftSetMethods bridge
+  checks results, and that a result holds this draft's object members as drafts.
 - **Copy prototypes.** A copy takes the source's prototype as read once at capture, and
   `Object.setPrototypeOf` on the fresh copy succeeds. Each kind's standard prototype is its live
   constructor's `prototype`, which does not change during a call. The CopyPrototype bridge checks

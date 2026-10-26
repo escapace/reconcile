@@ -39,9 +39,6 @@ theorem temporal_compatible_iff (k l : TemporalKind) (c d : Nat) (a b : List Str
 /-- Equality supports immutable reuse; it never identifies two visible objects. -/
 def reusable (current desired : Payload) : Bool := decide (current = desired)
 
-theorem reusable_iff (current desired : Payload) :
-    reusable current desired = true ↔ current = desired := by simp [reusable]
-
 /-- Clear, then append every desired pair in capture order. Duplicates survive. -/
 def appendEntries (target desired : List (String × String)) : List (String × String) :=
   desired.foldl (fun entries entry => entries ++ [entry]) target

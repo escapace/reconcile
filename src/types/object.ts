@@ -387,7 +387,7 @@ const objectDraftRules: PropertyDraftRules<typeof OBJECT_KIND> = {
   configurable: () => true,
   initialize: () => undefined,
   // Recognition read the prototype of every object it drafts (Types.Ingress).
-  target: (_base, prototype) => Object.create(prototype!) as object,
+  target: (prototype) => Object.create(prototype!) as object,
   write: (_state, copy, key, value) => writeDataSlot(copy, key, value),
 }
 

@@ -88,52 +88,11 @@ theorem best_mem {plans : List Plan} {plan : Plan} (h : best plans = some plan) 
       · cases h; simp
       · cases h; exact List.mem_cons_of_mem head (ih hn)
 
-theorem best_none (plans : List Plan) : best plans = none ↔ plans = [] := by
-  cases plans with
-  | nil => simp [best]
-  | cons head rest => simp only [best]; split <;> simp
-
-theorem best_maximum {plans : List Plan} {plan : Plan} (h : best plans = some plan) :
-    ∀ other ∈ plans, score other ≤ score plan := by
-  induction plans generalizing plan with
-  | nil => simp [best] at h
-  | cons head rest ih =>
-    simp only [best] at h
-    split at h
-    · rename_i hn
-      have hr := (best_none rest).mp hn
-      subst rest; cases h
-      simp
-    · rename_i next hn
-      have hm := ih hn
-      split at h
-      · rename_i hs
-        cases h
-        intro other ho
-        rcases List.mem_cons.mp ho with he | he
-        · subst other; exact Nat.le_refl _
-        · exact Nat.le_trans (hm other he) hs
-      · rename_i hs
-        cases h
-        intro other ho
-        rcases List.mem_cons.mp ho with he | he
-        · subst other; exact Nat.le_of_lt (Nat.lt_of_not_ge hs)
-        · exact hm other he
-
 def select (domains : Domains) : Option Plan := best (feasiblePlans domains)
 
 theorem select_sound {domains : Domains} {plan : Plan} (h : select domains = some plan) :
     allowed domains plan ∧ feasible plan :=
   (feasiblePlans_exact domains plan).mp (best_mem h)
-
-theorem select_optimal {domains : Domains} {plan : Plan} (h : select domains = some plan)
-    {other : Plan} (ha : allowed domains other) (hf : feasible other) : score other ≤ score plan :=
-  best_maximum h other ((feasiblePlans_exact domains other).mpr ⟨ha, hf⟩)
-
-theorem select_complete (domains : Domains) :
-    select domains = none ↔ ¬ ∃ plan, allowed domains plan ∧ feasible plan := by
-  rw [select, best_none]
-  simp only [List.eq_nil_iff_forall_not_mem, feasiblePlans_exact, not_exists]
 
 
 theorem allowed_length {domains : Domains} {plan : Plan} (h : allowed domains plan) :
@@ -234,58 +193,6 @@ theorem allowed_at {domains : Domains} {plan : Plan} (ha : allowed domains plan)
         subst choice
         exact ⟨domain, rfl, ha.1⟩
       | succ index => exact ih ha.2 hg
-
--- No ownership or requirement check on a partial assignment may discard a
--- feasible completion: assigned dependencies already match, and future ones
--- have an allowed identity witness. This is the finite pruning boundary, not
--- a proof of the JavaScript stack/iterator implementation.
-theorem completion_survives_prefix_pruning {domains : Domains} {plan : Plan}
-    (ha : allowed domains plan) (hf : feasible plan) (count : Nat) :
-    (plan.take count).Pairwise (fun left right => left.storage ≠ right.storage) ∧
-    ∀ choice ∈ plan.take count, ∀ edge ∈ choice.required,
-      if edge.node < count then
-        ((plan.take count)[edge.node]?).map Choice.identity = some edge.identity
-      else ∃ domain candidate, domains[edge.node]? = some domain ∧
-        candidate ∈ domain ∧ candidate.identity = edge.identity := by
-  refine ⟨hf.1.take, ?_⟩
-  intro choice hc edge he
-  have hm : choice ∈ plan := List.mem_of_mem_take hc
-  have hr := hf.2 choice hm edge he
-  split
-  · rename_i hlt
-    simpa only [List.getElem?_take_of_lt hlt] using hr
-  · cases hg : plan[edge.node]? with
-    | none => simp [hg] at hr
-    | some candidate =>
-      obtain ⟨domain, hd, hcand⟩ := allowed_at ha hg
-      exact ⟨domain, candidate, hd, hcand, by simpa [hg] using hr⟩
-
--- Immutable compilation appends a private fresh option to every proposal domain.
--- Native capture supplies the distinct labels; freshness is not inferred from
--- JavaScript allocation semantics inside this model.
-def freshChoice (label : Nat) : Choice :=
-  { identity := label, storage := label, retained := false, required := [] }
-
-def fallbackDomains (rows : List (Nat × Option Choice)) : Domains :=
-  rows.map fun row => row.2.toList ++ [freshChoice row.1]
-
-def freshAssignment (rows : List (Nat × Option Choice)) : Plan :=
-  rows.map fun row => freshChoice row.1
-
-theorem freshAssignment_allowed (rows : List (Nat × Option Choice)) :
-    allowed (fallbackDomains rows) (freshAssignment rows) := by
-  induction rows with
-  | nil => trivial
-  | cons row rows ih => simpa [fallbackDomains, freshAssignment, allowed] using ih
-
-theorem freshAssignment_feasible (rows : List (Nat × Option Choice))
-    (h : (rows.map Prod.fst).Nodup) : feasible (freshAssignment rows) := by
-  constructor
-  · simpa only [freshAssignment, List.pairwise_map, freshChoice] using
-      (List.pairwise_map.mp (List.nodup_iff_pairwise_ne.mp h))
-  · intro choice hc edge he
-    obtain ⟨row, _, rfl⟩ := List.mem_map.mp hc
-    simp [freshChoice] at he
 
 -- The head of a ranked stream is the head of its top nonempty score tier
 -- (`CompactImmutable.ranked_head`).

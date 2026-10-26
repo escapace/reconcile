@@ -150,15 +150,6 @@ theorem observations_eq (names : Renaming) (fuel : Nat) (current : Online)
     rw [ih]
     rfl
 
-/-- Equal mapped insertion order also preserves each live Set iterator position. -/
-theorem cursor_eq (names : Renaming) (current : Online) (index : Nat) :
-    (online names current).order[index]? = current.order[index]?.map names := by
-  simp [online]
-
-theorem empty_eq (names : Renaming) : online names empty = empty := by
-  simp only [online, empty, Finset.image_empty, List.map_nil]
-  rfl
-
 example : observations 3 empty [.query 1, .update (.imply 0 1), .query 1,
     .update (.require 0), .query 1] =
     [(some false, []), (none, []), (some false, []), (none, [0, 1]), (some true, [0, 1])] := by

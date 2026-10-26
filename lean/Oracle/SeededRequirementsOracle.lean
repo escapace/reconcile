@@ -60,9 +60,6 @@ private def emitCorpus : IO Unit := do
   emit fanout (List.range 64)
 
 /-- Emits the exhaustive fixed corpus. -/
-def run (args : List String) : IO Unit := do
-  match args with
-  | [] => emitCorpus
-  | _ => throw (IO.userError "Expected no argument")
+def run : IO Unit := emitCorpus
 
 end Reconcile.SeededRequirementsOracle

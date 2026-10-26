@@ -93,36 +93,6 @@ theorem run_eq (seeds : Finset Nat) (successors : Nat → List Nat)
       rw [step_eq seeds successors processed head rest known included]
       exact ih _ (fun _ hf => Finset.mem_union_left _ (included hf))
 
-theorem expansion_eq (seeds known : Finset Nat) (successors : Nat → List Nat)
-    (fuel : Nat) (pending : List Nat) (included : seeds ⊆ known) :
-    eagerTrace (trim seeds successors) fuel known pending =
-      eagerTrace successors fuel known pending := by
-  have same := congrArg State.processed (run_eq seeds successors fuel ⟨[], pending, known⟩ included)
-  simpa [run_trace] using same
-
-theorem insertion_eq (seeds known : Finset Nat) (successors : Nat → List Nat)
-    (fuel : Nat) (pending : List Nat) (included : seeds ⊆ known) :
-    insertionTrace (trim seeds successors) fuel known pending =
-      insertionTrace successors fuel known pending := by
-  have same := congrArg (fun state => state.processed ++ state.pending)
-    (run_eq seeds successors fuel ⟨[], pending, known⟩ included)
-  simp only [run_insertions, List.nil_append] at same
-  exact List.append_cancel_left same
-
-theorem completed_eq (successors : Nat → List Nat) (seeds : List Nat)
-    (domain : Finset Nat) (seedBound : ∀ fact ∈ seeds, fact ∈ domain)
-    (deps : ∀ fact ∈ domain, ∀ next ∈ successors fact, next ∈ domain) :
-    run (trim seeds.toFinset successors) domain.card (start ∅ seeds) =
-      run successors domain.card (start ∅ seeds) ∧
-    (run (trim seeds.toFinset successors) domain.card (start ∅ seeds)).pending = [] := by
-  have same := run_eq seeds.toFinset successors domain.card (start ∅ seeds) (by simp [start])
-  refine ⟨same, ?_⟩
-  rw [same]
-  apply run_drains successors ∅ domain deps domain.card (start ∅ seeds) (start_invariant _ _)
-  · simpa [start] using (show seeds.toFinset ⊆ domain from
-      fun _ hf => seedBound _ (List.mem_toFinset.mp hf))
-  · simp [start]
-
 def scans (successors : Nat → List Nat) (trace : List Nat) : Nat :=
   (trace.map fun fact => (successors fact).length).sum
 
