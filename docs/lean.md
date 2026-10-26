@@ -305,6 +305,7 @@ accepts exactly that definition, so the assignment has the object's outcome
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------- |
 | `GraphPolicy`                                                    | `feasiblePlans_exact`, `rankedPlans_exact`, `completion_survives_score_pruning`                                             | the reference ranked stream, to which `CompactImmutable` relates its masks                                                                                                                  | imported by Contract                 | none                       |
 | `SettledChildren`                                                | `check_step`, `needs_settled`, `needs_unchanged`, `settled_reach_recorded`, `recorded_getD`                                 | `checkDescendantsForMaterialization` in `src/finalization.ts`; `compileImmutable` in `src/restore-identities.ts`                                                                            | SettledChildren                      | Finalization reads         |
+| `FinalizationReads`                                              | `decisions_gated`, `lastSymbol_iff`, `keys_exact`, `reread_exact`                                                           | `DraftObservation.copies` and `checkState` in `src/finalization.ts`; `PropertyDraftState.keys` in `src/types/shared/draft-properties.ts`                                                    | proof-only                           | Finalization reads         |
 | `ReuseClosure`, `Immutable`                                      | `reuseSurvivors_greatest`, `selected_published`, `selected_storage_distinct`                                                | `src/restore-identities.ts`                                                                                                                                                                 | Contract (`Immutable`)               | Identity                   |
 | `CompactImmutable`                                               | `feasible_iff`, `ranked_decode`, `ranked_head`, `separated_of_injective`                                                    | `src/graph/immutable-selection.ts` `immutableSelections`, `immutableHead`                                                                                                                   | CompactImmutable                     | Identity                   |
 | `KeyOrder`                                                       | `build_nodup`, `ownKeys_ownKeys`, `rebuild_preserves`, `produce_key_order`                                                  | `preparePropertyCopy` in `src/types/shared/draft-properties.ts`; finalization                                                                                                               | KeyOrder                             | Key order                  |
@@ -338,6 +339,15 @@ settled object has its list kept and settled children (`check_step`, `needs_sett
 restoration's walk of an unchanged subtree the result keeps reads no list again
 (`settled_reach_recorded`), and with the changed objects fixed a settled object reaches none of them
 (`needs_unchanged`).
+
+`FinalizationReads` proves three reads exact. A slot's provenance matters only for a value with a
+special copy, so the observation records it only while the call holds one; the last observation
+sees every copy the decision sees, so the decisions agree (`decisions_gated`). A working copy lists
+strings before symbols, so its last key is a symbol exactly when it holds one (`lastSymbol_iff`), and
+a copy that never held one lists all its keys as its string keys (`keys_exact`). Drafts are only
+added and counted, so after a walk a draft found before is unchanged and a missing one can appear
+only if the count moved (`reread_exact`). These came after the runtime change they justify, in the
+same round.
 
 `Requirements` specifies the least closure. `SeededRequirements` proves that dropping implications
 into seed facts keeps the closure and its trace, which `compileImmutable` relies on. `FactRenaming`
@@ -623,7 +633,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   assumes; identity restoration takes an object's children from a finalization walk that visited all
   of them. A draft write keeps the descriptor and value it read for its
   key in the first copy, and a draft observation that reads the object itself counts each data slot
-  it read there as backed by the object. `produce-reads.spec.ts` counts finalization's reads.
+  it read there as backed by the object while the call holds a special-value copy. Every copy comes
+  from a draft read; one that a getter makes while finalization observes forces the sealed pass,
+  which observes every slot again and runs no getter, as `decisions_gated` assumes. A working copy
+  records each symbol written to it, and the session counts each draft it makes and never replaces
+  one, as `keys_exact` and `reread_exact` assume. `produce-reads.spec.ts` counts finalization's
+  reads.
 - **Key order.** `KeyOrder` assumes the engine lists own keys as `OrdinaryOwnPropertyKeys` does and
   that the draft store follows ordinary assignment and `delete`; the KeyOrder bridge checks both.
 - **Draft surface.** The runtime refuses new properties on collection drafts and native copies by
