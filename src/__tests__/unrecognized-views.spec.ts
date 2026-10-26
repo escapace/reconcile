@@ -83,3 +83,31 @@ it('handles a view whose own prototype was replaced through its own properties',
     expect(Reflect.get(next.view, 'label')).toBe(1)
   }
 })
+
+/** A typed array whose prototype was set to `DataView.prototype`: a `DataView` by its chain. */
+const typedDataView = (): DataView =>
+  Object.setPrototypeOf(new Uint8Array([1, 2, 3, 4]).subarray(1), DataView.prototype) as DataView
+
+/** The `DataView` getter `name` of `view`, read past any prototype. */
+const readDataView = (view: unknown, name: string): unknown =>
+  Object.getOwnPropertyDescriptor(DataView.prototype, name)!.get!.call(view)
+
+/** A `DataView` over a copy of the bytes, with the source's offset and length, whose first byte
+ * in view is `first`. */
+const expectDataViewCopy = (copy: unknown, first: number): void => {
+  expect(Object.getPrototypeOf(copy)).toBe(DataView.prototype)
+  expect(readDataView(copy, 'byteOffset')).toBe(1)
+  expect(readDataView(copy, 'byteLength')).toBe(3)
+  expect([...new Uint8Array(readDataView(copy, 'buffer') as ArrayBuffer)]).toEqual([1, first, 3, 4])
+}
+
+it('copies a typed array that inherits DataView.prototype as a DataView over its own bytes', () => {
+  // The chain decides the kind, and the copy takes the value's own offset and length.
+  expectDataViewCopy(snapshot(typedDataView()), 2)
+  expectDataViewCopy((reconcile({}, { view: typedDataView() }) as { view: unknown }).view, 2)
+  const next = produce({ view: typedDataView() }, (draft) => {
+    draft.view.setUint8(0, 9)
+    return draft
+  })
+  expectDataViewCopy(next.view, 9)
+})
