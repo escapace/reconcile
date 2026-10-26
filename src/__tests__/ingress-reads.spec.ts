@@ -171,14 +171,9 @@ it('reads the Temporal namespace for a value once, when recognition finds its cl
       return draft
     })
     trace.length = 0
-    // `serialize` recognizes a standard prototype, in its own class order, and its leaf reads the
-    // class again.
+    // `serialize` recognizes a standard prototype, in its own class order.
     serialize({ value: temporalNamespace(trace) })
-    assert.deepEqual(
-      trace,
-      ['Temporal:get', 'Instant:get', 'PlainDate:get', 'Temporal:get', 'PlainDate:get'],
-      'serialize',
-    )
+    assert.deepEqual(trace, ['Temporal:get', 'Instant:get', 'PlainDate:get'], 'serialize')
   } finally {
     Reflect.deleteProperty(globalThis, 'Temporal')
   }

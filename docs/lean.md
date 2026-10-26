@@ -738,10 +738,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   capture aligned it with, takes the kind and prototype found where capture first aligned it;
   `produce` uses it for the draft's proxy target or a special value's copy and `snapshot` for the
   copy. The Temporal class that recognition finds serves the value's capture and copy in the same
-  way. A later read must answer as the first did, so a getter or trap that changes a prototype or
-  the Temporal namespace before the first write is unsupported. Readback and a draft's first copy,
-  which follow the recipe, read the prototype again. `ingress-reads.spec.ts` counts the prototype
-  and namespace reads.
+  way, and the class that `serialize` recognition finds serves its leaf. A later read must answer
+  as the first did, so a getter or trap that changes a prototype or the Temporal namespace before
+  the first write is unsupported. Readback and a draft's first copy, which follow the recipe, read
+  the prototype again. `ingress-reads.spec.ts` counts the prototype and namespace reads.
 - **Native values.** Native brands, constructors, capture, cloning, publication and readback are
   faithful, and Temporal labels keep all ten Duration components and each class's calendar, time
   zone and reference-date distinctions. Lean proves neither native parsing nor `.equals`. `temporal.spec.ts` and `url-values.spec.ts` cover the values.
