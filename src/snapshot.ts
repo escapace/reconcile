@@ -117,10 +117,12 @@ type Deliver = (
 
 /**
  * One snapshot call's traversal state. Its methods are the walk's steps, so a call allocates
- * this object and its reference memo rather than one closure per step.
+ * this object rather than one closure per step, and its reference memo only when it observes a
+ * second object.
  *
  * @remarks
- * The traversal memoizes the private reference in `references` before observing children.
+ * The traversal memoizes the private reference before observing children: the first object's in
+ * `firstSource` and `firstReference`, every other in `references`.
  * Without a caller memo, a completed reference resolves to its target; a pending one stays a
  * node edge. The facets call `begin` and `edge` only while their own `observe` runs and never
  * catch a callback's exception, so one pair of callbacks, created when the first facet runs,
@@ -134,15 +136,21 @@ class SnapshotWalk extends Detached {
   declare currentReference: SnapshotReference | undefined
   declare currentSource: object | undefined
   declare edgeCallback: Deliver | undefined
+  /** The first object the walk observes and its reference, which `references` never holds. */
+  declare firstReference: SnapshotReference | undefined
+  declare firstSource: object | undefined
   /** The prototype recognition read for the object `observe` is on, before it recurses. */
   declare readonly read: PrototypeRead
-  declare readonly references: Map<object, SnapshotReference>
+  /** Every other observed object's reference, made when the walk observes a second object. */
+  declare references: Map<object, SnapshotReference> | undefined
 
   constructor(seen: WeakMap<object, object> | undefined) {
     super()
     this.callerMemo = seen
     this.read = { known: false, prototype: null }
-    this.references = new Map()
+    this.references = undefined
+    this.firstReference = undefined
+    this.firstSource = undefined
     this.constructed = undefined
     this.count = 0
     this.currentReference = undefined
@@ -158,7 +166,7 @@ class SnapshotWalk extends Detached {
       const external = seen.get(source)
       if (external !== undefined) return { node: undefined, value: external }
     }
-    const reference = this.references.get(source)
+    const reference = this.memoized(source)
     if (reference === undefined) return this.observe(source, kind)
     const target = seen === undefined ? reference.target : undefined
     return target === undefined ? reference : { node: undefined, value: target }
@@ -198,7 +206,13 @@ class SnapshotWalk extends Detached {
       const external = seen.get(value)
       if (external !== undefined) return external
     }
-    return (this.references.get(value) ?? this.observe(value)).target
+    return (this.memoized(value) ?? this.observe(value)).target
+  }
+
+  // The reference the walk memoized for `source`, if it observed it; the same reference one map for
+  // every object returns (Types.CallTables.lazy_run_eq).
+  memoized(source: object): SnapshotReference | undefined {
+    return source === this.firstSource ? this.firstReference : this.references?.get(source)
   }
 
   // Objects, arrays, Maps and Sets are observed inline, with the same native reads in the same
@@ -325,7 +339,7 @@ class SnapshotWalk extends Detached {
       const external = seen.get(source)
       if (external !== undefined) return this.constructed?.get(external) ?? external
     }
-    const reference = this.references.get(source)
+    const reference = this.memoized(source)
     if (reference === undefined) return this.observe(source, ARRAY_BUFFER_KIND).target
     const target = seen === undefined ? reference.target : undefined
     if (target !== undefined) return this.constructed?.get(target) ?? target
@@ -347,7 +361,10 @@ class SnapshotWalk extends Detached {
   // fallow-ignore-next-line complexity -- one dispatch per node; helper calls here cost snapshot time
   observe(source: object, kind?: symbol): SnapshotReference {
     const reference = new SnapshotReference(this.count++)
-    this.references.set(source, reference)
+    if (reference.node === 0) {
+      this.firstReference = reference
+      this.firstSource = source
+    } else (this.references ??= new Map()).set(source, reference)
     // The built-in object observer splits atoms itself, with the prototype recognition read. The
     // built-in observers take that read before they recurse into children (Types.Ingress).
     const read = this.read
