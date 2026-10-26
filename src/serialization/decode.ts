@@ -8,13 +8,13 @@ import { deserializeLimitExceeded } from '../error'
 import { denseArray } from '../standard-prototypes'
 // The value the document encodes. Decoding writes decoded values into the document's rows.
 export function decodeGraph(document: unknown, maxBytes: number): unknown {
-  return decodeDocument(document, maxBytes, false).root
+  return decodeDocument(document, maxBytes, false)
 }
 // The words `decodeGraph` charges under a finite limit, with the same checks and charges in the
 // same order (Size.lean accepts_iff_bytes: eight bytes per word is the smallest accepted limit).
 // Nothing is written into the document, so it can still be decoded.
 export function measureGraph(document: unknown, maxBytes: number): number {
-  return decodeDocument(document, maxBytes, true).words
+  return decodeDocument(document, maxBytes, true) as number
 }
 function createContext(
   control: unknown[],
@@ -37,9 +37,7 @@ function createContext(
     owned: 0,
     parameters: undefined,
     payloads,
-    shapeInherits: [],
     shapes: [],
-    shapeWords: [],
     urls: 0,
     weights: undefined,
     words: 0,
@@ -50,16 +48,13 @@ function createContext(
 // given; their order and distinctness are not checked. Preorder.lean check_iff makes every
 // node reachable and numbered in depth-first entry order, so the size charges no unreachable node
 // (Size.lean accounting_eq_reachable); the root slot is charged first.
-function decodeDocument(
-  document: unknown,
-  maxBytes: number,
-  measuring: boolean,
-): { root: unknown; words: number } {
+// Returns the root, or while measuring the words charged.
+function decodeDocument(document: unknown, maxBytes: number, measuring: boolean): unknown {
   if (!Array.isArray(document)) fail('envelope')
   const limit = Math.floor(maxBytes / 8)
   const limited = measuring || limit !== Infinity
   // A root without nodes is one literal: any JSON value, as JSON.parse produced it.
-  if (document.length === 1) return literalRoot(document[0], limit, maxBytes, limited)
+  if (document.length === 1) return literalRoot(document[0], limit, maxBytes, limited, measuring)
   const control = document[0] as unknown[]
   const payloads = document[1] as Row[]
   if (
@@ -80,7 +75,7 @@ function decodeDocument(
   // The root's own occurrence: a bigint root is charged its digits.
   if (context.weights !== undefined) charge(context, context.weights[0])
   fill(context)
-  return { root: context.output[0], words: context.words }
+  return measuring ? context.words : context.output[0]
 }
 // The root slot, then the literal where it occurs.
 function literalRoot(
@@ -88,20 +83,21 @@ function literalRoot(
   limit: number,
   maxBytes: number,
   limited: boolean,
-): { root: unknown; words: number } {
+  measuring: boolean,
+): unknown {
   const budget = { limit, maxBytes, words: 0 }
   if (limited) {
     charge(budget, 1)
     chargeLiteral(budget, literal)
   }
-  return { root: literal, words: budget.words }
+  return measuring ? budget.words : literal
 }
 
 // Positional.lean decodeControl: each node's layout id, the number of shapes, each shape framed
 // by its length, then each layout framed by its length to the end. Shapes and layouts are read
 // in place by the offset of their first entry; the length precedes it.
 function checkControl(context: DecodeContext): void {
-  const { control, nodeLayouts, payloads, shapes } = context
+  const { control, nodeLayouts, payloads } = context
   const count = control[payloads.length]
   if (!int(count)) fail('shapes')
   let at = payloads.length + 1
@@ -109,7 +105,7 @@ function checkControl(context: DecodeContext): void {
   const layouts: number[] = []
   while (at < control.length) {
     const length = frameLength(control, at)
-    checkLayout(control, at + 1, at + 1 + length, shapes.length)
+    checkLayout(control, at + 1, at + 1 + length, count)
     layouts.push(at + 1)
     at += length + 1
   }
@@ -135,9 +131,7 @@ function checkShape(context: DecodeContext, at: number): number {
     if (context.limited) words += stringWords(key.length)
     if (!context.measuring && !inherits) inherits = key in Object.prototype
   }
-  context.shapes.push(at + 1)
-  context.shapeInherits.push(inherits)
-  context.shapeWords.push(words)
+  context.shapes.push(at + 1, inherits ? 1 : 0, words)
   return at + length + 1
 }
 function frameLength(control: unknown[], at: number): number {
