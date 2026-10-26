@@ -55,7 +55,7 @@ export interface EncodeContext {
   layoutRoot: RadixNode<number>
   layouts: number[][]
   payloads: Array<Row | undefined>
-  plain: number[][] | undefined
+  plain: Array<number[] | undefined> | undefined
   scalars: number[] | undefined
   scratch: number[]
   shapeRoot: RadixNode<string>
