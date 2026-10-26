@@ -25,7 +25,9 @@ import {
   copyBuffer,
   copyDataView,
   copyTypedArray,
+  copyTypedFirst,
   bufferWith,
+  typedBufferOf,
   viewElement,
 } from './types/shared/binary-native'
 import { Detached, defineData, hasElement } from './standard-prototypes'
@@ -35,18 +37,21 @@ const objectPrototype = /* @__PURE__ */ (() => Object.prototype)()
 
 /**
  * The canonical traversal reference of one copied object: its copy, set before the copy enters
- * the public memo, and the layout of a value its kind's facet copied.
+ * the public memo, and the layout of a value its kind's facet copied. A buffer first met through a
+ * typed array copied from itself holds that array's copy instead, whose buffer is its copy.
  */
 class SnapshotReference extends Detached {
   declare layout: Layout | undefined
   declare readonly node: number
   declare target: object | undefined
+  declare view: ArrayBufferView | undefined
 
   constructor(node: number) {
     super()
     this.node = node
     this.layout = undefined
     this.target = undefined
+    this.view = undefined
   }
 }
 
@@ -170,7 +175,7 @@ class SnapshotWalk extends Detached {
     }
     const reference = this.memoized(source)
     if (reference === undefined) return this.observe(source, kind)
-    const target = seen === undefined ? reference.target : undefined
+    const target = seen === undefined ? this.targetOf(reference) : undefined
     return target === undefined ? reference : { node: undefined, value: target }
   }
 
@@ -208,7 +213,15 @@ class SnapshotWalk extends Detached {
       const external = seen.get(value)
       if (external !== undefined) return external
     }
-    return (this.memoized(value) ?? this.observe(value)).target
+    return this.targetOf(this.memoized(value) ?? this.observe(value))
+  }
+
+  // A reference's copy: for a buffer first met through a typed array copied from itself, that
+  // copy's buffer, read at the first lookup that needs it (Types.CallTables.pending_run_eq).
+  targetOf(reference: SnapshotReference): object | undefined {
+    const target = reference.target
+    if (target !== undefined || reference.view === undefined) return target
+    return (reference.target = typedBufferOf(reference.view))
   }
 
   // The root's copied value, as `slot` resolves it, without a memo lookup: nothing is memoized yet,
@@ -361,7 +374,7 @@ class SnapshotWalk extends Detached {
     }
     const reference = this.memoized(source)
     if (reference === undefined) return this.observe(source, ARRAY_BUFFER_KIND).target
-    const target = seen === undefined ? reference.target : undefined
+    const target = seen === undefined ? this.targetOf(reference) : undefined
     if (target !== undefined) return this.constructed?.get(target) ?? target
     const layout = reference.layout
     return layout === undefined
@@ -375,13 +388,31 @@ class SnapshotWalk extends Detached {
     // one read of the element type, which decides every getter below.
     const prototype = prototypeOf(source, this.read)
     const element = viewElement(view)
-    const buffer = this.viewBuffer(bufferWith(view, element)) as ArrayBuffer
+    const buffer = bufferWith(view, element)
     const target =
       kind === DATA_VIEW_KIND
-        ? copyDataView(view, buffer, prototype, element)
-        : copyTypedArray(view, buffer, prototype, element)
+        ? copyDataView(view, this.viewBuffer(buffer) as ArrayBuffer, prototype, element)
+        : this.typedCopy(view, buffer, prototype, element!)
     reference.target = target
     this.callerMemo?.set(source, target)
+  }
+  // A typed array's copy over its buffer's copy. When the walk meets the buffer first through the
+  // array and the caller passed no memo, `copyTypedFirst` copies both, leaving the buffer's copy in
+  // its memo entry.
+  typedCopy(
+    view: ArrayBufferView,
+    buffer: ArrayBuffer,
+    prototype: object | null,
+    element: string,
+  ): ArrayBufferView {
+    if (this.callerMemo !== undefined)
+      return copyTypedArray(view, this.viewBuffer(buffer) as ArrayBuffer, prototype, element)
+    const known = this.memoized(buffer)
+    if (known !== undefined)
+      return copyTypedArray(view, this.targetOf(known) as ArrayBuffer, prototype, element)
+    const entry = new SnapshotReference(this.count++)
+    this.references!.set(buffer, entry)
+    return copyTypedFirst(view, buffer, prototype, element, entry)
   }
 
   // fallow-ignore-next-line complexity -- one dispatch per node; helper calls here cost snapshot time

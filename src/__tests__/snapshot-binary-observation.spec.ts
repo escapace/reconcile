@@ -105,3 +105,62 @@ describe('snapshot binary and Date observation', () => {
     expect(Date.prototype.getTime.call(copy[0])).toBe(9)
   })
 })
+
+// A typed array that covers a fixed-length buffer the walk has not met is copied from itself; the
+// buffer's copy is that copy's buffer, read when the buffer or another view needs it.
+/* eslint-disable baseline-js/use-baseline -- resizable buffers, on engines that have them */
+describe('snapshot of a typed array met before its buffer', () => {
+  it('shares the buffer of its copy with the buffer and the views met after it', () => {
+    const buffer = new ArrayBuffer(8)
+    new Uint8Array(buffer).set([1, 2, 3, 4, 5, 6, 7, 8])
+    const copy = snapshot({
+      array: new Uint16Array(buffer),
+      buffer,
+      data: new DataView(buffer, 2, 4),
+      part: new Uint8Array(buffer, 4),
+    }) as { array: Uint16Array; buffer: ArrayBuffer; data: DataView; part: Uint8Array }
+    expect(copy.array.buffer).toBe(copy.buffer)
+    expect(copy.data.buffer).toBe(copy.buffer)
+    expect(copy.part.buffer).toBe(copy.buffer)
+    expect(copy.buffer).not.toBe(buffer)
+    expect(Object.getPrototypeOf(copy.buffer)).toBe(ArrayBuffer.prototype)
+    expect(copy.buffer.resizable).toBe(false)
+    expect(Array.from(new Uint8Array(copy.buffer))).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect([copy.data.byteOffset, copy.data.byteLength]).toEqual([2, 4])
+    expect([copy.part.byteOffset, copy.part.length]).toEqual([4, 4])
+  })
+
+  it('keeps the bytes the array held when it was copied', () => {
+    const typed = new Uint8Array([1, 2, 3])
+    const copy = snapshot({ typed }) as { typed: Uint8Array }
+    typed[0] = 9
+    copy.typed[1] = 8
+    expect(Array.from(new Uint8Array(copy.typed.buffer))).toEqual([1, 8, 3])
+    expect(Array.from(typed)).toEqual([9, 2, 3])
+  })
+
+  it('records the copy of its buffer in the caller memo', () => {
+    const typed = new Float64Array([1.5, 2.5])
+    const seen = new WeakMap<object, object>()
+    const copy = snapshot({ typed }, seen) as { typed: Float64Array }
+    expect(seen.get(typed)).toBe(copy.typed)
+    expect(seen.get(typed.buffer)).toBe(copy.typed.buffer)
+    expect(Array.from(copy.typed)).toEqual([1.5, 2.5])
+  })
+
+  it('copies the whole buffer of an array over part of it or over a resizable one', () => {
+    const part = new Uint8Array(new ArrayBuffer(8), 2, 4)
+    const resizable = new ArrayBuffer(4, { maxByteLength: 16 })
+    new Uint8Array(resizable).set([1, 2, 3, 4])
+    const copy = snapshot({ growing: new Uint16Array(resizable), part }) as {
+      growing: Uint16Array
+      part: Uint8Array
+    }
+    expect(copy.part.buffer.byteLength).toBe(8)
+    expect([copy.part.byteOffset, copy.part.length]).toEqual([2, 4])
+    expect(copy.growing.buffer.resizable).toBe(true)
+    expect(copy.growing.buffer.maxByteLength).toBe(16)
+    expect(Array.from(new Uint8Array(copy.growing.buffer))).toEqual([1, 2, 3, 4])
+  })
+})
+/* eslint-enable baseline-js/use-baseline */

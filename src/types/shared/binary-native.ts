@@ -13,6 +13,7 @@ import { builtinValue, uncurried } from '../../standard-prototypes'
 /** A typed-array constructor, as the built-in constructors are called. */
 export interface ViewConstructor {
   new (buffer: ArrayBuffer, offset: number, length: number): ArrayBufferView
+  new (source: ArrayBufferView): ArrayBufferView
   readonly BYTES_PER_ELEMENT: number
   readonly prototype: object
 }
@@ -144,17 +145,71 @@ export function copyBuffer(
   prototype = Object.getPrototypeOf(buffer) as object | null,
 ): ArrayBuffer {
   if (sharedOn(prototype)) return buffer as ArrayBuffer
-  const copy = emptyBuffer(buffer, bufferLengthOf(buffer))
+  const length = bufferLengthOf(buffer)
+  return filledBuffer(buffer, prototype, length, isResizable(buffer) ? maxLengthOf!(buffer) : -1)
+}
+
+/** A copy of the `length` bytes of an unshared buffer on `prototype`, resizable up to `maximum`
+ * unless it is -1. */
+function filledBuffer(
+  buffer: object,
+  prototype: object | null,
+  length: number,
+  maximum: number,
+): ArrayBuffer {
+  const copy =
+    maximum < 0
+      ? new ArrayBuffer(length)
+      : // eslint-disable-next-line baseline-js/use-baseline -- reached only where the engine has resizable buffers
+        new ArrayBuffer(length, { maxByteLength: maximum })
   copyBytes(copy, buffer as ArrayBuffer)
   return adoptPrototype(copy, prototype, ArrayBuffer.prototype)
 }
 
-/** A new zero-filled buffer of `length` bytes, resizable to the same maximum as `buffer` is. */
-function emptyBuffer(buffer: object, length: number): ArrayBuffer {
-  if (!isResizable(buffer)) return new ArrayBuffer(length)
-  const maxByteLength = maxLengthOf!(buffer)
-  // eslint-disable-next-line baseline-js/use-baseline -- reached only where the engine has resizable buffers
-  return new ArrayBuffer(length, { maxByteLength })
+/** Where `copyTypedFirst` leaves a buffer's copy: the copy, or a typed array's copy whose buffer
+ * stands for it. */
+export interface BufferCopy {
+  target: object | undefined
+  view: ArrayBufferView | undefined
+}
+
+/**
+ * The copy of a typed array whose buffer has no copy yet, leaving the buffer's copy in `entry`.
+ * The buffer's reads, as `copyBuffer` makes them, then the array's offset and length, each once,
+ * decide the copy (Types.Ingress.typedFirst_once). An array that covers a fixed-length
+ * `ArrayBuffer` is copied from itself, which in V8 needs no buffer of its own while it is small;
+ * `entry.view` holds that copy, whose buffer stands for the buffer's copy
+ * (Types.CallTables.pending_run_eq). Otherwise the buffer is copied first.
+ */
+export function copyTypedFirst(
+  value: object,
+  buffer: ArrayBuffer,
+  prototype: object | null,
+  element: string,
+  entry: BufferCopy,
+): ArrayBufferView {
+  const bufferPrototype = Object.getPrototypeOf(buffer) as object | null
+  const shared = sharedOn(bufferPrototype)
+  const length = shared ? 0 : bufferLengthOf(buffer)
+  const maximum = shared || !isResizable(buffer) ? -1 : maxLengthOf!(buffer)
+  const offset = typedOffsetOf(value)
+  const count = typedLengthOf(value)
+  const Constructor = elementConstructor(element)
+  if (
+    bufferPrototype === ArrayBuffer.prototype &&
+    maximum < 0 &&
+    offset === 0 &&
+    length !== 0 &&
+    count * Constructor.BYTES_PER_ELEMENT === length
+  )
+    return (entry.view = adoptPrototype(
+      new Constructor(value as ArrayBufferView),
+      prototype,
+      Constructor.prototype,
+    ))
+  const copy = shared ? buffer : filledBuffer(buffer, bufferPrototype, length, maximum)
+  entry.target = copy
+  return typedOver(Constructor, copy, offset, count, prototype)
 }
 
 /** A typed array's element type, such as `'Uint8Array'`, or `undefined` for a `DataView`. */
@@ -197,12 +252,25 @@ export function copyTypedArray(
   prototype = Object.getPrototypeOf(value) as object | null,
   element = viewElement(value),
 ): ArrayBufferView {
-  const Constructor = elementConstructor(element!)
-  return adoptPrototype(
-    new Constructor(buffer, typedOffsetOf(value), typedLengthOf(value)),
+  return typedOver(
+    elementConstructor(element!),
+    buffer,
+    typedOffsetOf(value),
+    typedLengthOf(value),
     prototype,
-    Constructor.prototype,
   )
+}
+
+/** A typed array made with `Constructor` over `buffer` at `offset` with `length` elements, on
+ * `prototype`. */
+function typedOver(
+  Constructor: ViewConstructor,
+  buffer: ArrayBuffer,
+  offset: number,
+  length: number,
+  prototype: object | null,
+): ArrayBufferView {
+  return adoptPrototype(new Constructor(buffer, offset, length), prototype, Constructor.prototype)
 }
 
 /** A `DataView` with the source's offset and length over `buffer`, on the source's prototype. */
