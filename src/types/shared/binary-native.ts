@@ -149,10 +149,6 @@ export const viewElement = (view: object): string | undefined =>
 export const bufferOfView = (view: object): ArrayBuffer =>
   Reflect.apply(viewElement(view) === undefined ? dataBuffer : typedBuffer, view, []) as ArrayBuffer
 
-/** The backing buffer of a view whose kind the caller knows: a `DataView` or a typed array. */
-export const knownViewBuffer = (view: object, dataView: boolean): ArrayBuffer =>
-  Reflect.apply(dataView ? dataBuffer : typedBuffer, view, []) as ArrayBuffer
-
 /** A view's offset in its buffer, in bytes. */
 export const viewOffset = (view: object): number =>
   Reflect.apply(viewElement(view) === undefined ? dataOffset : typedOffset, view, []) as number
@@ -195,14 +191,10 @@ export function copyTypedArray(
 }
 
 /** A `DataView` with the source's offset and length over `buffer`, on the source's prototype,
- * `known` when the caller read it. Only the `DataView` kind's facets call it. */
+ * `known` when the caller read it. */
 export function copyDataView(value: object, buffer: ArrayBuffer, known?: object | null): DataView {
   return adoptPrototype(
-    new DataView(
-      buffer,
-      Reflect.apply(dataOffset, value, []) as number,
-      Reflect.apply(dataLength, value, []) as number,
-    ),
+    new DataView(buffer, viewOffset(value), viewByteLength(value)),
     knownPrototype(value, known),
     DataView.prototype,
   )
