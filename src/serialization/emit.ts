@@ -63,7 +63,8 @@ function leaf(payload: Row, tag: number, context: EncodeContext): number {
 }
 // Each constant node has its own empty payload, so the returned data holds no array twice and
 // none from another call. This table and the plain-layout tables hold an own element at every
-// index they read, so no lookup reaches `Array.prototype`; -1 marks an id not yet assigned.
+// index they read, so no lookup reaches `Array.prototype`; -1 marks an id not yet assigned. They
+// return the ids absent indices did (Types.CallTables.filled_run_eq).
 function scalar(tag: number, context: EncodeContext): number {
   const scalars = (context.scalars ??= filledArray(TAGS, -1))
   let id = scalars[tag]

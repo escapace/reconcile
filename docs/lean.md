@@ -386,6 +386,14 @@ that order, then fills each.
 | `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                         | ownership tables in `src/snapshot.ts` and finalization                                                                                              | imported by OwnedNativeChild                | Lazy ownership metadata     |
 | `Types.OwnedPublication` | `bulk_equivalent`, `bulk_identity`, `sealed_owner_sound`                                  | `src/types/shared/url-carrier.ts`                                                                                                                   | OwnedNativeChild; native differential check | URL ownership               |
 | `Types.OwnedNativeChild` | `adopt_consistent`, `admitted_iff`, `first_prepared_ranked`, `replay_owned_valid`         | `src/types/url.ts`, `src/types/url-search-parameters.ts`, `src/types/shared/url-carrier.ts`                                                         | OwnedNativeChild                            | URL ownership               |
+| `Types.CallTables`       | `lazy_run_eq`, `filled_run_eq`, `interleave_length`, `interleave_get`                     | `memoized` in `src/snapshot.ts`; `scalar` and `layout` in `src/serialization/emit.ts`; `checkShape` in `src/serialization/decode.ts`                | proof-only                                  | Per-call tables             |
+
+`Types.CallTables` covers three per-call tables kept in a cheaper form than a map or one list per
+field. The snapshot walk's reference memo holds the first object's reference in two fields and makes
+its map on the second object (`lazy_run_eq`); serialize's scalar and plain-layout tables hold -1 at
+an index without an id (`filled_run_eq`); and deserialize keeps each shape's offset, inheritance
+flag and key words as three consecutive entries (`interleave_length`, `interleave_get`). Each
+returns, over any sequence of the runtime's operations, what the earlier form returned.
 
 `Types.Recognition` refines first-match recognition by traces of a fixed prefix of predicate calls.
 The traces keep the ranks of the predicates visited, the selected rank and the position of an early
@@ -694,6 +702,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 ### All operations
 
+- **Per-call tables.** `Types.CallTables` assumes the snapshot walk observes a source only after
+  `memoized` misses it, numbering its references from 0; that every id serialize assigns is at least
+  0; and that deserialize's shape loop reads exactly the count of shapes the control declares, as
+  `checkControl` does, so `checkLayout` can bound a shape id by that count.
 - **Frozen contents.** `PropertyWrite` takes attributes and extensibility for properties only;
   `CollectionPlan` and the time, bytes and text of dates, buffers, views and URLs have no such
   input, because the built-in methods change them on a frozen value too. The runtime checks a
