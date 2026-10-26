@@ -1,5 +1,5 @@
 import { decodeFail } from './common'
-import { builtinValue } from '../standard-prototypes'
+import { builtinValue, uncurried } from '../standard-prototypes'
 import { inChain } from '../object-property'
 import {
   bufferByteLength,
@@ -32,6 +32,11 @@ const atobDecoder = /* @__PURE__ */ (() =>
   typeof globalThis.atob === 'function' ? globalThis.atob : undefined)()
 export function decodeBytes(text: string, length: number): ArrayBuffer {
   if (nativeDecoder !== undefined) return decodeNativeBytes(text, length)
+  if (length >= tableBytes && encodeAscii !== undefined && transferBuffer !== undefined) {
+    const decoded = decodeTable(text, length)
+    // A character outside the alphabet takes the atob path, which decides the error.
+    if (decoded !== undefined) return decoded
+  }
   const binary = decodeAtob(text, length)
   const bytes = new Uint8Array(length)
   for (let index = 0; index < length; index++) bytes[index] = binary.charCodeAt(index)
@@ -129,6 +134,81 @@ const alphabet = /* @__PURE__ */ (() => {
   for (let index = 0; index < 64; index++) codes[index] = text.charCodeAt(index)
   return codes
 })()
+// The built-in UTF-8 encoder writes a code below 128 as that one byte, so it copies the ASCII
+// codes of base64 text into a buffer; read when the module loads, with an encoder that holds no
+// state between calls.
+const encodeAscii = /* @__PURE__ */ (() => {
+  if (typeof TextEncoder !== 'function') return undefined
+  const encodeInto = builtinValue(TextEncoder.prototype, 'encodeInto')
+  if (typeof encodeInto !== 'function') return undefined
+  const encoder = new TextEncoder()
+  const call = uncurried<[text: string, bytes: Uint8Array], unknown>(encodeInto)
+  return (text: string, bytes: Uint8Array): void => {
+    call(encoder, text, bytes)
+  }
+})()
+// The built-in `transfer`, which moves a buffer's first bytes into a new fixed-length buffer.
+const transferBuffer = /* @__PURE__ */ (() => {
+  const transfer = builtinValue(ArrayBuffer.prototype, 'transfer')
+  return typeof transfer === 'function'
+    ? uncurried<[length: number], ArrayBuffer>(transfer)
+    : undefined
+})()
+// For each position of a group of four ASCII codes, the bits each code's 6-bit value contributes
+// to the group's three bytes, laid out little-endian: the first byte in bits 0-7. A code outside
+// the alphabet sets the sign bit. Constant data.
+const positionTable = (bits: (value: number) => number): Int32Array => {
+  const table = new Int32Array(256)
+  for (let code = 0; code < 256; code++) table[code] = -0x1_00_00_00
+  for (let value = 0; value < 64; value++) table[alphabet[value]] = bits(value)
+  return table
+}
+const position0 = /* @__PURE__ */ positionTable((value) => value << 2)
+const position1 = /* @__PURE__ */ positionTable((value) => (value >> 4) | ((value & 15) << 12))
+const position2 = /* @__PURE__ */ positionTable(
+  (value) => ((value >> 2) << 8) | ((value & 3) << 22),
+)
+const position3 = /* @__PURE__ */ positionTable((value) => value << 16)
+/**
+ * The `length` bytes that base64 `text` decodes to, or undefined when it holds a code outside the
+ * alphabet, for `length` that `decodedSize` predicted. The text's ASCII codes are decoded in place:
+ * each group of four is read as one little-endian word and its three bytes written as one, behind
+ * the codes still to be read. The view is the library's own, so its methods are called as such.
+ * Base64.lean decode_spec and decode_encode; writes_behind and final_after for the order.
+ */
+function decodeTable(text: string, length: number): ArrayBuffer | undefined {
+  const size = text.length
+  const buffer = new ArrayBuffer(size)
+  const bytes = new Uint8Array(buffer)
+  // An ASCII text's codes are its bytes. At its first other code the encoder writes a byte from
+  // 0x80, or stops and leaves zeros when the code does not fit; that position precedes the final
+  // pads, so the loop reads a code outside the alphabet there and the text takes the atob path.
+  encodeAscii!(text, bytes)
+  const view = new DataView(buffer)
+  const groups = Math.floor(length / 3)
+  let invalid = 0
+  for (let group = 0; group < groups; group++) {
+    const word = view.getInt32(4 * group, true)
+    const value =
+      position0[word & 255] |
+      position1[(word >> 8) & 255] |
+      position2[(word >> 16) & 255] |
+      position3[word >>> 24]
+    invalid |= value
+    view.setInt32(3 * group, value, true)
+  }
+  // A final group of three codes then one pad decodes to two bytes, of two codes to one.
+  const rest = length - 3 * groups
+  if (rest > 0) {
+    const at = 4 * groups
+    const value =
+      position0[bytes[at]] | position1[bytes[at + 1]] | (rest === 2 ? position2[bytes[at + 2]] : 0)
+    invalid |= value
+    bytes[3 * groups] = value
+    if (rest === 2) bytes[3 * groups + 1] = value >> 8
+  }
+  return invalid < 0 ? undefined : transferBuffer!(buffer, length)
+}
 // Base64.lean encode_spec: each group of three bytes is one 24-bit word whose four 6-bit fields
 // index the alphabet; a final group of two or one bytes keeps three or two fields, then pads.
 function encodeTable(bytes: Uint8Array, length: number): string {

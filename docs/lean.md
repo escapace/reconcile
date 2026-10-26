@@ -463,7 +463,7 @@ turns out changed is unsound.
 | `Serialization.Inline`     | `inline_step_refines`, `inline_run_refines`, `inline_matches_recursive`                                                                                                   | `src/serialization/frames.ts` `advances`                                                                                                                                                                                    | proof-only                | Encoder observations                 |
 | `Serialization.ShapeRadix` | `getR_split`, `getR_setR`, `radix_matches_signature`                                                                                                                      | `src/serialization/radix.ts` `lookup`, `intern`, `split`                                                                                                                                                                    | proof-only                | Encoder observations                 |
 | `Serialization.Collection` | `resolved_map_trace`, `resolved_map_rows`, `resolved_set_trace`, `resolved_set_keys`, `first_insertion_order`, `last_value`                                               | `src/serialization/facets/collection.ts` `map`, `set`                                                                                                                                                                       | SerializationCollection   | Map and Set equality                 |
-| `Serialization.Base64`     | `encode_spec`, `encode_length`                                                                                                                                            | `src/serialization/binary.ts` `encodeTable`                                                                                                                                                                                 | proof-only                | Base64                               |
+| `Serialization.Base64`     | `encode_spec`, `encode_length`, `groupWord_bytes`, `decode_spec`, `decode_encode`, `writes_behind`                                                                        | `src/serialization/binary.ts` `encodeTable`, `decodeTable`                                                                                                                                                                  | proof-only                | Base64                               |
 | `Serialization.Size`       | `accounting_eq_reachable`, `node_count_le_accounting`, `stops_iff`, `accepts_iff_bytes`, `image_sum_le`, `foldMap_length_le`, `json_words_le_text`, `encodeInt_decodeInt` | `src/serialization/size.ts`; `decode.ts` `decodeGraph`, `measureGraph`, `checkShape`; `src/required-max-bytes.ts`; the charges in `facets/*.ts`; bigint text in `emit.ts` and `facets/native.ts`                            | Serialization             | Decoded sizes, Measuring, JSON.parse |
 
 A document is `[literal]` for a JSON-literal root and `[control, payloads]` otherwise. Every value
@@ -482,7 +482,12 @@ included.
 
 Map and Set payloads are resolved, then folded with native `set` or `add`; on a failed read the
 target is untouched (the `resolved_*` theorems). `encode_spec` covers the table encoder used for
-large buffers when `Uint8Array.prototype.toBase64` is missing and `TextDecoder` exists. A sparse
+large buffers when `Uint8Array.prototype.toBase64` is missing and `TextDecoder` exists. When
+`Uint8Array.fromBase64` is missing, the table decoder takes large buffers: it reads each group's
+four codes as one little-endian word and writes its three bytes as one, in place, and returns
+RFC 4648's bytes (`groupWord_bytes`, `decode_spec`), the encoder's input among them
+(`decode_encode`); no write reaches a code still to be read (`writes_behind`, `final_after`). A
+code outside the alphabet sends the text to the `atob` path, which decides the error. A sparse
 array starts as `new Array(length)` when at least half its elements are present and as `[]`
 otherwise, receives its elements in ascending order, then gets its length;
 `sparse_grow_eq_preallocate` and `sparse_resize_keeps` prove both starts give the same array with
@@ -836,7 +841,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   ([Map.set](https://tc39.es/ecma262/multipage/keyed-collections.html#sec-map.prototype.set),
   [Set.add](https://tc39.es/ecma262/multipage/keyed-collections.html#sec-set.prototype.add)). `collection-normalization.spec.ts` covers signed zeros and `NaN`.
 - **Base64.** The encoder's alphabet table and bitwise operators are native; `binary-codec.spec.ts`
-  compares it with `btoa`. A native decoder never yields more bytes than `decodedSize` predicts,
+  compares it with `btoa`. The decoder's tables set the sign bit for a code outside the alphabet,
+  `|` adds its disjoint position fields, `encodeInto` writes each ASCII code of the text as one
+  byte and, at the first other code, a byte from 0x80 or nothing (leaving a zero), `DataView` reads
+  and writes the little-endian words, and `transfer` keeps the first bytes;
+  `binary-codec.spec.ts` compares the decoder with the `atob` path, errors included. A native decoder never yields more bytes than `decodedSize` predicts,
   which lets the exact-count check reject skipped whitespace; `serialization-boundaries.spec.ts`
   covers this on the `atob` path and with native stand-ins.
 - **Encoder observations.** The traversal models constrain only the order of entering and
