@@ -4,7 +4,6 @@ import type { Leaf } from './contracts'
 // them; an error native extraction throws propagates.
 import { encodeBytes } from './binary'
 import { readDate, readBuffer, readParameters, readTemporal } from './native'
-import type { Recognized } from './native'
 
 function captureDate(value: object) {
   const time = readDate(value)
@@ -20,8 +19,8 @@ function captureParameters(value: object) {
   return [readParameters(value)]
 }
 
-function captureTemporal(value: object, recognized: Recognized) {
-  const payload = readTemporal(value, recognized)
+function captureTemporal(value: object, kind?: number) {
+  const payload = readTemporal(value, kind!)
   // A Duration's ten fields, or the ISO text; the Temporal kind is the layout's key field.
   return typeof payload === 'string' ? [payload] : payload
 }
