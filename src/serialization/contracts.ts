@@ -1,5 +1,6 @@
 import type { RadixNode } from './radix'
 import type { Step } from '../standard-prototypes'
+import type { Recognized } from './native'
 // The size limit in words (maxBytes / 8, rounded down) and the words charged so far.
 export interface Budget {
   limit: number
@@ -92,5 +93,6 @@ export interface Frame {
   // The built-in step of `iterator`, called with it.
   step: Step
 }
-export type Leaf = (value: object, kind?: number) => Row
+/** Captures a leaf from its recognition. */
+export type Leaf = (value: object, recognized: Recognized) => Row
 export type Row = unknown[]

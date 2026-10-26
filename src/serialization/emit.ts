@@ -118,7 +118,7 @@ export function node(item: object, context: EncodeContext): number {
   const captureLeaf = leafCaptures[kind.tag]
   if (captureLeaf === undefined) context.stack.push(frame(id, kind.tag, kind.detail, item))
   else {
-    payloads[id] = captureLeaf(item, kind.detail)
+    payloads[id] = captureLeaf(item, kind)
     descriptors[id] = layout(kind.tag, kind.detail, -1, context)
   }
   return id
