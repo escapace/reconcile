@@ -2,7 +2,14 @@
 // function handles it as a class instance, whichever of the view and its buffer comes first.
 import { runInNewContext } from 'node:vm'
 import { expect, it } from 'vitest'
-import { isReconcileErrorOfType, produce, reconcile, serialize, snapshot } from '../index'
+import {
+  deserialize,
+  isReconcileErrorOfType,
+  produce,
+  reconcile,
+  serialize,
+  snapshot,
+} from '../index'
 
 /** A view over a buffer whose prototype was replaced, and one from another environment. */
 const views = (): Uint8Array[] => {
@@ -110,4 +117,25 @@ it('copies a typed array that inherits DataView.prototype as a DataView over its
     return draft
   })
   expectDataViewCopy(next.view, 9)
+})
+
+it('serializes a typed array that inherits DataView.prototype as the DataView the others copy', () => {
+  expectDataViewCopy(deserialize(serialize(typedDataView()), { maxBytes: Infinity }), 2)
+})
+
+it("rejects in serialize a typed array given another element type's prototype", () => {
+  // deserialize builds the element type the prototype names, which would read other bytes.
+  for (const view of [
+    Object.setPrototypeOf(new Uint16Array([1, 2]), Uint8Array.prototype) as object,
+    Object.setPrototypeOf(new Uint8Array([1, 2, 3, 4]), Uint16Array.prototype) as object,
+  ]) {
+    let thrown: unknown
+    try {
+      serialize(view)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeDefined()
+    expect(isReconcileErrorOfType(thrown as never, 'SerializeValueUnsupported')).toBe(true)
+  }
 })

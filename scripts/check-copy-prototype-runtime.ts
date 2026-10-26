@@ -9,11 +9,13 @@ import { serialize } from '../src/serialize'
 interface Kind {
   readonly change: (value: never) => void
   readonly make: (subclass: boolean) => object
+  /** Another value of the same kind by recognition: a typed array given `DataView.prototype`. */
+  readonly alias?: () => object
 }
 
 class DataViewSubclass extends DataView<ArrayBuffer> {}
 
-const kinds: readonly Kind[] = [
+const kinds: ReadonlyArray<Kind | undefined> = [
   {
     change: (value: unknown[]) => {
       value[0] = 2
@@ -33,6 +35,7 @@ const kinds: readonly Kind[] = [
     make: (subclass) => new (subclass ? class extends Date {} : Date)(0),
   },
   {
+    alias: () => Object.setPrototypeOf(new Uint8Array(2), DataView.prototype) as object,
     change: (value: DataView) => value.setUint8(0, 1),
     make: (subclass) =>
       subclass ? new DataViewSubclass(new ArrayBuffer(2)) : new DataView(new ArrayBuffer(2)),
@@ -47,12 +50,25 @@ const kinds: readonly Kind[] = [
     change: (value: URLSearchParams) => value.append('b', '2'),
     make: (subclass) => new (subclass ? class extends URLSearchParams {} : URLSearchParams)('a=1'),
   },
+  // Temporal, kind 7, is optional and left out.
+  undefined,
+  {
+    change: (value: Uint8Array) => {
+      value[0] = 9
+    },
+    make: (subclass) => new (subclass ? class extends Uint8Array {} : Uint8Array)([1, 2, 3, 4]),
+  },
+  {
+    change: (value: Uint16Array) => {
+      value[0] = 9
+    },
+    make: (subclass) => new (subclass ? class extends Uint16Array {} : Uint16Array)([1, 2]),
+  },
 ]
 
 /** The copies each function builds of one value: a snapshot, an object reconcile adds and a
  * produce result the recipe changed. */
-function copies(kind: Kind, subclass: boolean): Array<[string, object, object]> {
-  const source = (): object => kind.make(subclass)
+function copies(kind: Kind, source: () => object): Array<[string, object, object]> {
   const snapshotted = source()
   const added = source()
   const holder: Record<string, unknown> = { value: 0 }
@@ -82,29 +98,53 @@ function serializes(value: object): boolean {
   return true
 }
 
+/** Makes the value of one oracle row: an instance of `kind` or of its subclass, or, for a typed
+ * array, one given another typed kind's standard prototype. */
+function sourceOf(kind: Kind, row: Record<string, unknown>): () => object {
+  const other = row.other === null ? undefined : kinds[integerIn(row.other, 8, 9)]!
+  return () => {
+    const value = kind.make(row.subclass === true)
+    if (other === undefined) return value
+    return Object.setPrototypeOf(
+      value,
+      Object.getPrototypeOf(other.make(false)) as object,
+    ) as object
+  }
+}
+
+/** Checks whether `serialize` accepts a row's value, and its kind's alias for an own instance. */
+function checkSerializes(kind: Kind, row: Record<string, unknown>, source: () => object): void {
+  assert.equal(serializes(source()), row.serializes, 'serialize')
+  if (kind.alias !== undefined && row.subclass !== true)
+    assert.equal(serializes(kind.alias()), row.serializes, 'serialize alias')
+}
+
 /** Compares copy prototypes in every function with Lean's `CopyPrototype.adopt`, and what
  * `serialize` accepts with `CopyPrototype.serializes`. */
 export async function checkCopyPrototypeRuntime(oracle: Oracle): Promise<void> {
-  // Eight kinds, each as its own instance and as a subclass instance; Temporal is optional.
-  const rows = await oracleCorpus(oracle, 'CopyPrototype', 16, 64 * 1024)
+  // Ten kinds, each as its own instance and as a subclass instance, and each typed kind given the
+  // other's prototype; Temporal is optional.
+  const rows = await oracleCorpus(oracle, 'CopyPrototype', 22, 64 * 1024)
   let checked = 0
   for (const line of rows) {
     const row = jsonObject(JSON.parse(line))
-    const kind = kinds[integerIn(row.kind, 0, 7)]
+    const kind = kinds[integerIn(row.kind, 0, 9)]
     if (kind === undefined) continue
-    for (const [name, source, copy] of copies(kind, row.subclass === true)) {
-      assert.notEqual(copy, source, `${name} copies`)
+    const source = sourceOf(kind, row)
+    for (const [name, original, copy] of copies(kind, source)) {
+      assert.notEqual(copy, original, `${name} copies`)
       assert.equal(
-        Object.getPrototypeOf(copy) === Object.getPrototypeOf(source),
+        Object.getPrototypeOf(copy) === Object.getPrototypeOf(original),
         row.keeps,
         `${name} prototype`,
       )
       checked += 1
     }
-    assert.equal(serializes(kind.make(row.subclass === true)), row.serializes, 'serialize')
+    checkSerializes(kind, row, source)
   }
   console.log(
     `Copy-prototype Lean/native bridge: ${checked} copies by snapshot, reconcile and produce ` +
-      'keep their source prototype, subclasses included; serialize accepts only standard prototypes',
+      'keep their source prototype, subclasses included; serialize accepts only the standard ' +
+      'prototype of the kind a value holds',
   )
 }

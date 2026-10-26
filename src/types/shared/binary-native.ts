@@ -72,7 +72,8 @@ export const typedBufferOf = /* @__PURE__ */ (() =>
 export const typedOffsetOf = /* @__PURE__ */ (() =>
   getterOf<number>(typedPrototype, 'byteOffset')!)()
 export const typedLengthOf = /* @__PURE__ */ (() => getterOf<number>(typedPrototype, 'length')!)()
-const typedByteLengthOf = /* @__PURE__ */ (() => getterOf<number>(typedPrototype, 'byteLength')!)()
+export const typedByteLengthOf = /* @__PURE__ */ (() =>
+  getterOf<number>(typedPrototype, 'byteLength')!)()
 export const dataBufferOf = /* @__PURE__ */ (() =>
   getterOf<ArrayBuffer>(DataView.prototype, 'buffer')!)()
 export const dataOffsetOf = /* @__PURE__ */ (() =>
@@ -175,7 +176,7 @@ export const viewByteLength = (view: object): number =>
   viewElement(view) === undefined ? dataLengthOf(view) : typedByteLengthOf(view)
 
 /** The names of `viewConstructors`, read once. */
-const viewNames: readonly string[] = /* @__PURE__ */ (() =>
+export const viewNames: readonly string[] = /* @__PURE__ */ (() =>
   Object.freeze(viewConstructors.map((constructor) => constructor?.name ?? '')))()
 
 /** The built-in constructor of a typed array's element type. */

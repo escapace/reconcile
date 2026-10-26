@@ -1,9 +1,9 @@
 import Types.CopyPrototype
 import Lean
 
-/-! Oracle for the `CopyPrototype` family: for every kind, as its own instance and as a subclass
-instance, whether a copy keeps the source's prototype (`CopyPrototype.adopt`) and whether
-`serialize` accepts it. -/
+/-! Oracle for the `CopyPrototype` family: for every kind, as its own instance, as a subclass
+instance and, for a typed array, given another typed kind's standard prototype, whether a copy
+keeps the source's prototype (`CopyPrototype.adopt`) and whether `serialize` accepts it. -/
 
 namespace Reconcile.CopyPrototypeOracle
 
@@ -12,20 +12,33 @@ open Reconcile.CopyPrototype Lean
 private structure Observation where
   kind : Nat
   subclass : Bool
+  /-- The index of the typed kind whose standard prototype the value was given, if another. -/
+  other : Option Nat
   keeps : Bool
   serializes : Bool
   deriving ToJson
 
-/-- Every kind, as its own instance and as a subclass instance, with whether a copy keeps the
-source's prototype and whether `serialize` accepts it. -/
+private def isTyped : Kind → Bool
+  | .typed _ => true
+  | _ => false
+
+/-- The typed kinds other than `kind` whose prototype a typed array of `kind` can be given. -/
+private def others (kind : Kind) : List Kind :=
+  if isTyped kind then kinds.filter fun other => other != kind && isTyped other else []
+
+/-- Every kind, as its own instance, as a subclass instance and given each other typed kind's
+standard prototype, with whether a copy keeps the source's prototype and whether `serialize`
+accepts it. -/
 def run : IO Unit := do
-  IO.println (2 * kinds.length)
-  for kind in kinds do
-    for subclass in [false, true] do
-      let source := if subclass then Proto.subclass kind else Proto.standard kind
-      let row : Observation :=
-        { kind := kinds.idxOf kind, subclass, keeps := adopt (Proto.standard kind) source == source,
-          serializes := serializes source }
-      IO.println (toJson row).compress
+  let rows := kinds.flatMap fun kind =>
+    [(kind, Proto.standard kind, false, none), (kind, Proto.subclass kind, true, none)] ++
+      (others kind).map fun other => (kind, Proto.standard other, false, some (kinds.idxOf other))
+  IO.println rows.length
+  for (kind, source, subclass, other) in rows do
+    let row : Observation :=
+      { kind := kinds.idxOf kind, subclass, other,
+        keeps := adopt (Proto.standard kind) source == source,
+        serializes := serializes kind source }
+    IO.println (toJson row).compress
 
 end Reconcile.CopyPrototypeOracle

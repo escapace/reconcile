@@ -13,9 +13,12 @@ import {
   getter,
   isResizable,
   typedBufferOf,
+  typedByteLengthOf,
   typedLengthOf,
   typedOffsetOf,
   viewConstructors,
+  viewElement,
+  viewNames,
 } from '../types/shared/binary-native'
 
 interface TemporalConstructor {
@@ -110,16 +113,31 @@ export function readTemporal(value: object, kind: number): string | number[] {
 export function readURL(value: object): { href: string; parameters: URLSearchParams } {
   return { href: nativeURLHref(value as URL), parameters: nativeURLSearchParameters(value as URL) }
 }
+/**
+ * A view's buffer, offset and length, in elements for a typed array and in bytes for a `DataView`,
+ * of the kind its prototype names. A typed array given `DataView.prototype` is a `DataView` by its
+ * chain, read through the getters its element type selects, as the other functions copy it. A typed
+ * array given another element type's prototype is rejected: `deserialize` would build that element
+ * type over other bytes (CopyPrototype.serializes_iff_restored).
+ */
 export function readView(
   value: object,
   kind?: number,
 ): { buffer: ArrayBuffer; byteOffset: number; length: number } {
+  const element = viewElement(value)
   if (kind === dataViewKind)
-    return {
-      buffer: dataBufferOf(value),
-      byteOffset: dataOffsetOf(value),
-      length: dataLengthOf(value),
-    }
+    return element === undefined
+      ? {
+          buffer: dataBufferOf(value),
+          byteOffset: dataOffsetOf(value),
+          length: dataLengthOf(value),
+        }
+      : {
+          buffer: typedBufferOf(value),
+          byteOffset: typedOffsetOf(value),
+          length: typedByteLengthOf(value),
+        }
+  if (element !== undefined && element !== viewNames[kind!]) encodeFail('unsupported prototype')
   return {
     buffer: typedBufferOf(value),
     byteOffset: typedOffsetOf(value),
