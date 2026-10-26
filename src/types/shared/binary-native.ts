@@ -143,15 +143,7 @@ export const viewElement = (view: object): string | undefined =>
 
 /** A view's backing buffer. */
 export const bufferOfView = (view: object): ArrayBuffer =>
-  knownViewBuffer(view, viewElement(view) === undefined)
-
-/**
- * The backing buffer of a view whose element type the caller tested: `dataView` when it has none.
- * A value of the typed-array kind always has one (Types.RecognitionPlain.typed_of_selected); one
- * of the `DataView` kind may, when it is a typed array that inherits `DataView.prototype`.
- */
-export const knownViewBuffer = (view: object, dataView: boolean): ArrayBuffer =>
-  Reflect.apply(dataView ? dataBuffer : typedBuffer, view, []) as ArrayBuffer
+  Reflect.apply(viewElement(view) === undefined ? dataBuffer : typedBuffer, view, []) as ArrayBuffer
 
 /** A view's offset in its buffer, in bytes. */
 export const viewOffset = (view: object): number =>
@@ -190,20 +182,10 @@ export function copyTypedArray(value: object, buffer: ArrayBuffer): ArrayBufferV
   )
 }
 
-/** A `DataView` with the source's offset and length over `buffer`, on the source's prototype.
- * `dataView` says whether the source has no element type; a caller that tested it passes the
- * answer. */
-export function copyDataView(
-  value: object,
-  buffer: ArrayBuffer,
-  dataView = viewElement(value) === undefined,
-): DataView {
+/** A `DataView` with the source's offset and length over `buffer`, on the source's prototype. */
+export function copyDataView(value: object, buffer: ArrayBuffer): DataView {
   return adoptPrototype(
-    new DataView(
-      buffer,
-      Reflect.apply(dataView ? dataOffset : typedOffset, value, []) as number,
-      Reflect.apply(dataView ? dataLength : typedByteLength, value, []) as number,
-    ),
+    new DataView(buffer, viewOffset(value), viewByteLength(value)),
     Object.getPrototypeOf(value) as object | null,
     DataView.prototype,
   )

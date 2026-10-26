@@ -25,8 +25,7 @@ import {
   copyBuffer,
   copyDataView,
   copyTypedArray,
-  knownViewBuffer,
-  viewElement,
+  bufferOfView,
 } from './types/shared/binary-native'
 import { Detached, defineData, hasElement } from './standard-prototypes'
 
@@ -338,12 +337,9 @@ class SnapshotWalk extends Detached {
 
   observeView(reference: SnapshotReference, source: object, kind: symbol): void {
     const view = source as ArrayBufferView
-    // A typed array has an element type (Types.RecognitionPlain.typed_of_selected); a value of the
-    // `DataView` kind is tested once, for its buffer and its copy.
-    const dataView = kind === DATA_VIEW_KIND && viewElement(view) === undefined
-    const buffer = this.viewBuffer(knownViewBuffer(view, dataView)) as ArrayBuffer
+    const buffer = this.viewBuffer(bufferOfView(view)) as ArrayBuffer
     const target =
-      kind === DATA_VIEW_KIND ? copyDataView(view, buffer, dataView) : copyTypedArray(view, buffer)
+      kind === DATA_VIEW_KIND ? copyDataView(view, buffer) : copyTypedArray(view, buffer)
     reference.target = target
     this.callerMemo?.set(source, target)
   }
