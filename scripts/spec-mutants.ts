@@ -8,7 +8,7 @@
 //
 //   pnpm exec tsx scripts/spec-mutants.ts [--seeds N] [--only NAME]
 import assert from 'node:assert/strict'
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 
@@ -133,44 +133,62 @@ const BRIDGES = {
 
 type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
 
-function runBridge(bridge: Bridge, seeds: number, flags: readonly string[]): Verdict {
-  const result = spawnSync(
-    'pnpm',
-    ['exec', 'tsx', ...bridge.command, '--seeds', String(seeds), ...flags],
-    // A bridge run takes a few seconds; a mutant that loops is cut off well inside the round.
-    { encoding: 'utf8', timeout: 30_000 },
+/** One bridge run in its own process group. It saw nothing when it finished with the bridge's
+ * report of no difference; a mutant that throws inside the runtime is caught as well, since the
+ * bridge reports errors. A run takes a few seconds; one that loops is cut off, with every process
+ * it started, well inside the round. */
+async function runBridge(
+  bridge: Bridge,
+  seeds: number,
+  flags: readonly string[],
+): Promise<Verdict> {
+  return await new Promise((resolve) => {
+    const child = spawn(
+      'pnpm',
+      ['exec', 'tsx', ...bridge.command, '--seeds', String(seeds), ...flags],
+      {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
+    let output = ''
+    let hung = false
+    const collect = (chunk: string): void => {
+      output += chunk
+    }
+    child.stdout.setEncoding('utf8').on('data', collect)
+    child.stderr.setEncoding('utf8').on('data', collect)
+    const timer = setTimeout(() => {
+      hung = true
+      process.kill(-child.pid!, 'SIGKILL')
+    }, 30_000)
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve('hung')
+    })
+    child.on('close', (status) => {
+      clearTimeout(timer)
+      if (hung) resolve('hung')
+      else resolve(status === 0 && output.includes(bridge.agreed) ? 'survived' : 'killed')
+    })
+  })
+}
+
+/** The bridge's runs, all at once: the verdict is the first run, in order, that did not end or
+ * saw a difference, as running them one after another until one does would find. */
+async function runAll(bridge: Bridge, seeds: number): Promise<Verdict> {
+  const verdicts = await Promise.all(
+    bridge.runs.map(async (flags) => await runBridge(bridge, seeds, flags)),
   )
-  return verdictOf(bridge, result)
+  return verdicts.find((verdict) => verdict !== 'survived') ?? 'survived'
 }
 
-type Run = SpawnSyncReturns<string>
-
-/** Whether the bridge finished and saw nothing; a mutant that throws inside the runtime is
- * caught as well, since the bridge reports errors. */
-const agreed = (bridge: Bridge, result: Run): boolean =>
-  result.status === 0 && `${result.stdout}\n${result.stderr}`.includes(bridge.agreed)
-
-function verdictOf(bridge: Bridge, result: Run): Verdict {
-  if (result.error !== undefined || result.signal !== null) return 'hung'
-  return agreed(bridge, result) ? 'survived' : 'killed'
-}
-
-/** The bridge's runs in order, each as long as the previous run saw nothing. */
-function runAll(bridge: Bridge, seeds: number): Verdict {
-  let verdict: Verdict = 'survived'
-  for (const flags of bridge.runs) {
-    verdict = runBridge(bridge, seeds, flags)
-    if (verdict !== 'survived') break
-  }
-  return verdict
-}
-
-function audit(mutant: Mutant, seeds: number): Verdict {
+async function audit(mutant: Mutant, seeds: number): Promise<Verdict> {
   const original = readFileSync(mutant.file, 'utf8')
   assert.equal(original.split(mutant.find).length, 2, `${mutant.name}: find text not present once`)
   writeFileSync(mutant.file, original.replace(mutant.find, mutant.replace))
   try {
-    return runAll(BRIDGES[mutant.bridge ?? 'outcome'], seeds)
+    return await runAll(BRIDGES[mutant.bridge ?? 'outcome'], seeds)
   } finally {
     writeFileSync(mutant.file, original)
   }
@@ -184,7 +202,7 @@ assert.ok(selected.length > 0, 'no mutant selected')
 let surprises = 0
 for (const mutant of selected) {
   const started = Date.now()
-  const verdict = audit(mutant, Number(values.seeds))
+  const verdict = await audit(mutant, Number(values.seeds))
   const expected = (verdict === 'survived') === (mutant.survives !== undefined)
   if (!expected) surprises += 1
   const note = mutant.survives === undefined ? '' : ` (expected to survive: ${mutant.survives})`

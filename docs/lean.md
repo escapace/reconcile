@@ -875,11 +875,10 @@ Read the table with these limits:
 
 The _mutation audit_, `pnpm exec tsx scripts/spec-mutants.ts`, checks that the `Spec` bridges
 detect runtime defects. It applies one deliberate defect, a _mutant_, at a time to the runtime
-sources and runs the bridge without flags, then with `--writes`, then with `--writes --hazards`,
-stopping at the first run that reports a difference or does not end. A mutant that only the
-runtime's discovery or decisions show runs the phase bridge instead, with `--binary`, then without
-flags, then with `--hazards`. It restores the sources after
-each mutant. A mutant the bridge does not detect marks a case the generator does not produce or a
+sources and runs the bridge without flags, with `--writes` and with `--writes --hazards` at once,
+and reports the first of these runs, in that order, that shows a difference or does not end. A
+mutant that only the runtime's discovery or decisions show runs the phase bridge instead, with
+`--binary`, without flags and with `--hazards`. It restores the sources after each mutant. A mutant the bridge does not detect marks a case the generator does not produce or a
 difference the comparison does not see; the script lists the mutants it expects to go undetected,
 each with the gap it stands for. Run the audit after changing the `Spec` bridge, its generator or
 the code its mutants patch, and with nothing else running, since it rewrites the sources. With its
