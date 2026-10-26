@@ -1,6 +1,9 @@
-import { nativeKind, type Recognized } from '../native'
+import { nativeKind } from '../native'
 import { encodeFail as fail } from '../common'
-export function recognize(value: object, prototype: object | null): Recognized {
+export function recognize(
+  value: object,
+  prototype: object | null,
+): { detail: number | undefined; tag: number } {
   // deserialize builds standard arrays, so an array with another prototype is rejected.
   if (Array.isArray(value))
     return prototype === Array.prototype

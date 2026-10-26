@@ -26,17 +26,6 @@ interface TemporalConstructor {
 interface TemporalValue {
   toString: (options?: { calendarName: string }) => string
 }
-/** A value's wire tag and layout key field. */
-export interface Recognized {
-  detail: number | undefined
-  tag: number
-}
-/** A Temporal value's tag and class index, and the class recognition found on the namespace,
- * which its leaf uses without reading the namespace again. */
-interface RecognizedTemporal extends Recognized {
-  detail: number
-  temporal: TemporalConstructor
-}
 // View kinds index viewConstructors; DataView follows them.
 export const dataViewKind = 12
 export const temporalNames = /* @__PURE__ */ (() =>
@@ -81,7 +70,9 @@ export function decodeTemporal(kind: number, payload: string | number[]): object
 
   return Constructor.from(payload)
 }
-export function nativeKind(prototype: object | null): Recognized | undefined {
+export function nativeKind(
+  prototype: object | null,
+): { detail: number | undefined; tag: number } | undefined {
   if (prototype === Date.prototype) return { detail: undefined, tag: 6 }
   if (prototype === ArrayBuffer.prototype) return { detail: undefined, tag: 7 }
   if (prototype === DataView.prototype) return { detail: dataViewKind, tag: 8 }
@@ -107,12 +98,10 @@ export function readDate(value: object): number {
 export function readParameters(value: object): string {
   return nativeParametersText(value as URLSearchParams)
 }
-/** A Duration's ten fields, or the ISO text of any other Temporal value, of the class that
+/** A Duration's ten fields, or the ISO text of any other Temporal value, of class `kind`, which
  * recognition found on the namespace, which callers do not change during the call. */
-export function readTemporal(value: object, recognized: Recognized): string | number[] {
-  // Only a Temporal class has the Temporal tag.
-  const kind = recognized.detail!
-  const constructor = (recognized as RecognizedTemporal).temporal
+export function readTemporal(value: object, kind: number): string | number[] {
+  const constructor = temporalNamespace()![temporalNames[kind]]!
   const copy = temporalFrom(constructor, temporalNames[kind], value)
   if (kind === 7)
     return durationFields.map((field) => getter(constructor.prototype, field)!.call(copy) as number)
@@ -158,13 +147,13 @@ function temporalConstructor(kind: number): TemporalConstructor {
   if (typeof constructor !== 'function') decodeFail('Temporal unavailable')
   return constructor
 }
-function temporalKind(prototype: object | null): RecognizedTemporal | undefined {
+function temporalKind(prototype: object | null): { detail: number; tag: number } | undefined {
   const temporal = temporalNamespace()
   if (temporal != null)
     for (let kind = 0; kind < temporalNames.length; kind++) {
       const constructor = temporal[temporalNames[kind]]
       if (typeof constructor === 'function' && prototype === constructor.prototype)
-        return { detail: kind, tag: 12, temporal: constructor }
+        return { detail: kind, tag: 12 }
     }
   return undefined
 }
