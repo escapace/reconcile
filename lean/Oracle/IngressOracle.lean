@@ -4,7 +4,8 @@ import Lean
 /-! Oracle for the `Ingress` family: recognizes every built-in and listed prototype tail behind up
 to two custom prototypes, with and without a typed-array brand, and behind a custom prototype whose
 prototype read throws, with `Types.Ingress.ingress`. Each row reports the outcome and the reads of
-the object itself with the prototype read shared and with a separate atom split. -/
+the object itself with the prototype read shared and with a separate atom split, and the reads
+through its kind's capture with that read passed on and with capture reading it again. -/
 
 namespace Reconcile.IngressOracle
 
@@ -40,6 +41,8 @@ private structure Observation where
   rank : Nat
   shared : Nat
   separate : Nat
+  captured : Nat
+  capturedSeparate : Nat
   deriving ToJson
 
 private def describe : Outcome → String × Nat
@@ -58,10 +61,15 @@ def run : IO Unit := do
       protos := (List.range depth).map (fun l => ⟨.data (100 + l), .other (100 + l)⟩) ++
         tails.getD tail []
       raises := tail = raisingTail }
-    let (outcome, rank) := describe (ingress .miss chain brand targets)
+    let result := ingress .miss chain brand targets
+    let (outcome, rank) := describe result
     IO.println (toJson ({
       depth, tail, brand, outcome, rank
       shared := ownReads true .miss chain brand targets
-      separate := ownReads false .miss chain brand targets } : Observation)).compress
+      separate := ownReads false .miss chain brand targets
+      captured := ownReads true .miss chain brand targets + captureReads true .miss result
+      capturedSeparate :=
+        ownReads false .miss chain brand targets + captureReads false .miss result } :
+      Observation)).compress
 
 end Reconcile.IngressOracle
