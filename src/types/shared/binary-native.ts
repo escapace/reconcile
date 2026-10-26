@@ -47,47 +47,63 @@ export const getter = (
   // eslint-disable-next-line typescript/unbound-method -- Native accessors are always invoked with an explicit receiver.
   Object.getOwnPropertyDescriptor(prototype, key)?.get
 
-const bufferLength = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'byteLength')!)()
-const sharedLength = /* @__PURE__ */ (() =>
+// A built-in getter, read when the module loads and called on its receiver without an argument
+// list.
+const getterOf = <Result>(
+  prototype: object,
+  key: PropertyKey,
+): ((target: object) => Result) | undefined => {
+  const get = getter(prototype, key)
+  return get === undefined ? undefined : uncurried<[], Result>(get)
+}
+const bufferLengthOf = /* @__PURE__ */ (() =>
+  getterOf<number>(ArrayBuffer.prototype, 'byteLength')!)()
+const sharedLengthOf = /* @__PURE__ */ (() =>
   typeof SharedArrayBuffer === 'function'
-    ? getter(SharedArrayBuffer.prototype as object, 'byteLength')
+    ? getterOf<number>(SharedArrayBuffer.prototype as object, 'byteLength')
     : undefined)()
-export const bufferResizable = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'resizable'))()
-const bufferMaxLength = /* @__PURE__ */ (() => getter(ArrayBuffer.prototype, 'maxByteLength'))()
-const typedName = /* @__PURE__ */ (() => getter(typedPrototype, Symbol.toStringTag)!)()
-export const typedBuffer = /* @__PURE__ */ (() => getter(typedPrototype, 'buffer')!)()
-export const typedOffset = /* @__PURE__ */ (() => getter(typedPrototype, 'byteOffset')!)()
-export const typedLength = /* @__PURE__ */ (() => getter(typedPrototype, 'length')!)()
-const typedByteLength = /* @__PURE__ */ (() => getter(typedPrototype, 'byteLength')!)()
-export const dataBuffer = /* @__PURE__ */ (() => getter(DataView.prototype, 'buffer')!)()
-export const dataOffset = /* @__PURE__ */ (() => getter(DataView.prototype, 'byteOffset')!)()
-export const dataLength = /* @__PURE__ */ (() => getter(DataView.prototype, 'byteLength')!)()
+const resizableOf = /* @__PURE__ */ (() => getterOf<boolean>(ArrayBuffer.prototype, 'resizable'))()
+const maxLengthOf = /* @__PURE__ */ (() =>
+  getterOf<number>(ArrayBuffer.prototype, 'maxByteLength'))()
+const typedNameOf = /* @__PURE__ */ (() =>
+  getterOf<string | undefined>(typedPrototype, Symbol.toStringTag)!)()
+export const typedBufferOf = /* @__PURE__ */ (() =>
+  getterOf<ArrayBuffer>(typedPrototype, 'buffer')!)()
+export const typedOffsetOf = /* @__PURE__ */ (() =>
+  getterOf<number>(typedPrototype, 'byteOffset')!)()
+export const typedLengthOf = /* @__PURE__ */ (() => getterOf<number>(typedPrototype, 'length')!)()
+const typedByteLengthOf = /* @__PURE__ */ (() => getterOf<number>(typedPrototype, 'byteLength')!)()
+export const dataBufferOf = /* @__PURE__ */ (() =>
+  getterOf<ArrayBuffer>(DataView.prototype, 'buffer')!)()
+export const dataOffsetOf = /* @__PURE__ */ (() =>
+  getterOf<number>(DataView.prototype, 'byteOffset')!)()
+export const dataLengthOf = /* @__PURE__ */ (() =>
+  getterOf<number>(DataView.prototype, 'byteLength')!)()
+
+/** Whether a buffer whose prototype is `prototype` is a `SharedArrayBuffer`. */
+const sharedOn = (prototype: object | null): boolean =>
+  sharedLengthOf !== undefined && inChain(prototype, SharedArrayBuffer)
 
 /** Whether a buffer is a `SharedArrayBuffer`, which every function keeps by reference. */
 export const isShared = (buffer: object): boolean =>
-  sharedLength !== undefined &&
-  inChain(Object.getPrototypeOf(buffer) as object | null, SharedArrayBuffer)
+  sharedOn(Object.getPrototypeOf(buffer) as object | null)
+
+/** Whether a buffer is resizable. */
+export const isResizable = (buffer: object): boolean => resizableOf?.(buffer) === true
 
 /** A buffer's length in bytes. */
 export const bufferByteLength = (buffer: object): number =>
-  Reflect.apply(isShared(buffer) ? sharedLength! : bufferLength, buffer, []) as number
+  isShared(buffer) ? sharedLengthOf!(buffer) : bufferLengthOf(buffer)
 
 /** The length a resizable buffer can grow to, or -1 for a fixed-length or shared buffer. */
 export const bufferMaximum = (buffer: object): number =>
-  bufferResizable === undefined ||
-  isShared(buffer) ||
-  Reflect.apply(bufferResizable, buffer, []) !== true
-    ? -1
-    : (Reflect.apply(bufferMaxLength!, buffer, []) as number)
+  isShared(buffer) || !isResizable(buffer) ? -1 : maxLengthOf!(buffer)
 
 // The built-in `set` of typed arrays, read when the module loads.
 const typedSet = /* @__PURE__ */ (() =>
   uncurried<[source: ArrayBufferView, offset?: number], undefined>(
     builtinValue(typedPrototype, 'set'),
   ))()
-
-// The built-in `length` getter of typed arrays, called without an argument list.
-const typedLengthOf = /* @__PURE__ */ (() => uncurried<[], number>(typedLength))()
 
 /** Copies the bytes of `source` to the start of `target`, which holds at least as many, with the
  * built-in `set`. */
@@ -119,39 +135,44 @@ export function sliceBytes(buffer: ArrayBuffer, offset: number, length: number):
 /**
  * A copy of a buffer's bytes on the buffer's prototype, made without calling its constructor, as
  * `slice` would through `Symbol.species`. A resizable buffer's copy is resizable to the same
- * maximum. A `SharedArrayBuffer` is its own copy, so a view copied over it shares its memory.
+ * maximum. A `SharedArrayBuffer` is its own copy, so a view copied over it shares its memory. The
+ * prototype is read once, or passed by a caller that read it (Types.Ingress.bufferCopy_once).
  */
-export function copyBuffer(buffer: object): ArrayBuffer {
-  if (isShared(buffer)) return buffer as ArrayBuffer
-  const copy = emptyBuffer(buffer, bufferByteLength(buffer))
+export function copyBuffer(
+  buffer: object,
+  prototype = Object.getPrototypeOf(buffer) as object | null,
+): ArrayBuffer {
+  if (sharedOn(prototype)) return buffer as ArrayBuffer
+  const copy = emptyBuffer(buffer, bufferLengthOf(buffer))
   copyBytes(copy, buffer as ArrayBuffer)
-  return adoptPrototype(copy, Object.getPrototypeOf(buffer) as object | null, ArrayBuffer.prototype)
+  return adoptPrototype(copy, prototype, ArrayBuffer.prototype)
 }
 
 /** A new zero-filled buffer of `length` bytes, resizable to the same maximum as `buffer` is. */
 function emptyBuffer(buffer: object, length: number): ArrayBuffer {
-  if (bufferResizable === undefined || Reflect.apply(bufferResizable, buffer, []) !== true)
-    return new ArrayBuffer(length)
-  const maxByteLength = Reflect.apply(bufferMaxLength!, buffer, []) as number
+  if (!isResizable(buffer)) return new ArrayBuffer(length)
+  const maxByteLength = maxLengthOf!(buffer)
   // eslint-disable-next-line baseline-js/use-baseline -- reached only where the engine has resizable buffers
   return new ArrayBuffer(length, { maxByteLength })
 }
 
 /** A typed array's element type, such as `'Uint8Array'`, or `undefined` for a `DataView`. */
-export const viewElement = (view: object): string | undefined =>
-  Reflect.apply(typedName, view, []) as string | undefined
+export const viewElement = (view: object): string | undefined => typedNameOf(view)
+
+/** The buffer of a view whose element type `element` was read, through the getter it selects. */
+export const bufferWith = (view: object, element: string | undefined): ArrayBuffer =>
+  element === undefined ? dataBufferOf(view) : typedBufferOf(view)
 
 /** A view's backing buffer. */
-export const bufferOfView = (view: object): ArrayBuffer =>
-  Reflect.apply(viewElement(view) === undefined ? dataBuffer : typedBuffer, view, []) as ArrayBuffer
+export const bufferOfView = (view: object): ArrayBuffer => bufferWith(view, viewElement(view))
 
 /** A view's offset in its buffer, in bytes. */
 export const viewOffset = (view: object): number =>
-  Reflect.apply(viewElement(view) === undefined ? dataOffset : typedOffset, view, []) as number
+  viewElement(view) === undefined ? dataOffsetOf(view) : typedOffsetOf(view)
 
 /** A view's length in bytes. */
 export const viewByteLength = (view: object): number =>
-  Reflect.apply(viewElement(view) === undefined ? dataLength : typedByteLength, view, []) as number
+  viewElement(view) === undefined ? dataLengthOf(view) : typedByteLengthOf(view)
 
 /** The names of `viewConstructors`, read once. */
 const viewNames: readonly string[] = /* @__PURE__ */ (() =>
@@ -169,24 +190,35 @@ function elementConstructor(name: string): ViewConstructor {
  * A typed array with the source's element type, offset and length over `buffer`, on the source's
  * prototype, made with the built-in constructor.
  */
-export function copyTypedArray(value: object, buffer: ArrayBuffer): ArrayBufferView {
-  const Constructor = elementConstructor(viewElement(value)!)
+export function copyTypedArray(
+  value: object,
+  buffer: ArrayBuffer,
+  prototype = Object.getPrototypeOf(value) as object | null,
+  element = viewElement(value),
+): ArrayBufferView {
+  const Constructor = elementConstructor(element!)
   return adoptPrototype(
-    new Constructor(
-      buffer,
-      Reflect.apply(typedOffset, value, []) as number,
-      Reflect.apply(typedLength, value, []) as number,
-    ),
-    Object.getPrototypeOf(value) as object | null,
+    new Constructor(buffer, typedOffsetOf(value), typedLengthOf(value)),
+    prototype,
     Constructor.prototype,
   )
 }
 
 /** A `DataView` with the source's offset and length over `buffer`, on the source's prototype. */
-export function copyDataView(value: object, buffer: ArrayBuffer): DataView {
+export function copyDataView(
+  value: object,
+  buffer: ArrayBuffer,
+  prototype = Object.getPrototypeOf(value) as object | null,
+  element = viewElement(value),
+): DataView {
+  const typed = element !== undefined
   return adoptPrototype(
-    new DataView(buffer, viewOffset(value), viewByteLength(value)),
-    Object.getPrototypeOf(value) as object | null,
+    new DataView(
+      buffer,
+      typed ? typedOffsetOf(value) : dataOffsetOf(value),
+      typed ? typedByteLengthOf(value) : dataLengthOf(value),
+    ),
+    prototype,
     DataView.prototype,
   )
 }

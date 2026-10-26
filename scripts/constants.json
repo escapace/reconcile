@@ -130,6 +130,7 @@
         "materializeState",
         "measuring",
         "memberOf",
+        "memo",
         "memoKey",
         "memoized",
         "methods",

@@ -4,17 +4,17 @@ import {
   nativeParametersText,
 } from '../types/shared/url-carrier'
 import { encodeFail, decodeFail } from './common'
-import { globalTemporal, temporalFrom } from '../standard-prototypes'
+import { globalTemporal, temporalFrom, uncurried } from '../standard-prototypes'
 import {
   bufferByteLength,
-  bufferResizable,
-  dataBuffer,
-  dataLength,
-  dataOffset,
+  dataBufferOf,
+  dataLengthOf,
+  dataOffsetOf,
   getter,
-  typedBuffer,
-  typedLength,
-  typedOffset,
+  isResizable,
+  typedBufferOf,
+  typedLengthOf,
+  typedOffsetOf,
   viewConstructors,
 } from '../types/shared/binary-native'
 
@@ -52,7 +52,7 @@ const durationFields = [
   'nanoseconds',
 ]
 // eslint-disable-next-line typescript/unbound-method -- The captured intrinsic is called with its source receiver.
-const dateTime = /* @__PURE__ */ (() => Date.prototype.getTime)()
+const dateTimeOf = /* @__PURE__ */ (() => uncurried<[], number>(Date.prototype.getTime))()
 export function constructView(
   kind: number,
   buffer: ArrayBuffer,
@@ -88,12 +88,11 @@ export function nativeKind(
 /** The length of the fixed-length buffer `value`; a resizable one is rejected. */
 export function readBuffer(value: object): number {
   const byteLength = bufferByteLength(value)
-  if (bufferResizable !== undefined && Reflect.apply(bufferResizable, value, []) === true)
-    encodeFail('resizable buffer')
+  if (isResizable(value)) encodeFail('resizable buffer')
   return byteLength
 }
 export function readDate(value: object): number {
-  return Reflect.apply(dateTime, value, [])
+  return dateTimeOf(value)
 }
 export function readParameters(value: object): string {
   return nativeParametersText(value as URLSearchParams)
@@ -117,14 +116,14 @@ export function readView(
 ): { buffer: ArrayBuffer; byteOffset: number; length: number } {
   if (kind === dataViewKind)
     return {
-      buffer: Reflect.apply(dataBuffer, value, []) as ArrayBuffer,
-      byteOffset: Reflect.apply(dataOffset, value, []) as number,
-      length: Reflect.apply(dataLength, value, []) as number,
+      buffer: dataBufferOf(value),
+      byteOffset: dataOffsetOf(value),
+      length: dataLengthOf(value),
     }
   return {
-    buffer: Reflect.apply(typedBuffer, value, []) as ArrayBuffer,
-    byteOffset: Reflect.apply(typedOffset, value, []) as number,
-    length: Reflect.apply(typedLength, value, []) as number,
+    buffer: typedBufferOf(value),
+    byteOffset: typedOffsetOf(value),
+    length: typedLengthOf(value),
   }
 }
 function decodeReferenceDate(

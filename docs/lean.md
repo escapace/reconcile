@@ -380,17 +380,18 @@ that order, then fills each.
 | `Types.Recognition`      | `builtinTrace_eq_scanTrace`, `temporalTrace_eq_scanTrace`, `builtinDispatch_eq_scanTrace` | `src/types/builtins.ts`, `src/types/temporal.ts`                                                                                                    | proof-only                                  | Recognition                 |
 | `Types.RecognitionPlain` | `recognize_eq_scan`, `plain_probes`                                                       | `builtinFirstMatch` in `src/types/builtins.ts`, `inChain`                                                                                           | RecognitionPlain                            | Recognition                 |
 | `Types.Atoms`            | `classify_atomic`, `classify_reads`, `ingress_atom_iff`, `ingress_structural`             | `isAtomObject` in `src/object-property.ts`, `recognize` in `src/adapters/recognition.ts`                                                            | Atoms                                       | Recognition, Atoms          |
-| `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`                                                         | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; `prototypes` in `src/publication/capture.ts`, `createDraft`, the snapshot walk | Ingress                                     | Recognition, Atoms, Ingress |
+| `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`, `viewCopy_once`, `bufferCopy_once`                     | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; capture's `prototypes`, `createDraft`, the snapshot walk, binary-native copies | Ingress                                     | Recognition, Atoms, Ingress |
 | `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`                      | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                   | NativeValue                                 | Native values               |
 | `Types.NativeWrites`     | `publish_nil_iff`, `publish_url`, `publish_parameters`, `publish_temporal`, `result_eq`   | `publish` in `src/types/url.ts`, `src/types/url-search-parameters.ts` and `src/types/temporal.ts`; `replaceNativeParameters`                        | proof-only                                  | Native writes               |
 | `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                         | ownership tables in `src/snapshot.ts` and finalization                                                                                              | imported by OwnedNativeChild                | Lazy ownership metadata     |
 | `Types.OwnedPublication` | `bulk_equivalent`, `bulk_identity`, `sealed_owner_sound`                                  | `src/types/shared/url-carrier.ts`                                                                                                                   | OwnedNativeChild; native differential check | URL ownership               |
 | `Types.OwnedNativeChild` | `adopt_consistent`, `admitted_iff`, `first_prepared_ranked`, `replay_owned_valid`         | `src/types/url.ts`, `src/types/url-search-parameters.ts`, `src/types/shared/url-carrier.ts`                                                         | OwnedNativeChild                            | URL ownership               |
-| `Types.CallTables`       | `lazy_run_eq`, `filled_run_eq`, `interleave_length`, `interleave_get`                     | `memoized` in `src/snapshot.ts`; `scalar` and `layout` in `src/serialization/emit.ts`; `checkShape` in `src/serialization/decode.ts`                | proof-only                                  | Per-call tables             |
+| `Types.CallTables`       | `lazy_run_eq`, `filled_run_eq`, `interleave_length`, `interleave_get`                     | `memoized`, `memo` in `src/snapshot.ts`; `scalar` and `layout` in `src/serialization/emit.ts`; `checkShape` in `src/serialization/decode.ts`        | proof-only                                  | Per-call tables             |
 
 `Types.CallTables` covers three per-call tables kept in a cheaper form than a map or one list per
-field. The snapshot walk's reference memo holds the first object's reference in two fields and makes
-its map on the second object (`lazy_run_eq`); serialize's scalar and plain-layout tables hold -1 at
+field. The snapshot walk's reference memo holds the first object's reference in two fields, which
+the root fills without a lookup, and makes its map, holding that reference, at the first lookup
+(`lazy_run_eq`); serialize's scalar and plain-layout tables hold -1 at
 an index without an id (`filled_run_eq`); and deserialize keeps each shape's offset, inheritance
 flag and key words as three consecutive entries (`interleave_length`, `interleave_get`). Each
 returns, over any sequence of the runtime's operations, what the earlier form returned.
@@ -419,7 +420,12 @@ about atoms apply to it.
 
 `Types.Ingress` composes the two: one shared prototype read decides both the kind and the atom
 split, as the two classifiers would separately, and reads the object once where a separate split
-read it twice (`ownReads_shared`); the walk past that read is unchanged (`walkReads_eq`).
+read it twice (`ownReads_shared`); the walk past that read is unchanged (`walkReads_eq`). In the
+same way, recognition reads a view's element type once, for its buffer's getter and the typed-array
+brand (`recognition_once`); a view's copy reads the element type and the prototype once
+(`viewCopy_once`), and the snapshot walk's copy takes the prototype recognition read
+(`snapshotView_once`); a buffer's copy reads its prototype once (`bufferCopy_once`). Each calls
+every built-in getter the earlier code called, once.
 
 `Types.NativeValue` proves the payload policy: mutable publication returns the desired payload,
 immutable Temporal compatibility requires equal class, constructor label and exact observation, and
@@ -702,8 +708,9 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 
 ### All operations
 
-- **Per-call tables.** `Types.CallTables` assumes the snapshot walk observes a source only after
-  `memoized` misses it, numbering its references from 0; that every id serialize assigns is at least
+- **Per-call tables.** `Types.CallTables` assumes the snapshot walk observes the root first,
+  without a lookup, and every other source only after `memoized` misses it, numbering its
+  references from 0; that every id serialize assigns is at least
   0; and that deserialize's shape loop reads exactly the count of shapes the control declares, as
   `checkControl` does, so `checkLayout` can bound a shape id by that count.
 - **Frozen contents.** `PropertyWrite` takes attributes and extensibility for properties only;
@@ -756,9 +763,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Ingress.** The prototype that ingress reads serves every reader of that object until the call's
   first write: `reconcile` capture records it, with the kind, for discovery and the preflight's
   inherited-accessor check, and discovery does not check that kind again;
-  `produce` uses it for the draft's proxy target and `snapshot` for the copy. A later read must
-  answer as the first did, so a getter or trap that changes a prototype before the first write is
-  unsupported. Readback and a draft's first copy, which follow the recipe, read the prototype
+  `produce` uses it for the draft's proxy target and `snapshot` for the copy, a buffer's and a
+  view's included. A later read must answer as the first did, so a getter or trap that changes a
+  prototype before the first write is unsupported. A view's element type and buffer are fixed when
+  the view is made, so one read of the element type serves recognition, the buffer's getter and
+  the copy. Readback and a draft's first copy, which follow the recipe, read the prototype
   again. `ingress-reads.spec.ts` counts the prototype reads.
 - **Native values.** Native brands, constructors, capture, cloning, publication and readback are
   faithful, and Temporal labels keep all ten Duration components and each class's calendar, time

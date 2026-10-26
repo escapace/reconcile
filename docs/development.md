@@ -238,8 +238,9 @@ sides together.
   `facets/native.ts` and the README. Nothing checks the README.
 - **Snapshot walk.** `snapshot.ts` copies plain objects, arrays, `Map`, `Set`, `Date`,
   `ArrayBuffer`, typed arrays and `DataView` inline and repeats, in the same order, the reads that
-  each kind's capture facet makes in `observe`; `viewBuffer` repeats the view facets' buffer-edge
-  answer. A capture change for
+  each kind's capture facet makes in `observe`, except that a buffer's or view's copy takes the
+  prototype recognition read and a view's reads its element type once (`Types.Ingress`);
+  `viewBuffer` repeats the view facets' buffer-edge answer. A capture change for
   these kinds MUST be made there too.
 - **Head shortcut.** Identity restoration tries `immutableHead`'s mask before searching, because
   the head theorem proves it comes first.

@@ -18,7 +18,7 @@ import * as urlSearchParameters from './url-search-parameters'
 import * as object from './object'
 import { ATOM_KIND } from '../constants'
 import { inChain, prototypeOf } from '../object-property'
-import { bufferOfView, typedArrayClass, viewElement } from './shared/binary-native'
+import { bufferWith, typedArrayClass, viewElement } from './shared/binary-native'
 
 /** Built-in kinds in recognition order; every facet table below lists facets in this order. */
 const KINDS = [
@@ -76,12 +76,23 @@ function builtinFirstMatch(value: object, last: number, read?: PrototypeRead): s
  * environment or one whose prototype was replaced, is not recognized either. Reading a view's own
  * buffer observes nothing.
  */
-function recognizedBuffer(value: object): boolean {
-  const prototype = Object.getPrototypeOf(bufferOfView(value)) as object | null
+function recognizedBuffer(value: object, element: string | undefined): boolean {
+  const prototype = Object.getPrototypeOf(bufferWith(value, element)) as object | null
   return (
     inChain(prototype, ArrayBuffer) ||
     (typeof SharedArrayBuffer === 'function' && inChain(prototype, SharedArrayBuffer))
   )
+}
+
+/**
+ * A value's view answer: `undefined` without a view brand, `false` for a view whose buffer is not
+ * recognized, otherwise its element type, `null` for a `DataView`. The element type is read once
+ * and selects the buffer's getter too (Types.Ingress.recognition_once).
+ */
+function viewAnswer(value: object): string | false | null | undefined {
+  if (!ArrayBuffer.isView(value)) return undefined
+  const element = viewElement(value)
+  return recognizedBuffer(value, element) ? (element ?? null) : false
 }
 
 /** Continues the same ordered prefix without allocating a per-value continuation. A typed array
@@ -94,16 +105,10 @@ function builtinRemainingMatch(
   last: number,
 ): symbol | undefined {
   const isDataView = inChain(first, DataView)
-  // Undefined without a view brand; otherwise whether the view's buffer is recognized.
-  const view = ArrayBuffer.isView(value) ? recognizedBuffer(value) : undefined
+  const view = viewAnswer(value)
   if (isDataView && view !== false) return dataView.DATA_VIEW_KIND
   if (last === 5) return undefined
-  if (
-    !isDataView &&
-    view === true &&
-    viewElement(value) !== undefined &&
-    inChain(first, typedArrayClass)
-  )
+  if (!isDataView && typeof view === 'string' && inChain(first, typedArrayClass))
     return typedArray.TYPED_ARRAY_KIND
   if (last === 6) return undefined
   if (temporal.temporalInChain(first)) return temporal.TEMPORAL_KIND

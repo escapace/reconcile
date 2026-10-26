@@ -723,7 +723,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as typeof no
 // copy.next === copy; copy.created is a Date
 ```
 
-## function snapshot [↗](src/snapshot.ts#L103-L108 'snapshot')
+## function snapshot [↗](src/snapshot.ts#L104-L109 'snapshot')
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
