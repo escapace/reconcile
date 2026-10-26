@@ -23,10 +23,12 @@ function append(frame: Frame, context: EncodeContext, index: number, item: unkno
   slot(frame, item, context)
 }
 function array(frame: Frame, context: EncodeContext) {
-  if (frame.phase === 0) startArray(frame)
   const value = frame.value as unknown[]
-  // The cursor stays local in the hole-scanning loop; it is stored only when yielding.
-  for (let index = frame.index; index < value.length; index++) {
+  // The first bound is the length the start just read; an element read can change it, so each
+  // later bound is read again. The cursor stays local in the hole-scanning loop; it is stored only
+  // when yielding.
+  let length = frame.phase === 0 ? startArray(frame) : value.length
+  for (let index = frame.index; index < length; index++) {
     if (index >= maxArrayLength) fail('array length or index invalid')
     if (hasElement(value, index)) {
       append(frame, context, index, value[index])
@@ -35,6 +37,7 @@ function array(frame: Frame, context: EncodeContext) {
         return false
       }
     }
+    length = value.length
   }
   // A dense array is its values; a sparse one is [length, presence runs, values].
   if (frame.holes !== undefined || frame.end !== frame.length) {
@@ -116,12 +119,14 @@ function set(frame: Frame, context: EncodeContext) {
   }
   return true
 }
-function startArray(frame: Frame) {
+// Starts an array frame and returns the length it read.
+function startArray(frame: Frame): number {
   const initial = (frame.value as unknown[]).length
   if (!int(initial, maxArrayLength)) fail('array length or index invalid')
   frame.length = initial
   frame.row = []
   frame.phase = 1
+  return initial
 }
 // A URL's `searchParams` is restored from the URL, so its node, reserved here unless another
 // reference met it first, records only its owner.

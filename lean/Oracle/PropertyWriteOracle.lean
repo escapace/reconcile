@@ -64,9 +64,6 @@ private structure Observation where
   after : Descriptor
   ownSetterCalls : Nat
   inheritedSetterCalls : Nat
-  previousStatus : String
-  previousAfter : Descriptor
-  previousInheritedSetterCalls : Nat
   deriving ToJson
 
 /-- Every own descriptor, inherited descriptor, extensibility and written value; `__proto__`
@@ -79,7 +76,6 @@ def run : IO Unit := do
   IO.println cases.length
   for (slot, value, proto) in cases do
     let result := reconcileKey storing slot value proto
-    let previous := reconcileOld storing slot value proto
     if Event.inheritedSetter ∈ result.events then
       throw (IO.userError "PropertyWrite oracle ran an inherited setter")
     if result.status == .rejectedAfterWriting then
@@ -93,10 +89,7 @@ def run : IO Unit := do
         status := statusName result.status
         after := describe result.slot.own
         ownSetterCalls := result.events.count .ownSetter
-        inheritedSetterCalls := result.events.count .inheritedSetter
-        previousStatus := statusName previous.status
-        previousAfter := describe previous.slot.own
-        previousInheritedSetterCalls := previous.events.count .inheritedSetter }
+        inheritedSetterCalls := result.events.count .inheritedSetter }
     IO.println (toJson observation).compress
 
 private structure GuardedConstruction where

@@ -320,8 +320,9 @@ function heldValue(
 
 /**
  * What the call already read at edge `index`, which holds `key`, of the object being published:
- * capture's, discovery's or the previous pass's read by position, else `UNREAD`. A key
- * publication deleted first (`removed`) holds no read.
+ * capture's, discovery's or the previous pass's read by position, else `UNREAD`. Each of them
+ * read every edge, as `heldValue` also relies on. A key publication deleted first (`removed`)
+ * holds no read.
  */
 export function priorRead(
   reads: readonly unknown[] | undefined,
@@ -330,7 +331,7 @@ export function priorRead(
   removed?: readonly PropertyKey[],
 ): unknown {
   if (removed?.includes(key) === true) return UNREAD
-  return reads !== undefined && index < reads.length ? reads[index] : UNREAD
+  return reads === undefined ? UNREAD : reads[index]
 }
 
 // The order cursor for `previous`, or undefined when it already begins with the desired order.

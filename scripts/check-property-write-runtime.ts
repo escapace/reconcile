@@ -187,12 +187,8 @@ function checkStatus(row: Row, key: string, status: string, before: Row, after: 
   if (rejectedBefore) assert.deepEqual(after, before, `${key}: written before rejection`)
 }
 
-const differs = (row: Row): boolean =>
-  row.previousStatus !== row.status ||
-  JSON.stringify(row.previousAfter) !== JSON.stringify(row.after)
-
 /** Compares `reconcile` on single-key objects with every Lean outcome, natively and through
- * proxies, and counts the outcomes that differ from the previous decision. */
+ * proxies. */
 export async function checkPropertyWriteRuntime(oracle: Oracle): Promise<void> {
   // 33 own descriptors × 5 inherited × 2 extensibility × 2 values, and 4 `__proto__` cases.
   const rows = (await oracleCorpus(oracle, 'PropertyWrite', 664, 1024 * 1024)).map((line) =>
@@ -206,6 +202,6 @@ export async function checkPropertyWriteRuntime(oracle: Oracle): Promise<void> {
   console.log(
     `Property-write Lean/native bridge: ${rows.length} outcomes, ${realizations.length} native ` +
       `realizations through reconcile and ${onObject.length} with the inherited descriptor on ` +
-      `Object.prototype; ${rows.filter(differs).length} outcomes differ from the previous decision`,
+      `Object.prototype`,
   )
 }

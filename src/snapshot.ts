@@ -268,8 +268,13 @@ class SnapshotWalk extends Detached {
     this.remember(source, target)
     // The elements are assigned before the copy takes its prototype, so no setter on that
     // prototype runs.
-    for (let index = 0; index < array.length; index += 1)
+    // The first bound is the length read above; an element read can change it, so each later
+    // bound is read again.
+    let bound = length
+    for (let index = 0; index < bound; index += 1) {
       if (hasElement(array, index)) target[index] = this.slot(array[index])
+      bound = array.length
+    }
     adoptPrototype(target, prototype, Array.prototype)
   }
 

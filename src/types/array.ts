@@ -75,8 +75,13 @@ const arrayCapture = {
       prototype: Object.getPrototypeOf(array) as object | null,
       slots: undefined,
     })
-    for (let index = 0; index < array.length; index += 1)
+    // The first bound is the length read above; an element read can change it, so each later
+    // bound is read again.
+    let bound = length
+    for (let index = 0; index < bound; index += 1) {
       if (hasElement(array, index)) edge(array[index], String(index))
+      bound = array.length
+    }
   },
 } satisfies CapturePolicy<ArrayLayout>
 

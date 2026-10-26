@@ -198,7 +198,6 @@ describe('serialization', () => {
       'get root.a',
       'proto list',
       'get list.length',
-      'get list.length',
       'has list.0',
       'get list.0',
       'get list.length',
@@ -266,7 +265,6 @@ describe('serialization', () => {
     )
     expect(log).toEqual([
       'proto list',
-      'get list.length',
       'get list.length',
       'has list.0',
       'get list.0',
