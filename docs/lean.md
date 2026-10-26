@@ -370,7 +370,7 @@ that order, then fills each.
 | Module(s)                | Key theorems                                                                                      | Runtime                                                                                                                                                                                                                               | Bridge                                      | Obligations                 |
 | ------------------------ | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------- |
 | `Types.Recognition`      | `builtinTrace_eq_scanTrace`, `temporalTrace_eq_scanTrace`, `builtinDispatch_eq_scanTrace`         | `src/types/builtins.ts`, `src/types/temporal.ts`                                                                                                                                                                                      | proof-only                                  | Recognition                 |
-| `Types.RecognitionPlain` | `recognize_eq_scan`, `plain_probes`                                                               | `builtinFirstMatch` in `src/types/builtins.ts`, `inChain`                                                                                                                                                                             | RecognitionPlain                            | Recognition                 |
+| `Types.RecognitionPlain` | `recognize_eq_scan`, `plain_probes`, `typed_of_selected`                                          | `builtinFirstMatch` in `src/types/builtins.ts`, `inChain`                                                                                                                                                                             | RecognitionPlain                            | Recognition                 |
 | `Types.Atoms`            | `classify_atomic`, `classify_reads`, `ingress_atom_iff`, `ingress_structural`                     | `isAtomObject` in `src/object-property.ts`, `recognize` in `src/adapters/recognition.ts`                                                                                                                                              | Atoms                                       | Recognition, Atoms          |
 | `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`, `capture_reads_once`, `meetAll_once`, `temporalCapture_passed` | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; `prototypes` and `alignedKind` in `src/publication/capture.ts`, discovery's `kindOf`, each kind's `observe` and special `copy`, `createDraft`, the snapshot walk | Ingress                                     | Recognition, Atoms, Ingress |
 | `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`                              | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                                                                                                     | NativeValue                                 | Native values               |
@@ -389,10 +389,13 @@ view's included, so the plain-object fallback is the scan's result (`plain_probe
 `recognize_eq_scan`). Any other object takes the scan, each `instanceof` probe deciding membership
 from the prototype already read, so the result and a raised error are the scan's while the object
 itself is read once. A typed array holds the typed-array brand and inherits
-`%TypedArray%.prototype`, so a `DataView` that inherits a typed array's prototype is not one. A view
-counts only over a buffer whose chain holds `ArrayBuffer.prototype` or
-`SharedArrayBuffer.prototype`; the model takes the brands and that answer as given, since reading
-them observes nothing.
+`%TypedArray%.prototype`, so a `DataView` that inherits a typed array's prototype is not one. A
+value of the typed-array kind therefore holds the typed-array brand (`typed_of_selected`), and its
+copy reads it through the typed-array getters; the `DataView` kind does not exclude that brand, since
+a typed array whose prototype was set to `DataView.prototype` is a `DataView` by its chain, so its
+copy tests the element type before choosing the getters. A view counts only over a buffer whose
+chain holds `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`; the model takes the brands
+and that answer as given, since reading them observes nothing.
 
 `Types.Atoms` proves that one walk of the prototype chain decides `instanceof` for every listed
 constructor, with one `[[GetPrototypeOf]]` read per prototype it passes. It also proves that

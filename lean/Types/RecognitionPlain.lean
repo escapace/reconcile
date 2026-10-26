@@ -167,6 +167,87 @@ theorem recognize_eq_scan (last : Nat) (isArray : ProbeOutcome) (c : Chain)
         (repeat' split) <;> first | rfl | omega
       · simp only [hplain, Bool.false_eq_true, if_false]
 
+/-- A scan selects no rank below the one it starts at. -/
+private theorem scan_selected_ge (last : Nat) (os : List ProbeOutcome) :
+    ∀ (rank r : Nat), (scanTrace last rank os).selected = some r → rank ≤ r := by
+  induction os with
+  | nil =>
+    intro rank r h
+    simp only [scanTrace] at h
+    split at h
+    · simp at h; omega
+    · cases h
+  | cons o rest ih =>
+    intro rank r h
+    simp only [scanTrace, probe] at h
+    split at h
+    · cases h
+    · cases o with
+      | hit => simp at h; omega
+      | raised => cases h
+      | miss =>
+        simp at h
+        have := ih (rank + 1) r h
+        omega
+
+/-- A scan that selects a rank before its fallback found a hit at that position. -/
+theorem scan_selected_hit (last : Nat) (os : List ProbeOutcome) :
+    ∀ (rank i : Nat), i < os.length → (scanTrace last rank os).selected = some (rank + i) →
+      os[i]? = some .hit := by
+  induction os with
+  | nil => intro rank i hi; simp at hi
+  | cons o rest ih =>
+    intro rank i hi h
+    simp only [scanTrace, probe] at h
+    split at h
+    · cases h
+    · cases o with
+      | hit =>
+        simp at h
+        have : i = 0 := by omega
+        subst this; rfl
+      | raised => cases h
+      | miss =>
+        simp at h
+        cases i with
+        | zero =>
+          have := scan_selected_ge last rest (rank + 1) rank h
+          omega
+        | succ j =>
+          simp only [List.length_cons] at hi
+          have h' : (scanTrace last (rank + 1) rest).selected = some (rank + 1 + j) := by
+            rw [h]; congr 1; omega
+          simpa using ih (rank + 1) j (by omega) h'
+
+/-- The typed-array kind is selected only for a value with the typed-array brand, so its copy reads
+the view through the typed-array getters without testing the element type again. -/
+theorem typed_of_selected (last : Nat) (isArray : ProbeOutcome) (c : Chain)
+    (brand typed foreign : Bool) (ts : Targets)
+    (h : (recognize last isArray c brand typed foreign ts).selected = some 6) : typed = true := by
+  cases typed with
+  | true => rfl
+  | false =>
+    exfalso
+    have hscan : (scanTrace last 0 (probes isArray c brand false foreign ts)).selected =
+        some 6 → False := by
+      intro hs
+      have := scan_selected_hit last (probes isArray c brand false foreign ts) 0 6
+        (by simp [probes]) (by simpa using hs)
+      simp [probes, typedOutcome] at this
+    cases isArray with
+    | hit => exact hscan h
+    | raised => exact hscan h
+    | miss =>
+      simp only [recognize] at h
+      split at h
+      · cases h
+      · split at h
+        · unfold selectAt at h
+          split at h
+          · simp at h
+          · cases h
+        · exact hscan h
+
 /-- Targets that occur in none of the examples' chains. -/
 def absent : Targets := { temporal := [], url := .other 1000, params := .other 1001 }
 
@@ -188,6 +269,11 @@ example : outcome (recognize 10 .miss { protos := [], raises := false } true fal
 -- fallback, where the view brand alone would select a typed array it cannot copy.
 example : outcome (recognize 10 .miss { protos := [.other 7, .builtin 6, .object], raises := false }
       true false false absent) = (some 10, none) := rfl
+-- A typed array whose prototype was set to `DataView.prototype` is a `DataView` by its chain and
+-- still holds the typed-array brand: a `DataView`-kind copy must test the element type, where a
+-- typed-array-kind copy need not (`typed_of_selected`).
+example : outcome (recognize 10 .miss { protos := [.builtin 5, .object], raises := false } true true
+      false absent) = (some 5, none) := rfl
 -- A typed array or a `DataView` over a buffer the environment does not recognize, such as one from
 -- another environment, takes the fallback.
 example : outcome (recognize 10 .miss { protos := [.other 7, .builtin 6, .object], raises := false }
