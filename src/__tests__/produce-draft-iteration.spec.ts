@@ -182,6 +182,38 @@ describe('Set drafts combine and compare like native Sets', () => {
   })
 })
 
+/**
+ * What `runChanging` returns for `new Set([1, 2, 3])` under ECMAScript 2025: `difference` walks a
+ * copy of the receiver, so it asks about 2 after the operand deleted it and not about 9, which the
+ * operand added; `intersection` walks the receiver itself.
+ */
+const STANDARD = {
+  difference: [[3], ['size', 1, 2, 3], [1, 3, 9]],
+  intersection: [
+    [1, 9],
+    ['size', 1, 3, 9],
+    [1, 3, 9],
+  ],
+}
+
+/** Whether the runtime's native `difference` walks the receiver itself, as Node.js 22's does
+ * against the standard. */
+const NATIVE_DIFFERENCE_LIVE = (() => {
+  const set = new Set([1, 2])
+  let asked = 0
+  // eslint-disable-next-line baseline-js/use-baseline -- probing the native method
+  set.difference({
+    size: 10,
+    has: (value: number) => {
+      asked += 1
+      if (value === 1) set.delete(2)
+      return false
+    },
+    keys: () => [][Symbol.iterator](),
+  })
+  return asked === 1
+})()
+
 /** Runs `method` with an operand that adds and removes members of `set` while it is asked. */
 function runChanging(set: Set<number>, method: 'difference' | 'intersection'): unknown[] {
   const calls: unknown[] = []
@@ -269,16 +301,36 @@ describe('Set draft methods follow the native algorithms', () => {
     })
   })
 
-  it('sees members the operand adds or removes, as natively', () => {
-    for (const method of ['difference', 'intersection'] as const)
+  it('sees members the operand adds or removes, as the standard algorithms do', () => {
+    for (const method of ['difference', 'intersection'] as const) {
+      // A runtime whose native method follows ECMAScript 2025 gives the same; Node.js 22's
+      // native `difference` walks the receiver itself, against the standard, and asks about
+      // other members.
+      const native = runChanging(new Set([1, 2, 3]), method)
+      if (method !== 'difference' || !NATIVE_DIFFERENCE_LIVE)
+        assert.deepEqual(native, STANDARD[method], `native ${method}`)
       produce({ numbers: new Set([1, 2, 3]) }, (draft) => {
-        assert.deepEqual(
-          runChanging(draft.numbers, method),
-          runChanging(new Set([1, 2, 3]), method),
-          method,
-        )
+        assert.deepEqual(runChanging(draft.numbers, method), STANDARD[method], method)
         return draft
       })
+    }
+  })
+
+  it("opens an operand's keys before it copies the members, as ECMAScript 2025 does", () => {
+    // Node.js 22's native union copies the members first, against the standard, so it misses the
+    // member added here.
+    produce({ numbers: new Set([1]) }, (draft) => {
+      const operand = {
+        size: 1,
+        has: () => false,
+        keys: () => {
+          draft.numbers.add(9)
+          return [2][Symbol.iterator]()
+        },
+      }
+      assert.deepEqual([...draft.numbers.union(operand)], [1, 9, 2])
+      return draft
+    })
   })
 
   // The draft runs the native algorithm, not a subclass's override of it, while an operand is read

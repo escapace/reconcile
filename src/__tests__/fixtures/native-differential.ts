@@ -154,10 +154,20 @@ const isNode = (value: unknown): value is object => {
   return kind !== 'primitive' && kind !== 'atom'
 }
 
-/** Whether a node is a typed array over a resizable buffer, which ECMAScript never lets become
- * non-extensible. */
-const isUnsealable = (node: object): boolean =>
+/** Whether a node is a typed array over a resizable buffer. */
+const overResizable = (node: object): boolean =>
   ArrayBuffer.isView(node) && !(node instanceof DataView) && (node.buffer as ArrayBuffer).resizable
+
+/** Whether this runtime refuses to make a typed array over a resizable buffer non-extensible, as
+ * ECMAScript 2025 requires; Node.js 22 predates the rule and makes one non-extensible. */
+const RESIZABLE_VIEWS_UNSEALABLE = (() => {
+  try {
+    Object.preventExtensions(new Uint8Array(new ArrayBuffer(1, { maxByteLength: 2 })))
+    return false
+  } catch {
+    return true
+  }
+})()
 
 /* ----------------------------------------------------------------------------------- paths */
 
@@ -756,7 +766,7 @@ function restrict(node: object, level: Integrity): void {
 
 function restrictNode(builder: Builder, node: object, root: boolean): void {
   const { options, random } = builder
-  if (!options.attributes || (root && options.plainRoot) || isUnsealable(node)) return
+  if (!options.attributes || (root && options.plainRoot) || overResizable(node)) return
   if (!random.chance(root ? 0.08 : 0.18)) return
   const levels: readonly Integrity[] = ['preventExtensions', 'seal', 'freeze']
   restrict(node, ArrayBuffer.isView(node) ? 'preventExtensions' : random.pick(levels))
@@ -1338,8 +1348,8 @@ const exactPolicy: ComparePolicy = {
  *   attribute rule excludes arrays: every element of an array that `produce` rebuilds is writable,
  *   enumerable and configurable (Limitations, Array element attributes are not copied).
  * - `produce` limitations, Changed dates, buffers and URLs are not extensible: a changed date,
- *   buffer or view is non-extensible, except a typed array over a resizable buffer, which
- *   JavaScript cannot make non-extensible.
+ *   buffer or view is non-extensible, except a typed array over a resizable buffer in a runtime
+ *   that cannot make it non-extensible.
  * - Properties and class instances: in a new object each getter is replaced by a data property
  *   that holds its value and has its enumerability.
  */
@@ -1354,7 +1364,9 @@ function producePolicy(kept: ReadonlySet<object>): ComparePolicy {
   return {
     node(expected, actual, kind) {
       const copied = !kept.has(actual) && (kind === 'date' || kind === 'buffer' || isView(kind))
-      const extensible = copied ? isUnsealable(actual) : Object.isExtensible(expected)
+      const extensible = copied
+        ? RESIZABLE_VIEWS_UNSEALABLE && overResizable(actual)
+        : Object.isExtensible(expected)
       return prototypeAndExtensibility(actual, Object.getPrototypeOf(expected), extensible)
     },
     property(_expected, actual, key, expectedDescriptor, actualDescriptor, kind) {

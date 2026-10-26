@@ -64,9 +64,9 @@ import { produceTypes } from './types/builtins'
  * non-extensible object refuses a new one: in strict-mode code the assignment throws a `TypeError`.
  * An array draft still shows these properties; other drafts and copies do not, and a changed value
  * loses them in the result. A `Date`, buffer, view, URL or `URLSearchParams` value the recipe
- * changes is non-extensible in the result, except a typed array over a resizable buffer, which
- * JavaScript cannot make non-extensible: its copy accepts other properties, and a result that
- * holds the copy keeps them.
+ * changes is non-extensible in the result. In a runtime that follows ECMAScript 2025 or later, a
+ * typed array over a resizable buffer is the exception: the runtime cannot make it non-extensible,
+ * so its copy accepts other properties, and a result that holds the copy keeps them.
  *
  * A draft follows its object's property attributes and extensibility: a read-only property refuses
  * writes, a non-configurable one refuses deletion and a non-extensible object, such as a sealed
