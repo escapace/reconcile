@@ -374,4 +374,32 @@ describe('URL owned search parameters', () => {
       assert.ok(isReconcileError(thrown) && thrown.cause.type === 'PublicationRejected')
     }
   })
+
+  it('rejects in reconcile a URL whose search parameters were met as another kind', () => {
+    // The parameters are met first with an atom's prototype, kept by reference, and have their
+    // own prototype again when the URL is read, so the URL has no parameters node to build from.
+    const url = new URL('https://example.test/?q=1')
+    const parameters = url.searchParams
+    Object.setPrototypeOf(parameters, RegExp.prototype)
+    const next = new Proxy(
+      { a: parameters, b: url },
+      {
+        get(target, key, receiver) {
+          if (key === 'b') Object.setPrototypeOf(parameters, URLSearchParams.prototype)
+          return Reflect.get(target, key, receiver) as unknown
+        },
+      },
+    )
+    const current = { a: 1, b: new URL('https://other.test/') }
+    const before = current.b.href
+    let thrown: unknown
+    try {
+      reconcile(current, next)
+    } catch (error) {
+      thrown = error
+    }
+    assert.ok(isReconcileError(thrown) && thrown.cause.type === 'PublicationRejected')
+    assert.strictEqual(current.a, 1)
+    assert.strictEqual(current.b.href, before)
+  })
 })

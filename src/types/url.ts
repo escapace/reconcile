@@ -1,4 +1,3 @@
-import { inChain, isObject } from '../object-property'
 import { freeze, noValue, same } from './shared/empty'
 import { finalizationConstructionImpossible } from '../error'
 import {
@@ -47,14 +46,9 @@ const urlCapture = {
       URL_SEARCH_PARAMS_KIND,
       true,
     )
-    const carrier =
-      carrierFromResponse(response) ??
-      (mode !== 'snapshot' &&
-      isObject(response) &&
-      inChain(Object.getPrototypeOf(response) as object | null, URLSearchParams)
-        ? new URL(href)
-        : undefined)
-    // Only a `seen` entry, or parameters whose prototype was replaced, leave no carrier.
+    const carrier = carrierFromResponse(response)
+    // Only a `seen` entry, or parameters met as another kind, such as ones whose prototype was
+    // replaced, leave no carrier: the URL would have no parameters node to build from.
     if (carrier === undefined)
       throw mode === 'snapshot'
         ? snapshotURLSearchParametersMemoIncompatible()
