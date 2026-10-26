@@ -21,8 +21,6 @@ export class DraftSession extends Detached implements DraftContext {
   declare specialCloneCloneToBase: WeakMap<object, object> | undefined
   declare readonly statesByIdentity: WeakMap<object, DraftState>
   declare readonly types: ImmutableRegistry
-  // How many structural drafts the call has made, so a walk can tell whether one appeared.
-  declare drafts: number
   constructor(types: ImmutableRegistry) {
     super()
     this.types = types
@@ -31,7 +29,6 @@ export class DraftSession extends Detached implements DraftContext {
     this.specialCloneBaseToClone = undefined
     this.specialCloneCloneToBase = undefined
     this.statesByIdentity = new WeakMap()
-    this.drafts = 0
   }
   /**
    * Creates a writable special-value copy and registers indirectly cloned dependencies.
@@ -95,7 +92,6 @@ export class DraftSession extends Detached implements DraftContext {
 
     const prototype = read.known ? read.prototype : undefined
     const state = strategy.state(current, this)
-    this.drafts += 1
     this.statesByIdentity.set(current, state)
     const handle = strategy.handle(state, prototype)
     state.handle = handle

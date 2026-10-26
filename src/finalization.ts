@@ -81,13 +81,12 @@ export class Finalization extends Detached {
     return this.phase.kind === 'discover' ? this.phase.plan : undefined
   }
 
-  /** Recognizes once per unknown-identity certificate lifetime; accessor effects end it.
-   * `undrafted` says the caller just found no draft of `value`. */
-  kindOf(value: object, undrafted = false): symbol {
+  /** Recognizes once per unknown-identity certificate lifetime; accessor effects end it. */
+  kindOf(value: object): symbol {
     let kind = this.kinds?.get(value)
     if (kind === undefined) {
       // A drafted object's kind was established when its state was created.
-      kind = undrafted ? undefined : this.session.statesByIdentity.get(value)?.kind
+      kind = this.session.statesByIdentity.get(value)?.kind
       if (kind === undefined) {
         const read = this.read
         read.known = false
@@ -165,13 +164,13 @@ export class Finalization extends Detached {
     knownKind: symbol | undefined = undefined,
     traversal?: MaterializationTraversal,
   ): boolean {
-    if (traversal !== undefined) {
-      if (!isObject(value)) return false
-      // One draft lookup serves the closure fact and the check.
-      const state = this.session.stateOf(value)
-      this.materializationPlan?.closure.imply(state?.base ?? value, traversal.parent)
-      return this.checkState(value, state, knownKind, traversal.visited)
+    const plan = this.materializationPlan
+    if (plan !== undefined && traversal !== undefined && isObject(value)) {
+      const child = this.session.statesByIdentity.get(value)?.base ?? value
+      plan.closure.imply(child, traversal.parent)
     }
+    if (traversal !== undefined)
+      return this.checkMaterialization(value, knownKind, traversal.visited)
     // A handle needs unwrapping whatever its base holds, which is checkMaterialization's first
     // answer; it needs no visited set.
     if (isObject(value) && this.session.statesByIdentity.get(value)?.handle === value) return true
@@ -195,20 +194,13 @@ export class Finalization extends Detached {
     knownKind: symbol | undefined,
     visited: Set<object>,
   ): boolean {
-    return (
-      isObject(value) && this.checkState(value, this.session.stateOf(value), knownKind, visited)
-    )
-  }
+    if (!isObject(value)) {
+      return false
+    }
 
-  /** `checkMaterialization` of an object whose draft state, if any, is `state`. */
-  private checkState(
-    value: object,
-    state: DraftState | undefined,
-    knownKind: symbol | undefined,
-    visited: Set<object>,
-  ): boolean {
     // A handle needs unwrapping even when its base is unchanged. Do not cache
     // this answer against the base: materializeState can still reuse that base.
+    const state = this.session.stateOf(value)
     if (state?.handle === value) return true
     const base = state?.base ?? value
     const memo = this.phase.required
@@ -235,19 +227,10 @@ export class Finalization extends Detached {
     visited.add(base)
     // A negative answer is pending exactly when its walk met such an object.
     const guards = this.guards
-    const drafts = this.session.drafts
-    // Descendant accessor reads can draft this base and write through it: a state it had is read
-    // again, and one only a draft made during the walk can hold is looked up.
+    // Descendant accessor reads can draft this base and write through it; look its state up again.
     const result =
-      this.checkDescendantsForMaterialization(
-        base,
-        state?.kind ?? knownKind,
-        visited,
-        state === undefined,
-      ) ||
-      (state === undefined
-        ? this.session.drafts !== drafts && this.session.stateOf(base)?.modified === true
-        : state.modified) ||
+      this.checkDescendantsForMaterialization(base, state?.kind ?? knownKind, visited) ||
+      this.session.statesByIdentity.get(base)?.modified === true ||
       this.accessorObservations?.has(base) === true
 
     if (result) memo.set(base, true)
@@ -377,8 +360,7 @@ export class Finalization extends Detached {
       memo.set(value, result)
       return result
     }
-    // `value` has no draft; a copy's base may.
-    const kind = this.kindOf(copyBase ?? value, copyBase === undefined)
+    const kind = this.kindOf(copyBase ?? value)
     // An atom is a fixed leaf kept by identity, as a function slot keeps its function.
     if (kind === ATOM_KIND) return this.recordLeaf(value, value)
     const policy = this.session.types.specials[kind]
@@ -564,10 +546,9 @@ export class Finalization extends Detached {
     value: object,
     knownKind: symbol | undefined,
     visited: Set<object>,
-    undrafted: boolean,
   ): boolean {
     let children: object[] | undefined
-    const found = this.session.types.policies[knownKind ?? this.kindOf(value, undrafted)].someChild(
+    const found = this.session.types.policies[knownKind ?? this.kindOf(value)].someChild(
       value,
       (source, key) => this.readTraversalProperty(source, key),
       (child) => {
@@ -686,11 +667,5 @@ class DraftObservation extends Detached {
 
   read(value: object, key: PropertyKey): unknown {
     return this.finalization.readTraversalProperty(value, key, this.state)
-  }
-
-  // A draft read makes every copy; one made by a getter during discovery forces the sealed pass,
-  // which observes every slot again, and the sealed pass runs no getter.
-  copies(): boolean {
-    return this.finalization.session.specialCloneBaseToClone !== undefined
   }
 }

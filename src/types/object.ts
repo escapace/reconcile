@@ -274,8 +274,7 @@ function observeSlot(
   observer.edge(
     value,
     key,
-    (isObject(value) || !data) &&
-      (fromBase ? data : observer.copies() && backedProperty(base, key, value)),
+    (isObject(value) || !data) && (fromBase ? data : backedProperty(base, key, value)),
     data ? attributeBits(descriptor) : accessorBits(descriptor),
   )
 }

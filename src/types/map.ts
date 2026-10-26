@@ -98,7 +98,7 @@ export const mapImmutable = /* @__PURE__ */ (() => ({
       observer.begin({ kind: MAP_KIND, prototype })
       // The source is the base or, when it differs, the draft's working copy, a built-in `Map`.
       forEachBuiltinEntry(source, (value, key) => {
-        const present = base !== undefined && observer.copies() && builtinMapHas(base, key)
+        const present = base !== undefined && builtinMapHas(base, key)
         observer.edge(key, undefined, present)
         observer.edge(value, undefined, present && Object.is(value, builtinMapGet(base, key)))
       })

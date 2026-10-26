@@ -112,7 +112,7 @@ export const setImmutable = /* @__PURE__ */ (() => ({
         observer.edge(
           value,
           undefined,
-          isObject(value) && set !== undefined && observer.copies() && builtinSetHas(set, value),
+          isObject(value) && set !== undefined && builtinSetHas(set, value),
         )
       })
     },

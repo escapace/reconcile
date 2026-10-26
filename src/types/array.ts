@@ -228,7 +228,7 @@ function observeElement(
   observer.edge(
     value,
     key,
-    isObject(value) && observer.copies() && backedProperty(observer.base, key, value),
+    isObject(value) && backedProperty(observer.base, key, value),
     bits === 0 ? undefined : bits,
   )
 }
