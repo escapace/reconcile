@@ -13,7 +13,9 @@ reads its four 6-bit fields by shifts and masks (`fields`), then maps each value
   (`fields_sextets`);
 * the runtime's loop over a byte list, including its one- and two-byte final groups, emits
   exactly the specification (`encode_spec`);
-* the output has four values per started group (`encode_length`).
+* the output has four values per started group (`encode_length`);
+* the decoder's copy of four bytes per `Uint32Array` element holds the bytes in order
+  (`decodeWords_eq`).
 
 Values are alphabet indices, with `pad` for `=`. That the alphabet maps index i to the i-th
 character of `A–Z a–z 0–9 + /`, that `>>`, `&` and `|` on these nonnegative words agree with the
@@ -80,5 +82,43 @@ theorem encode_length : ∀ bytes : List Nat, (encode bytes).length = 4 * ((byte
 example : encode [77, 97, 110] = [19, 22, 5, 46] := by decide
 example : encode [77, 97] = [19, 22, 4, pad] := by decide
 example : encode [77] = [19, 16, pad, pad] := by decide
+
+/-! ## Decoding four bytes per word
+
+Without a native base64 decoder the runtime copies the bytes of `atob`'s binary string into the new
+buffer, on a platform that stores a `Uint32Array` element's least significant byte first, as whole
+groups of four packed into one element (`pack`), then the remaining bytes one at a time. Memory
+holds each element's bytes least significant first (`unpack`), so the buffer holds the string's
+bytes in order (`decodeWords_eq`). -/
+
+/-- Four bytes as one element's value, the first least significant. -/
+def pack (a b c d : Nat) : Nat := a + 256 * b + 65536 * c + 16777216 * d
+
+/-- The bytes a little-endian platform stores for an element's value, least significant first. -/
+def unpack (w : Nat) : List Nat := [w % 256, w / 256 % 256, w / 65536 % 256, w / 16777216 % 256]
+
+theorem unpack_pack {a b c d : Nat} (ha : a < 256) (hb : b < 256) (hc : c < 256) (hd : d < 256) :
+    unpack (pack a b c d) = [a, b, c, d] := by
+  simp only [unpack, pack, List.cons.injEq, and_true]
+  omega
+
+/-- The runtime copy: whole groups of four bytes as packed elements, then the remaining bytes. -/
+def decodeWords : List Nat → List Nat
+  | a :: b :: c :: d :: rest => unpack (pack a b c d) ++ decodeWords rest
+  | rest => rest
+
+/-- The copy holds exactly the bytes it was given. -/
+theorem decodeWords_eq : ∀ bytes : List Nat, (∀ x ∈ bytes, x < 256) → decodeWords bytes = bytes
+  | a :: b :: c :: d :: rest, h => by
+    simp only [decodeWords]
+    rw [unpack_pack (h a (by simp)) (h b (by simp)) (h c (by simp)) (h d (by simp)),
+      decodeWords_eq rest (fun x hx => h x (by simp [hx]))]
+    rfl
+  | [], _ => rfl
+  | [_], _ => rfl
+  | [_, _], _ => rfl
+  | [_, _, _], _ => rfl
+
+example : decodeWords [1, 2, 3, 4, 5, 6] = [1, 2, 3, 4, 5, 6] := by decide
 
 end SerializationBase64
