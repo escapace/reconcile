@@ -11,7 +11,7 @@
  *
  * Usage:
  *   pnpm build && pnpm bench size [--entry lib/neutral/index.js] [--out directory]
- *     [--compare sizes.json [--max-growth percent]] [--no-smoke]
+ *     [--compare sizes.json] [--no-smoke]
  */
 
 import assert from 'node:assert/strict'
@@ -49,17 +49,16 @@ const OTHERS = [
 ] as const
 const usage =
   'Usage: pnpm bench size [--entry lib/neutral/index.js] [--out directory]\n' +
-  '  [--compare sizes.json [--max-growth percent]] [--no-smoke]'
+  '  [--compare sizes.json] [--no-smoke]'
 
 const { values } = parseArgs({
   allowNegative: true,
   options: {
-    'compare': { type: 'string' },
-    'entry': { default: 'lib/neutral/index.js', type: 'string' },
-    'help': { short: 'h', type: 'boolean' },
-    'max-growth': { type: 'string' },
-    'out': { type: 'string' },
-    'smoke': { default: true, type: 'boolean' },
+    compare: { type: 'string' },
+    entry: { default: 'lib/neutral/index.js', type: 'string' },
+    help: { short: 'h', type: 'boolean' },
+    out: { type: 'string' },
+    smoke: { default: true, type: 'boolean' },
   },
 })
 if (values.help === true) {
@@ -67,14 +66,11 @@ if (values.help === true) {
   process.exit(0)
 }
 
-const limit = values['max-growth'] === undefined ? undefined : Number(values['max-growth'])
-assert.ok(limit === undefined || Number.isFinite(limit), '--max-growth must be a number')
 const esbuild = loadEsbuild()
 const entry = path.resolve(ROOT, values.entry)
 const options = {
   bundle: true,
   format: 'esm',
-  metafile: true,
   minify: true,
   platform: 'browser',
   target: 'es2022',
@@ -116,15 +112,9 @@ function assertFresh(): void {
   assert.equal(stale, undefined, `${stale} is newer than ${entry}; build that tree first.`)
 }
 
-async function bundle(contents: string, plugins: unknown[] = []) {
-  const result = await esbuild.build({
-    ...options,
-    // The unused-import check expects esbuild to drop the import it warns about.
-    logOverride: { 'ignored-bare-import': 'silent' },
-    plugins,
-    stdin: { contents, resolveDir: ROOT },
-  })
-  return { bytes: result.outputFiles[0].contents, metafile: result.metafile }
+async function bundle(contents: string, plugins: unknown[] = []): Promise<Uint8Array> {
+  const result = await esbuild.build({ ...options, plugins, stdin: { contents, resolveDir: ROOT } })
+  return result.outputFiles[0].contents
 }
 
 /** Bundles `import entry` with `sideEffects` forced on: no top-level code may stay. */
@@ -144,7 +134,7 @@ async function assertRemovable(): Promise<void> {
       }))
     },
   }
-  const { bytes } = await bundle(`import ${JSON.stringify(entry)}`, [keep])
+  const bytes = await bundle(`import ${JSON.stringify(entry)}`, [keep])
   assert.equal(
     bytes.length,
     0,
@@ -317,17 +307,6 @@ function compareTable(rows: Row[], previous: Sizes): string[] {
   return lines
 }
 
-/** The largest gzip growth in percent of any row the previous sizes also have. */
-function largestGrowth(rows: Row[], previous: Sizes): number {
-  const before = new Map(previous.rows.map((row) => [row.name, row.gzip]))
-  return Math.max(
-    0,
-    ...rows
-      .filter((row) => before.has(row.name))
-      .map((row) => (100 * (row.gzip - before.get(row.name)!)) / before.get(row.name)!),
-  )
-}
-
 const plainTable = (rows: Row[]): string[] => [
   '| Exports | Minified | Gzip |',
   '| --- | ---: | ---: |',
@@ -340,17 +319,12 @@ const outputDirectory = path.resolve(
   values.out ?? mkdtempSync(path.join(tmpdir(), 'reconcile-bundles-')),
 )
 mkdirSync(outputDirectory, { recursive: true })
-const unused = await bundle(`import ${JSON.stringify(entry)}`)
-assert.equal(unused.bytes.length, 0, 'An unused import must emit no JavaScript.')
 const rows: Row[] = []
 const sources = new Map<string, Uint8Array>()
 for (const names of selections()) {
-  const { bytes, metafile } = await bundle(
-    `export {${names.join(',')}} from ${JSON.stringify(entry)}`,
-  )
+  const bytes = await bundle(`export {${names.join(',')}} from ${JSON.stringify(entry)}`)
   const name = names.join('+')
   writeFileSync(path.join(outputDirectory, `${name}.js`), bytes)
-  writeFileSync(path.join(outputDirectory, `${name}.meta.json`), JSON.stringify(metafile, null, 2))
   sources.set(name, bytes)
   rows.push({ gzip: gzipSync(bytes, { level: 9 }).length, minified: bytes.length, name })
 }
@@ -360,7 +334,6 @@ const previous =
     ? undefined
     : (JSON.parse(readFileSync(path.resolve(ROOT, values.compare), 'utf8')) as Sizes)
 const lines = previous === undefined ? plainTable(rows) : compareTable(rows, previous)
-const growth = previous === undefined ? 0 : largestGrowth(rows, previous)
 writeFileSync(
   path.join(outputDirectory, 'sizes.json'),
   JSON.stringify(
@@ -377,7 +350,3 @@ writeFileSync(
 )
 console.log(lines.join('\n'))
 console.log(`\nBundles and sizes.json written to ${outputDirectory}`)
-if (limit !== undefined && growth > limit) {
-  console.error(`A gzip size grew ${growth.toFixed(2)}%, above --max-growth ${limit}%.`)
-  process.exit(1)
-}

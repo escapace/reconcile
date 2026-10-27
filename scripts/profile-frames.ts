@@ -2,32 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import type { SourceMap } from 'node:module'
 import path from 'node:path'
-import {
-  attribute,
-  type AttributionFrame,
-  type WeightedFrame,
-  type WeightedNode,
-} from './profile-attribution'
+import { attribute, type AttributionFrame, type WeightedNode } from './profile-attribution'
 
 /** A bundle, its source map and the source root that mapped frames are reported against. */
 export interface BundleMap {
   readonly bundlePath: string
   readonly root: string
   readonly sourceMap: SourceMap
-}
-
-export interface FrameAggregate {
-  functionName: string
-  inclusiveTime: number
-  location: string
-  selfTime: number
-}
-
-export interface AllocAggregate {
-  allocatedBytes: number
-  functionName: string
-  inclusiveBytes: number
-  location: string
 }
 
 interface CallFrame {
@@ -120,18 +101,6 @@ function attributionFrame(frame: CallFrame, bundle: BundleMap): AttributionFrame
   return resolved === undefined ? unmappedFrame(frame) : mappedFrame(resolved)
 }
 
-/** Keys project-source frames by function and location. */
-function projectFrames<T>(
-  attribution: { readonly frames: readonly WeightedFrame[] },
-  aggregate: (frame: WeightedFrame) => T,
-): Map<string, T> {
-  const frames = new Map<string, T>()
-  for (const frame of attribution.frames)
-    if (frame.scope === 'project')
-      frames.set(`${frame.functionName}|${frame.location}`, aggregate(frame))
-  return frames
-}
-
 function parentIds(nodes: readonly CPUProfileNode[]): Map<number, number> {
   const parents = new Map<number, number>()
   for (const node of nodes)
@@ -165,18 +134,12 @@ export function parseCPUProfile(profilePath: string, bundle: BundleMap) {
       weight: weights.get(node.id)!,
     })),
   )
-  const frames = projectFrames(attribution, (frame): FrameAggregate => ({
-    functionName: frame.functionName,
-    inclusiveTime: frame.inclusive,
-    location: frame.location,
-    selfTime: frame.self,
-  }))
   const gcTimeUs = raw.nodes.reduce(
     (total, node) =>
       total + (node.callFrame.functionName === '(garbage collector)' ? weights.get(node.id)! : 0),
     0,
   )
-  return { attribution, frames, gcTimeUs, totalTime: attribution.coverage.total }
+  return { attribution, gcTimeUs, totalTime: attribution.coverage.total }
 }
 
 export function parseHeapProfile(profilePath: string, bundle: BundleMap) {
@@ -192,12 +155,5 @@ export function parseHeapProfile(profilePath: string, bundle: BundleMap) {
     for (const child of node.children) visit(child, node.id)
   }
   visit(raw.head)
-  const attribution = attribute(nodes)
-  const frames = projectFrames(attribution, (frame): AllocAggregate => ({
-    allocatedBytes: frame.self,
-    functionName: frame.functionName,
-    inclusiveBytes: frame.inclusive,
-    location: frame.location,
-  }))
-  return { attribution, frames }
+  return attribute(nodes)
 }

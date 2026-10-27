@@ -8,6 +8,7 @@ import configShared from './vitest.config.ts'
  * process, so the poisoned and library projects would repeat the neutral run. */
 export const scriptSpecs = [
   'src/__tests__/ab-time.spec.ts',
+  'src/__tests__/bench-workloads.spec.ts',
   'src/__tests__/bounded-check.spec.ts',
   'src/__tests__/profile-attribution.spec.ts',
   'src/__tests__/profile-counts.spec.ts',

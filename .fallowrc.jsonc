@@ -17,13 +17,14 @@
         "scripts/profile.ts",
         "scripts/check-lean.ts",
         "scripts/bundle-size.ts",
-        "scripts/bench-compare.ts",
-        "scripts/bench-run.ts",
         "perf/profile-harness.ts",
       ],
       "name": "repository-tooling",
     },
   ],
+
+  // The frozen perf/ workloads keep their exports unchanged even where no tool reads them.
+  "ignoreExports": [{ "exports": ["BATCH_SIZE"], "file": "perf/scenarios.ts" }],
 
   // The engine calls Proxy handler traps; no source reference names them.
   "usedClassMembers": [

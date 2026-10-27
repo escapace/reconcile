@@ -14,16 +14,14 @@ import { expandRound, rounds, scenarioNames } from './bench-workloads'
 const ROOT = path.resolve(import.meta.dirname, '..')
 
 const usage = `Usage:
-  pnpm bench [run] [--scenario <name>]...   How fast is each scenario against a reference?
-  pnpm bench compare --baseline <tree> ...  Does a candidate look faster? (in-process screen)
   pnpm bench ab --baseline <tree> ...       Is it faster? (fresh-process pairs; decides)
   pnpm bench profile <scenario> ...         Where does the work or time go?
   pnpm bench size [--compare sizes.json]    How large are the consumer bundles?
 
 Scenarios: ${scenarioNames.join(', ')}.
-\`run\`, \`compare\` and \`ab\` take \`--round default\` (the first six; the default) or
-\`--round small\` (the ten on 1 and 16 keys) in place of \`--scenario\`.
-\`profile\` and \`ab\` also take the diag-* diagnostics that \`pnpm bench profile --help\` lists.`
+\`ab\` takes \`--round default\` (the first six; the default) or \`--round small\` (the ten on 1
+and 16 keys) in place of \`--scenario\`. \`profile\` and \`ab\` also take the diag-* diagnostics
+that \`pnpm bench profile --help\` lists.`
 
 const tsx = (script: string) => (arguments_: string[]) => [
   'pnpm',
@@ -35,9 +33,7 @@ const tsx = (script: string) => (arguments_: string[]) => [
 
 /** The command line of each subcommand; `ab` defaults to the default round. */
 const commands: Record<string, (arguments_: string[]) => string[]> = {
-  compare: tsx('scripts/bench-compare.ts'),
   profile: tsx('scripts/profile.ts'),
-  run: tsx('scripts/bench-run.ts'),
   size: tsx('scripts/bundle-size.ts'),
   ab: (arguments_) => [
     'python3',
@@ -50,10 +46,8 @@ const commands: Record<string, (arguments_: string[]) => string[]> = {
   ],
 }
 
-const [first, ...rest] = process.argv.slice(2)
-const [name, arguments_] =
-  first === undefined || first.startsWith('--') ? ['run', process.argv.slice(2)] : [first, rest]
-if (name === 'help' || name === '-h' || (name === 'run' && arguments_[0] === '--help')) {
+const [name, ...arguments_] = process.argv.slice(2)
+if (name === undefined || name === 'help' || name === '-h' || name === '--help') {
   console.log(usage)
   process.exit(0)
 }

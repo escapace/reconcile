@@ -1,93 +1,46 @@
 /**
  * Runtime profiling workflow.
  *
- * Bundles the profiling harness with esbuild, profiles one configured target,
- * prints the results to stdout, and preserves raw profiles, source maps,
- * configuration and a JSON summary for comparison or inspection.
+ * Bundles the profiling harness with esbuild, runs one pass of one scenario, prints its summary
+ * and keeps the summary, the raw artifact and the bundle with its source map. With `--baseline`,
+ * counts mode runs each tree once and reports the counters that differ.
  *
  * Usage:
  *   pnpm bench profile produce --batches 50 --out /tmp/profiles
  */
 
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { SourceMap } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { instrumentCounts, counterSetup, counterReset, counterReport } from './profile-counts'
+import type { WeightedFrame } from './profile-attribution'
+import { counterReport, counterReset, counterSetup, instrumentCounts } from './profile-counts'
 import { scenarioNames } from './bench-workloads'
 import { loadEsbuild } from './esbuild'
 import { diagnosticNames } from './profile-scenarios'
 import { parseDeopts } from './profile-deopts'
 import { parseCPUProfile, parseHeapProfile, type BundleMap } from './profile-frames'
-import {
-  generateReadingGuide,
-  generateReport,
-  rankRuntimeFrames,
-  type ScenarioResult,
-} from './profile-report'
-import {
-  comparisonMetrics,
-  counterRecord,
-  countsResult,
-  readSampleMetrics,
-  timeResult,
-} from './profile-summary'
+import { counterRecord, countChanges, countsResult } from './profile-summary'
 import { BATCH_SIZE } from '../perf/config'
 
-interface ScenarioDefinition {
-  name: string
-}
-
-interface TargetDefinition {
-  name: string
-}
-
-type Mode = 'all' | 'counts' | 'cpu' | 'deopt' | 'heap' | 'time'
-type PassMode = Exclude<Mode, 'all'>
-
-interface WorkflowConfig {
-  cpuProfIntervalUs: number
-  diagnosticSize: number
-  harnessSource: string
-  heapProfIntervalBytes: number
-  measurementBatchCount: number
-  mode: Mode
-  root: string
-  scenarios: ScenarioDefinition[]
-  target: TargetDefinition
-  timeout: number
-  traceBatchCountLimit: number
-  warmupBatchCount: number
-}
-
-interface ScenarioArtifacts {
-  cpuprofilePath: string
-  heapprofilePath: string
-  traceLogPath: string
-}
-
-interface ComparisonSample {
-  directory: string
-  label: 'baseline' | 'candidate'
-  metrics: Record<string, number>
-  round: number
-}
+const modes = ['counts', 'cpu', 'deopt', 'heap'] as const
+type Mode = (typeof modes)[number]
 
 type CounterSites = Record<string, Record<string, number>>
 
+/** The bundled harness and, in counts mode, the counter sites of each instrumented source. */
+interface HarnessBundle extends BundleMap {
+  readonly counterSites: CounterSites
+}
+
 const ROOT = path.resolve(import.meta.dirname, '..')
+
+/** The trace pass runs at most this many measurement batches. */
+const TRACE_BATCH_LIMIT = 200
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
@@ -101,15 +54,13 @@ const { positionals, values } = parseArgs({
     'help': { short: 'h', type: 'boolean' },
     'mode': { default: 'cpu', type: 'string' },
     'out': { type: 'string' },
-    'pairs': { default: '5', type: 'string' },
     'size': { default: '256', type: 'string' },
-    'timeout': { default: '120000', type: 'string' },
     'warmup': { default: '5', type: 'string' },
   },
 })
 const usage =
-  'Usage: pnpm bench profile <scenario> [--mode time|counts|cpu|heap|deopt|all] [--batches N] [--warmup N] [--cpu-interval us] [--heap-interval bytes] [--timeout ms] [--out directory] [--candidate tree] [--baseline tree --pairs N] [--size N] [--bundle-only]\n' +
-  '--baseline takes counts, cpu, heap or deopt; compare time with pnpm bench ab.'
+  'Usage: pnpm bench profile <scenario> [--mode cpu|counts|heap|deopt] [--batches N] [--warmup N] [--cpu-interval us] [--heap-interval bytes] [--out directory] [--candidate tree] [--baseline tree] [--size N] [--bundle-only]\n' +
+  '--baseline takes counts mode only and reports the counters that differ; compare time with pnpm bench ab.'
 if (values.help === true) {
   console.log(usage)
   console.log(
@@ -119,12 +70,12 @@ if (values.help === true) {
   )
   process.exit(0)
 }
-const targetArgument = positionals[0]
+const scenario = positionals[0]
 if (
-  !['all', 'counts', 'cpu', 'deopt', 'heap', 'time'].includes(values.mode) ||
-  (values.baseline !== undefined && values.mode === 'time') ||
+  !(modes as readonly string[]).includes(values.mode) ||
+  (values.baseline !== undefined && values.mode !== 'counts') ||
   positionals.length !== 1 ||
-  !([...scenarioNames, ...diagnosticNames] as readonly string[]).includes(targetArgument)
+  !([...scenarioNames, ...diagnosticNames] as readonly string[]).includes(scenario)
 ) {
   console.error(usage)
   process.exit(1)
@@ -135,19 +86,15 @@ function integer(value: string, name: string, minimum = 1): number {
     throw new RangeError(`${name} must be an integer >= ${minimum}`)
   return result
 }
-const target: TargetDefinition = { name: targetArgument }
-const config: WorkflowConfig = {
+const root = path.resolve(values.candidate ?? ROOT)
+const config = {
   cpuProfIntervalUs: integer(values['cpu-interval'], 'cpu-interval'),
   diagnosticSize: integer(values.size, 'size'),
-  harnessSource: path.join(path.resolve(values.candidate ?? ROOT), 'perf', 'profile-harness.ts'),
+  harnessSource: path.join(root, 'perf', 'profile-harness.ts'),
   heapProfIntervalBytes: integer(values['heap-interval'], 'heap-interval'),
   measurementBatchCount: integer(values.batches, 'batches'),
   mode: values.mode as Mode,
-  root: path.resolve(values.candidate ?? ROOT),
-  scenarios: [{ name: target.name }],
-  target,
-  timeout: integer(values.timeout, 'timeout'),
-  traceBatchCountLimit: 200,
+  root,
   warmupBatchCount: integer(values.warmup, 'warmup', 0),
 }
 const operations = config.measurementBatchCount * BATCH_SIZE
@@ -155,12 +102,6 @@ const operations = config.measurementBatchCount * BATCH_SIZE
 const outputParent = path.resolve(values.out ?? tmpdir())
 mkdirSync(outputParent, { recursive: true })
 const outputDirectory = mkdtempSync(path.join(outputParent, 'reconcile-profile-'))
-const runId = path.basename(outputDirectory)
-const startedAt = new Date().toISOString()
-let complete = false
-
-const digest = (content: string | Buffer): string =>
-  createHash('sha256').update(content).digest('hex')
 
 const MEASUREMENT = 'for (let index = 0; index < batchCount; index += 1) run()'
 
@@ -175,9 +116,6 @@ function diagnosticOverlay(original: string): string {
     `
 import { createDiagnostic } from ${JSON.stringify(path.join(ROOT, 'scripts/profile-scenarios.ts'))}
 import * as api from ${JSON.stringify(path.join(config.root, 'src/index.ts'))}
-import { dateImmutable } from ${JSON.stringify(path.join(config.root, 'src/types/date.ts'))}
-import { arrayBufferImmutable } from ${JSON.stringify(path.join(config.root, 'src/types/array-buffer.ts'))}
-const copyOperations = { date: dateImmutable.immutable.operations, buffer: arrayBufferImmutable.immutable.operations }
 ` +
     original.slice(importsEnd)
   const registryStart = harness.indexOf('const profileScenarios:')
@@ -190,9 +128,7 @@ const copyOperations = { date: dateImmutable.immutable.operations, buffer: array
 const serialization = { deserialize: Reflect.get(api, 'deserialize'),
   requiredMaxBytes: Reflect.get(api, 'requiredMaxBytes'), serialize: Reflect.get(api, 'serialize') }
 const diagnostic = createDiagnostic(scenario, { produce: api.produce, reconcile: api.reconcile,
-  snapshot: api.snapshot, ...serialization,
-  copyDate: copyOperations.date.copy, sameBuffer: copyOperations.buffer.equivalent }, ${config.diagnosticSize})
-console.log('RECONCILE_DIAGNOSTIC ' + JSON.stringify(diagnostic.metadata))
+  snapshot: api.snapshot, ...serialization }, ${config.diagnosticSize})
 const profileScenarios = { [scenario]: () => () => {
   for (let operation = 0; operation < BATCH_SIZE; operation += 1) diagnostic.run()
 } }
@@ -244,7 +180,7 @@ function counterOverlay(contents: string): string {
 }
 
 function harnessOverlay(original: string): string {
-  const harness = (diagnosticNames as readonly string[]).includes(target.name)
+  const harness = (diagnosticNames as readonly string[]).includes(scenario)
     ? diagnosticOverlay(original)
     : original
   const contents = phaseOverlay(harness)
@@ -287,120 +223,42 @@ function counterPlugins(counterSites: CounterSites) {
       ]
 }
 
-/** The nearest package.json at or above the directory of `file`. */
-function packageManifest(file: string): string | undefined {
-  let directory = path.dirname(file)
-  while (directory !== path.dirname(directory)) {
-    const manifest = path.join(directory, 'package.json')
-    if (existsSync(manifest)) return manifest
-    directory = path.dirname(directory)
-  }
-  return undefined
-}
-
-function packageRecord(manifest: string) {
-  const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as {
-    name?: string
-    version?: string
-  }
-  return {
-    name: parsed.name,
-    sha256: digest(readFileSync(manifest)),
-    version: parsed.version,
-  }
-}
-
-/** Digests every bundled input and records the package that owns it. */
-function bundleInputs(metafileInputs: Record<string, unknown>, original: string) {
-  const inputs: Record<string, string> = { [config.harnessSource]: digest(original) }
-  const packages: Record<string, unknown> = {}
-  for (const input of Object.keys(metafileInputs)) {
-    const file = path.resolve(input)
-    if (!existsSync(file)) continue
-    inputs[file] = digest(readFileSync(file))
-    const manifest = packageManifest(file)
-    if (manifest !== undefined) packages[manifest] = packageRecord(manifest)
-  }
-  return { inputs, packages }
-}
-
-const isProfileTool = (name: string): boolean =>
-  (name.startsWith('profile') && /\.(?:py|ts)$/.test(name)) || name === 'bounded-check.py'
-
-function toolSources() {
-  return Object.fromEntries(
-    readdirSync(import.meta.dirname)
-      .filter(isProfileTool)
-      .map((name) => [name, digest(readFileSync(path.join(import.meta.dirname, name)))]),
-  )
-}
-
-async function bundleHarness(): Promise<{ bundlePath: string; sourceMap: SourceMap }> {
+async function bundleHarness(): Promise<HarnessBundle> {
   const bundlePath = path.join(outputDirectory, 'harness.mjs')
   const original = readFileSync(config.harnessSource, 'utf8')
   assert.equal(original.split(MEASUREMENT).length, 2, 'Frozen harness measurement marker changed')
   // Tool-only overlay: the frozen workload and its warmup/measurement loops stay intact.
-  // Phase markers and timer reads run outside the measured loop. No inspector in time mode.
+  // Phase markers and timer reads run outside the measured loop.
   const contents = harnessOverlay(original)
   const counterSites: CounterSites = {}
   writeFileSync(path.join(outputDirectory, 'harness-source.ts'), contents)
-  const esbuild = loadEsbuild()
-  const options = {
+  await loadEsbuild().build({
     bundle: true,
     format: 'esm',
-    metafile: true,
     nodePaths: [path.join(ROOT, 'node_modules')],
     outfile: bundlePath,
     platform: 'node',
-    sourcemap: true,
-    target: 'esnext',
-  }
-  const { metafile } = await esbuild.build({
     plugins: counterPlugins(counterSites),
-    ...options,
+    sourcemap: true,
     stdin: {
       contents,
       loader: 'ts',
       resolveDir: path.dirname(config.harnessSource),
       sourcefile: config.harnessSource,
     },
+    target: 'esnext',
   })
-  const { inputs, packages } = bundleInputs(metafile.inputs, original)
-  writeFileSync(
-    path.join(outputDirectory, 'build.json'),
-    JSON.stringify(
-      {
-        bundleSha256: digest(readFileSync(bundlePath)),
-        counterSites,
-        esbuild: esbuild.version,
-        inputs,
-        options,
-        overlaySha256: digest(contents),
-        packages,
-        sourceMapSha256: digest(readFileSync(`${bundlePath}.map`)),
-        toolSha256: digest(readFileSync(import.meta.filename)),
-        toolSources: toolSources(),
-        versions: process.versions,
-      },
-      null,
-      2,
-    ) + '\n',
-  )
   const rawMap = JSON.parse(
     readFileSync(`${bundlePath}.map`, 'utf8'),
   ) as import('node:module').SourceMapPayload
-  return { bundlePath, sourceMap: new SourceMap(rawMap) }
+  return { bundlePath, counterSites, root: config.root, sourceMap: new SourceMap(rawMap) }
 }
 
-const isSampled = (mode: PassMode): boolean => mode === 'cpu' || mode === 'heap'
+const isSampled = (mode: Mode): boolean => mode === 'cpu' || mode === 'heap'
 
-/** The trace pass runs at most `traceBatchCountLimit` measurement batches. */
-const passBatchCount = (mode: PassMode): number =>
-  mode === 'deopt'
-    ? Math.min(config.measurementBatchCount, config.traceBatchCountLimit)
-    : config.measurementBatchCount
-
-function samplerArguments(mode: PassMode, profile: string): string[] {
+/** The sampler's mode, profile path and interval, for cpu and heap only. */
+function samplerArguments(profile: string): string[] {
+  const { mode } = config
   if (!isSampled(mode)) return []
   return [
     mode,
@@ -409,19 +267,15 @@ function samplerArguments(mode: PassMode, profile: string): string[] {
   ]
 }
 
-function passArguments(
-  scenario: string,
-  bundlePath: string,
-  mode: PassMode,
-  profile: string,
-): string[] {
+function passArguments(bundlePath: string, profile: string): string[] {
+  const trace = config.mode === 'deopt'
   return [
-    ...(mode === 'deopt' ? ['--trace-opt', '--trace-deopt'] : []),
+    ...(trace ? ['--trace-opt', '--trace-deopt'] : []),
     bundlePath,
     scenario,
-    String(passBatchCount(mode)),
+    String(Math.min(config.measurementBatchCount, trace ? TRACE_BATCH_LIMIT : Infinity)),
     String(config.warmupBatchCount),
-    ...samplerArguments(mode, profile),
+    ...samplerArguments(profile),
   ]
 }
 
@@ -431,34 +285,24 @@ const processStream = (error: unknown, stream: 'stderr' | 'stdout'): string =>
     ? String(Reflect.get(error, stream))
     : ''
 
-function recordScenarioMetadata(stdout: string): void {
-  const scenario = stdout.split('\n').find((line) => line.startsWith('RECONCILE_DIAGNOSTIC '))
-  if (scenario !== undefined)
-    writeFileSync(
-      path.join(outputDirectory, 'scenario.json'),
-      JSON.stringify(JSON.parse(scenario.slice('RECONCILE_DIAGNOSTIC '.length)), null, 2) + '\n',
-    )
-}
-
-function runPass(scenario: string, bundlePath: string, mode: PassMode): string {
+/** Runs the selected pass; its sampled profile, or its log for counts and deopt. */
+function runPass(bundlePath: string): string {
   const rawDirectory = path.join(outputDirectory, 'raw')
   mkdirSync(rawDirectory, { recursive: true })
+  const { mode } = config
   const profile = path.join(
     rawDirectory,
     `${scenario}.${mode === 'cpu' ? 'cpuprofile' : 'heapprofile'}`,
   )
   const output = path.join(rawDirectory, `${scenario}.${mode}.log`)
-  const arguments_ = passArguments(scenario, bundlePath, mode, profile)
   try {
-    const stdout = execFileSync(process.execPath, arguments_, {
+    const stdout = execFileSync(process.execPath, passArguments(bundlePath, profile), {
       cwd: config.root,
       encoding: 'utf8',
       env: { ...process.env, NODE_NO_WARNINGS: '1' },
       maxBuffer: 50 * 1024 * 1024,
-      timeout: config.timeout,
     })
     writeFileSync(output, stdout)
-    recordScenarioMetadata(stdout)
   } catch (error: unknown) {
     const stderr = processStream(error, 'stderr')
     const stdout = processStream(error, 'stdout')
@@ -468,253 +312,82 @@ function runPass(scenario: string, bundlePath: string, mode: PassMode): string {
   return isSampled(mode) ? profile : output
 }
 
-function runScenario(scenario: string, bundlePath: string): ScenarioArtifacts {
-  return {
-    cpuprofilePath: runPass(scenario, bundlePath, 'cpu'),
-    heapprofilePath: runPass(scenario, bundlePath, 'heap'),
-    traceLogPath: runPass(scenario, bundlePath, 'deopt'),
-  }
-}
+/** Frames by self weight, heaviest first. */
+const bySelf = <T extends { frames: WeightedFrame[] }>(attribution: T): T => ({
+  ...attribution,
+  frames: attribution.frames.toSorted((left, right) => right.self - left.self),
+})
 
-/** Child-process arguments that profile one comparison sample of `source`. */
-function sampleArguments(source: string, destination: string): string[] {
-  return [
-    ...process.execArgv,
-    import.meta.filename,
-    target.name,
-    '--candidate',
-    source,
-    '--size',
-    String(config.diagnosticSize),
-    '--mode',
-    config.mode,
-    '--batches',
-    String(config.measurementBatchCount),
-    '--warmup',
-    String(config.warmupBatchCount),
-    '--cpu-interval',
-    String(config.cpuProfIntervalUs),
-    '--heap-interval',
-    String(config.heapProfIntervalBytes),
-    '--timeout',
-    String(config.timeout),
-    '--out',
-    destination,
-  ]
-}
-
-function runSampleProcess(arguments_: string[], destination: string): void {
-  try {
-    const output = execFileSync(process.execPath, arguments_, {
-      cwd: ROOT,
-      encoding: 'utf8',
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: config.timeout * 4,
-    })
-    writeFileSync(path.join(destination, 'process.log'), output)
-  } catch (error: unknown) {
-    writeFileSync(path.join(destination, 'process.log'), String(error))
-    throw error
-  }
-}
-
-function collectSample(
-  round: number,
-  label: 'baseline' | 'candidate',
-  source: string,
-): ComparisonSample {
-  const destination = path.join(outputDirectory, `${round}-${label}`)
-  mkdirSync(destination)
-  runSampleProcess(sampleArguments(source, destination), destination)
-  const children = readdirSync(destination).filter((name) => name.startsWith('reconcile-profile-'))
-  assert.equal(children.length, 1)
-  const directory = path.join(destination, children[0])
-  return { directory, label, metrics: readSampleMetrics(directory, operations), round }
-}
-
-/** Alternates which source runs first in each round. */
-const roundOrder = (round: number) =>
-  round % 2 === 0 ? (['candidate', 'baseline'] as const) : (['baseline', 'candidate'] as const)
-
-function compareSources(): void {
-  const pairs = integer(values.pairs, 'pairs', 2)
-  const samples: ComparisonSample[] = []
-  const roots = { baseline: path.resolve(values.baseline!), candidate: config.root }
-  // Persist each completed sample: a failed later subprocess cannot erase earlier evidence.
-  for (let round = 0; round < pairs; round += 1) {
-    for (const label of roundOrder(round)) {
-      samples.push(collectSample(round, label, roots[label]))
-      writeFileSync(
-        path.join(outputDirectory, 'samples.json'),
-        JSON.stringify(samples, null, 2) + '\n',
-      )
-    }
-  }
-  const metrics = comparisonMetrics(samples)
-  const comparison = { metrics, mode: config.mode, pairs, roots, samples }
-  writeFileSync(
-    path.join(outputDirectory, 'comparison.json'),
-    JSON.stringify(comparison, null, 2) + '\n',
-  )
-  writeFileSync(
-    path.join(outputDirectory, 'report.md'),
-    `# Alternating process comparison\n\nRaw observations and median/min/max: [comparison.json](comparison.json).\n\nEach sample uses a separate warmed process. Profiled time and sampled allocation are diagnostics; time mode measures loop latency without an active profiler. No significance or speedup claim is inferred automatically.\n`,
-  )
-  console.log(JSON.stringify({ metrics, mode: config.mode, pairs, roots }, null, 2))
-}
-
-function readCounterSites(): CounterSites {
-  const build = JSON.parse(readFileSync(path.join(outputDirectory, 'build.json'), 'utf8')) as {
-    counterSites: CounterSites
-  }
-  return build.counterSites
-}
-
-/** Builds the summary result of one selected pass from its raw artifact. */
-const passResults: Record<PassMode, (artifact: string, bundle: BundleMap) => unknown> = {
-  counts: (artifact) =>
-    countsResult(counterRecord(readFileSync(artifact, 'utf8')), readCounterSites(), operations),
+/** Builds the summary result of the selected pass from its raw artifact. */
+const passResults: Record<Mode, (artifact: string, bundle: HarnessBundle) => unknown> = {
+  counts: (artifact, bundle) =>
+    countsResult(counterRecord(readFileSync(artifact, 'utf8')), bundle.counterSites, operations),
   cpu: (artifact, bundle) => {
     const cpu = parseCPUProfile(artifact, bundle)
-    return { ...cpu, frames: [...cpu.frames.values()] }
+    return { ...cpu, attribution: bySelf(cpu.attribution) }
   },
   deopt: (artifact) => ({
     ...parseDeopts(readFileSync(artifact, 'utf8')),
     scope: 'Setup, warmup, measurement and completion; see phase markers in raw log.',
   }),
-  heap: (artifact, bundle) => {
-    const heap = parseHeapProfile(artifact, bundle)
-    return { allocations: [...heap.frames.values()], attribution: heap.attribution }
-  },
-  time: (artifact) => timeResult(readFileSync(artifact, 'utf8'), operations),
+  heap: (artifact, bundle) => bySelf(parseHeapProfile(artifact, bundle)),
 }
 
-function runSelectedPass(mode: PassMode, bundle: BundleMap): void {
-  const artifact = runPass(config.target.name, bundle.bundlePath, mode)
-  const result = passResults[mode](artifact, bundle)
-  const summary = { artifact, mode: config.mode, result }
-  writeFileSync(path.join(outputDirectory, 'summary.json'), JSON.stringify(summary, null, 2) + '\n')
+/** Counts each tree once in a child process of this script and reports the counters that differ;
+ * counts are exact, so one run per tree decides. */
+function compareCounts(): void {
+  const roots = { baseline: path.resolve(values.baseline!), candidate: config.root }
+  const counts = Object.fromEntries(
+    Object.entries(roots).map(([label, source]) => {
+      const destination = path.join(outputDirectory, label)
+      mkdirSync(destination)
+      execFileSync(
+        process.execPath,
+        [
+          ...process.execArgv,
+          import.meta.filename,
+          scenario,
+          ...['--candidate', source, '--mode', 'counts', '--size', String(config.diagnosticSize)],
+          ...['--batches', String(config.measurementBatchCount)],
+          ...['--warmup', String(config.warmupBatchCount), '--out', destination],
+        ],
+        { cwd: ROOT, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 },
+      )
+      const [run] = readdirSync(destination)
+      const summary = JSON.parse(
+        readFileSync(path.join(destination, run, 'summary.json'), 'utf8'),
+      ) as { result: { counts: Record<string, number> } }
+      return [label, summary.result.counts]
+    }),
+  )
+  const comparison = { changed: countChanges(counts.baseline, counts.candidate), operations, roots }
   writeFileSync(
-    path.join(outputDirectory, 'report.md'),
-    `# ${config.target.name}: ${config.mode}\n\nOnly the selected pass was measured. Raw artifact: ${artifact}\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n`,
+    path.join(outputDirectory, 'comparison.json'),
+    JSON.stringify(comparison, null, 2) + '\n',
   )
-  console.log(JSON.stringify(summary, null, 2))
-}
-
-function profileScenario(name: string, bundle: BundleMap): ScenarioResult {
-  const artifacts = runScenario(name, bundle.bundlePath)
-  const cpuResult = parseCPUProfile(artifacts.cpuprofilePath, bundle)
-
-  const heapResult = parseHeapProfile(artifacts.heapprofilePath, bundle)
-  const deoptResult = parseDeopts(readFileSync(artifacts.traceLogPath, 'utf8'))
-  return {
-    allocFrames: heapResult.frames,
-    cpuAttribution: cpuResult.attribution,
-    cpuprofilePath: artifacts.cpuprofilePath,
-    deoptCoverage: deoptResult.coverage,
-    deopts: deoptResult.entries,
-    frames: cpuResult.frames,
-    gcTimeUs: cpuResult.gcTimeUs,
-    heapAttribution: heapResult.attribution,
-    heapprofilePath: artifacts.heapprofilePath,
-    scenario: name,
-    totalTime: cpuResult.totalTime,
-    traceLogPath: artifacts.traceLogPath,
-  }
-}
-
-function runAllPasses(bundle: BundleMap): void {
-  const results = new Map<string, ScenarioResult>()
-
-  console.log(
-    `  [run]  ${config.measurementBatchCount.toLocaleString()} measurement batches, ${config.warmupBatchCount.toLocaleString()} warmup batches, ${BATCH_SIZE} ops/batch`,
-  )
-
-  for (const { name } of config.scenarios) results.set(name, profileScenario(name, bundle))
-
-  console.log('')
-
-  const runtime = results.get(config.target.name)
-
-  assert(runtime !== undefined, `scenario "${config.target.name}" not found in results`)
-
-  const ranked = rankRuntimeFrames(runtime, operations)
-
-  console.log(`===== ${config.target.name.toUpperCase()} =====`)
-  console.log('')
-  console.log(generateReadingGuide(config.target.name))
-  console.log('')
-  const report = generateReport(config.target.name, runtime, ranked, config.measurementBatchCount)
-  writeFileSync(path.join(outputDirectory, 'report.md'), report + '\n')
-  writeFileSync(
-    path.join(outputDirectory, 'summary.json'),
-    JSON.stringify(
-      {
-        allocations: [...runtime.allocFrames.values()],
-        cpuAttribution: runtime.cpuAttribution,
-        deoptCoverage: runtime.deoptCoverage,
-        deopts: runtime.deopts,
-        gcTimeUs: runtime.gcTimeUs,
-        heapAttribution: runtime.heapAttribution,
-        operations,
-        profiledTimeUs: runtime.totalTime,
-        ranked,
-      },
-      null,
-      2,
-    ) + '\n',
-  )
-  console.log(report)
-  console.log('')
+  console.log(JSON.stringify(comparison, null, 2))
 }
 
 async function runWorkflow(): Promise<void> {
-  console.log('Context-runtime profiling workflow')
-  console.log(`Run ID:  ${runId}`)
   console.log(`Artifacts: ${outputDirectory}`)
-  console.log('')
   if (values.baseline !== undefined) {
-    compareSources()
+    compareCounts()
     return
   }
-  console.log('  [build] bundling harness with esbuild')
-
-  const { bundlePath, sourceMap } = await bundleHarness()
+  const bundle = await bundleHarness()
   if (values['bundle-only'] === true) {
     // Alternating rounds reuse one frozen bundle per source tree instead of rebundling per sample.
-    console.log(`RECONCILE_BUNDLE ${bundlePath}`)
+    console.log(`RECONCILE_BUNDLE ${bundle.bundlePath}`)
     return
   }
-  const bundle: BundleMap = { bundlePath, root: config.root, sourceMap }
-  if (config.mode === 'all') runAllPasses(bundle)
-  else runSelectedPass(config.mode, bundle)
+  const artifact = runPass(bundle.bundlePath)
+  const summary = {
+    artifact,
+    mode: config.mode,
+    result: passResults[config.mode](artifact, bundle),
+  }
+  writeFileSync(path.join(outputDirectory, 'summary.json'), JSON.stringify(summary, null, 2) + '\n')
+  console.log(JSON.stringify(summary, null, 2))
 }
 
-try {
-  await runWorkflow()
-  complete = true
-  console.log('Done.')
-} finally {
-  writeFileSync(
-    path.join(outputDirectory, 'run.json'),
-    JSON.stringify(
-      {
-        comparison:
-          values.baseline === undefined
-            ? undefined
-            : {
-                baseline: path.resolve(values.baseline),
-                pairs: integer(values.pairs, 'pairs', 2),
-              },
-        config,
-        finishedAt: new Date().toISOString(),
-        node: process.version,
-        startedAt,
-        status: complete ? 'complete' : 'failed',
-        v8: process.versions.v8,
-      },
-      null,
-      2,
-    ) + '\n',
-  )
-}
+await runWorkflow()

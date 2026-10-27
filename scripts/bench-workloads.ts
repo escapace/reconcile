@@ -7,8 +7,6 @@
  * call of the function.
  */
 
-import { BATCH_SIZE } from '../perf/config'
-import type * as Frozen from '../perf/scenarios'
 import type { deserialize, produce, reconcile, serialize, snapshot } from '../src/index'
 
 /** The default round's scenarios. */
@@ -44,21 +42,6 @@ export const rounds = {
   default: defaultScenarioNames,
   small: smallScenarioNames,
 } as const satisfies Record<string, readonly ScenarioName[]>
-
-function isScenarioName(name: string): name is ScenarioName {
-  return (scenarioNames as readonly string[]).includes(name)
-}
-
-/** Validates `--scenario` values and returns them in library order; none selects the default
- * round's. */
-export function selectScenarios(selected: readonly string[] | undefined): ScenarioName[] {
-  for (const name of selected ?? [])
-    if (!isScenarioName(name))
-      throw new Error(`Unknown scenario ${name}; choose from ${scenarioNames.join(', ')}`)
-  return selected === undefined
-    ? [...defaultScenarioNames]
-    : scenarioNames.filter((name) => selected.includes(name))
-}
 
 /**
  * The serialization API of a source tree. Trees from before serialization export neither
@@ -151,7 +134,6 @@ const serializationWorkloads = {
 } satisfies Record<string, () => object>
 
 type SerializationWorkload = keyof typeof serializationWorkloads
-const workloadCount = Object.keys(serializationWorkloads).length
 
 /** Builds every workload once, with its text, after checking that the text round-trips. */
 export function serializationFixtures(
@@ -347,47 +329,4 @@ export function expandRound(arguments_: readonly string[]): string[] {
     ...arguments_.slice(index + 2),
     ...rounds[name].flatMap((scenario) => ['--scenario', scenario]),
   ]
-}
-
-/**
- * Batch factories of one source tree for `pnpm bench compare`: a frozen or small batch is
- * `BATCH_SIZE` operations of its workload, and a serialization batch is one operation on each
- * serialization workload.
- */
-export function createBatches(
-  scenarios: typeof Frozen,
-  ports: WorkloadPorts,
-): Record<ScenarioName, () => () => void> {
-  const small = (scenario: SmallScenarioName) => () => {
-    const { run } = smallOperation(ports, scenario)
-    return () => {
-      for (let index = 0; index < BATCH_SIZE; index += 1) run()
-    }
-  }
-  const serialization = (scenario: 'deserialize' | 'serialize') => () => {
-    const { run } = serializationOperation(ports, scenario)
-    return () => {
-      for (let index = 0; index < workloadCount; index += 1) run()
-    }
-  }
-  return {
-    'deserialize': serialization('deserialize'),
-    'deserialize-1': small('deserialize-1'),
-    'deserialize-16': small('deserialize-16'),
-    'produce-1': small('produce-1'),
-    'produce-16': small('produce-16'),
-    'reconcile-1': small('reconcile-1'),
-    'reconcile-16': small('reconcile-16'),
-    'serialize': serialization('serialize'),
-    'serialize-1': small('serialize-1'),
-    'serialize-16': small('serialize-16'),
-    'snapshot-1': small('snapshot-1'),
-    'snapshot-16': small('snapshot-16'),
-    'produce': () => scenarios.createContextRuntimeProduceImmerBenchmarks().produceBatch,
-    'reconcile': () => scenarios.createContextRuntimeReconcileBenchmarks().runtimeReconcileBatch,
-    'reconcile-plain-object': () =>
-      scenarios.createContextRuntimeReconcilePlainObjectBenchmarks()
-        .runtimeReconcilePlainObjectBatch,
-    'snapshot': () => scenarios.createContextRuntimeSnapshotBenchmarks().runtimeSnapshotBatch,
-  }
 }

@@ -1,7 +1,7 @@
 """Alternating whole-process A/B timing round over frozen harness bundles (``pnpm bench ab``).
 
-Bundles each source tree once per scenario through ``scripts/profile.ts --bundle-only``, runs
-every bundle for a few batches, sizes each scenario's batches (about ``--seconds`` of measured
+Bundles each source tree through ``scripts/profile.ts --bundle-only``, once for the frozen
+scenarios and once for the rest, runs every scenario for a few batches, sizes each scenario's batches (about ``--seconds`` of measured
 work per process by default) and stops if the round would not fit the budget. It then registers
 the design (scenarios, pairs, batches, size, bundle hashes, Node version, tree commits, frozen
 workload hashes) before any sample is taken, and alternates candidate/baseline order per pair in
@@ -18,7 +18,7 @@ frozen ones, and runs ``--pairs 32 --seconds 1``.
 Usage:
   pnpm bench ab --baseline <tree> [--candidate <tree>] [--round default|small | --scenario name]...
     [--pairs 10]
-    [--batches auto] [--seconds 0.5] [--warmup auto] [--size 256] [--gain 2] [--guard 3] --out <dir>
+    [--batches auto] [--seconds 0.5] [--warmup auto] [--size 256] --out <dir>
 """
 
 import argparse
@@ -49,8 +49,6 @@ def parse_arguments(argv):
                         help="measured seconds per process when --batches is auto")
     parser.add_argument("--warmup", default="auto", help="warmup batches, or auto for half the batches")
     parser.add_argument("--size", type=int, default=256, help="diagnostic size")
-    parser.add_argument("--guard", type=float, default=3.0, help="regression guard in percent")
-    parser.add_argument("--gain", type=float, default=2.0, help="minimum gain in percent")
     parser.add_argument("--out", required=True, help="new output directory")
     arguments = parser.parse_args(argv)
     if arguments.pairs < 2 or arguments.pairs % 2 != 0:
@@ -66,11 +64,20 @@ def parse_arguments(argv):
     return arguments
 
 
+# The frozen perf/ scenarios share the unmodified harness; every other scenario shares the
+# diagnostic overlay, which selects its scenario at run time.
+FROZEN = ("snapshot", "reconcile", "reconcile-plain-object", "produce")
+
+
+def harness(scenario):
+    return "frozen" if scenario in FROZEN else "overlay"
+
+
 def bundle(root, scenario, size, destination):
     destination.mkdir(parents=True, exist_ok=True)
     command = [
         "pnpm", "exec", "tsx", "scripts/profile.ts", scenario, "--candidate", str(root),
-        "--mode", "time", "--size", str(size), "--bundle-only", "--out", str(destination),
+        "--size", str(size), "--bundle-only", "--out", str(destination),
     ]
     result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
     if result.returncode != 0:
@@ -97,6 +104,8 @@ def measure(bundle_path, scenario, batches, warmup, log_path):
 
 
 BUDGET_SECONDS = 280  # within the dispatcher's 295-second budget, leaving room for shutdown
+GAIN_PERCENT = 2.0  # a faster reading needs at least this median gain
+GUARD_PERCENT = 3.0  # a slower reading needs a median beyond this guard
 ESTIMATE_MARGIN = 1.15  # the estimate has run up to 7% short
 MIN_INTERVAL_PAIRS = 10
 
@@ -193,10 +202,12 @@ def run_round(arguments):
     }
     bundles = {label: {} for label in roots}
     for label, root in roots.items():
+        shared = {}
         for scenario in scenarios:
-            bundles[label][scenario] = bundle(
-                root, scenario, arguments.size, out / "bundles" / label / scenario,
-            )
+            kind = harness(scenario)
+            if kind not in shared:
+                shared[kind] = bundle(root, scenario, arguments.size, out / "bundles" / label / kind)
+            bundles[label][scenario] = shared[kind]
     # One short run of every bundle, so a tree that lacks a scenario fails before any sample.
     preflight = [
         {"scenario": scenario, **measure(
@@ -226,10 +237,8 @@ def run_round(arguments):
         "sharedWorkloadSha256": hashlib.sha256(
             (ROOT / "scripts" / "bench-workloads.ts").read_bytes()
         ).hexdigest(),
-        "gainPercent": arguments.gain,
         "git": {label: git_state(root) for label, root in roots.items()},
         "node": subprocess.run(["node", "--version"], text=True, capture_output=True).stdout.strip(),
-        "guardPercent": arguments.guard,
         "pairs": arguments.pairs,
         "roots": {label: str(root) for label, root in roots.items()},
         "scenarios": scenarios,
@@ -259,8 +268,8 @@ def run_round(arguments):
     summary = {}
     lines = [
         "| Workload | Baseline median µs/op | Candidate median µs/op | Median paired change "
-        "| 90% interval | Faster pairs | Pairs slower than guard | Reading |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| 90% interval | Faster pairs | Reading |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
     for scenario in scenarios:
         samples = [row for row in rows if row["scenario"] == scenario]
@@ -275,20 +284,18 @@ def run_round(arguments):
             "medianPairedPercentInterval": interval(changes),
             "pairedPercentChanges": changes,
             "fasterPairs": sum(change < 0 for change in changes),
-            "slowerPairsAboveGuard": sum(change > arguments.guard for change in changes),
         }
         entry = summary[scenario]
         bounds = entry["medianPairedPercentInterval"]
         entry["reading"] = reading(
-            entry["medianPairedPercentChange"], bounds, arguments.gain, arguments.guard,
+            entry["medianPairedPercentChange"], bounds, GAIN_PERCENT, GUARD_PERCENT,
         )
         shown = "n/a" if bounds is None else f"[{bounds[0]:+.2f}%, {bounds[1]:+.2f}%]"
         lines.append(
             f"| {scenario} | {entry['baselineMedianUsPerOperation']:.2f} | "
             f"{entry['candidateMedianUsPerOperation']:.2f} | "
             f"{entry['medianPairedPercentChange']:+.2f}% | "
-            f"{shown} | {entry['fasterPairs']}/{len(changes)} | "
-            f"{entry['slowerPairsAboveGuard']}/{len(changes)} | {entry['reading']} |"
+            f"{shown} | {entry['fasterPairs']}/{len(changes)} | {entry['reading']} |"
         )
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     report = "\n".join(lines)
@@ -296,8 +303,8 @@ def run_round(arguments):
         "# Alternating A/B timing round\n\nNegative changes mean the candidate is faster. "
         "Medians of paired whole-process loop latency; no cumulative or general speedup is inferred. "
         f"A reading is faster when the interval is below zero and the median gains at least "
-        f"{arguments.gain:g}%, slower when the interval is above zero and the median exceeds the "
-        f"{arguments.guard:g}% guard, and slightly faster or slower when the interval excludes "
+        f"{GAIN_PERCENT:g}%, slower when the interval is above zero and the median exceeds the "
+        f"{GUARD_PERCENT:g}% guard, and slightly faster or slower when the interval excludes "
         "zero within those limits. Keeping a change needs two independent faster rounds.\n\n"
         + report + "\n",
     )

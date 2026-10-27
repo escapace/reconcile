@@ -1,23 +1,11 @@
-import { DATE_KIND } from '../types/date'
-import { ARRAY_BUFFER_KIND } from '../types/array-buffer'
 import { it } from 'vitest'
 import { createDiagnostic, diagnosticNames } from '../../scripts/profile-scenarios'
 import { deserialize, produce, reconcile, requiredMaxBytes, serialize, snapshot } from '../index'
-import { produceTypes } from '../types/builtins'
 
 it.each(diagnosticNames)('validates repeated diagnostic operations: %s', (name) => {
   const scenario = createDiagnostic(
     name,
-    {
-      copyDate: produceTypes.specials[DATE_KIND]!.copy,
-      deserialize,
-      produce,
-      reconcile,
-      requiredMaxBytes,
-      sameBuffer: produceTypes.specials[ARRAY_BUFFER_KIND]!.equivalent,
-      serialize,
-      snapshot,
-    },
+    { deserialize, produce, reconcile, requiredMaxBytes, serialize, snapshot },
     8,
   )
   // Twelve operations cover the six rotating serialization fixtures twice.

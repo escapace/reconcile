@@ -11,10 +11,8 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 export interface Esbuild {
   readonly version: string
   build: (options: Record<string, unknown>) => Promise<{
-    metafile: { inputs: Record<string, unknown> }
     outputFiles: Array<{ contents: Uint8Array }>
   }>
-  buildSync: (options: Record<string, unknown>) => unknown
 }
 
 /** Loads the esbuild that the build tool esroll resolves, so every tool uses the same version. */

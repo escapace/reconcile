@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { ring, type RingNode } from '../src/__tests__/fixtures/ring'
 import type * as API from '../src/index'
 import {
   flatOperation,
@@ -26,8 +25,6 @@ export const diagnosticNames = [
   'diag-shared-spread',
   'diag-produce-deep',
   'diag-unsupported-cycle',
-  'diag-module-date',
-  'diag-module-buffer',
   'diag-serialize-graph',
   'diag-deserialize-graph',
   'diag-deserialize-bigints',
@@ -53,14 +50,24 @@ interface Context {
   readonly size: number
 }
 
-interface Scenario {
-  readonly layer?: string
-  readonly state?: string
+export interface Scenario {
   readonly run: () => void
   readonly validate: () => void
 }
 
-const identity = (value: object): object => value
+interface RingNode {
+  payload: { value: number }
+  next?: RingNode
+}
+
+/** `length` nodes, each linked to the next and the last to the first. */
+function ring(length: number): RingNode[] {
+  const nodes: RingNode[] = Array.from({ length }, () => ({ payload: { value: 0 } }))
+  nodes.forEach((node, index) => {
+    node.next = nodes[(index + 1) % length]
+  })
+  return nodes
+}
 
 /** `size` records with shared children, a `Map`, dates and a cycle back to the first record. */
 function serializationGraph(size: number): object {
@@ -101,7 +108,7 @@ function ringMembers(root: RingNode, length: number): RingNode[] {
 function produceAlias({ alias, api, shared }: Context, undo: boolean): Scenario {
   let last: unknown
   return {
-    state: 'stable input; expected identity-preserving no-op or write/undo',
+    // Stable input; expected identity-preserving no-op or write/undo.
     run: () => {
       last = api.produce(alias, (draft) => {
         if (undo) {
@@ -118,26 +125,21 @@ function produceAlias({ alias, api, shared }: Context, undo: boolean): Scenario 
   }
 }
 
-/** Fixtures are created when a factory runs, before warmup; `run` and `validate` close over them. */
 /** The small round's workloads, which ignore the diagnostic size. */
 const small =
   (name: SmallScenarioName) =>
-  ({ api }: Context): Scenario => ({
-    layer: 'small',
-    state: 'a flat object of the named number of keys; see smallOperation in bench-workloads.ts',
-    ...smallOperation(api, name),
-  })
+  ({ api }: Context): Scenario =>
+    smallOperation(api, name)
 
+/** Fixtures are created when a factory runs, before warmup; `run` and `validate` close over
+ * them. */
 const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
   ...(Object.fromEntries(smallScenarioNames.map((name) => [name, small(name)])) as Record<
     SmallScenarioName,
     (context: Context) => Scenario
   >),
-  'deserialize': ({ api }) => ({
-    layer: 'serialization',
-    state: 'decodes the six serialization fixture texts in rotation, one per operation',
-    ...serializationOperation(api, 'deserialize'),
-  }),
+  // Decodes the six serialization fixture texts in rotation, one per operation.
+  'deserialize': ({ api }) => serializationOperation(api, 'deserialize'),
   'diag-alias-dag': ({ alias, api, shared }) => {
     let last: unknown
     const root = { child: shared, left: alias, right: alias }
@@ -248,8 +250,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     )
     let last: unknown
     return {
-      layer: 'serialization',
-      state: 'decodes the JSON text of 8 × size records with four distinct and shared bigints each',
+      // Decodes the JSON text of 8 × size records with four distinct and shared bigints each.
       run: () => {
         last = decode(text)
       },
@@ -263,9 +264,8 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     const text = encode(serializationGraph(size))
     let last: unknown
     return {
-      layer: 'serialization',
-      state:
-        'decodes the JSON text of a size-record graph with shared children, a Map, dates and a cycle',
+      // Decodes the JSON text of a size-record graph with shared children, a Map, dates and a
+      // cycle.
       run: () => {
         last = decode(text)
       },
@@ -274,11 +274,8 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
-  'diag-deserialize-limited': ({ api }) => ({
-    layer: 'serialization',
-    state: 'decodes the six serialization fixture texts in rotation under a limit never reached',
-    ...serializationOperation(api, 'deserialize', 2 ** 52),
-  }),
+  // Decodes the six serialization fixture texts in rotation under a limit never reached.
+  'diag-deserialize-limited': ({ api }) => serializationOperation(api, 'deserialize', 2 ** 52),
   'diag-fanout': ({ api, size }) => {
     let last: unknown
     const current = Array.from({ length: size }, () => ({ n: 0 }))
@@ -288,43 +285,13 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     ]
     let turn = 0
     return {
-      state: 'alternating desired values; every operation changes existing leaf values',
+      // Alternating desired values; every operation changes existing leaf values.
       run: () => {
         last = api.reconcile(current, next[turn++ % 2])
       },
       validate: () => {
         assert.equal(last, current)
         assert(current.every((item) => item.n === turn % 2))
-      },
-    }
-  },
-  'diag-module-buffer': ({ api, size }) => {
-    let last: unknown
-    const left = new ArrayBuffer(size * 1024)
-    const right = left.slice(0)
-    return {
-      layer: 'native module only',
-      state: 'stable equal byte stores; full extent comparison per operation',
-      run: () => {
-        last = api.sameBuffer(left, right)
-      },
-      validate: () => {
-        assert.equal(last, true)
-      },
-    }
-  },
-  'diag-module-date': ({ api }) => {
-    let last: unknown
-    const date = new Date(42)
-    const owners = { nativeOwners: undefined }
-    return {
-      layer: 'native module only',
-      run: () => {
-        last = api.copyDate(date, identity, owners)
-      },
-      validate: () => {
-        assert.notEqual(last, date)
-        assert.equal((last as Date).getTime(), 42)
       },
     }
   },
@@ -340,7 +307,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     }))
     const input = { counter: 0, deep }
     return {
-      state: 'one leaf changed under a root with n unchanged deep subtrees; input stable',
+      // One leaf changed under a root with n unchanged deep subtrees; input stable.
       run: () => {
         last = api.produce(input, (draft) => {
           draft.counter += 1
@@ -372,8 +339,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     let turn = 0
     let last = 0
     return {
-      layer: 'serialization',
-      state: 'measures the six serialization fixture documents in rotation, parsed once',
+      // Measures the six serialization fixture documents in rotation, parsed once.
       run: () => {
         last = requiredMaxBytes(documents[turn++ % documents.length], { maxBytes: Infinity })
       },
@@ -388,9 +354,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     const text = encode(graph)
     let last = ''
     return {
-      layer: 'serialization',
-      state:
-        'encodes a size-record graph with shared children, a Map, dates and a cycle as JSON text',
+      // Encodes a size-record graph with shared children, a Map, dates and a cycle as JSON text.
       run: () => {
         last = encode(graph)
       },
@@ -406,8 +370,8 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     const desired = { left: ring(length)[0], right: ring(length)[0] }
     const holder = { left: original[0], right: original[0] }
     return {
-      state:
-        'two independent desired cycles compete for one frozen ring; holder reset per operation; size capped at 8',
+      // Two independent desired cycles compete for one frozen ring; holder reset per operation;
+      // size capped at 8.
       run: () => {
         holder.left = original[0]
         holder.right = original[0]
@@ -432,7 +396,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     for (const [index, child] of children.entries()) root[`k${index}`] = child
     let counter = 0
     return {
-      state: 'spread root over shared children; the root is republished in place each operation',
+      // Spread root over shared children; the root is republished in place each operation.
       run: () => {
         counter += 1
         last = api.reconcile(root, { ...root, counter })
@@ -463,19 +427,12 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
-  'diag-tiny-produce': ({ api, size }) => ({
-    state: 'flat object of n keys; recipes rotate: no change, one key, every key',
-    ...flatOperation(api, 'produce', size),
-  }),
-  'diag-tiny-reconcile': ({ api, size }) => ({
-    state: 'flat object of n keys updated in place; rotates unchanged, sparse and full nexts',
-    ...flatOperation(api, 'reconcile', size),
-  }),
-  'diag-tiny-serialize': ({ api, size }) => ({
-    layer: 'serialization',
-    state: 'flat object of n keys encoded as JSON text',
-    ...flatOperation(api, 'serialize', size),
-  }),
+  // Flat object of n keys; recipes rotate: no change, one key, every key.
+  'diag-tiny-produce': ({ api, size }) => flatOperation(api, 'produce', size),
+  // Flat object of n keys updated in place; rotates unchanged, sparse and full nexts.
+  'diag-tiny-reconcile': ({ api, size }) => flatOperation(api, 'reconcile', size),
+  // Flat object of n keys encoded as JSON text.
+  'diag-tiny-serialize': ({ api, size }) => flatOperation(api, 'serialize', size),
   'diag-undo': (context) => produceAlias(context, true),
   'diag-unsupported-cycle': ({ api, size }) => {
     let last: unknown
@@ -486,7 +443,7 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
     desired[length - 1].payload.value = 1
     const holder = { start: original[0] }
     return {
-      state: 'changed frozen ring payload; mutable holder reset per operation; size capped at 16',
+      // Changed frozen ring payload; mutable holder reset per operation; size capped at 16.
       run: () => {
         holder.start = original[0]
         last = api.reconcile(holder, { start: desired[0] })
@@ -529,11 +486,8 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       },
     }
   },
-  'serialize': ({ api }) => ({
-    layer: 'serialization',
-    state: 'encodes the six serialization fixture graphs as text in rotation, one per operation',
-    ...serializationOperation(api, 'serialize'),
-  }),
+  // Encodes the six serialization fixture graphs as text in rotation, one per operation.
+  'serialize': ({ api }) => serializationOperation(api, 'serialize'),
 }
 
 /** Fixtures are created before warmup. Validation happens after profiling stops. */
@@ -543,30 +497,14 @@ export function createDiagnostic(
     produce: typeof API.produce
     reconcile: typeof API.reconcile
     snapshot: typeof API.snapshot
-    copyDate: (
-      value: object,
-      resolve: (child: object) => object,
-      owners: { nativeOwners: undefined },
-    ) => object
-    sameBuffer: (left: ArrayBuffer, right: ArrayBuffer) => boolean
     /** The tree's serialization API, if any; only serialization scenarios need it. */
     deserialize?: typeof API.deserialize
     requiredMaxBytes?: typeof API.requiredMaxBytes
     serialize?: typeof API.serialize
   },
   size: number,
-) {
+): Scenario {
   const shared = { n: 0 }
   const alias = { items: Array.from({ length: size }, () => shared) }
-  const { layer = 'full API', run, state, validate } = scenarios[name]({ alias, api, shared, size })
-  return {
-    metadata: {
-      layer,
-      name,
-      size,
-      state: state ?? 'stable input; detached output retained until the next operation',
-    },
-    run,
-    validate,
-  }
+  return scenarios[name]({ alias, api, shared, size })
 }

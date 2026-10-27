@@ -46,4 +46,9 @@ assert ab.batch_counts([{"scenario": "x", "elapsedMs": 3000.0, "wallSeconds": 3.
 one = [{"scenario": "x", "elapsedMs": 50.0, "wallSeconds": 0.6}]
 assert abs(ab.estimate_seconds(one, 2, {"x": {"batches": 10, "warmup": 5}}) - 2 * (0.5 + 0.15)) < 1e-9
 
+# The frozen scenarios share one bundle per tree, every other scenario the overlay's.
+assert [ab.harness(name) for name in ("produce", "serialize", "reconcile-1", "diag-views")] == [
+    "frozen", "overlay", "overlay", "overlay",
+]
+
 print("ab-time decision logic verified")
