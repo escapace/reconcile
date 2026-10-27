@@ -272,7 +272,7 @@ Each function keeps or replaces objects as follows:
 | `snapshot(value)`                             | No                   | All new, except objects kept by reference                                                        |
 | `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                                                          |
 
-- **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. `current` ends with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile-) give the exceptions, such as an object that refers to `current` or `next`, or one that `next` holds first at another position.
+- **Objects already in place.** An object in `next` that is already the object at the same property or index in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. `current` usually ends with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile-) give the exceptions, such as an object inside a `Map` or `Set` entry, or one that `next` holds first at another position.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
@@ -494,7 +494,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as {
 // copy.owner === copy.members[0]; copy.owner !== user
 ```
 
-## function isReconcileError [↗](src/error.ts#L151-L152 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L152-L153 'isReconcileError')
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -508,7 +508,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L160-L163 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L161-L164 'isReconcileErrorOfType')
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
 
@@ -591,7 +591,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L108-L120 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L114-L126 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -631,9 +631,11 @@ On an object that `reconcile` keeps and updates, an own getter for a key that `n
 
 `next` is read completely before `current` changes. When both arguments are objects that are not kept by reference, a successful call returns `current`. When either is a primitive, a function or another object kept by reference, the call returns `next` and changes nothing.
 
-An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents as part of `next` and does not change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside an object already in place stay too. Wherever else `next` places an object that stays, `current` holds that object itself, ahead of the rules above for one object at two positions; `current` ends with the same contents either way. An object does not stay when it refers to `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads `next`, at a position where it is not already in place, such as a key, value or member of a `Map` or `Set` that is not itself already in place, unless it is also inside another object that stays. Such an object is updated like any other.
+An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents as part of `next` and does not change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside an object that stays also stay, and `current` usually ends with the same contents as if each of them had been updated.
 
-`reconcile` usually runs each getter of an object already in place once, as part of `next`. It can run a getter more than once, as part of `next` or of `current`, when `current` or `next` also holds the object, or an object that contains it, at another position, including in a `Map` or `Set`, or when the object is inside an object of `next` that refers to `current` or `next`.
+A key, value or member of a `Map` or `Set`, and anything inside one, is never already in place. An object does not stay when it is a buffer, view or `URLSearchParams`, when it refers to `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads `next`, at a position where it is not already in place, unless it is inside another object that stays. An object that does not stay is updated like any other. An object that stays is exempt from the rules above for one object at two positions: it keeps its position, `current` also holds it wherever else `next` places it, and a `URLSearchParams` that stays brings along the URL of `next` that owns it. Where an object inside `current` cannot hold such an object, that object is replaced; where `current` itself cannot, the call throws `PublicationRejected`. Otherwise only which objects `current` holds can differ from those rules, not its contents.
+
+`reconcile` runs each getter of an object that stays once, as part of `next`, unless `current` or `next` also holds the object, or an object that contains it, at another position, including in a `Map` or `Set`, or the object is inside an object of `next` that refers to `current` or `next`. In those cases it can run a getter more than once, as part of `next` or of `current`.
 
 ### Examples
 
@@ -769,7 +771,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L126-L144 'ReconcileError')
+## class ReconcileError [↗](src/error.ts#L127-L145 'ReconcileError')
 
 The error this library throws for every failure it detects.
 
@@ -866,7 +868,7 @@ The largest size, in bytes, of the value `deserialize` may return: a non-negativ
 readonly maxBytes: number;
 ```
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L35-L97 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L35-L98 'ReconcileErrorMetadata')
 
 The properties of `cause` for each error type, in addition to `type`.
 
@@ -950,7 +952,7 @@ FinalizationAccessorUnstable: {
 
 ### ReconcileErrorMetadata.FinalizationConstructionImpossible
 
-No consistent result exists. For example, a new `Map` or `Set` would hold one object as two keys or members, as when the recipe adds both an object and its draft.
+No consistent result exists. For example, the recipe used an object and its draft or copy as two keys of one new `Map` or two members of one new `Set`, which would then hold one object twice.
 
 ```typescript
 FinalizationConstructionImpossible: {
@@ -985,7 +987,7 @@ SnapshotURLSearchParamsMemoIncompatible: {
 }
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L100-L101 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L101-L102 'ReconcileErrorCause')
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` and that type's properties.
 

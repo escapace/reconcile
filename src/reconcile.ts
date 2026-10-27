@@ -67,18 +67,24 @@ import { publicationTypes } from './types/builtins'
  * An object in `next` that is already the object at the same property or index of the matched
  * current object stays in place: `reconcile` reads its contents as part of `next` and does not
  * change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects
- * inside an object already in place stay too. Wherever else `next` places an object that stays,
- * `current` holds that object itself, ahead of the rules above for one object at two positions;
- * `current` ends with the same contents either way. An object does not stay when it refers to
- * `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads
- * `next`, at a position where it is not already in place, such as a key, value or member of a
- * `Map` or `Set` that is not itself already in place, unless it is also inside another object that
- * stays. Such an object is updated like any other.
+ * inside an object that stays also stay, and `current` usually ends with the same contents as if
+ * each of them had been updated.
  *
- * `reconcile` usually runs each getter of an object already in place once, as part of `next`. It
- * can run a getter more than once, as part of `next` or of `current`, when `current` or `next`
- * also holds the object, or an object that contains it, at another position, including in a `Map`
- * or `Set`, or when the object is inside an object of `next` that refers to `current` or `next`.
+ * A key, value or member of a `Map` or `Set`, and anything inside one, is never already in place.
+ * An object does not stay when it is a buffer, view or `URLSearchParams`, when it refers to
+ * `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads
+ * `next`, at a position where it is not already in place, unless it is inside another object that
+ * stays. An object that does not stay is updated like any other. An object that stays is exempt
+ * from the rules above for one object at two positions: it keeps its position, `current` also
+ * holds it wherever else `next` places it, and a `URLSearchParams` that stays brings along the URL
+ * of `next` that owns it. Where an object inside `current` cannot hold such an object, that object
+ * is replaced; where `current` itself cannot, the call throws `PublicationRejected`. Otherwise
+ * only which objects `current` holds can differ from those rules, not its contents.
+ *
+ * `reconcile` runs each getter of an object that stays once, as part of `next`, unless `current`
+ * or `next` also holds the object, or an object that contains it, at another position, including
+ * in a `Map` or `Set`, or the object is inside an object of `next` that refers to `current` or
+ * `next`. In those cases it can run a getter more than once, as part of `next` or of `current`.
  *
  * @example
  * ```ts
