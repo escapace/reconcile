@@ -1,5 +1,6 @@
 import Produce.DraftIteration
-import Lean
+import Oracle.Enumerate
+import Oracle.Protocol
 
 /-! Oracle for the `DraftIteration` family: runs every script of one to three iterations and
 writes on a `Map` draft through `DraftIteration`, reporting each walk, the result's entries and
@@ -7,7 +8,7 @@ whether the result keeps the original. -/
 
 namespace Reconcile.DraftIterationOracle
 
-open Reconcile.DraftIteration Lean
+open Reconcile.DraftIteration Reconcile.Enumerate Reconcile.Protocol Lean
 
 /-- Recipe steps: iterate, write an equal value, change a value, add an entry, delete an entry,
 delete a missing key. -/
@@ -19,10 +20,7 @@ private def step : Nat → Draft → Draft × Option (List (Nat × Nat))
   | 4, d => (delete 2 d, none)
   | _, d => (delete 9 d, none)
 
-private def scripts : List (List Nat) :=
-  let steps := List.range 6
-  steps.map ([·]) ++ steps.flatMap (fun a => steps.map ([a, ·])) ++
-    steps.flatMap fun a => steps.flatMap fun b => steps.map ([a, b, ·])
+private def scripts : List (List Nat) := (wordsUpTo 3 (List.range 6)).tail
 
 private structure Observation where
   steps : List Nat
@@ -35,16 +33,13 @@ private def pairs (entries : List (Nat × Nat)) : List (List Nat) := entries.map
 
 /-- Every script of one to three steps on a draft of `[(1, 10), (2, 20)]`: what each iteration
 walked, the result's entries and whether the result keeps the original. -/
-def run : IO Unit := do
-  IO.println scripts.length
-  for steps in scripts do
+def run : IO Unit :=
+  emitCorpus scripts fun steps =>
     let start : Draft := { base := [(1, 10), (2, 20)], copy := none, modified := false }
     let (final, iterations) := steps.foldl (init := (start, ([] : List (List (List Nat)))))
       fun (d, seen) s =>
         let (d', walked) := step s d
         (d', match walked with | some e => seen ++ [pairs e] | none => seen)
-    let row : Observation :=
-      { steps, iterations, entries := pairs (source final), kept := kept final }
-    IO.println (toJson row).compress
+    ({ steps, iterations, entries := pairs (source final), kept := kept final } : Observation)
 
 end Reconcile.DraftIterationOracle

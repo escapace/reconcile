@@ -1,6 +1,5 @@
 import Types.Ingress
 import Oracle.RecognitionPlainOracle
-import Lean
 
 /-! Oracle for the `Ingress` family: recognizes every built-in and listed prototype tail behind up
 to two custom prototypes, without a typed-array brand and as a typed array over a recognized
@@ -11,7 +10,7 @@ separate atom split. -/
 
 namespace Reconcile.IngressOracle
 
-open Reconcile.Types Reconcile.Types.Ingress Lean
+open Reconcile.Types Reconcile.Types.Ingress Reconcile.Enumerate Reconcile.Protocol Lean
 
 private def object : Proto := ⟨.object, .object⟩
 
@@ -53,26 +52,25 @@ private def describe : Option Atoms.Ingress → String × Nat
   | some .atom => ("atom", 10)
   | none => ("raised", 0)
 
-def run : IO Unit := do
-  -- The typed-array brand, whether the buffer is foreign and whether its chain raises: no view,
-  -- then a typed array over a recognized, a foreign and a raising buffer.
-  let views := [(false, false, false), (true, false, false), (true, true, false),
-    (true, false, true)]
-  let cases := (List.range 3).flatMap fun depth => (List.range tails.length).flatMap fun tail =>
-    (views.filter fun (brand, _, _) => !(brand && depth = 0 && tail = raisingTail)).map
-      fun (brand, foreign, bufferRaises) => (depth, tail, brand, foreign, bufferRaises)
-  IO.println cases.length
-  for (depth, tail, brand, foreign, bufferRaises) in cases do
-    let chain : Chain := {
-      protos := (List.range depth).map (fun l => ⟨.data (100 + l), .other (100 + l)⟩) ++
-        tails.getD tail []
-      raises := tail = raisingTail }
+/-- The ingress of an object behind `depth` custom prototypes over tail `tail`, with the
+typed-array brand, whether the buffer is foreign and whether its chain raises. -/
+private def observe : Nat × Nat × Bool × Bool × Bool → Observation
+  | (depth, tail, brand, foreign, bufferRaises) =>
+    let chain : Chain :=
+      { protos := behind (fun label => ⟨.data label, .other label⟩) depth (tails.getD tail [])
+        raises := tail = raisingTail }
     let targets := RecognitionPlainOracle.targets
     let b := RecognitionPlainOracle.buffer foreign bufferRaises
     let (outcome, rank) := describe (ingress .miss chain brand b targets)
-    IO.println (toJson ({
-      depth, tail, brand, foreign, bufferRaises, outcome, rank
+    { depth, tail, brand, foreign, bufferRaises, outcome, rank
       shared := ownReads true .miss chain brand b targets
-      separate := ownReads false .miss chain brand b targets } : Observation)).compress
+      separate := ownReads false .miss chain brand b targets }
+
+/-- Each tail behind zero to two custom prototypes with each view: none, then a typed array over a
+recognized, a foreign and a raising buffer. -/
+def run : IO Unit :=
+  emitCorpus (RecognitionPlainOracle.viewCases tails.length raisingTail
+    [(false, false, false), (true, false, false), (true, true, false), (true, false, true)]
+    (·.1)) observe
 
 end Reconcile.IngressOracle

@@ -1,5 +1,5 @@
 import Types.CopyPrototype
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `CopyPrototype` family: for every kind, as its own instance, as a subclass
 instance and, for a typed array, given another typed kind's standard prototype, whether a copy
@@ -7,7 +7,7 @@ keeps the source's prototype (`CopyPrototype.adopt`) and whether `serialize` acc
 
 namespace Reconcile.CopyPrototypeOracle
 
-open Reconcile.CopyPrototype Lean
+open Reconcile.CopyPrototype Reconcile.Protocol Lean
 
 private structure Observation where
   kind : Nat
@@ -29,16 +29,13 @@ private def others (kind : Kind) : List Kind :=
 /-- Every kind, as its own instance, as a subclass instance and given each other typed kind's
 standard prototype, with whether a copy keeps the source's prototype and whether `serialize`
 accepts it. -/
-def run : IO Unit := do
-  let rows := kinds.flatMap fun kind =>
+def run : IO Unit :=
+  emitCorpus (kinds.flatMap fun kind =>
     [(kind, Proto.standard kind, false, none), (kind, Proto.subclass kind, true, none)] ++
-      (others kind).map fun other => (kind, Proto.standard other, false, some (kinds.idxOf other))
-  IO.println rows.length
-  for (kind, source, subclass, other) in rows do
-    let row : Observation :=
-      { kind := kinds.idxOf kind, subclass, other,
-        keeps := adopt (Proto.standard kind) source == source,
-        serializes := serializes kind source }
-    IO.println (toJson row).compress
+      (others kind).map fun other => (kind, Proto.standard other, false, some (kinds.idxOf other)))
+    fun (kind, source, subclass, other) =>
+      ({ kind := kinds.idxOf kind, subclass, other,
+         keeps := adopt (Proto.standard kind) source == source,
+         serializes := serializes kind source } : Observation)
 
 end Reconcile.CopyPrototypeOracle

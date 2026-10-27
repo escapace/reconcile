@@ -1,5 +1,5 @@
 import Types.OwnedNativeChild
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `OwnedNativeChild` family: adoption of a captured URL carrier and its
 parameter child under `Types.OwnedNativeChild`, reporting the query, entries, owner and child
@@ -29,9 +29,6 @@ def evaluate (input : Input) : Json :=
     ("child", toJson adopted.child),
     ("owner", toJson adopted.carrier)]
 
-def run (input : String) : IO Unit := do
-  let json ← IO.ofExcept (Json.parse input)
-  let inputs ← IO.ofExcept (fromJson? (α := Array Input) json)
-  (← IO.getStdout).putStrLn (toJson (inputs.map evaluate)).compress
+def run (input : String) : IO Unit := Protocol.serveArray input (pure ∘ evaluate)
 
 end Reconcile.OwnedNativeChildOracle

@@ -1,78 +1,68 @@
 import Graph.FactRenaming
-import Lean
+import Oracle.Enumerate
+import Oracle.Protocol
 
-/-! Oracle for the `FactRenaming` family: for each history of fact and rule actions it checks
-that renaming the facts by a permutation renames the observed queries and orders, over an
-exhaustive small corpus with bounded 64-fact cases. -/
+/-! Oracle for the `FactRenaming` family: for each history of fact and rule actions, the
+observed queries and orders and those of the history with its facts renamed by a permutation,
+which are the same queries and the renamed orders (`renamed_observations`), over an exhaustive
+small corpus with bounded 64-fact cases. -/
 
 namespace Reconcile.FactRenamingOracle
 
-open Reconcile.FactRenaming Reconcile.OnlineRequirements Lean
+open Reconcile.FactRenaming Reconcile.OnlineRequirements Reconcile.Enumerate Reconcile.Protocol
+  Lean
+
+/-- Renaming the facts of the empty state leaves it empty. -/
+theorem online_empty (names : Renaming) : online names empty = empty := by
+  simp only [online, empty, Finset.image_empty, List.map_nil]
+  rfl
+
+/-- `observations_eq` from the empty state, where every row starts. -/
+theorem renamed_observations (names : Renaming) (fuel : Nat) (inputs : List Action) :
+    observations fuel empty (inputs.map (action names)) =
+      (observations fuel empty inputs).map fun entry => (entry.1, entry.2.map names) := by
+  simpa [online_empty] using observations_eq names fuel empty inputs
 
 private def wire : Action → List Nat
   | .query fact => [0, fact]
   | .update (.require fact) => [1, fact]
   | .update (.imply source target) => [2, source, target]
 
-private structure Input where
-  size : Nat
-  swaps : List (Nat × Nat)
-  actions : List (List Nat)
-  deriving ToJson
-
 private structure Observation where
-  input : Input
+  size : Nat
+  actions : List (List Nat)
   renamed : List (List Nat)
   queries : List (Option Bool)
   orders : List (List Nat)
   mappedOrders : List (List Nat)
   deriving ToJson
 
-private def parseAction : List Nat → Except String Action
-  | [0, fact] => .ok (.query fact)
-  | [1, fact] => .ok (.update (.require fact))
-  | [2, source, target] => .ok (.update (.imply source target))
-  | _ => .error "Expected query, require or implication action"
+/-- A history over `size` facts, with its facts renamed by the product of the transpositions
+`swaps`. -/
+private def observe : Nat × List (Nat × Nat) × List Action → Observation
+  | (size, swaps, actions) =>
+    let names : Renaming := swaps.foldl
+      (fun names pair => names.trans (Equiv.swap pair.1 pair.2)) (Equiv.refl Nat)
+    let renamed := actions.map (action names)
+    let before := observations size empty actions
+    { size, actions := actions.map wire, renamed := renamed.map wire,
+      queries := before.map Prod.fst, orders := before.map Prod.snd,
+      mappedOrders := (observations size empty renamed).map Prod.snd }
 
-private def emit (input : Input) : IO Unit := do
-  if input.size > 64 || input.actions.length > 512 || input.swaps.length > 64 ||
-      !(input.swaps.all fun pair => pair.1 < input.size && pair.2 < input.size) ||
-      !(input.actions.all fun entry => entry.tail.all (· < input.size)) then
-    throw (IO.userError "Relabelling input exceeds declared finite bounds")
-  let inputs ← IO.ofExcept (input.actions.mapM parseAction)
-  let names : Renaming := input.swaps.foldl
-    (fun names pair => names.trans (Equiv.swap pair.1 pair.2)) (Equiv.refl Nat)
-  let renamed := inputs.map (action names)
-  let before := observations input.size empty inputs
-  let after := observations input.size empty renamed
-  if after != before.map (fun entry => (entry.1, entry.2.map names)) then
-    throw (IO.userError "Ordered relabelling witness failed")
-  let result : Observation :=
-    { input, renamed := renamed.map wire, queries := before.map Prod.fst,
-      orders := before.map Prod.snd, mappedOrders := after.map Prod.snd }
-  IO.println (toJson result).compress
-
-private def words : Nat → List (List Nat) → List (List (List Nat))
-  | 0, _ => [[]]
-  | depth + 1, alphabet =>
-    [] :: alphabet.flatMap fun letter => (words depth alphabet).map (letter :: ·)
-
-private def alphabet (size : Nat) : List (List Nat) :=
-  (List.range size).flatMap (fun fact => [[0, fact], [1, fact]]) ++
-    (List.range size).flatMap fun source => (List.range size).map fun target => [2, source, target]
+private def alphabet (size : Nat) : List Action :=
+  (List.range size).flatMap (fun fact => [.query fact, .update (.require fact)]) ++
+    (List.range size).flatMap fun source => (List.range size).map fun target =>
+      .update (.imply source target)
 
 def run : IO Unit := do
-  let small := words 5 (alphabet 2)
-  let three := words 3 (alphabet 3)
-  IO.println (small.length + three.length + 4)
-  for inputs in small do emit ⟨2, [(0, 1)], inputs⟩
-  for inputs in three do emit ⟨3, [(0, 2), (1, 2)], inputs⟩
-  emit ⟨0, [], []⟩
   let swaps := (List.range 32).map fun fact => (fact, 63 - fact)
-  let cycle := (List.range 64).map fun fact => [2, fact, (fact + 1) % 64]
-  emit ⟨64, swaps, cycle ++ [[0, 63], [1, 0], [0, 63]]⟩
-  emit ⟨64, swaps, (List.range 64).map (fun fact => [0, fact]) ++ cycle ++ [[1, 63]]⟩
-  emit ⟨64, swaps, [[1, 0]] ++ cycle ++ cycle ++ [[0, 63], [1, 0]]⟩
-
+  let cycle := (List.range 64).map fun fact => Action.update (.imply fact ((fact + 1) % 64))
+  emitCorpus ((wordsUpTo 5 (alphabet 2)).map ((2, [(0, 1)], ·)) ++
+    (wordsUpTo 3 (alphabet 3)).map ((3, [(0, 2), (1, 2)], ·)) ++
+    [(0, [], []),
+      (64, swaps, cycle ++ [.query 63, .update (.require 0), .query 63]),
+      (64, swaps, (List.range 64).map Action.query ++ cycle ++ [.update (.require 63)]),
+      (64, swaps, [.update (.require 0)] ++ cycle ++ cycle ++ [.query 63, .update (.require 0)])])
+    observe
 
 end Reconcile.FactRenamingOracle

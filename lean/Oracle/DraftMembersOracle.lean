@@ -1,5 +1,5 @@
 import Produce.DraftMembers
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `DraftMembers` family: what `includes`, `indexOf` and `lastIndexOf` return under
 `DraftMembers` for every searched value, on the plain array draft `[a, b, a, 7]`, with every
@@ -7,7 +7,7 @@ element read before the search and with the array searched before any element is
 
 namespace Reconcile.DraftMembersOracle
 
-open Reconcile.DraftMembers Lean
+open Reconcile.DraftMembers Reconcile.Protocol Lean
 
 /-- Values by number: objects `a` and `b`, the number 7, the drafts of `a` and `b`, the number 8
 and an unrelated object. -/
@@ -51,17 +51,14 @@ private def position : Option Nat → Int
 
 /-- Every searched value in every scenario with what `includes`, `indexOf` and `lastIndexOf`
 return. -/
-def run : IO Unit := do
-  IO.println (scenarios.length * queries.length)
-  for scenario in scenarios do
-    for (query, key) in queries do
+def run : IO Unit :=
+  emitCorpus (scenarios.flatMap fun scenario => queries.map (scenario, ·))
+    fun (scenario, query, key) =>
       let before := keyOf scenario.before
       let held := keyOf scenario.after
       let elements := scenario.elements
-      let row : Observation :=
-        { scenario := scenario.name, query, includes := includesBy held before elements key,
-          indexOf := position (indexOfBy held before elements key),
-          lastIndexOf := position (lastIndexOfBy held before elements key) }
-      IO.println (toJson row).compress
+      ({ scenario := scenario.name, query, includes := includesBy held before elements key,
+         indexOf := position (indexOfBy held before elements key),
+         lastIndexOf := position (lastIndexOfBy held before elements key) } : Observation)
 
 end Reconcile.DraftMembersOracle

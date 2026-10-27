@@ -38,8 +38,8 @@ try {
   await assert.rejects(oracle.run('Unknown'), /Unknown oracle family/)
   await assert.rejects(oracle.run('DeferredOrder', { input: '{}' }), /expected JSON array/)
   await assert.rejects(oracle.run('Contract', { maxBuffer: 0 }), /Invalid oracle output limit/)
-  const pending = oracle.run('Contract')
-  await assert.rejects(oracle.run('Contract'), /open, idle session/)
+  const pending = oracle.run('Atoms')
+  await assert.rejects(oracle.run('Atoms'), /open, idle session/)
   await pending
   await checkCapturedRuntime(oracle.run)
   await checkPropertyOrderRuntime(oracle.run)
@@ -73,7 +73,7 @@ try {
   await checkSpecEnumerationGate(oracle.run)
   // Bound a response before a whole oversized line can accumulate. Shutdown must
   // preserve the original diagnostic rather than mask it with the killed exit code.
-  await assert.rejects(oracle.run('Contract', { maxBuffer: 1 }), /output exceeds 1 bytes/)
+  await assert.rejects(oracle.run('Atoms', { maxBuffer: 1 }), /output exceeds 1 bytes/)
   overflowChecked = true
 } finally {
   if (overflowChecked) await assert.rejects(oracle.close(), /output exceeds 1 bytes/)

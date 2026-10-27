@@ -44,9 +44,8 @@ function query(value: unknown): boolean | null {
 }
 
 function decodeHistory(row: Record<string, unknown>): History {
-  const input = jsonObject(row.input)
-  const size = integerIn(input.size, 0, 64)
-  const actions = column(input.actions, (entry) => action(entry, size))
+  const size = integerIn(row.size, 0, 64)
+  const actions = column(row.actions, (entry) => action(entry, size))
   const renamed = column(row.renamed, (entry) => action(entry, size))
   const orders = column(row.orders, (entry) => order(entry, size))
   const mappedOrders = column(row.mappedOrders, (entry) => order(entry, size))

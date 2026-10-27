@@ -1,30 +1,24 @@
 import Property.DeferredOrder
 import Property.PropertyOrder
-import Lean
+import Oracle.Protocol
 
-/-! Oracle for the `DeferredOrder` family: runs `PropertyOrder`'s reference cursor both eagerly
-and deferred to native demands (`DeferredOrder.eager`, `DeferredOrder.deferred`), checks that the
-two agree, and reports what each demanded checkpoint observes. -/
-
-open Lean Reconcile.PropertyOrder Reconcile.DeferredOrder
+/-! Oracle for the `DeferredOrder` family: runs `PropertyOrder`'s reference cursor deferred to
+native demands (`DeferredOrder.deferred`), which `execute_eq` equates with running it eagerly,
+and reports what each demanded checkpoint observes. -/
 
 namespace Reconcile.DeferredOrderOracle
 
+open Lean Reconcile.PropertyOrder Reconcile.DeferredOrder Reconcile.Protocol
+
+/-- One preflight's trace: the current and desired keys as `keyCode`s, and for each demand the
+length of the private prefix it needs and whether it is the final one. -/
 structure Input where
-  previous : Array (Array Nat)
-  desired : Array (Array Nat)
+  previous : Array Nat
+  desired : Array Nat
   ordered : Bool
   demands : Array Nat
   finals : Array Bool
   deriving FromJson
-
-def decode (fields : Array Nat) : Except String Key := do
-  if fields.size != 2 then throw "Expected key class and label"
-  match fields[0]! with
-  | 0 => pure (.index fields[1]!)
-  | 1 => pure (.name fields[1]!)
-  | 2 => pure (.symbol fields[1]!)
-  | _ => throw "Invalid key class"
 
 def advance (desired : List Key) (state : Option (Cursor × Bool)) (key : Key) :
     Option (Cursor × Bool) := state.map fun pair =>
@@ -36,16 +30,18 @@ def observe (finalCheck : Bool) : Option (Cursor × Bool) → Json
   | some (cursor, kept) => Json.arr #[toJson cursor.retained,
       if finalCheck then Json.null else toJson kept]
 
-def check (input : Input) : IO Json := do
-  let previous ← IO.ofExcept (input.previous.toList.mapM decode)
-  let desired ← IO.ofExcept (input.desired.toList.mapM decode)
+/-- Checks that the demands are paired with their flags and read a growing prefix of the current
+keys. -/
+def check (input : Input) : Except String Json := do
+  let previous := input.previous.toList.map keyOfCode
+  let desired := input.desired.toList.map keyOfCode
   let mut commands : List (Command Key) := []
   let mut position := 0
-  if input.demands.size != input.finals.size then throw (IO.userError "Demand flag mismatch")
+  if input.demands.size != input.finals.size then throw "Demand flag mismatch"
   for id in [:input.demands.size] do
     let through := input.demands[id]!
     if through < position || through > previous.length then
-      throw (IO.userError "Demand outside monotone private prefix")
+      throw "Demand outside monotone private prefix"
     commands := commands ++ (previous.drop position |>.take (through - position)).map Command.advance
       ++ [.boundary id]
     position := through
@@ -56,16 +52,8 @@ def check (input : Input) : IO Json := do
   let native : Native (Option (Cursor × Bool)) (List Json) :=
     { probe := fun _ world => (world, .ok true)
       consume := fun id current world => (world ++ [observe input.finals[id]! current], none) }
-  let reference := eager (advance desired) native commands cursor []
-  let candidate := deferred (advance desired) native commands cursor [] []
-  if reference.1 != candidate.1 || reference.2 != candidate.2 then
-    throw (IO.userError "Deferred cursor model disagreement")
-  pure (Json.arr candidate.1.toArray)
+  pure (Json.arr (deferred (advance desired) native commands cursor [] []).1.toArray)
+
+def run (input : String) : IO Unit := serveArray input check
 
 end Reconcile.DeferredOrderOracle
-
-def Reconcile.DeferredOrderOracle.run (raw : String) : IO Unit := do
-  let json ← IO.ofExcept (Json.parse raw)
-  let inputs : Array Reconcile.DeferredOrderOracle.Input ← IO.ofExcept (fromJson? json)
-  let results ← inputs.mapM Reconcile.DeferredOrderOracle.check
-  (← IO.getStdout).putStrLn (Json.arr results).compress

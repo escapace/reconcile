@@ -1,10 +1,12 @@
 import Produce.Immutable
-import Lean
+import Oracle.Protocol
 
-/-! Oracle for the `Contract` family. It runs each graph in `reuse-fixtures.json` through the head
-of `Policy.rankedPlans` and the verified immutable core (`Immutable.publishFresh`), checks the
-compiler facts, the readback and the unchanged input frame, and reports the selected identities,
-values and edges. -/
+/-! Oracle for the `Contract` family. It runs each graph its bridge sends, those of
+`reuse-fixtures.json`, through the head of `Policy.rankedPlans` and the verified immutable core
+(`Immutable.publishFresh`), and reports the selected identities, values and edges. It checks the
+compiler facts with `checkCompiled`, and checks the readback and the unchanged input frame too: no
+theorem derives `Compiled`, which `selected_published` needs, from `checkCompiled`, and none
+states the frame. -/
 
 namespace Reconcile.ContractOracle
 
@@ -18,7 +20,6 @@ structure ReuseFixture where
   deriving FromJson
 
 structure ReuseObservation where
-  name : String
   identities : Array Nat
   values : Array Nat
   edges : Array (Array Nat)
@@ -100,18 +101,12 @@ private def runFixture (fixture : ReuseFixture) : Except String ReuseObservation
     if identity < size then original else size + original
   let ids := List.range size
   return {
-    name := fixture.name
     identities := (ids.map fun i => present i images[i]!).toArray
     values := (ids.map fun i => values[i]!).toArray
     edges := (ids.map fun i =>
       (fixture.children[i]!.zip edges[i]!).map fun (c, r) => present c r).toArray
   }
 
-def run : IO Unit := do
-  let content ← IO.FS.readFile "lean/fixtures/reuse-fixtures.json"
-  let parsed := Json.parse content >>= fromJson? (α := Array ReuseFixture)
-  match parsed >>= (·.mapM runFixture) with
-  | .error error => throw (IO.userError error)
-  | .ok observations => IO.println (toJson observations).compress
+def run (input : String) : IO Unit := Protocol.serveArray input runFixture
 
 end Reconcile.ContractOracle

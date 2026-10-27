@@ -3,7 +3,14 @@ import { integerIn } from './lean-oracle'
 import { isReconcileError } from '../src/error'
 import { reconcile } from '../src/reconcile'
 
-/** A Lean key code: integer keys, names and symbols by residue, the label in the quotient. */
+/** Lean's number for a key (`Protocol.keyCode`): three times its label, plus its class, 0 for an
+ * integer key, 1 for a name and 2 for a symbol. */
+export function keyCode(keyClass: 0 | 1 | 2, label: number): number {
+  return 3 * label + keyClass
+}
+
+/** The key a Lean key number stands for (`Protocol.keyOfCode`): the integer key `label`, the name
+ * `name-label` or `symbols[label]`. */
 export function decodeKey(code: unknown, maximum: number, symbols: readonly symbol[]): PropertyKey {
   const value = integerIn(code, 0, maximum)
   const label = Math.floor(value / 3)

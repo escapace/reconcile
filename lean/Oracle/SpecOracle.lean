@@ -1,6 +1,6 @@
 import Spec.Reconcile
 import Spec.Produce
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `Spec` family: runs the executable reference models over graphs the random
 differential bridge generates. Each request names the operation and carries the graphs. -/
@@ -80,10 +80,6 @@ def answer (request : Request) : Except String Json :=
   | "snapshot" => pure (toJson (Produce.snapshot request.cur))
   | op => throw s!"unknown spec operation: {op}"
 
-def run (raw : String) : IO Unit := do
-  let json ← IO.ofExcept (Json.parse raw)
-  let requests : Array Request ← IO.ofExcept (fromJson? json)
-  let results ← IO.ofExcept (requests.mapM answer)
-  (← IO.getStdout).putStrLn (Json.arr results).compress
+def run (input : String) : IO Unit := Protocol.serveArray input answer
 
 end Reconcile.SpecOracle

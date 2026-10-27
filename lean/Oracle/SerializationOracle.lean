@@ -1,7 +1,7 @@
 import Serialization.Positional
 import Serialization.Preorder
 import Serialization.Size
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `Serialization` family: parses a `serialize` document, checks its headers and
 preorder numbering, expands it to model rows and re-emits it with the proved positional encoder,
@@ -302,13 +302,11 @@ def evaluate (request : Json) : E Json := do
   return Json.mkObj [("ok", toJson true), ("expanded", Json.mkObj [("root", root),
     ("rows", toJson (rows ++ extra.toList))]), ("reemitted", reemitted), ("words", toJson words)]
 
-def run (input : String) : IO Unit := do
-  let requests ← IO.ofExcept (Json.parse input >>= Json.getArr?)
-  let responses := requests.map fun request =>
+/-- A rejected document is an answer, not a failed request. -/
+def run (input : String) : IO Unit :=
+  Protocol.serveArray input fun request => pure <|
     match evaluate request with
     | .ok result => result
     | .error error => Json.mkObj [("ok", toJson false), ("error", toJson error)]
-  let output := ((Json.arr responses).compress.replace " " "\\u2028").replace " " "\\u2029"
-  (← IO.getStdout).putStrLn output
 
 end Reconcile.SerializationOracle

@@ -1,4 +1,5 @@
 import Produce.SpecialValues
+import Oracle.Protocol
 import Lean
 
 /-! Oracle for the `SpecialDecision` and `SpecialValues` families.
@@ -40,16 +41,13 @@ private structure DecisionRow where
 def runDecision : IO Unit := do
   let origins : List Origin := [.base, .copy, .untracked]
   let bools := [false, true]
-  let rows := origins.flatMap fun origin => bools.flatMap fun forced =>
+  let facts := origins.flatMap fun origin => bools.flatMap fun forced =>
     bools.flatMap fun dependenciesStable => bools.map fun equivalent =>
       (⟨origin, forced, dependenciesStable, equivalent⟩ : Facts)
-  IO.println rows.length
-  for f in rows do
-    let row : DecisionRow :=
-      { origin := originName f.origin, forced := f.forced,
-        dependenciesStable := f.dependenciesStable, equivalent := f.equivalent,
-        decision := decisionName (choose f), reachable := Reachable f }
-    IO.println (toJson row).compress
+  Protocol.emitCorpus facts fun f =>
+    ({ origin := originName f.origin, forced := f.forced,
+       dependenciesStable := f.dependenciesStable, equivalent := f.equivalent,
+       decision := decisionName (choose f), reachable := Reachable f } : DecisionRow)
 
 /-- How the recipe leaves a copy: unchanged, changed, or changed and restored. -/
 inductive Change where
@@ -200,11 +198,10 @@ private structure Row where
 
 /-- Every scenario with each slot's object and that object's dependency. A scenario outside `WF`
 is a corpus error. -/
-def run : IO Unit := do
-  IO.println cases.length
-  for c in cases do
+def run : IO Unit :=
+  Protocol.emitCheckedCorpus cases fun c => do
     let s := scenario c
-    unless check s do throw (IO.userError s!"scenario outside WF: {c.shape}")
+    unless check s do throw s!"scenario outside WF: {c.shape}"
     let held (i : Nat) : Bool := c.slots.any fun slot => slot.ref.index == i
     let slots := c.slots.map fun slot =>
       let obj := resolve s held slot.ref (backed slot)
@@ -216,6 +213,6 @@ def run : IO Unit := do
     let values := c.values.map fun b =>
       ({ native := b.native, dep := b.value.dep, read := b.value.read, edit := b.value.edit,
          touch := b.touch } : ValueJson)
-    IO.println (toJson ({ shape := c.shape, values, reads := c.reads, slots } : Row)).compress
+    pure ({ shape := c.shape, values, reads := c.reads, slots } : Row)
 
 end Reconcile.SpecialValuesOracle

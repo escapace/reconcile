@@ -15,7 +15,6 @@ interface GraphNode {
 interface GraphObservation {
   edges: number[][]
   identities: number[]
-  name: string
   values: number[]
 }
 
@@ -104,14 +103,15 @@ function observeCaptured(fixture: Fixture): GraphObservation {
       fixture.children[id].map((_, slot) => identity(node[`child${slot}`] as GraphNode)),
     ),
     identities: resultNodes.map(identity),
-    name: fixture.name,
     values: resultNodes.map((node) => node.value),
   }
 }
 
 export async function checkCapturedRuntime(oracle: Oracle): Promise<void> {
   const fixtures = JSON.parse(readFileSync(FIXTURES, 'utf8')) as Fixture[]
-  const expected = JSON.parse(await oracle('Contract')) as GraphObservation[]
+  const expected = JSON.parse(
+    await oracle('Contract', { input: JSON.stringify(fixtures) }),
+  ) as GraphObservation[]
   assert.deepEqual(fixtures.map(observeCaptured), expected)
   console.log(`Lean/runtime agreement: ${fixtures.length} captured graph fixtures passed.`)
 }

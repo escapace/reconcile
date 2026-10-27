@@ -1,5 +1,5 @@
 import Types.NativeWrites
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `NativeValue` family: for each fixture pair, publication under
 `Types.NativeWrites`: whether the preflight keeps the current value, whether `produce` may reuse
@@ -49,10 +49,6 @@ def evaluate (input : Input) : Except String Json := do
     ("unchanged", toJson unchanged),
     ("entries", toJson entries)])
 
-def run (input : String) : IO Unit := do
-  let json ← IO.ofExcept (Json.parse input)
-  let inputs ← IO.ofExcept (fromJson? (α := Array Input) json)
-  let results ← IO.ofExcept (inputs.mapM evaluate)
-  (← IO.getStdout).putStrLn (toJson results).compress
+def run (input : String) : IO Unit := Protocol.serveArray input evaluate
 
 end Reconcile.NativeValueOracle

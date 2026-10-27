@@ -1,5 +1,5 @@
 import Property.PropertyWrite
-import Lean
+import Oracle.Protocol
 
 /-! Oracles for the `PropertyWrite`, `PropertyConstructOn` and `PropertyThroughSetter` families:
 single-key outcomes of `reconcileKey` over every descriptor case,
@@ -8,7 +8,7 @@ new-object writes by `constructFromOn`, and a recipe's assignment through an inh
 
 namespace Reconcile.PropertyWriteOracle
 
-open Reconcile.PropertyWrite Lean
+open Reconcile.PropertyWrite Reconcile.Protocol Lean
 
 private def bools : List Bool := [false, true]
 
@@ -65,31 +65,33 @@ private structure Observation where
   ownSetterCalls : Nat
   deriving ToJson
 
+/-- The rows' own setters store the value they receive. -/
+theorem storing_stores : Storing storing := by
+  intro s v stored setter e c h
+  simp [storing, h]
+
+private def observe : Slot Nat × Nat × Bool → Observation
+  | (slot, value, proto) =>
+    let result := reconcileKey storing slot value proto
+    { own := describe slot.own
+      inherited := inheritedName slot.inherited
+      extensible := slot.extensible
+      proto
+      value
+      status := statusName result.status
+      after := describe result.slot.own
+      ownSetterCalls := result.events.count .ownSetter }
+
 /-- Every own descriptor, inherited descriptor, extensibility and written value; `__proto__`
 where an inherited accessor with a setter is what `Object.prototype` holds. No row runs an
-inherited setter (`reconcileKey_no_inherited_setter`), so the rows leave the count out. -/
-def run : IO Unit := do
-  let cases := owns.flatMap fun own => inheriteds.flatMap fun inherited =>
+inherited setter (`reconcileKey_no_inherited_setter`), so the rows leave the count out, and no row
+is rejected after writing (`reconcileKey_rejected`, and `reconcileKey_complete` with
+`storing_stores`). -/
+def run : IO Unit :=
+  emitCorpus (owns.flatMap fun own => inheriteds.flatMap fun inherited =>
     bools.flatMap fun extensible => [0, 1].flatMap fun value =>
       let protos := if own.isNone && inherited == .accessor true then bools else [false]
-      protos.map fun proto => (⟨own, inherited, extensible⟩, value, proto)
-  IO.println cases.length
-  for (slot, value, proto) in cases do
-    let result := reconcileKey storing slot value proto
-    if Event.inheritedSetter ∈ result.events then
-      throw (IO.userError "PropertyWrite oracle ran an inherited setter")
-    if result.status == .rejectedAfterWriting then
-      throw (IO.userError "PropertyWrite oracle failed a readback with storing setters")
-    let observation : Observation :=
-      { own := describe slot.own
-        inherited := inheritedName slot.inherited
-        extensible := slot.extensible
-        proto
-        value
-        status := statusName result.status
-        after := describe result.slot.own
-        ownSetterCalls := result.events.count .ownSetter }
-    IO.println (toJson observation).compress
+      protos.map ((⟨own, inherited, extensible⟩, value, ·))) observe
 
 private structure GuardedConstruction where
   /-- `custom`, `null` or `object`: the new object's prototype. -/
@@ -102,25 +104,24 @@ private structure GuardedConstruction where
   after : Descriptor
   deriving ToJson
 
+private def construct : (String × Inherited × Bool) × Nat × Bool → GuardedConstruction
+  | ((base, held, proto), value, enumerable) =>
+    let slot : Slot Nat := ⟨none, if base == "null" then .none else held, true⟩
+    let outcome := constructFromOn storing slot value (base != "custom") (held != .none) enumerable
+    { base, inherited := inheritedName held, proto, value, enumerable
+      after := describe outcome.slot.own }
+
 /-- New-object writes on a custom prototype holding each inherited descriptor, on a null
 prototype, and on `Object.prototype` holding each descriptor for the key, or its own `__proto__`
 accessor; each from an enumerable and a non-enumerable source property. Every write succeeds and
 runs no setter (`constructFromOn_data`, `constructFromOn_fresh`), so the rows give the property it
 creates. -/
-def runConstructOn : IO Unit := do
+def runConstructOn : IO Unit :=
   let bases : List (String × Inherited × Bool) :=
     (inheriteds.map fun i => ("custom", i, false)) ++ [("null", .none, false)] ++
       (inheriteds.map fun i => ("object", i, false)) ++ [("object", .accessor true, true)]
-  let cases := bases.flatMap fun b => [0, 1].flatMap fun value => bools.map fun e => (b, value, e)
-  IO.println cases.length
-  for ((base, held, proto), value, enumerable) in cases do
-    let standard := base != "custom"
-    let slot : Slot Nat := ⟨none, if base == "null" then .none else held, true⟩
-    let outcome := constructFromOn storing slot value standard (held != .none) enumerable
-    let observation : GuardedConstruction :=
-      { base, inherited := inheritedName held, proto, value, enumerable
-        after := describe outcome.slot.own }
-    IO.println (toJson observation).compress
+  emitCorpus (bases.flatMap fun base => [0, 1].flatMap fun value => bools.map (base, value, ·))
+    construct
 
 private structure SetterWrite where
   /-- `nothing`, or what the setter defines: `data` with its attributes. -/
@@ -136,15 +137,8 @@ private structure SetterWrite where
   objectAfter : Descriptor
   deriving ToJson
 
-/-- A recipe's assignment of a key the object lacks through an inherited setter that defines
-nothing or defines the key with each set of attributes, on an extensible and a non-extensible
-object: the draft's outcome and the object's (`draftThroughSetter_eq`, `_refused`). -/
-def runThroughSetter : IO Unit := do
-  let defines : List (Defines Nat) :=
-    .nothing :: ([0, 1].flatMap fun v => attrs.map fun a => .data v a)
-  let cases := defines.flatMap fun d => bools.map fun extensible => (d, extensible)
-  IO.println cases.length
-  for (d, extensible) in cases do
+private def assign : Defines Nat × Bool → SetterWrite
+  | (d, extensible) =>
     let slot : Slot Nat := ⟨none, .accessor true, extensible⟩
     -- A draft follows its object's extensibility, so a non-extensible object's draft refuses a
     -- new key as the object does (`draftSet_eq`).
@@ -153,11 +147,17 @@ def runThroughSetter : IO Unit := do
     let (name, value, a) := match d with
       | .nothing => ("nothing", 0, plain)
       | .data v a => ("data", v, a)
-    let observation : SetterWrite :=
-      { defines := name, writable := a.writable, enumerable := a.enumerable
-        configurable := a.configurable, extensible, value, ok := draft.ok
-        after := describe draft.slot.own, objectOk := object.ok
-        objectAfter := describe object.slot.own }
-    IO.println (toJson observation).compress
+    { defines := name, writable := a.writable, enumerable := a.enumerable
+      configurable := a.configurable, extensible, value, ok := draft.ok
+      after := describe draft.slot.own, objectOk := object.ok
+      objectAfter := describe object.slot.own }
+
+/-- A recipe's assignment of a key the object lacks through an inherited setter that defines
+nothing or defines the key with each set of attributes, on an extensible and a non-extensible
+object: the draft's outcome and the object's (`draftThroughSetter_eq`, `_refused`). -/
+def runThroughSetter : IO Unit :=
+  let defines : List (Defines Nat) :=
+    .nothing :: ([0, 1].flatMap fun v => attrs.map fun a => .data v a)
+  emitCorpus (defines.flatMap fun d => bools.map (d, ·)) assign
 
 end Reconcile.PropertyWriteOracle

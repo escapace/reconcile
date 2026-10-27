@@ -1,5 +1,5 @@
 import Produce.DraftClass
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `DraftClass` family: for a `Map` and a `Set` draft, each a built-in and a
 subclass instance, the prototype that owns every name on the draft's chain and the result of
@@ -7,7 +7,7 @@ subclass instance, the prototype that owns every name on the draft's chain and t
 
 namespace Reconcile.DraftClassOracle
 
-open Reconcile.DraftClass Lean
+open Reconcile.DraftClass Reconcile.Protocol Lean
 
 /-- Prototype identifiers: `Object.prototype`, `Map.prototype`, `Set.prototype`, a subclass of
 each, and the draft layer. -/
@@ -51,23 +51,23 @@ private structure Instance where
 private def names (map : Bool) : List String :=
   collectionMethods map ++ ["toStringTag", "custom"]
 
+/-- On the draft of a `Map` or a `Set`, built-in or a subclass instance: the owner of a name, or
+`instanceof` a prototype. -/
+private def observe : Bool × Bool × (String ⊕ Nat) → Json
+  | (map, subclass, query) =>
+    let chain := draftChain layer (sourceChain map subclass)
+    match query with
+    | .inl name =>
+      let owner := lookup (withLayer layer (collectionMethods map) (fun _ => layer) own) chain name
+      toJson ({ map, subclass, name, owner } : Resolution)
+    | .inr proto =>
+      toJson ({ map, subclass, proto, isInstance := instanceOf chain proto } : Instance)
+
 /-- For a `Map` and a `Set`, each as a built-in and a subclass instance: the owner of every name
 on the draft's chain (`9` is the draft layer), then `instanceof` for every prototype. -/
-def run : IO Unit := do
+def run : IO Unit :=
   let flags := [false, true]
-  let protos := [0, 1, 2, 3, 4]
-  let count := (flags.flatMap fun map => flags.map fun _ => (names map).length + protos.length).sum
-  IO.println count
-  for map in flags do
-    for subclass in flags do
-      let chain := draftChain layer (sourceChain map subclass)
-      for name in names map do
-        let row : Resolution :=
-          { map, subclass, name,
-            owner := lookup (withLayer layer (collectionMethods map) (fun _ => layer) own) chain name }
-        IO.println (toJson row).compress
-      for proto in protos do
-        let row : Instance := { map, subclass, proto, isInstance := instanceOf chain proto }
-        IO.println (toJson row).compress
+  emitCorpus (flags.flatMap fun map => flags.flatMap fun subclass =>
+    ((names map).map Sum.inl ++ [0, 1, 2, 3, 4].map Sum.inr).map (map, subclass, ·)) observe
 
 end Reconcile.DraftClassOracle

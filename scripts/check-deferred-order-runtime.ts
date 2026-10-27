@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import type { deferredKeys, deferredOrderCases } from './deferred-order-cases'
 import { bundleWithHooks, type Hook } from './esbuild'
 import type { Oracle } from './lean-oracle'
+import { keyCode } from './property-bridge-fixtures'
 import type { canPublishProperties } from '../src/types/shared/property-publication'
 
 const RECORDER = '__reconcileCursor'
@@ -70,12 +71,13 @@ export async function checkDeferredOrderRuntime(oracle: Oracle): Promise<void> {
     /property-publication\.ts$/,
     HOOKS,
   )) as Instrumented
-  // Integer keys, names and symbols by class, then the key's index; `length` is a name of its own.
-  const code = (key: PropertyKey): [number, number] => {
-    if (key === 'length') return [1, 6]
+  // Integer keys, names and symbols by class, labelled by their index; `length` is a name of its
+  // own.
+  const code = (key: PropertyKey): number => {
+    if (key === 'length') return keyCode(1, 6)
     const id = library.deferredKeys.indexOf(key)
     assert.ok(id >= 0)
-    return [id < 2 ? 0 : id < 4 ? 1 : 2, id]
+    return keyCode(id < 2 ? 0 : id < 4 ? 1 : 2, id)
   }
   const traces: Trace[] = []
   const errors: boolean[] = []

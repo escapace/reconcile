@@ -42,7 +42,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "SerializationCollection" => SerializationCollectionOracle.run request.input
   | "OwnedNativeChild" => OwnedNativeChildOracle.run request.input
   | "NativeValue" => NativeValueOracle.run request.input
-  | "Contract" => ContractOracle.run
+  | "Contract" => ContractOracle.run request.input
   | "PropertyOrder" => PropertyOrderOracle.run
   | "PropertyWrite" => PropertyWriteOracle.run
   | "PropertyConstructOn" => PropertyWriteOracle.runConstructOn
@@ -71,7 +71,7 @@ private def dispatch (request : Request) : IO Unit := do
 
 private def finish (error : Option String) : IO Unit := do
   let output ← IO.getStdout
-  output.putStrLn (String.singleton (Char.ofNat 30) ++ (toJson error).compress)
+  output.putStrLn (String.singleton (Char.ofNat 30) ++ Protocol.line (toJson error))
   output.flush
 
 def serve : IO Unit := do

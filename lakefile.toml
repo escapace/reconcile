@@ -29,6 +29,8 @@ roots = [
   "Spec.Produce",
   "Spec.Promises",
   "Spec.Discovery",
+  "Oracle.Enumerate",
+  "Oracle.Protocol",
   "Oracle.SpecOracle",
   "Serialization.Collection",
   "Oracle.SerializationCollectionOracle",

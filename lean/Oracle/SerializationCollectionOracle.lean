@@ -1,5 +1,5 @@
 import Serialization.Collection
-import Lean
+import Oracle.Protocol
 
 /-! Oracle for the `SerializationCollection` family: resolves a `map` or `set` facet request with
 `SerializationCollection`'s `resolvedMap` or `resolvedSet`, reporting the entries, the reads and
@@ -32,8 +32,6 @@ def evaluate (request : Request) : Json := Id.run do
     return Json.mkObj [("entries", toJson result.keys), ("reads", toJson result.trace.reads),
       ("error", toJson result.trace.error)]
 
-def run (input : String) : IO Unit := do
-  let requests ← IO.ofExcept (Json.parse input >>= fromJson? (α := List Request))
-  (← IO.getStdout).putStrLn (toJson (requests.map evaluate)).compress
+def run (input : String) : IO Unit := Protocol.serveArray input (pure ∘ evaluate)
 
 end Reconcile.SerializationCollectionOracle

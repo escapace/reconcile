@@ -1,5 +1,6 @@
 import Produce.DraftSurface
-import Lean
+import Oracle.Enumerate
+import Oracle.Protocol
 
 /-! Oracle for the `DraftSurface` family: the admission of every draft kind and key class, and
 whether `produce` keeps an object or array with one or two getters, changed or not, under
@@ -8,7 +9,7 @@ whether `produce` keeps an object or array with one or two getters, changed or n
 
 namespace Reconcile.DraftSurfaceOracle
 
-open Reconcile.DraftSurface Lean
+open Reconcile.DraftSurface Reconcile.Enumerate Reconcile.Protocol Lean
 
 private def kinds : List Kind := [.object, .array, .collection, .typed, .native]
 private def keys : List Key := [.index, .length, .other]
@@ -29,21 +30,15 @@ private structure Keeping where
 
 /-- Every kind and key class with its admission, then every object and array with one or two
 getters, changed or not, with whether `produce` keeps it. Indices follow the lists above. -/
-def run : IO Unit := do
-  let lists := returns.map ([·]) ++ returns.flatMap fun a => returns.map fun b => [a, b]
-  let holders := kinds.filter holdsGetters
-  IO.println (kinds.length * keys.length + holders.length * 2 * lists.length)
-  for kind in kinds do
-    for key in keys do
-      let row : Admission :=
-        { kind := kinds.idxOf kind, key := keys.idxOf key, admits := admits kind key }
-      IO.println (toJson row).compress
-  for kind in holders do
-    for dataChanged in [false, true] do
-      for returned in lists do
-        let row : Keeping :=
-          { kind := kinds.idxOf kind, dataChanged, returned := returned.map returns.idxOf,
-            keeps := keeps dataChanged returned }
-        IO.println (toJson row).compress
+def run : IO Unit :=
+  emitCorpus ((kinds.flatMap fun kind => keys.map fun key => Sum.inl (kind, key)) ++
+    ((kinds.filter holdsGetters).flatMap fun kind => [false, true].flatMap fun dataChanged =>
+      (wordsUpTo 2 returns).tail.map fun returned => Sum.inr (kind, dataChanged, returned)))
+    fun
+    | .inl (kind, key) => toJson
+      ({ kind := kinds.idxOf kind, key := keys.idxOf key, admits := admits kind key } : Admission)
+    | .inr (kind, dataChanged, returned) => toJson
+      ({ kind := kinds.idxOf kind, dataChanged, returned := returned.map returns.idxOf,
+         keeps := keeps dataChanged returned } : Keeping)
 
 end Reconcile.DraftSurfaceOracle
