@@ -29,45 +29,69 @@ const primitive = (value: number): Child => ({ primitive: value })
 /** The key of slot `index` of an object; letters keep insertion order as own-key order. */
 const keyOf = (index: number): string => String.fromCharCode(97 + index)
 
+/** The key of slot `position` of an object or array. */
+const slotKey = (node: Node, position: number): string =>
+  node.kind === 'array' ? String(position) : keyOf(position)
+
+/** The getter calls, logged as `node.key` while `recording` is set. */
+interface Log {
+  calls: string[]
+  recording: boolean
+}
+
+/** An empty node of each kind. */
+const empty: Readonly<Record<Node['kind'], () => unknown>> = {
+  array: () => [],
+  map: () => new Map(),
+  object: () => ({}),
+  set: () => new Set(),
+}
+
+/** Adds a `Map`'s entries, from its slots in key and value pairs, or a `Set`'s members. */
+function fillCollection(
+  target: Map<unknown, unknown> & Set<unknown>,
+  node: Node,
+  resolve: (child: Child) => unknown,
+): void {
+  if (node.kind === 'map')
+    for (let slot = 0; slot + 1 < node.slots.length; slot += 2)
+      target.set(resolve(node.slots[slot].child), resolve(node.slots[slot + 1].child))
+  else for (const slot of node.slots) target.add(resolve(slot.child))
+}
+
+/** Defines the slots of object or array `index`; each getter logs `index.key`. */
+function fillProperties(
+  target: Record<string, unknown>,
+  index: number,
+  node: Node,
+  resolve: (child: Child) => unknown,
+  log: Log,
+): void {
+  for (const [position, slot] of node.slots.entries()) {
+    const key = slotKey(node, position)
+    const label = `${index}.${key}`
+    if (slot.getter)
+      Object.defineProperty(target, key, {
+        configurable: true,
+        enumerable: true,
+        get() {
+          if (log.recording) log.calls.push(label)
+          return resolve(slot.child)
+        },
+      })
+    else target[key] = resolve(slot.child)
+  }
+}
+
 /** Builds the graph; each getter logs `node.key` while `log.recording` is set. */
-function build(nodes: readonly Node[], log: { calls: string[]; recording: boolean }): unknown[] {
-  const built: unknown[] = nodes.map((node) =>
-    node.kind === 'object'
-      ? {}
-      : node.kind === 'array'
-        ? []
-        : node.kind === 'map'
-          ? new Map()
-          : new Set(),
-  )
+function build(nodes: readonly Node[], log: Log): unknown[] {
+  const built = nodes.map((node) => empty[node.kind]())
   const resolve = (child: Child): unknown =>
     typeof child === 'number' ? built[child] : child.primitive
-  for (const [index, node] of nodes.entries()) {
-    const target = built[index] as Map<unknown, unknown> & Record<string, unknown> & Set<unknown>
-    if (node.kind === 'map') {
-      for (let slot = 0; slot + 1 < node.slots.length; slot += 2)
-        target.set(resolve(node.slots[slot].child), resolve(node.slots[slot + 1].child))
-      continue
-    }
-    if (node.kind === 'set') {
-      for (const slot of node.slots) target.add(resolve(slot.child))
-      continue
-    }
-    for (const [position, slot] of node.slots.entries()) {
-      const key = node.kind === 'array' ? String(position) : keyOf(position)
-      const label = `${index}.${key}`
-      if (slot.getter)
-        Object.defineProperty(target, key, {
-          configurable: true,
-          enumerable: true,
-          get() {
-            if (log.recording) log.calls.push(label)
-            return resolve(slot.child)
-          },
-        })
-      else target[key] = resolve(slot.child)
-    }
-  }
+  for (const [index, node] of nodes.entries())
+    if (node.kind === 'map' || node.kind === 'set')
+      fillCollection(built[index] as Map<unknown, unknown> & Set<unknown>, node, resolve)
+    else fillProperties(built[index] as Record<string, unknown>, index, node, resolve, log)
   return built
 }
 
@@ -97,13 +121,38 @@ function depthFirst(nodes: readonly Node[], built: readonly unknown[]): string[]
     entered.add(index)
     const node = nodes[index]
     for (const [position, slot] of listed(nodes, built, index).entries()) {
-      if (slot.getter)
-        order.push(`${index}.${node.kind === 'array' ? String(position) : keyOf(position)}`)
+      if (slot.getter) order.push(`${index}.${slotKey(node, position)}`)
       if (typeof slot.child === 'number' && !entered.has(slot.child)) enter(slot.child)
     }
   }
   enter(0)
   return order
+}
+
+/** The steps from node `index` to its children through an object, an array or a `Map`'s values:
+ * each a property key or a `Map` key, with the child it leads to. */
+function steps(
+  nodes: readonly Node[],
+  built: readonly unknown[],
+  index: number,
+): Array<[unknown, Child]> {
+  const node = nodes[index]
+  if (node.kind === 'set') return []
+  if (node.kind !== 'map')
+    return node.slots.map((slot, position) => [slotKey(node, position), slot.child])
+  const found: Array<[unknown, Child]> = []
+  for (const [key, value] of built[index] as Map<unknown, unknown>) {
+    const at = built.indexOf(value)
+    if (at !== -1) found.push([key, at])
+  }
+  return found
+}
+
+/** The keys from node 0 to `target`, following each node's parent back. */
+function unwind(parents: ReadonlyMap<number, [number, unknown]>, target: number): unknown[] {
+  const path: unknown[] = []
+  for (let at = target; at !== 0; at = parents.get(at)![0]) path.unshift(parents.get(at)![1])
+  return path
 }
 
 /** The keys that lead from node 0 to `target` through objects, arrays and `Map` values: a
@@ -118,22 +167,8 @@ function pathTo(
   const reached = new Set([0])
   while (queue.length > 0) {
     const index = queue.shift()!
-    if (index === target) {
-      const path: unknown[] = []
-      for (let at = target; at !== 0; at = parents.get(at)![0]) path.unshift(parents.get(at)![1])
-      return path
-    }
-    const node = nodes[index]
-    const steps: Array<[unknown, Child]> = []
-    if (node.kind === 'map')
-      for (const [key, value] of built[index] as Map<unknown, unknown>) {
-        const at = built.indexOf(value)
-        if (at !== -1) steps.push([key, at])
-      }
-    else if (node.kind !== 'set')
-      for (const [position, slot] of node.slots.entries())
-        steps.push([node.kind === 'array' ? String(position) : keyOf(position), slot.child])
-    for (const [key, child] of steps) {
+    if (index === target) return unwind(parents, target)
+    for (const [key, child] of steps(nodes, built, index)) {
       if (typeof child !== 'number' || reached.has(child)) continue
       reached.add(child)
       parents.set(child, [index, key])
@@ -269,25 +304,42 @@ function random(seed: number): () => number {
   }
 }
 
+/** A random integer from 0 to `count - 1`. */
+const pick = (next: () => number, count: number): number => Math.floor(next() * count)
+
+const kinds = ['object', 'object', 'object', 'array', 'array', 'map', 'set'] as const
+
+/** A random slot of a node of `kind` among `size` nodes; only an object's or array's can be a
+ * getter. */
+function randomSlot(next: () => number, kind: Node['kind'], size: number): Slot {
+  const child = next() < 0.6 ? pick(next, size) : primitive(pick(next, 3))
+  const accessor = (kind === 'object' || kind === 'array') && next() < 0.4
+  return accessor ? getter(child) : data(child)
+}
+
+/** A random node `index` among `size` nodes; node 0 is more often an object, and a `Map`'s slots
+ * come in key and value pairs. */
+function randomNode(next: () => number, index: number, size: number): Node {
+  const kind = index === 0 && next() < 0.7 ? 'object' : kinds[pick(next, kinds.length)]
+  const count = kind === 'map' ? 2 * pick(next, 3) : pick(next, 4)
+  const slots: Slot[] = []
+  for (let slot = 0; slot < count; slot += 1) slots.push(randomSlot(next, kind, size))
+  return { kind, slots }
+}
+
+/** A random graph of one to six nodes. */
+function randomGraph(next: () => number): Node[] {
+  const size = 1 + pick(next, 6)
+  const nodes: Node[] = []
+  for (let index = 0; index < size; index += 1) nodes.push(randomNode(next, index, size))
+  return nodes
+}
+
 it('calls the getters of random graphs with sharing and cycles once, in depth-first order', () => {
-  const kinds = ['object', 'object', 'object', 'array', 'array', 'map', 'set'] as const
   for (let seed = 1; seed <= 300; seed += 1) {
     const next = random(seed)
-    const pick = (count: number): number => Math.floor(next() * count)
-    const size = 1 + pick(6)
-    const nodes: Node[] = []
-    for (let index = 0; index < size; index += 1) {
-      const kind = index === 0 && next() < 0.7 ? 'object' : kinds[pick(kinds.length)]
-      const count = kind === 'map' ? 2 * pick(3) : pick(4)
-      const slots: Slot[] = []
-      for (let slot = 0; slot < count; slot += 1) {
-        const child = next() < 0.6 ? pick(size) : primitive(pick(3))
-        const accessor = (kind === 'object' || kind === 'array') && next() < 0.4
-        slots.push(accessor ? getter(child) : data(child))
-      }
-      nodes.push({ kind, slots })
-    }
+    const nodes = randomGraph(next)
     check(nodes, undefined, `seed ${seed}, unchanged`)
-    check(nodes, pick(size), `seed ${seed}, changed`)
+    check(nodes, pick(next, nodes.length), `seed ${seed}, changed`)
   }
 })

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { checkRealChains } from './check-atoms-runtime'
-import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
+import { integerIn, jsonBoolean, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { publicationTypes } from '../src/types/builtins'
 import { orderedScan, recognitionOrder } from './recognition-scan'
 
@@ -97,18 +97,22 @@ export function attempt(run: () => unknown): unknown {
   }
 }
 
+/** Narrows one row field to a list with an entry for each ranked kind. */
+function perRank(value: unknown): unknown[] {
+  assert.ok(Array.isArray(value) && value.length === ranked.length)
+  return value
+}
+
 /** Each known-kind check on a fresh object matches Lean's recognition bounded at that rank, the
  * error it raises included. */
 function checkKnown(row: Record<string, unknown>, depth: number, tail: number, view: View): void {
-  const { known, knownRaised } = row
-  assert.ok(Array.isArray(known) && known.length === ranked.length)
-  assert.ok(Array.isArray(knownRaised) && knownRaised.length === ranked.length)
+  const known = perRank(row.known)
+  const knownRaised = perRank(row.knownRaised)
   for (const [index, expected] of known.entries()) {
     const matched = attempt(() =>
       publicationTypes.matches(ranked[index], build(depth, tail, view, { count: 0, own: 0 })),
     )
-    const raised = knownRaised[index] as unknown
-    assert.ok(typeof raised === 'boolean')
+    const raised = jsonBoolean(knownRaised[index])
     assert.equal(matched, raised ? thrown : expected, `known-kind check at rank ${index + 1}`)
   }
 }
@@ -135,21 +139,28 @@ function checkReads(
   assert.equal(reads.count, expected, 'reads of its custom prototypes')
 }
 
+/** Whether a view is a typed array over a recognized buffer. */
+const typedOverRecognized = (view: View): boolean => view.typed && !view.foreign && !view.raises
+
 /** The custom prototypes' reads of the scan's walk for `DataView` in the typed-array probe, which
  * the failed `DataView` probe already decided: one per custom prototype once that probe runs its
  * walks, for a typed array over a recognized buffer. */
 function repeated(row: Record<string, unknown>, view: View): number {
-  const walks = view.typed && !view.foreign && !view.raises && (row.selected as number) >= 6
+  const walks = typedOverRecognized(view) && (row.selected as number) >= 6
   return walks ? (row.depth as number) : 0
 }
 
-/** The view a row describes; a typed array also holds the view brand. */
+/** The view a row describes; a typed array also holds the view brand, and only a branded object
+ * has a raising buffer. */
 function viewOf(row: Record<string, unknown>): View {
-  const { brand, bufferRaises: raises, foreign, typed } = row
-  assert.ok(typeof brand === 'boolean' && typeof foreign === 'boolean')
-  assert.ok(typeof raises === 'boolean' && (brand || !raises))
-  assert.ok(typeof typed === 'boolean' && (brand || !typed))
-  return { brand, foreign, raises, typed }
+  const view = {
+    brand: jsonBoolean(row.brand),
+    foreign: jsonBoolean(row.foreign),
+    raises: jsonBoolean(row.bufferRaises),
+    typed: jsonBoolean(row.typed),
+  }
+  assert.ok(view.brand || (!view.raises && !view.typed))
+  return view
 }
 
 /** Compares one Lean recognition with the runtime recognizer, its reads and each known-kind

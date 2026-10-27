@@ -391,11 +391,10 @@ type Counts = Array<[number, [string, number]]>
 /** Counts labelled like `getterCounts`, the counts of each label added up. */
 function labelled(prefix: string, ...lists: Array<Counts | undefined>): Map<string, number> {
   const counts = new Map<string, number>()
-  for (const list of lists)
-    for (const [index, [k, n]] of list ?? []) {
-      const label = `${prefix} ${index}.${k}`
-      counts.set(label, (counts.get(label) ?? 0) + n)
-    }
+  for (const [index, [k, n]] of lists.flatMap((list) => list ?? [])) {
+    const label = `${prefix} ${index}.${k}`
+    counts.set(label, (counts.get(label) ?? 0) + n)
+  }
   return counts
 }
 
@@ -812,6 +811,13 @@ const childValues: ByKind<[], Value[]> = {
   view: (n) => [n.buffer],
 }
 
+/** The values of node `id` in the order `serialize` visits them, each with the getter, as
+ * `<node>.<key>`, that runs as its key is read: none, or one for an object's accessor. */
+function visits(node: GraphNode, id: number): Array<[getters: string[], value: Value]> {
+  if (node.kind !== 'object') return byKind(childValues, node).map((child) => [[], child])
+  return node.fields.map(([key, slot]) => ['get' in slot ? [`${id}.${key}`] : [], slotValue(slot)])
+}
+
 /** The getter runs `serialize` makes, as `<node>.<key>`: depth first from the root, each node's
  * values in order, a getter run as its key is read, before its value is visited. */
 function getterOrder(graph: Graph): string[] {
@@ -820,13 +826,10 @@ function getterOrder(graph: Graph): string[] {
   const visit = (v: Value): void => {
     if (!isReference(v) || seen.has(v.ref)) return
     seen.add(v.ref)
-    const node = graph.nodes[v.ref]
-    if (node.kind === 'object')
-      for (const [key, slot] of node.fields) {
-        if ('get' in slot) order.push(`${v.ref}.${key}`)
-        visit(slotValue(slot))
-      }
-    else for (const child of byKind(childValues, node)) visit(child)
+    for (const [getters, child] of visits(graph.nodes[v.ref], v.ref)) {
+      order.push(...getters)
+      visit(child)
+    }
   }
   visit(graph.root)
   return order
@@ -846,6 +849,27 @@ function roundTrip(value: unknown): { refused: boolean; result: unknown } {
   return { refused, result: deserialize(JSON.parse(text), { maxBytes }) }
 }
 
+/** Whether an accessor of the source ran other than as one getter call. */
+const misread = (count: { get: number; set: number }): boolean => count.get !== 1 || count.set !== 0
+
+/** Reports each getter of the source that did not run exactly once, and each setter that ran. */
+function sourceAccessorReports(
+  seed: number,
+  counters: Counters,
+  objects: readonly object[],
+): Report[] {
+  const reports: Report[] = []
+  for (const [o, byKey] of counters)
+    for (const [key, count] of byKey)
+      if (misread(count))
+        reports.push({
+          detail: `${objects.indexOf(o)}.${key}: ${count.get} gets, ${count.set} sets`,
+          kind: 'getters',
+          seed,
+        })
+  return reports
+}
+
 /** Reports each getter of the source that did not run exactly once, each setter that ran, and a
  * getter order other than depth first. */
 function reportSourceReads(
@@ -855,19 +879,16 @@ function reportSourceReads(
   calls: readonly string[],
   graph: Graph,
 ): Report[] {
-  const reports: Report[] = []
-  for (const [o, byKey] of counters)
-    for (const [key, count] of byKey)
-      if (count.get !== 1 || count.set !== 0)
-        reports.push({
-          detail: `${objects.indexOf(o)}.${key}: ${count.get} gets, ${count.set} sets`,
-          kind: 'getters',
-          seed,
-        })
+  const reports = sourceAccessorReports(seed, counters, objects)
   const order = getterOrder(graph).join(' ')
   if (calls.join(' ') !== order)
     reports.push({ detail: `runtime ${calls.join(' ')}\nmodel ${order}`, kind: 'getters', seed })
   return reports
+}
+
+/** Sets every getter count to zero. */
+function resetGets(counters: Counters): void {
+  for (const byKey of counters.values()) for (const count of byKey.values()) count.get = 0
 }
 
 /** Runs one graph through `serialize`, JSON text and `deserialize`, and compares the restored
@@ -886,7 +907,7 @@ function compareRoundTrip(seed: number, graph: Graph, expected: Outcome): Report
   )
   const value = toJs(graph.root, objects)
   const before = stable(recapture(value, objects))
-  for (const byKey of counters.values()) for (const count of byKey.values()) count.get = 0
+  resetGets(counters)
   calls.length = 0
   const run = attempt(() => roundTrip(value))
   if ('error' in run) return [errorReport(seed, run.error)]
@@ -900,7 +921,7 @@ function compareRoundTrip(seed: number, graph: Graph, expected: Outcome): Report
   return reports
 }
 
-export const roundTripCheck: Check<Graph> = {
+const roundTripCheck: Check<Graph> = {
   compare: compareRoundTrip,
   generate: (seed, options) => serializableGraph(genCase(seed, options).cur),
   request: (graph) => ({ cur: graph, op: 'snapshot' }),

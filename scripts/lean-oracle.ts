@@ -116,6 +116,12 @@ export function jsonObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+/** Narrows one decoded oracle value to a boolean. */
+export function jsonBoolean(value: unknown): boolean {
+  assert.ok(typeof value === 'boolean')
+  return value
+}
+
 /** Narrows one decoded oracle value to an integer within inclusive bounds. */
 export function integerIn(value: unknown, minimum: number, maximum: number): number {
   assert.ok(typeof value === 'number' && Number.isSafeInteger(value))

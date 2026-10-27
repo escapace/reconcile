@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { checkRealChains } from './check-atoms-runtime'
-import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
+import { integerIn, jsonBoolean, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
 import { recognize } from '../src/adapters/recognition'
 import { ATOM_KIND } from '../src/constants'
 import type { PrototypeRead } from '../src/types'
@@ -75,21 +75,30 @@ function expectedKind(row: Record<string, unknown>): unknown {
   return ranked[integerIn(row.rank, 1, 9) - 1]
 }
 
+/** The typed array a row describes, if any; only a branded object has a foreign or raising
+ * buffer. */
+function brandOf(row: Record<string, unknown>): Brand {
+  const view = {
+    brand: jsonBoolean(row.brand),
+    foreign: jsonBoolean(row.foreign),
+    raises: jsonBoolean(row.bufferRaises),
+  }
+  assert.ok(view.brand || (!view.foreign && !view.raises))
+  return view
+}
+
 /** Compares one Lean ingress with the runtime, sharing the prototype read and not. */
 function checkRow(row: Record<string, unknown>): boolean {
   const depth = integerIn(row.depth, 0, 2)
   const tail = integerIn(row.tail, 0, tails.length - 1)
-  const { brand, bufferRaises: raises, foreign } = row
-  assert.ok(typeof brand === 'boolean' && typeof foreign === 'boolean')
-  assert.ok(typeof raises === 'boolean' && (brand || (!foreign && !raises)))
-  const view = { brand, foreign, raises }
+  const view = brandOf(row)
   const shared = ingress(depth, tail, view, { known: false, prototype: null })
   const separate = ingress(depth, tail, view, undefined)
   const kind = expectedKind(row)
   assert.equal(shared.kind, kind, 'kind with the prototype read shared')
   assert.equal(separate.kind, kind, 'kind with a separate atom split')
   // A branded object cannot be proxied, so only a proxied object reports its own reads.
-  if (!brand) {
+  if (!view.brand) {
     assert.equal(shared.reads.own, integerIn(row.shared, 0, 2), 'own reads, shared')
     assert.equal(separate.reads.own, integerIn(row.separate, 0, 2), 'own reads, separate')
   }
