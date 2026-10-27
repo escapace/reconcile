@@ -20,6 +20,8 @@ const config = mergeConfig(
       sequence: {
         hooks: 'list',
       },
+      // The longest seeded batches and child-process drivers take up to a minute alone.
+      testTimeout: 120_000,
     },
   }),
 ) as ViteUserConfig

@@ -46,7 +46,7 @@ describe('deterministic public API fuzz regressions', () => {
         assert.equal(current.child.count, 0)
       })
     }
-  }, 60_000)
+  })
 
   it.each(['mixed', 'dates', 'special mutation'] as const)(
     'preserves %s graph topology and finalized values',
@@ -129,7 +129,7 @@ describe('deterministic public API fuzz regressions', () => {
         }
       })
     }
-  }, 60_000)
+  })
 
   it('retains the independently computed fixed point in 2,000 twelve-node object/Map graphs', () => {
     const random = randomSource(93_127)
@@ -182,7 +182,7 @@ describe('deterministic public API fuzz regressions', () => {
         assert.equal(next === current, !changed.some(Boolean))
       })
     }
-  }, 60_000)
+  })
 
   it('matches exhaustive greatest reuse across 4,096 three-node graph/edit-mask cases', () => {
     let cases = 0
@@ -194,7 +194,7 @@ describe('deterministic public API fuzz regressions', () => {
         cases += 1
       }
     assert.equal(cases, 4096)
-  }, 60_000)
+  })
 
   it('preserves 384 native attribute combinations, cyclic aliases, and held-draft isolation', () => {
     const configurations = attributeConfigurations()
@@ -248,7 +248,7 @@ describe('deterministic public API fuzz regressions', () => {
             cases += 1
           }
     assert.equal(cases, 384)
-  }, 60_000)
+  })
 
   it('preserves array observation semantics in 248 accessor/hole/edit/undo cases', () => {
     let cases = 0
@@ -262,7 +262,7 @@ describe('deterministic public API fuzz regressions', () => {
             cases += 1
           }
     assert.equal(cases, 248)
-  }, 60_000)
+  })
 })
 
 function checkTinyGraphReuse(graph: number, changed: number): void {

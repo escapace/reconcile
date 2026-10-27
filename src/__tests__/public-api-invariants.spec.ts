@@ -72,7 +72,7 @@ describe('in hardened runtimes', () => {
     const output = await runDriver('invariants-hardened.ts', ['--frozen-intrinsics'])
     assert.ok(output.cases > 100, `${output.cases} cases`)
     assert.deepEqual(output.failures, [])
-  }, 120_000)
+  })
 
   it('holds under SES lockdown with severe override taming', async () => {
     const output = await runDriver('invariants-hardened.ts', [], {
@@ -81,5 +81,5 @@ describe('in hardened runtimes', () => {
     })
     assert.ok(output.frozen && output.cases > 100, `${output.cases} cases`)
     assert.deepEqual(output.failures, [])
-  }, 120_000)
+  })
 })

@@ -41,7 +41,7 @@ describe('deterministic public API fuzz regressions', () => {
         assert.isTrue(graphsEqual(expected, published))
       })
     }
-  }, 60_000)
+  })
 
   it('matches 2,000 native sequences of 30 raw and draft-key operations', () => {
     const random = randomSource(438_772, 8)
@@ -70,7 +70,7 @@ describe('deterministic public API fuzz regressions', () => {
         assert.isTrue(graphsEqual(b.root, published))
       })
     }
-  }, 60_000)
+  })
 
   // Compare recipe-time reflection and failures against an independently mutated native
   // counterpart. Array metadata outside indexed elements is tested here as draft state, not as a
@@ -176,7 +176,7 @@ describe('deterministic public API fuzz regressions', () => {
       assert.deepEqual(observedDescriptors(current), before)
       assert.deepEqual(observedDescriptors(base), before)
     }
-  }, 60_000)
+  })
 
   it('matches 10,978 native minimum-deletion and fixed-property feasibility cases', () => {
     let cases = 0
@@ -189,7 +189,7 @@ describe('deterministic public API fuzz regressions', () => {
         for (const after of all) cases += checkDeletionOrders(universe, before, after)
     }
     assert.equal(cases, 10_978)
-  }, 60_000)
+  })
 
   it.each([false, true])(
     'handles 140,000 distinct parents without an argument-limit failure (undo: %s)',

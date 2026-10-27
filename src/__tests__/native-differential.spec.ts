@@ -22,12 +22,12 @@ function runSeeds(name: string, check: (seed: number) => string | undefined): vo
 
 it(`matches native mutation of a plain copy in ${SEEDS} seeded produce recipes`, () => {
   runSeeds('produce', (seed) => checkProduceCase(seed, produce))
-}, 60_000)
+})
 
 it(`matches a plain copy of next in ${SEEDS} seeded reconcile calls`, () => {
   runSeeds('reconcile', (seed) => checkReconcileCase(seed, reconcile))
-}, 60_000)
+})
 
 it(`matches the produce result in ${SEEDS} seeded recipes applied in place`, () => {
   runSeeds('recipe in place', (seed) => checkRecipeInPlaceCase(seed, produce, reconcile))
-}, 60_000)
+})

@@ -7,4 +7,4 @@ it('stops a timed-out process tree and rejects an invalid budget', () => {
   expect(
     execFileSync('python3', ['scripts/test-bounded-check.py'], { cwd: root, encoding: 'utf8' }),
   ).toContain('invalid budget rejected')
-}, 30_000)
+})
