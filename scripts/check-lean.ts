@@ -13,6 +13,7 @@ import { checkAtomsRuntime } from './check-atoms-runtime'
 import { checkIngressRuntime } from './check-ingress-runtime'
 import { checkRecognitionPlainRuntime } from './check-recognition-plain-runtime'
 import { checkSettledChildrenRuntime } from './check-settled-children-runtime'
+import { checkSpecialValuesRuntime } from './check-special-values-runtime'
 import { checkWriteFreeReadbackRuntime } from './check-write-free-readback-runtime'
 import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
 import { checkDraftSurfaceRuntime } from './check-draft-surface-runtime'
@@ -51,6 +52,7 @@ try {
   await checkRecognitionPlainRuntime(oracle.run)
   await checkIngressRuntime(oracle.run)
   await checkSettledChildrenRuntime(oracle.run)
+  await checkSpecialValuesRuntime(oracle.run)
   await checkWriteFreeReadbackRuntime(oracle.run)
   await checkDraftSurfaceRuntime(oracle.run)
   await checkDraftClassRuntime(oracle.run)

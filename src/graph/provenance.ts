@@ -7,7 +7,8 @@ import { SPECIAL_REPLACEMENT } from '../constants'
  * @remarks
  * Registered copies restore only their explicit base. Other sources, from `current` or from
  * outside it, stay themselves when no linked owner forces a clone and their dependencies and
- * copy agree; identity selection is a later decision. The origin of the slot does not decide it.
+ * copy agree; identity selection is a later decision. The origin of the slot does not decide it
+ * (Produce.SpecialValues.choose).
  */
 export function chooseSpecial(facts: SpecialFacts): SpecialDecision {
   if (facts.origin === 'copy') return facts.equivalent ? 'base' : 'source'

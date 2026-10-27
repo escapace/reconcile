@@ -11,6 +11,7 @@ import Oracle.AtomsOracle
 import Oracle.RecognitionPlainOracle
 import Oracle.IngressOracle
 import Oracle.SettledChildrenOracle
+import Oracle.SpecialValuesOracle
 import Oracle.WriteFreeReadbackOracle
 import Oracle.DraftSurfaceOracle
 import Oracle.DraftClassOracle
@@ -56,6 +57,8 @@ private def dispatch (request : Request) : IO Unit := do
   | "DraftClass" => DraftClassOracle.run
   | "DraftIteration" => DraftIterationOracle.run
   | "SettledChildren" => SettledChildrenOracle.run
+  | "SpecialDecision" => SpecialValuesOracle.runDecision
+  | "SpecialValues" => SpecialValuesOracle.run
   | "DraftMembers" => DraftMembersOracle.run
   | "DraftSetMethods" => DraftSetMethodsOracle.run
   | "CopyPrototype" => CopyPrototypeOracle.run

@@ -281,7 +281,8 @@ export class Finalization extends Detached {
     })
   }
 
-  /** Collects the native equivalence and provenance facts for a special value's decision. */
+  /** Collects the native equivalence and provenance facts for a special value's decision
+   * (Produce.SpecialValues.factsWith). */
   private specialFacts(
     value: object,
     copyBase: object | undefined,
@@ -397,7 +398,8 @@ export class Finalization extends Detached {
     return this.materializeSpecial(value, copyBase, copy, policy)
   }
 
-  /** Applies a special value's proven provenance decision before observing copy dependencies. */
+  /** Applies a special value's proven provenance decision before observing copy dependencies
+   * (Produce.SpecialValues.resolveWith). */
   private materializeSpecial(
     value: object,
     copyBase: object | undefined,
@@ -530,7 +532,9 @@ export class Finalization extends Detached {
     return own === undefined ? properties.read(key) : properties.ownValue(key, own)
   }
 
-  /** Runs an accessor once per base and key through the draft receiver, then reuses its result. */
+  /** Runs an accessor once per base and key through the draft receiver, then reuses its result,
+   * so the probe and discovery together run each getter once, in depth-first order
+   * (Produce.GetterOrder). */
   private observeAccessor(value: object, key: PropertyKey, knownState?: DraftState): unknown {
     const receiver = knownState?.handle ?? this.session.materializeChild(value)
     const state = knownState ?? this.session.statesByIdentity.get(receiver)!
