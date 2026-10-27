@@ -67,19 +67,23 @@ import { publicationTypes } from './types/builtins'
  * An object in `next` that is already the object at the same property or index of the matched
  * current object stays in place: `reconcile` reads its contents as part of `next` and does not
  * change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects
- * inside an object that stays also stay, and `current` usually ends with the same contents as if
- * each of them had been updated.
+ * inside an object that stays also stay, and a successful call leaves `current` with the same
+ * contents as if each of them had been updated.
  *
- * A key, value or member of a `Map` or `Set`, and anything inside one, is never already in place.
- * An object does not stay when it is a buffer, view or `URLSearchParams`, when it refers to
- * `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads
- * `next`, at a position where it is not already in place, unless it is inside another object that
- * stays. An object that does not stay is updated like any other. An object that stays is exempt
- * from the rules above for one object at two positions: it keeps its position, `current` also
- * holds it wherever else `next` places it, and a `URLSearchParams` that stays brings along the URL
- * of `next` that owns it. Where an object inside `current` cannot hold such an object, that object
- * is replaced; where `current` itself cannot, the call throws `PublicationRejected`. Otherwise
- * only which objects `current` holds can differ from those rules, not its contents.
+ * An object does not stay when it refers to `current` or `next` at any depth. Nor does it stay,
+ * unless it is inside another object that stays, when it is a buffer, view, URL or
+ * `URLSearchParams`, or when `next` holds it first, in the order `reconcile` reads `next`, at a
+ * position where it is not already in place. An object is never already in place as a key, value
+ * or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is updated
+ * like any other.
+ *
+ * An object that stays is exempt from the rules above for one object at two positions: it keeps
+ * its position, and `current` also holds it wherever else `next` places it. When a
+ * `URLSearchParams` stays, `current` also holds the URL that owns it wherever `next` places that
+ * URL. An object inside `current` that cannot hold one of these objects, such as a frozen object,
+ * is replaced by a new object; if `current` itself cannot, the call throws `PublicationRejected`.
+ * When the call succeeds, only which objects `current` holds can differ from those rules, not the
+ * contents it ends with.
  *
  * `reconcile` runs each getter of an object that stays once, as part of `next`, unless `current`
  * or `next` also holds the object, or an object that contains it, at another position, including

@@ -71,9 +71,9 @@ export interface ReconcileErrorMetadata {
    */
   FinalizationAccessorUnstable: { property: PropertyKey }
   /**
-   * No consistent result exists. For example, the recipe used an object and its draft or copy as
-   * two keys of one new `Map` or two members of one new `Set`, which would then hold one object
-   * twice.
+   * No consistent result exists. For example, the recipe used an object and its draft, or a date,
+   * buffer or URL and its copy read from the draft, as two keys of one new `Map` or two members of
+   * one new `Set`, which would then hold one object twice.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   FinalizationConstructionImpossible: {}
