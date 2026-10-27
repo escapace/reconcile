@@ -42,7 +42,4 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   - '@eslint/*'
   - eslint
-  - tinyexec@1.2.1
-  - tinyexec@1.2.2
-  - ts-api-utils@2.3.0
 verifyDepsBeforeRun: false

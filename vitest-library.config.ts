@@ -9,7 +9,7 @@ import configNeutral, { scriptSpecs } from './vitest.config.neutral.ts'
 // import the `.ts` source entry; their spies cannot instrument bundled private members.
 const library = path.join(import.meta.dirname, 'lib/neutral/index.js')
 
-const config = mergeConfig(
+export default mergeConfig(
   configNeutral,
   defineConfig({
     resolve: {
@@ -21,7 +21,6 @@ const config = mergeConfig(
       ],
     },
     test: {
-      coverage: { enabled: false },
       // Besides the script specs, these import the sources on purpose.
       exclude: [
         ...configDefaults.exclude,
@@ -33,6 +32,3 @@ const config = mergeConfig(
     },
   }),
 ) as ViteUserConfig
-
-// Clear the shared workspace after merging: child projects otherwise bypass these aliases.
-export default defineConfig({ ...config, test: { ...config.test, projects: undefined } })

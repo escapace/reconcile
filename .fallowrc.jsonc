@@ -10,7 +10,6 @@
       "configPatterns": ["syncpack.config.mjs"],
       // The scripts run through tsx.
       "enablers": ["tsx"],
-      "entryPointRole": "support",
       "entryPoints": [
         // Run by hand; docs/lean.md names it under the Spec agreement obligation.
         "scripts/spec-mutants.ts",
@@ -31,15 +30,11 @@
     {
       "implements": "ProxyHandler",
       "members": [
-        "apply",
-        "construct",
         "defineProperty",
         "deleteProperty",
         "get",
         "getOwnPropertyDescriptor",
-        "getPrototypeOf",
         "has",
-        "isExtensible",
         "ownKeys",
         "preventExtensions",
         "set",
@@ -72,8 +67,6 @@
     "boundary-violation": "error",
     "circular-dependencies": "error",
     "duplicate-exports": "error",
-    // Call bans live under boundaries.calls; no rule packs are configured.
-    "policy-violation": "off",
     "re-export-cycle": "error",
 
     // API hygiene: an exported signature must not expose a type its module keeps private.
@@ -170,8 +163,8 @@
     // A file belongs to the first zone that matches, so specific patterns come first.
     "zones": [
       { "name": "api", "patterns": ["src/index.ts"] },
-      // Shared type contracts and ambient declarations.
-      { "name": "contracts", "patterns": ["src/types.ts", "src/*.d.ts"] },
+      // Shared type contracts.
+      { "name": "contracts", "patterns": ["src/types.ts"] },
       // Dependency-free helpers and the error type.
       {
         "name": "foundation",

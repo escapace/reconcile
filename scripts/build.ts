@@ -5,12 +5,6 @@ import path from 'node:path'
 const dirname = path.resolve(import.meta.dirname, '../')
 process.chdir(dirname)
 
-const packageJSON = JSON.parse(await readFile(path.join(dirname, 'package.json'), 'utf-8')) as {
-  version: string
-  dependencies?: Record<string, string>
-  peerDependencies?: Record<string, string>
-}
-
 const constants = JSON.parse(
   await readFile(path.join(import.meta.dirname, 'constants.json'), 'utf-8'),
 ) as {
@@ -27,27 +21,10 @@ for (const { mangle, ...value } of Object.values(constants.builds)) {
     ...(mangle === undefined ? {} : { mangleProps: new RegExp(`^(?:${mangle.join('|')})$`) }),
     sourcemap: true,
     sourcesContent: false,
-    splitting: true,
     treeShaking: true,
     tsconfig: 'tsconfig-build.json',
     ...value,
     absWorkingDir: dirname,
-    define: {
-      __VERSION__: JSON.stringify(packageJSON.version),
-      ...value.define,
-    },
-    external: [
-      ...Object.keys(packageJSON.dependencies ?? []),
-      ...Object.keys(packageJSON.peerDependencies ?? []),
-      ...(value.external ?? []),
-    ],
-    rollup: {
-      ...value.rollup,
-    },
-    supported: {
-      'const-and-let': true,
-      ...value.supported,
-    },
   })
 }
 

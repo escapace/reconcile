@@ -1,6 +1,5 @@
 assert_lefthook_installed: true
 colors: false
-source_dir: scripts/
 
 output:
   - summary
@@ -19,7 +18,7 @@ pre-commit:
 
   commands:
     fallow-dependencies:
-      glob: '{package.json,**/package.json,pnpm-lock.yaml}'
+      glob: '{package.json,pnpm-lock.yaml}'
       priority: 1
       run: pnpm exec fallow dead-code --unused-deps --unlisted-deps --fail-on-issues
 
@@ -28,30 +27,24 @@ pre-commit:
       run: pnpm run ls-lint
 
     syncpack:
-      glob: '{package.json,**/package.json,pnpm-lock.yaml}'
+      glob: '{package.json,pnpm-lock.yaml}'
       priority: 2
       run: pnpm run syncpack
       stage_fixed: true
 
     pnpm-install:
-      glob: '{package.json,**/package.json,pnpm-lock.yaml}'
+      glob: '{package.json,pnpm-lock.yaml}'
       priority: 3
       run: pnpm install
       stage_fixed: true
 
     eslint:
-      exclude:
-        - pnpm-lock.yaml
-        - vendor/**
       glob: '*.{js,mjs,cjs,ts,mts,cts,yml,yaml,json,toml}'
       priority: 4
       run: pnpm exec eslint --no-warn-ignored --fix {staged_files}
       stage_fixed: true
 
     prettier:
-      exclude:
-        - pnpm-lock.yaml
-        - vendor/**
       glob: '*.{js,mjs,cjs,ts,mts,cts,yml,yaml,json,md}'
       priority: 5
       run: pnpm exec prettier --no-error-on-unmatched-pattern --ignore-unknown --write {staged_files}

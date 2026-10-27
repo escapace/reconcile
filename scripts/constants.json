@@ -1,12 +1,7 @@
 {
   "builds": {
     "neutral": {
-      "define": {
-        "__ENVIRONMENT__": "\"production\"",
-        "__PLATFORM__": "\"neutral\""
-      },
       "entryPoints": ["src/index.ts"],
-      "mainFields": ["module", "main"],
       "mangle": [
         "accessorObservations",
         "active",
@@ -76,18 +71,15 @@
         "equivalent",
         "facts",
         "finalization",
-        "first",
         "firstAligned",
         "firstAlignedAt",
         "firstReference",
         "firstSource",
-        "fixed",
         "fold",
         "forbidden",
         "forced",
         "forcedOwnedCopies",
         "forceOwnedChildren",
-        "fresh",
         "graph",
         "guards",
         "handle",
@@ -167,7 +159,6 @@
         "ownDescriptor",
         "owned",
         "owner",
-        "owners",
         "owns",
         "ownsDependencies",
         "ownValue",
@@ -180,7 +171,6 @@
         "pending",
         "pendingPrototype",
         "phase",
-        "pin",
         "pinned",
         "plain",
         "plan",

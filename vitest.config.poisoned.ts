@@ -4,7 +4,7 @@ import configNeutral, { scriptSpecs } from './vitest.config.neutral.ts'
 
 // The complete suite with a proxy behind Array.prototype that fails a test in which library code
 // reads or writes through it; see the setup file.
-const config = mergeConfig(
+export default mergeConfig(
   configNeutral,
   defineConfig({
     test: {
@@ -17,7 +17,3 @@ const config = mergeConfig(
     },
   }),
 ) as ViteUserConfig
-
-// Drop the shared workspace after merging: a child project otherwise lists the projects again.
-const { projects: _projects, ...test } = config.test ?? {}
-export default defineConfig({ ...config, test })
