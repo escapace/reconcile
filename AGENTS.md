@@ -3,14 +3,11 @@
 Only rules that are easy to miss and costly to break. Procedures, commands and evidence are in
 [the development guide](docs/development.md) and [the Lean guide](docs/lean.md).
 
-- Preserve capture, discovery and sealing, preflight, publication, readback and `serialize`
-  source-traversal observation boundaries. Getters, proxies and iterators make an added or
-  reordered read visible. A value of `current` read before the first write is read once and
-  serves every phase up to readback; a kind, prototype, key list or descriptor read then may too.
-  Readback reads every node again after any write, so a getter of `current` runs at most once
-  without writes, twice with them and once more per demotion pass, apart from reading `next`.
-  Library reads run any other getter once per call. The exact trace is otherwise internal and
-  must stay deterministic.
+- Preserve the observation boundaries and the read discipline in
+  [What must not change](docs/development.md#what-must-not-change): before `reconcile`'s first
+  write, read each value of `current` once, and let library reads run any other getter once per
+  call. Getters, proxies and iterators make an added or reordered read visible; within that
+  discipline the trace may change but must stay deterministic.
 - Prove a changed finite algorithm in Lean before its runtime. Keep theorem statements, bridges
   and counterexamples, and state the runtime's obligations; an axiom audit alone proves nothing.
 - Library code must not read or write through `Object.prototype` or `Array.prototype`. Use
@@ -28,9 +25,10 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 - Each complete validation or measurement round finishes within 300 seconds, child processes
   included. A timeout is incomplete evidence, not a pass, and is not split into chunks. Reuse a
   pass only after checking that its inputs are unchanged.
-- CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and Prettier.
-  Run the `pnpm lint`, `pnpm check:lean`, `pnpm test:lib` and `pnpm bench size` checks your
-  change needs before committing, and do not add them to the hook.
+- CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and Prettier on
+  staged files, and its build type-checks only `src/`. Before committing, run `pnpm typecheck` and
+  whichever of `pnpm lint`, `pnpm check:lean`, `pnpm test:lib` and `pnpm bench size` your change
+  needs. Keep those four checks out of the hook.
 - Documentation is `README.md` for users plus these two guides; add no other docs, notes or
   reports. The README follows the TSDoc voice, gives each limitation one home and puts advanced
   material after the common case. Change it minimally, through independent editorial and

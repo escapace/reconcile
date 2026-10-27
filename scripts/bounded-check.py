@@ -2,8 +2,7 @@
 """Run one complete validation/measurement round with a <=300s process-tree budget.
 
 Usage: python3 scripts/bounded-check.py --receipt /archive/check.json -- command args...
-The budget includes child shutdown. Timeout is incomplete evidence, never a pass.
-Do not chain rounds to disguise an over-budget suite; reduce/reuse the work first.
+The budget includes child shutdown.
 """
 import argparse
 import json

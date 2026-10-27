@@ -11,7 +11,7 @@
       // The scripts run through tsx.
       "enablers": ["tsx"],
       "entryPoints": [
-        // Run by hand; docs/lean.md names it under the Spec agreement obligation.
+        // Run by hand; docs/lean.md describes it.
         "scripts/spec-mutants.ts",
         "scripts/profile.ts",
         "scripts/check-lean.ts",

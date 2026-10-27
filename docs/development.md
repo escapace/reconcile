@@ -1,35 +1,35 @@
 # Development guide
 
 This guide is for anyone changing the library: fixing behavior, adding a feature, or making an
-operation faster or smaller. The public contract is in the [README](../README.md). Proof
-statements, premises, bridges and correspondence limits are in the [Lean guide](lean.md). Run
-every command from the repository root.
-
-## Ground rules
-
-The working rules are in [AGENTS.md](../AGENTS.md); MUST and MUST NOT in this guide carry their RFC
-2119 meaning. The frozen workloads are `perf/scenarios.ts`, `perf/config.ts` and
-`perf/profile-harness.ts`, and the small workloads in `scripts/bench-workloads.ts`; add a
-diagnostic scenario for a new shape instead of changing them.
+operation faster or smaller. The public contract is in the [README](../README.md) and the working
+rules in [AGENTS.md](../AGENTS.md); proof statements, premises, bridges and correspondence limits
+are in the [Lean guide](lean.md). Run every command from the repository root.
 
 ## How the library works
 
 ### What must not change
 
-An application can see everything the library does to its objects: which properties are read
-and in what order, which getters, setters, proxy traps and iterators run with which receiver,
-and which error is thrown. This guide calls each access an _observation_ and their ordered list
-the _trace_. A phase that observes is an _observation boundary_: capture, discovery (and the
-sealed pass of `produce`), preflight, publication and readback, and source traversal in
-`serialize`. A change preserves behavior only if every operation returns the same result and
-throws the same error, and its trace keeps the read discipline: each getter runs once per call,
-a fact about an object (its kind, prototype, key list or a descriptor) read before the first
-write may serve every phase up to readback, and readback reads each written object once. Within
-that discipline the exact trace is internal: a change may drop, merge or reorder reads if the
-new trace is deterministic. A getter or trap that changes what the call already read before the
+An application can see everything the library does to its objects: which properties are read and in
+what order, which getters, setters, proxy traps and iterators run with which receiver, and which
+error is thrown. This guide calls each access an _observation_ and their ordered list the _trace_. A
+phase that observes is an _observation boundary_: capture, discovery (and the sealed pass of
+`produce`), preflight, publication and readback, and source traversal in `serialize`. A change
+preserves behavior only if every operation returns the same result and throws the same error, and
+its trace keeps the _read discipline_:
+
+- The library's own reads run each getter of an object other than `current` once per call; a
+  recipe's reads through a draft are the recipe's.
+- In `reconcile`, a value of `current` read before the first write is read once and serves every
+  phase up to readback; a kind, prototype, key list or descriptor read then may serve them too.
+- After any write, readback reads every unpinned node again, once per pass, so an own getter of
+  `current` runs at most once without writes, twice with them and once more per _demotion pass_ (a
+  pass that decides again without a blocked object), not counting reads of `next` or proxy traps.
+
+Within that discipline the exact trace is internal: a change may drop, merge or reorder reads if
+the new trace is deterministic. A getter or trap that changes what the call already read before the
 first write is unsupported; readback still catches a write that such code undoes. Objects created
-during the call may differ in identity, as long as aliasing stays the same;
-private work can change freely.
+during the call may differ in identity, as long as aliasing stays the same; private work can change
+freely.
 
 ### Type modules
 
@@ -40,9 +40,7 @@ one _facet_ per concern: capture, publication, immutable reuse and draft rules. 
 that `snapshot` does not observe inline also supply a snapshot facet. `types/builtins.ts` defines
 recognition and builds one registry per graph operation (`snapshotTypes`, `publicationTypes`,
 `produceTypes`), so each bundle contains only its own facets. Recognition tries kinds in order and
-falls back to the plain object. For an object that is not a view and whose prototype is
-`Object.prototype` or `null`, it reaches the fallback after the array probe and one prototype
-read.
+falls back to the plain object.
 
 The decision never lets two nodes keep one object, and typed-array views reference their buffers
 through explicit edges. `src/standard-prototypes.ts` holds the helpers
@@ -207,27 +205,23 @@ Some code and tooling must change together, and `pnpm test` does not catch a mis
 sides together.
 
 - **Profile harness.** `scripts/profile.ts` rewrites `perf/profile-harness.ts` by exact text (the
-  `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for the `diag-*`,
-  `serialize` and `deserialize` scenarios, imports the measured tree's `src/index.ts`, and
-  `dateImmutable` and `arrayBufferImmutable` with their copy operations.
-  Renaming or moving any of these breaks `pnpm bench profile` and `ab`, which bundles through the
-  same harness. These scenarios always come from the current checkout's
+  `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for the
+  `diag-*`, `serialize`, `deserialize` and small scenarios, imports the measured tree's
+  `src/index.ts`. Renaming or moving any of these breaks `pnpm bench profile` and `ab`, which
+  bundles through the same harness. These scenarios always come from the current checkout's
   `scripts/profile-scenarios.ts`.
-- **Counters.** `scripts/profile-counts.ts` instruments call sites by file path and exact source
-  text, listed in its rule tables. A rename, or a new recognition predicate in `builtins.ts`,
-  silently drops a counter.
-- **Workload factories.** `scripts/bench-compare.ts` bundles each tree's `perf/scenarios.ts`
-  factories by name through `createBatches` in `bench-workloads.ts`. The serialization workloads
-  always come from the current checkout and measure value to JSON text and back through each
-  tree's `serialize` and `deserialize`.
-- **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` and
-  `scripts/profile-scenarios.ts` import fixtures
-  from `src/__tests__/fixtures/`. Changing one for a test silently changes the `pnpm check:lean`
-  corpora and the ring-based `diag-*` workloads.
-- **DeferredOrder bridge.** `scripts/check-deferred-order-runtime.ts` copies
-  `types/shared/property-publication.ts`, rewrites its relative imports and instruments three exact
-  lines in `canPublishProperties`, so a new relative import or an edit to those lines breaks the
-  bridge.
+- **Counters.** `scripts/profile-counts.ts` instruments call sites by file path and exact callee,
+  function or expression text. `profile-counts.spec.ts` fails only when one of its four
+  text-matched counters finds no site at all; renaming or moving any other rule's site, such as
+  `propertySlots` or `matchesKind`, drops a counter, and a new recognition predicate in
+  `builtins.ts` gets none.
+- **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports
+  `src/__tests__/fixtures/compact-immutable.ts`, so changing that fixture for a test also changes
+  a `pnpm check:lean` corpus.
+- **Hooked bridges.** The DeferredOrder and phase bridges bundle the sources with recorder calls
+  after exact statements: three in the preflight of `types/shared/property-publication.ts` and two
+  in `publishGraph` (`publication/publication-engine.ts`). Editing, moving or duplicating one of
+  those statements, or renaming either file, breaks `pnpm check:lean`.
 - **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
 - **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until
@@ -236,12 +230,12 @@ sides together.
   bigint charges exist three times: in `facets/*.ts`, in the `charges` of
   `SerializationOracle.lean`, and in the README's size table. The native charges exist only in
   `facets/native.ts` and the README. Nothing checks the README.
-- **Snapshot walk.** `snapshot.ts` copies plain objects, arrays, `Map`, `Set`, `Date`,
-  `ArrayBuffer`, typed arrays and `DataView` inline and repeats, in the same order, the reads that
-  each kind's capture facet makes in `observe`, except that a buffer's or view's copy takes the
-  prototype recognition read and a view's reads its element type once (`Types.Ingress`);
-  `viewBuffer` repeats the view facets' buffer-edge answer. A capture change for
-  these kinds MUST be made there too.
+- **Snapshot walk.** For the kinds it observes inline (listed under
+  [The graph operations](#the-graph-operations)), `snapshot.ts` repeats, in the same order, the
+  reads that each kind's capture facet makes in `observe`, except that a buffer's or view's copy
+  takes the prototype recognition read and a view's reads its element type once (`Types.Ingress`);
+  `viewBuffer` repeats the view facets' buffer-edge answer. A capture change for these kinds must be
+  made there too.
 - **Head shortcut.** Identity restoration tries `immutableHead`'s mask before searching, because
   the head theorem proves it comes first.
 - **Mangle list.** A name in `scripts/constants.json` that is also read on an application or
@@ -249,15 +243,6 @@ sides together.
 - **Library tests.** `vitest-library.config.ts` redirects only imports of the entry modules it
   names to `lib/neutral/index.js`; a test that imports another source module tests the sources
   under `pnpm test:lib`.
-- **Poisoned project.** `vitest.config.poisoned.ts` runs the suite again with a proxy of
-  `Object.prototype` as the prototype of `Array.prototype`. The proxy forwards every operation,
-  and a test fails when library code reads an array key that neither the array nor
-  `Array.prototype` holds, such as a hole or an index past the end, or assigns a named key to an
-  array. `Object.prototype` gets no proxy: an accessor there is visible to `in`, and `reconcile`
-  then replaces objects (README: _Inherited getters and setters_), so `standard-prototypes.spec.ts`
-  covers `Object.prototype` in a child process with its own cases. The project builds on
-  `vitest.config.neutral.ts`, which drops the shared project list after merging; a project list
-  there nests the poisoned project under the neutral one and runs it twice.
 
 ## Checks and time budget
 
@@ -275,11 +260,13 @@ python3 scripts/bounded-check.py --seconds 295 --receipt /tmp/check-<unique>.jso
   bash -c 'pnpm typecheck && pnpm build && pnpm test && pnpm lint'
 ```
 
-Run each checkpoint as its own round, never two at once, and only when nothing else is running.
-fallow's CRAP score reads the coverage map
-that `pnpm test` writes, so run the tests before linting, and again after edits that move source
-lines. [Running the gate](lean.md#running-the-gate) describes `pnpm check:lean`, and [Checks and
-failures](lean.md#checks-and-failures) says how to resolve a failure.
+`pnpm test` runs every spec in the neutral project, and again in the poisoned project all except
+those that run no library code in their own process; the poisoned project's setup file,
+`src/__tests__/fixtures/poisoned-prototypes.ts`, says what it catches. Run each checkpoint as its
+own round, never two at once, and only when nothing else is running. fallow's CRAP score reads the
+coverage map that `pnpm test` writes, so run the tests before linting, and again after edits that
+move source lines. [Running the gate](lean.md#running-the-gate) describes `pnpm check:lean`, and
+[Checks and failures](lean.md#checks-and-failures) says how to resolve a failure.
 
 **Optional native features.** The Temporal cases, including serialization of the eight Temporal
 classes, skip without a global `Temporal`. Run them with Node's experimental flag, on sources and
@@ -299,7 +286,7 @@ its validation through stand-ins.
 
 `pnpm check:lean` and every `pnpm bench` command also run under `scripts/bounded-check.py`, with a
 295-second budget; it stops the whole process tree and writes a receipt. The combined round uses
-most of its budget, so start it on a quiet machine.
+most of its budget, so load on the machine can time it out.
 
 A receipt records the command and its outcome, not its inputs. Beside it, save
 `git rev-parse HEAD` and a hash of all staged, unstaged and untracked changes, and reuse a passing
@@ -313,8 +300,6 @@ result only while both still match:
 
 ### Rounds
 
-- A _screen_ is `pnpm bench compare --baseline <control>`: quick, but it resolves only effects
-  larger than a few percent.
 - A _default round_ is `pnpm bench ab --baseline <control> --out <dir>` over the six default
   scenarios, and a _small round_ adds `--round small` for the ten small ones. Each guards against
   large regressions only, and a change runs both.
@@ -323,20 +308,16 @@ result only while both still match:
 - An _A/A round_ runs the control against a copy of itself with deciding settings, to check
   noise.
 
-The six default scenarios are `snapshot`, `reconcile`, `reconcile-plain-object` (the `reconcile`
-workload on plain objects), `produce`, `serialize` and `deserialize`. The first four are the frozen
-`perf/` workloads; `serialize` and `deserialize` rotate through six graphs between values and JSON
-text in `scripts/bench-workloads.ts`. The ten small scenarios, `snapshot-1` to `deserialize-16`,
-run `snapshot`, `reconcile`, `produce`, `serialize` and `deserialize` on a flat object of 1 and of
-16 keys (`smallOperation` in `scripts/bench-workloads.ts`). They are frozen too, and since they
-live outside `perf/` they run against any control. The `diag-*` diagnostics that
-`pnpm bench profile --help` lists target particular shapes, and most scale with `--size`.
+The header of `scripts/bench-workloads.ts` says what each scenario runs. The serialization and small
+workloads live outside `perf/`, so they run against any control. The `diag-*` diagnostics that `pnpm
+bench profile --help` lists target particular shapes, and most scale with `--size`; add one for a
+new shape instead of changing a frozen workload.
 
 ### Protocol
 
 1. **Freeze a control.** Export the source tree outside the repository, for example
    `mkdir <control> && git archive HEAD | tar -x -C <control>` on a clean tree, and record
-   `git rev-parse HEAD`. `compare`, `ab` and `profile` use this checkout's dependencies, so the
+   `git rev-parse HEAD`. `ab` and `profile` use this checkout's dependencies, so the
    bare tree is enough for them. For its bundle sizes, run
    `pnpm install --frozen-lockfile --ignore-scripts && pnpm build` in `<control>`, then
    `pnpm bench size --entry <control>/lib/neutral/index.js --out <dir>` here.
@@ -349,10 +330,10 @@ live outside `perf/` they run against any control. The `diag-*` diagnostics that
 4. **Bound before building.** When the gain is uncertain, remove the work unsafely in a scratch
    copy and time that copy with a deciding round. If even the unsafe bound does not read faster,
    drop the idea before any proof work.
-5. **Change one thing,** then run `--mode counts` with `--baseline <control>`. Stop if the
-   predicted counter does not fall or another counter moves, and screen for losses. If the first
-   version misses, one further change justified by the counts or profile is allowed; then keep
-   the change, or revert it and reject the hypothesis.
+5. **Change one thing,** then run `--mode counts` with `--baseline <control>`. Stop if the predicted
+   counter does not fall or another counter moves; otherwise run a default round to check for
+   losses. If the first version misses, one further change justified by the counts or profile is
+   allowed; then keep the change, or revert it and reject the hypothesis.
 6. **Check semantics beyond the tests.** Near an observation boundary, compare results, errors and
    identities with the control's, and check that each trace difference keeps the read discipline in
    [What must not change](#what-must-not-change). Write a one-off script outside the repository
@@ -371,11 +352,11 @@ plus `serialize` and `deserialize` when serialization changes, and the small sce
 function a change affects. Keep an optimization only when two deciding rounds both read _faster_ on
 its target: the 90% interval lies below zero and the median gains at least 2%. The default and
 small rounds guard the other workloads: one that reads _slower_ or _slightly slower_ there needs a
-deciding round of its own, and a deciding round that reads _slower_ (median beyond the 3% guard)
-rejects the candidate. A stress-case win does not excuse an ordinary loss. Counters stay equal
-unless the hypothesis says they move. When the hypothesis predicts a large gain, write it down as
-the target before measuring, for example 20% with at least 28 of 32 faster pairs; a result below
-the target rejects the hypothesis.
+deciding round of its own, and a deciding round that reads _slower_ (interval above zero, median
+beyond the 3% guard) rejects the candidate. A stress-case win does not excuse an ordinary loss.
+Counters stay equal unless the hypothesis says they move. When the hypothesis predicts a large
+gain, write it down as the target before measuring, for example 20% with at least 28 of 32 faster
+pairs; a result below the target rejects the hypothesis.
 
 **Cost screen.** With `f` the time share of the affected region, `s` its speed-up and `h` added
 cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot save more than 3%;
@@ -383,30 +364,28 @@ cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot
 
 ### Reading results
 
-`pnpm bench help` and `pnpm bench <command> --help` list the commands and flags.
+`pnpm bench help` and `pnpm bench <command> --help` list the commands, scenarios and flags.
 
-- **`ab`** prints its reading legend with each report. Explicit `--batches` and `--warmup` override the automatic sizing, as a heavy
-  diagnostic size needs. An exported control has no commit, which is why the protocol records
-  it.
-- **`profile`** writes `summary.json`, `report.md` and the raw artifacts (under `raw/`) to a new
-  `reconcile-profile-*` directory inside `--out`:
+- **`ab`** prints its table and writes it, with its reading legend, to `report.md`. Explicit
+  `--batches` and `--warmup` override the automatic sizing, as a heavy diagnostic size needs. An
+  exported control has no commit, which is why the protocol records it.
+- **`profile`** writes `summary.json`, the raw artifact (under `raw/`) and the bundle with its
+  source map to a new `reconcile-profile-*` directory inside `--out`:
   - `--mode counts` counts instrumented source events (constructions, not allocations), such as
     recognitions, memo hits and alias visits.
   - `--mode cpu` (the default) and `--mode heap` sample time or allocation and attribute frames
     to source through the bundle's source map; the raw `.cpuprofile` and `.heapprofile` files
     open in Chrome DevTools. Samples include fixture work.
   - `--mode deopt` traces optimizations and deoptimizations; treat them as signals only.
-  - With `--baseline` it alternates fresh processes of both trees. The top directory then holds
-    `comparison.json` (each metric's median, minimum and maximum), `samples.json` and
-    `report.md`, and each process's `summary.json` and `raw/` sit in
-    `<round>-<baseline|candidate>/reconcile-profile-*`. Timing comparisons belong to `ab`.
-- **`run`** prints Tinybench tables against `structuredClone`, a detached clone, Immer or
-  `JSON`. It orients and does not compare trees.
+  - `--baseline` takes `--mode counts` only. It counts each tree once in its own process, since
+    counts are exact, and `comparison.json` lists each counter that differs with its baseline and
+    candidate counts; each tree's run sits in `baseline/` or `candidate/`. Timing comparisons
+    belong to `ab`.
 
 ### Traps
 
-- **Ratio orientation.** A hand-written screen MUST print its orientation, since an inverted
-  reading reports a loss as a gain.
+- **Ratio orientation.** A hand-written comparison must print which tree is the numerator, since an
+  inverted ratio reports a loss as a gain.
 - **Too few pairs.** A gain of a few percent needs 32-pair rounds; 16-pair rounds of one change
   can disagree in sign.
 - **Too little measured work.** Short processes are noisy. Keep the automatic batch sizing.
@@ -441,11 +420,11 @@ Consumer bundlers drop code that no used export reaches (_tree shaking_). These 
 bundle must be empty, which is the check that catches an unannotated top-level call.
 
 To find which module grew, bundle one export from the sources with `loadEsbuild()` from
-`scripts/esbuild.ts` and the options `scripts/bundle-size.ts` uses, with `mangleProps` built
-from the `neutral` build's `mangle` list in `scripts/constants.json` as `scripts/build.ts` does; then compare
-`metafile.outputs[*].inputs[file].bytesInOutput`. Profile and comparison bundles are unmangled,
-so take sizes only from the package. Gzip removes repetition, so only removing distinct logic
-saves bytes.
+`scripts/esbuild.ts` and the options `scripts/bundle-size.ts` uses plus `metafile: true`, with
+`mangleProps` built from the `neutral` build's `mangle` list in `scripts/constants.json` as
+`scripts/build.ts` does; then compare `metafile.outputs[*].inputs[file].bytesInOutput`. Profile and
+`ab` bundles are unmangled, so take sizes only from the package. Gzip removes repetition, so only
+removing distinct logic saves bytes.
 
 ## JavaScript engine notes
 

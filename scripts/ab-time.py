@@ -1,24 +1,16 @@
 """Alternating whole-process A/B timing round over frozen harness bundles (``pnpm bench ab``).
 
 Bundles each source tree through ``scripts/profile.ts --bundle-only``, once for the frozen
-scenarios and once for the rest, runs every scenario for a few batches, sizes each scenario's batches (about ``--seconds`` of measured
-work per process by default) and stops if the round would not fit the budget. It then registers
-the design (scenarios, pairs, batches, size, bundle hashes, Node version, tree commits, frozen
-workload hashes) before any sample is taken, and alternates candidate/baseline order per pair in
-fresh Node processes. Every completed sample is persisted immediately. ``pnpm bench`` runs the
-round, including bundling and descendant shutdown, under one 295-second budget; a timeout is
-incomplete evidence, not a pass.
+scenarios and once for the rest, runs every scenario for a few batches, sizes each scenario's
+batches (about ``--seconds`` of measured work per process by default) and stops if the round
+would not fit the budget. It then registers the design (scenarios, pairs, batches, size, bundle
+hashes, Node version, tree commits, frozen workload hashes) before any sample is taken, and
+alternates candidate/baseline order per pair in fresh Node processes. Every completed sample is
+persisted immediately. ``pnpm bench`` runs the round, including bundling and descendant shutdown,
+under one 295-second budget.
 
 Each scenario reports the median paired change (negative is faster), a bootstrap 90% interval
-from 10 pairs on, the count of faster pairs and a reading. The default round (ten pairs of the
-six default scenarios at half a second each) and the small round (``--round small``, the ten
-small scenarios alike) check for regressions; a deciding round selects one scenario, or two
-frozen ones, and runs ``--pairs 32 --seconds 1``.
-
-Usage:
-  pnpm bench ab --baseline <tree> [--candidate <tree>] [--round default|small | --scenario name]...
-    [--pairs 10]
-    [--batches auto] [--seconds 0.5] [--warmup auto] [--size 256] --out <dir>
+from 10 pairs on, the count of faster pairs and a reading.
 """
 
 import argparse

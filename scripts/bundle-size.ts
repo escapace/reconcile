@@ -7,11 +7,7 @@
  * that the package's top-level code is removable (an import that uses nothing emits no
  * JavaScript even when the package's `sideEffects: false` is ignored), smoke-tests each bundle,
  * and writes `sizes.json`. Published source size does not measure consumer tree shaking; this
- * script measures the bundles consumers actually ship.
- *
- * Usage:
- *   pnpm build && pnpm bench size [--entry lib/neutral/index.js] [--out directory]
- *     [--compare sizes.json] [--no-smoke]
+ * script measures the bundles consumers actually ship. Build the package first.
  */
 
 import assert from 'node:assert/strict'

@@ -1,8 +1,7 @@
 /**
  * `pnpm bench`: one entry point for every benchmark and measurement. Each command answers one
  * question and runs as one round within the 295-second budget, including shutdown of child
- * processes. Run one round at a time, and nothing else alongside it. `pnpm bench help` lists
- * the commands.
+ * processes. `pnpm bench help` lists the commands.
  */
 
 import { spawnSync } from 'node:child_process'
