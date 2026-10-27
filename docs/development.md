@@ -161,9 +161,10 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
 
 A new kind changes every operation's contract and bundle.
 
-1. **Prove first.** Recognition is proved for a fixed sequence of probes
-   (`Types.Recognition`), so a new kind needs a theorem for the longer sequence, and one that can
-   accept a plain or `null`-prototype object also changes `Types.RecognitionPlain`. A kind that is
+1. **Prove first.** Recognition is proved for a fixed sequence of probes (`probes` and `scanTrace`
+   in `Types.RecognitionPlain`), so a new kind needs its probe there and the theorems for the
+   longer sequence, and one that can accept a plain or `null`-prototype object also breaks
+   `plain_probes`, on which the runtime's one-read shortcut rests. A kind that is
    kept by reference today also changes `Types.Atoms` and `scripts/check-atoms-runtime.ts`.
    Extend the fixtures of the native-value and copy-prototype bridges.
 2. **Write the module** in `src/types/<kind>.ts`, supplying each facet that
@@ -186,8 +187,8 @@ A new kind changes every operation's contract and bundle.
 Serialized data carries no format version, so stored data from an
 earlier version stops decoding.
 
-1. Change `Serialization/Positional.lean` first, and `Size.lean` and the `charges` in
-   `Oracle/SerializationOracle.lean` if sizes change.
+1. Change `Serialization/Positional.lean` first, and `tableCharges` in `Serialization/Size.lean` if
+   sizes change.
 2. Change the tags in `layout.ts` with the `decoders` table in `facets/decode.ts` and the tag
    choice in `facets/index.ts` and `native.ts`, the encoder and decoder, the charges in
    `facets/*.ts`, and the README's _How size is counted_ table.
@@ -218,18 +219,20 @@ sides together.
 - **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports
   `src/__tests__/fixtures/compact-immutable.ts`, so changing that fixture for a test also changes
   a `pnpm check:lean` corpus.
-- **Hooked bridges.** The DeferredOrder and phase bridges bundle the sources with recorder calls
-  after exact statements: three in the preflight of `types/shared/property-publication.ts` and two
-  in `publishGraph` (`publication/publication-engine.ts`). Editing, moving or duplicating one of
-  those statements, or renaming either file, breaks `pnpm check:lean`.
+- **Hooked bridges.** The DeferredOrder, phase and SpecialValues bridges bundle the sources with
+  recorder calls after exact statements: three in the preflight of
+  `types/shared/property-publication.ts`, two in `publishGraph`
+  (`publication/publication-engine.ts`) and one after the first line of `chooseSpecial`
+  (`graph/provenance.ts`). Editing, moving or duplicating one of those statements, or renaming one
+  of those files, breaks `pnpm check:lean`.
 - **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
 - **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until
   `Positional.lean` changes too. `check-serialization-collection-runtime.ts` calls the production
   `map` and `set` decoders with a hand-built `DecodeContext`. The record, array, literal and
-  bigint charges exist three times: in `facets/*.ts`, in the `charges` of
-  `SerializationOracle.lean`, and in the README's size table. The native charges exist only in
-  `facets/native.ts` and the README. Nothing checks the README.
+  bigint charges exist three times: in `facets/*.ts`, in `tableCharges` in `Size.lean`, and in the
+  README's size table. The native charges exist only in `facets/native.ts` and the README. Nothing
+  checks the README.
 - **Snapshot walk.** For the kinds it observes inline (listed under
   [The graph operations](#the-graph-operations)), `snapshot.ts` repeats, in the same order, the
   reads that each kind's capture facet makes in `observe`, except that a buffer's or view's copy
