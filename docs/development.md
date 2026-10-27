@@ -167,9 +167,9 @@ A new kind changes every operation's contract and bundle.
    invalidates `plain_probes`, which lets `builtinFirstMatch` decide such an object plain from its
    one prototype read. A kind that is kept by reference today also changes `Types.Atoms` and
    `scripts/check-atoms-runtime.ts`. A kind that `produce` copies when read also changes `Kind`,
-   `WF` and `differs` in `Produce.SpecialValues` and the SpecialValues bridge's scenarios, and one
-   that `reconcile` publishes outside the `Spec` model, as it does a URL, changes
-   `Types.NativeWrites`. Extend the fixtures of the native-value and copy-prototype bridges.
+   `WF` and `differs` in `SpecialValues` and the SpecialValues bridge's scenarios. A kind that
+   `reconcile` publishes outside the `Spec` model, as it does a URL, changes `Types.NativeWrites`.
+   Extend the fixtures of the native-value and copy-prototype bridges.
 2. **Write the module** in `src/types/<kind>.ts`, supplying each facet that
    [Type modules](#type-modules) lists for it and using `src/standard-prototypes.ts` for every
    internal object and read.
