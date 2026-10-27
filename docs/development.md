@@ -162,11 +162,14 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
 A new kind changes every operation's contract and bundle.
 
 1. **Prove first.** Recognition is proved for a fixed sequence of probes (`probes` and `scanTrace`
-   in `Types.RecognitionPlain`), so a new kind needs its probe there and the theorems for the
-   longer sequence, and one that can accept a plain or `null`-prototype object also breaks
-   `plain_probes`, on which the runtime's one-read shortcut rests. A kind that is
-   kept by reference today also changes `Types.Atoms` and `scripts/check-atoms-runtime.ts`.
-   Extend the fixtures of the native-value and copy-prototype bridges.
+   in `Types.RecognitionPlain`), so a new kind needs its probe there and the module's theorems
+   proved for the longer sequence. A kind that can accept a plain or `null`-prototype object also
+   invalidates `plain_probes`, which lets `builtinFirstMatch` decide such an object plain from its
+   one prototype read. A kind that is kept by reference today also changes `Types.Atoms` and
+   `scripts/check-atoms-runtime.ts`. A kind that `produce` copies when read also changes `Kind`,
+   `WF` and `differs` in `Produce.SpecialValues` and the SpecialValues bridge's scenarios, and one
+   that `reconcile` publishes outside the `Spec` model, as it does a URL, changes
+   `Types.NativeWrites`. Extend the fixtures of the native-value and copy-prototype bridges.
 2. **Write the module** in `src/types/<kind>.ts`, supplying each facet that
    [Type modules](#type-modules) lists for it and using `src/standard-prototypes.ts` for every
    internal object and read.
@@ -188,7 +191,7 @@ Serialized data carries no format version, so stored data from an
 earlier version stops decoding.
 
 1. Change `Serialization/Positional.lean` first, and `tableCharges` in `Serialization/Size.lean` if
-   sizes change.
+   sizes or the record, array or bigint tags change.
 2. Change the tags in `layout.ts` with the `decoders` table in `facets/decode.ts` and the tag
    choice in `facets/index.ts` and `native.ts`, the encoder and decoder, the charges in
    `facets/*.ts`, and the README's _How size is counted_ table.
@@ -230,9 +233,9 @@ sides together.
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until
   `Positional.lean` changes too. `check-serialization-collection-runtime.ts` calls the production
   `map` and `set` decoders with a hand-built `DecodeContext`. The record, array, literal and
-  bigint charges exist three times: in `facets/*.ts`, in `tableCharges` in `Size.lean`, and in the
-  README's size table. The native charges exist only in `facets/native.ts` and the README. Nothing
-  checks the README.
+  bigint charges exist three times: in `facets/*.ts`, in `Size.lean`'s `tableCharges`, and in the
+  README's size table. The `Map`, `Set` and native charges exist only in `facets/collection.ts`,
+  `facets/native.ts` and the README. Nothing checks the README.
 - **Snapshot walk.** For the kinds it observes inline (listed under
   [The graph operations](#the-graph-operations)), `snapshot.ts` repeats, in the same order, the
   reads that each kind's capture facet makes in `observe`, except that a buffer's or view's copy

@@ -23,13 +23,12 @@ export function immutableHead({ records, unavailable }: ImmutableProblem): boole
  *
  * @remarks
  * The stream must be `CompactImmutable.ranked`, whose masks decode to the reference ranked plans
- * (CompactImmutable.ranked_decode), and the score bounds keep every completion at the current
- * score (GraphPolicy.completion_survives_score_pruning). No theorem covers this search, the edge
- * test and the `needed` trail included; the CompactImmutable bridge compares its stream with
- * `ranked`. Each record is its own storage, so no kept records share one
- * (CompactImmutable.separated_of_injective) and the search tracks no owners. Every retained edge
- * demands the child's sole proposed identity, so forward demands are Boolean. Only newly installed
- * demands enter the trail; undo preserves older demands.
+ * (CompactImmutable.ranked_decode), and the score bounds keep every completion whose total score
+ * is the current `goal` (GraphPolicy.completion_survives_score_pruning). No theorem covers the
+ * rest of this search (docs/lean.md, Selection search). Each record is its own storage, so no kept
+ * records share one (CompactImmutable.separated_of_injective, by definition) and the search tracks
+ * no owners. Every retained edge demands the child's sole proposed identity, so forward demands are
+ * Boolean. Only newly installed demands enter the trail; undo preserves older demands.
  */
 // fallow-ignore-next-line complexity -- per-step helper calls in this search slowed produce 1%
 export function* immutableSelections({
