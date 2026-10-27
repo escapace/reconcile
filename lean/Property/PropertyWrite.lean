@@ -13,12 +13,12 @@ The model is one key of one ordinary object: its own descriptor, the first descr
 its effect is an arbitrary function of the slot and the value; `Storing` names the setters that
 store what they receive. Equality is `SameValue`.
 
-`admissible` is the per-key part of `canPublishProperties`, `publish` is `publishProperty`, and
-`reconcileKey` is `reconcile` on a root object whose only key is this one, including the
-readback of `matches`. Native correspondence requires `Reflect.get`, `Reflect.set`,
-`Reflect.defineProperty`, `Object.getOwnPropertyDescriptor` and `Object.getPrototypeOf` to behave
-as the ordinary internal methods on the target and every prototype, and the runtime's prototype
-walk to return the descriptor `OrdinarySet` would consult. The walk reads a descriptor of
+`admissible` is the per-key part of `canPublishProperties`, `publish` is `publishProperty`, whose
+write `writeProperty` is `write`, and `reconcileKey` is `reconcile` on a root object whose only key
+is this one, including the readback of `matches`. Native correspondence requires `Reflect.get`,
+`Reflect.set`, `Reflect.defineProperty`, `Object.getOwnPropertyDescriptor` and
+`Object.getPrototypeOf` to behave as the ordinary internal methods on the target and every
+prototype, and the runtime's prototype walk to return the descriptor `OrdinarySet` would consult. The walk reads a descriptor of
 `Object.prototype` or `Array.prototype` only for a key that `in` reports there, and goes past
 either one only when it does not own that key; for any other key it stops there, since `in` has
 already searched the rest of the chain.
@@ -81,6 +81,10 @@ variable {V : Type} [DecidableEq V]
 
 /-- The attributes of a property created by assignment or by `defineData`. -/
 def plain : Attrs := ⟨true, true, true⟩
+
+/-- The attributes of a property `reconcile` adds, or a new object copies, from a source property
+with this enumerability: writable and configurable, with the source's enumerability. -/
+def copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
 
 /-- `[[Get]]` of an own property. -/
 def read : Own V → V
@@ -170,22 +174,25 @@ def admissible (s : Slot V) (v : V) (proto : Bool) : Bool :=
   | some (.accessor stored setter _ _) => setter || decide (stored = v)
   | none => s.extensible && (proto || !inheritedAccessor s.inherited)
 
-/-- The write of `publishProperty`. -/
-def publish (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
-  match s.own with
-  | some own =>
-    if read own = v then ⟨true, s, []⟩
-    else match own with
-      | .accessor .. => set env s v
-      | .data _ a => assign env s v a
-  | none =>
-    if proto || inheritedAccessor s.inherited then define s v plain else assign env s v plain
-
 /-- The readback of `matches`: the own property exists and reads as `v`. -/
 def readsAs (s : Slot V) (v : V) : Bool :=
   match s.own with
   | some own => decide (read own = v)
   | none => false
+
+/-- `writeProperty`: the write once a read has shown that the key needs one, deciding by the
+slot. An own accessor is assigned, so its setter runs; a key the object lacks whose assignment
+would reach an inherited accessor is defined, so no setter runs. -/
+def write (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
+  match s.own with
+  | some (.accessor ..) => set env s v
+  | some (.data _ a) => assign env s v a
+  | none =>
+    if proto || inheritedAccessor s.inherited then define s v plain else assign env s v plain
+
+/-- `publishProperty`: a key that already reads as `v` is left as it is, any other is written. -/
+def publish (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
+  if readsAs s v then ⟨true, s, []⟩ else write env s v proto
 
 /-- `reconcile` on a root object whose only key is this one. -/
 def reconcileKey (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Result V :=
@@ -252,7 +259,7 @@ theorem publish_accessor (env : Env V) (s : Slot V) (v stored : V) (setter e c p
     publish env s v proto = set env s v ∧
       ((set env s v).slot = env.ownSetter s v ∨ (set env s v).slot = s) := by
   constructor
-  · simp [publish, hs, read, hv]
+  · simp [publish, readsAs, write, hs, read, hv]
   · cases setter <;> simp [set, hs]
 
 omit [DecidableEq V] in
@@ -265,40 +272,39 @@ theorem set_events_subset (env : Env V) (s : Slot V) (v : V) (hi : inheritedAcce
   · cases w <;> simp [set]
   · cases st <;> simp [set]
 
+/-- A write runs no setter on the prototype: a key the object lacks whose assignment would reach
+an inherited accessor is defined. -/
+theorem write_no_inherited_setter (env : Env V) (s : Slot V) (v : V) (proto : Bool) :
+    Event.inheritedSetter ∉ (write env s v proto).events := by
+  have hassign : ∀ a, (inheritedAccessor s.inherited = false ∨ s.own.isSome) →
+      Event.inheritedSetter ∉ (assign env s v a).events := by
+    intro a hi
+    have := set_events_subset env s v hi
+    unfold assign
+    dsimp only
+    split
+    · exact this
+    · simp [define_events, this]
+  unfold write
+  split
+  · exact set_events_subset env s v (.inr (by simp [*]))
+  · exact hassign _ (.inr (by simp [*]))
+  · split
+    · simp [define_events]
+    · rename_i hproto
+      exact hassign _ (.inl (Bool.or_eq_false_iff.mp (by simpa using hproto)).2)
+
 /-- `reconcile` never runs a setter on the prototype, whatever the slot and setters do. -/
 theorem reconcileKey_no_inherited_setter (env : Env V) (s : Slot V) (v : V) (proto : Bool) :
     Event.inheritedSetter ∉ (reconcileKey env s v proto).events := by
+  have hp : Event.inheritedSetter ∉ (publish env s v proto).events := by
+    unfold publish
+    split
+    · simp
+    · exact write_no_inherited_setter env s v proto
   unfold reconcileKey
   split
-  · rename_i hadm
-    have hp : Event.inheritedSetter ∉ (publish env s v proto).events := by
-      unfold publish
-      split
-      · rename_i own hown
-        split
-        · simp
-        · cases own with
-          | accessor => exact set_events_subset env s v (.inr (by simp [hown]))
-          | data x a =>
-            unfold assign
-            dsimp only
-            have := set_events_subset env s v (.inr (by simp [hown]))
-            split
-            · exact this
-            · simp [define_events, this]
-      · rename_i hown
-        split
-        · simp [define_events]
-        · rename_i hproto
-          have hi : inheritedAccessor s.inherited = false := by
-            simpa using (Bool.not_eq_true _).mp hproto |> fun h => (Bool.or_eq_false_iff.mp h).2
-          unfold assign
-          dsimp only
-          have := set_events_subset env s v (.inl hi)
-          split
-          · exact this
-          · simp [define_events, this]
-    dsimp only
+  · dsimp only
     split <;> exact hp
   · simp
 
@@ -326,22 +332,36 @@ theorem reconcileKey_complete (env : Env V) (hstore : Storing env) (s : Slot V) 
   rcases own with _ | ⟨x, ⟨w, e, c⟩⟩ | ⟨x, st, e, c⟩
   · cases proto <;> rcases inh with _ | ⟨w⟩ | ⟨st⟩ <;> (try cases w) <;> (try cases st) <;>
       cases ext <;>
-      simp_all [reconcileKey, admissible, publish, assign, set, define, readsAs, read,
+      simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs, read,
         inheritedAccessor, plain]
   · by_cases hx : x = v
     · simp_all [reconcileKey, admissible, publish, readsAs, read]
     · cases w <;> cases c <;>
-        simp_all [reconcileKey, admissible, publish, assign, set, define, readsAs, read]
+        simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs, read]
   · by_cases hx : x = v
     · simp_all [reconcileKey, admissible, publish, readsAs, read]
     · have hst : st = true := by simpa [admissible, hx] using h
       subst hst
       have := hstore ⟨some (.accessor x true e c), inh, ext⟩ v x true e c rfl
-      simp_all [reconcileKey, admissible, publish, set, readsAs, read]
+      simp_all [reconcileKey, admissible, publish, write, set, readsAs, read]
+
+/-- A key the object holds as an own data property keeps its attributes: a `publish` that
+succeeds leaves the property as it is or writes `v` in place with the same attributes. -/
+theorem publish_keeps_attrs (env : Env V) (s : Slot V) (v x : V) (a : Attrs) (proto : Bool)
+    (hown : s.own = some (.data x a)) (hok : (publish env s v proto).ok = true) :
+    (publish env s v proto).slot = s ∨ (publish env s v proto).slot.own = some (.data v a) := by
+  obtain ⟨own, inh, ext⟩ := s
+  simp only at hown
+  subst hown
+  by_cases hx : x = v
+  · left; simp [publish, readsAs, read, hx]
+  · right
+    obtain ⟨w, e, c⟩ := a
+    cases w <;> cases c <;> simp_all [publish, readsAs, write, read, assign, set, define]
 
 /-- A key the object lacks becomes an own data property holding `v`, and no setter runs: a key
 whose assignment would reach an accessor is defined. For an object `reconcile` keeps, the check
-before writing has already rejected that case; an object it adds is new, as in `construct`. -/
+before writing has already rejected that case; an object it adds is new, as in `constructOn`. -/
 theorem publish_missing (env : Env V) (s : Slot V) (v : V) (proto : Bool)
     (hown : s.own = none) (hext : s.extensible = true) :
     publish env s v proto = ⟨true, { s with own := some (.data v plain) }, []⟩ := by
@@ -349,21 +369,31 @@ theorem publish_missing (env : Env V) (s : Slot V) (v : V) (proto : Bool)
   simp only at hown hext
   subst hown hext
   cases proto <;> rcases inh with _ | ⟨w⟩ | ⟨st⟩ <;> (try cases w) <;> (try cases st) <;>
-    simp [publish, assign, set, define, inheritedAccessor]
+    simp [publish, readsAs, write, assign, set, define, inheritedAccessor]
 
-/-! ### Agreement with the alternative rule -/
+/-- `hide` in `src/standard-prototypes.ts`: a definition that gives only `enumerable: false`,
+which `writeProperties` applies to a key it has just added; a key the object lacks, which the
+runtime never hides, fails here. -/
+def hide (s : Slot V) : Outcome V :=
+  match s.own with
+  | some (.data x a) =>
+    if a.configurable || !a.enumerable then
+      ⟨true, { s with own := some (.data x { a with enumerable := false }) }, []⟩
+    else ⟨false, s, []⟩
+  | some (.accessor x setter e c) =>
+    if c || !e then ⟨true, { s with own := some (.accessor x setter false c) }, []⟩
+    else ⟨false, s, []⟩
+  | none => ⟨false, s, []⟩
 
-/-- Where no accessor is involved, `reconcileKey` and the alternative rule agree. -/
-theorem reconcileKey_eq_old (env : Env V) (s : Slot V) (v : V) (proto : Bool)
-    (hown : ∀ x st e c, s.own ≠ some (.accessor x st e c))
-    (hi : proto = true ∨ inheritedAccessor s.inherited = false) :
-    reconcileKey env s v proto = reconcileOld env s v proto := by
-  obtain ⟨own, inh, ext⟩ := s
-  rcases own with _ | ⟨x, a⟩ | ⟨x, st, e, c⟩
-  · rcases hi with hi | hi <;> simp_all [reconcileKey, reconcileOld, admissible, admissibleOld,
-      publish, publishOld]
-  · simp [reconcileKey, reconcileOld, admissible, admissibleOld, publish, publishOld]
-  · exact absurd rfl (hown x st e c)
+/-- A key the object lacks that `next` holds non-enumerable is added and then hidden
+(`writeProperties`), so it holds `v` with `copied false`; with `publish_missing`, every key
+`reconcile` adds takes `copied` with `next`'s enumerability (`copied true` is `plain`). -/
+theorem publish_missing_hide (env : Env V) (s : Slot V) (v : V) (proto : Bool)
+    (hown : s.own = none) (hext : s.extensible = true) :
+    hide (publish env s v proto).slot =
+      ⟨true, { s with own := some (.data v (copied false)) }, []⟩ := by
+  rw [publish_missing env s v proto hown hext]
+  rfl
 
 /-! ### Examples and counterexamples -/
 
@@ -410,93 +440,57 @@ example : (reconcileKey ⟨fun s _ => s, fun s _ => s⟩ observedAccessor 1 fals
 
 /-! ### Writing a property of a new object
 
-`snapshot`, `produce` and `reconcile` build new objects whose values are data properties. A new
-object has no own properties yet, and on `Object.prototype` or a null prototype the only accessor
-assignment can reach is `__proto__`'s, so assignment creates the same data property as a
-definition; on any other prototype, including a class's, the property is defined. -/
+`snapshot`, `produce`, `reconcile` and `deserialize` build new objects whose values are data
+properties. A new object has no own properties yet. On a prototype other than `Object.prototype`
+or null, including a class's, assignment can reach an accessor, so the property is defined. On a
+null prototype assignment reaches nothing. On `Object.prototype` it reaches whatever that object
+holds for the key: `__proto__`'s accessor, and anything any code added, as data or as an
+accessor, or made read-only, as `Object.freeze` and hardened environments do. The runtime asks
+`key in Object.prototype`, which reads only `Object.prototype`'s own keys because its prototype is
+always null, and assigns only where that is false. A new object's slot lists the inherited
+descriptor assignment would reach: none on a null prototype, and `Object.prototype`'s own
+descriptor for the key on `Object.prototype`, `.none` where it has none.
 
-/-- The write that creates one property of a new object. `standard` marks `Object.prototype` or
-a null prototype; `proto` marks the key `__proto__`. -/
-def construct (env : Env V) (s : Slot V) (v : V) (standard proto : Bool) : Outcome V :=
-  if standard && !proto then set env s v else define s v plain
-
-/-- A new object's property is an own data property holding `v`, and no setter runs. On a
-standard prototype, assignment reaches no accessor and no read-only property. -/
-theorem construct_data (env : Env V) (s : Slot V) (v : V) (standard proto : Bool)
-    (hown : s.own = none) (hext : s.extensible = true)
-    (hstd : standard = true → proto = false → s.inherited = .none ∨ s.inherited = .data true) :
-    construct env s v standard proto = ⟨true, { s with own := some (.data v plain) }, []⟩ := by
-  unfold construct
-  by_cases h : (standard && !proto) = true
-  · rw [if_pos h]
-    simp only [Bool.and_eq_true, Bool.not_eq_true'] at h
-    rcases hstd h.1 h.2 with hi | hi <;> simp [set, hown, hi, hext]
-  · rw [if_neg h]
-    simp [define, hown, hext]
-
-/-! A new object's property keeps its source's enumerability, which key listing, spread and JSON
+A new object's property keeps its source's enumerability, which key listing, spread and JSON
 observe. Writability and configurability protect the source, as its extensibility does, and are
-not copied: the new property is writable and configurable. This covers the copies `snapshot`
-makes and the objects `reconcile` adds; a `produce` draft instead follows its object's attributes,
-so a rebuilt object keeps those its draft holds. -/
-
-/-- The attributes a new object's property takes from a source property with this enumerability. -/
-def copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
-
-/-- The write that creates a new object's property from a source property: `construct` for an
-enumerable one, and a definition for a non-enumerable one, which assignment cannot create. -/
-def constructFrom (env : Env V) (s : Slot V) (v : V) (standard proto enumerable : Bool) :
-    Outcome V :=
-  if enumerable then construct env s v standard proto else define s v (copied false)
-
-/-- A new object's property holds `v` with its source's enumerability, and no setter runs. -/
-theorem constructFrom_data (env : Env V) (s : Slot V) (v : V) (standard proto enumerable : Bool)
-    (hown : s.own = none) (hext : s.extensible = true)
-    (hstd : standard = true → proto = false → s.inherited = .none ∨ s.inherited = .data true) :
-    constructFrom env s v standard proto enumerable =
-      ⟨true, { s with own := some (.data v (copied enumerable)) }, []⟩ := by
-  cases enumerable
-  · simp [constructFrom, define, hown, hext]
-  · simp only [constructFrom, if_true]
-    exact construct_data env s v standard proto hown hext hstd
-
-/-- Assignment that reaches an inherited setter, which `construct_data` excludes on a standard
-prototype, runs the setter and leaves the new object without an own property; on any other
-prototype `construct` defines the property. -/
-example : (construct storing ⟨none, .accessor true, true⟩ 1 true false).events = [.inheritedSetter] ∧
-    (construct storing ⟨none, .accessor true, true⟩ 1 true false).slot.own = none := ⟨rfl, rfl⟩
-example : construct storing ⟨none, .accessor true, true⟩ 1 false false =
-    ⟨true, ⟨some (.data 1 plain), .accessor true, true⟩, []⟩ := rfl
-
-
-/-! ### New objects under any `Object.prototype`
-
-`construct` assumes `Object.prototype` unmodified. Any code can add a property to it, as data or
-as an accessor, or make one read-only, as `Object.freeze` and hardened environments do; then an
-assignment to a new object on it runs a setter or fails. The runtime asks `key in
-Object.prototype`, which reads only `Object.prototype`'s own keys because its prototype is always
-null, and assigns only where that is false. A new object's slot lists the inherited descriptor
-assignment would reach: none on a null prototype, and `Object.prototype`'s own descriptor for the
-key on `Object.prototype`, `.none` where it has none. -/
+not copied: the new property is writable and configurable (`copied`). This covers the copies
+`snapshot` makes and the objects `reconcile` adds; a `produce` draft instead follows its object's
+attributes, so a rebuilt object keeps those its draft holds. -/
 
 /-- The write that creates one property of a new object. `standard` marks `Object.prototype` or a
 null prototype, and `inObject` that `Object.prototype` has an own property of the key. -/
 def constructOn (env : Env V) (s : Slot V) (v : V) (standard inObject : Bool) : Outcome V :=
   if standard && !inObject then set env s v else define s v plain
 
-/-- A new object's property is an own data property holding `v`, and no setter runs, wherever
-assignment reaches nothing. -/
+/-- A new object's property is an own data property holding `v`, and no setter runs, wherever the
+write's assignment reaches no accessor and no read-only property. -/
 theorem constructOn_data (env : Env V) (s : Slot V) (v : V) (standard inObject : Bool)
     (hown : s.own = none) (hext : s.extensible = true)
-    (hstd : standard = true → inObject = false → s.inherited = .none) :
+    (hstd : standard = true → inObject = false → s.inherited = .none ∨ s.inherited = .data true) :
     constructOn env s v standard inObject = ⟨true, { s with own := some (.data v plain) }, []⟩ := by
   unfold constructOn
   by_cases h : (standard && !inObject) = true
   · rw [if_pos h]
     simp only [Bool.and_eq_true, Bool.not_eq_true'] at h
-    simp [set, hown, hstd h.1 h.2, hext]
+    rcases hstd h.1 h.2 with hi | hi <;> simp [set, hown, hi, hext]
   · rw [if_neg h]
     simp [define, hown, hext]
+
+/-- The write that creates a new object's property from a source property: `constructOn` for an
+enumerable one, and a definition for a non-enumerable one, which assignment cannot create. -/
+def constructFromOn (env : Env V) (s : Slot V) (v : V) (standard inObject enumerable : Bool) :
+    Outcome V :=
+  if enumerable then constructOn env s v standard inObject else define s v (copied false)
+
+/-- A new object's property holds `v` with its source's enumerability, and no setter runs. -/
+theorem constructFromOn_data (env : Env V) (s : Slot V) (v : V)
+    (standard inObject enumerable : Bool) (hown : s.own = none) (hext : s.extensible = true)
+    (hstd : standard = true → inObject = false → s.inherited = .none ∨ s.inherited = .data true) :
+    constructFromOn env s v standard inObject enumerable =
+      ⟨true, { s with own := some (.data v (copied enumerable)) }, []⟩ := by
+  cases enumerable
+  · simp [constructFromOn, define, hown, hext]
+  · exact constructOn_data env s v standard inObject hown hext hstd
 
 /-- A new object on a null prototype, or on `Object.prototype` holding `held` for the key. -/
 def fresh (onObject : Bool) (held : Inherited) : Slot V :=
@@ -511,26 +505,12 @@ theorem constructOn_fresh (env : Env V) (v : V) (onObject : Bool) (held : Inheri
       ⟨true, { (fresh onObject held : Slot V) with own := some (.data v plain) }, []⟩ := by
   apply constructOn_data env _ v true inObject rfl rfl
   intro _ hi
+  left
   cases onObject
   · rfl
   · have := hin rfl
     simp only [fresh, if_true]
     cases held <;> simp_all
-
-/-- Where `construct`'s premise holds, as on an unmodified `Object.prototype`, whose keys reach no
-accessor but `__proto__` and no read-only property, the guarded write has exactly its outcome. -/
-theorem constructOn_eq_construct (env : Env V) (s : Slot V) (v : V) (standard proto inObject : Bool)
-    (hown : s.own = none) (hext : s.extensible = true)
-    (hstd : standard = true → proto = false → s.inherited = .none ∨ s.inherited = .data true)
-    (hnone : standard = true → inObject = false → s.inherited = .none) :
-    constructOn env s v standard inObject = construct env s v standard proto := by
-  rw [constructOn_data env s v standard inObject hown hext hnone,
-    construct_data env s v standard proto hown hext hstd]
-
-/-- `constructFrom` under any `Object.prototype`: a non-enumerable property is always defined. -/
-def constructFromOn (env : Env V) (s : Slot V) (v : V) (standard inObject enumerable : Bool) :
-    Outcome V :=
-  if enumerable then constructOn env s v standard inObject else define s v (copied false)
 
 theorem constructFromOn_fresh (env : Env V) (v : V) (onObject : Bool) (held : Inherited)
     (inObject enumerable : Bool) (hin : onObject = true → inObject = decide (held ≠ .none)) :
@@ -539,23 +519,31 @@ theorem constructFromOn_fresh (env : Env V) (v : V) (onObject : Bool) (held : In
         []⟩ := by
   cases enumerable
   · simp [constructFromOn, define, fresh]
-  · simp only [constructFromOn, if_true]
-    exact constructOn_fresh env v onObject held inObject hin
+  · exact constructOn_fresh env v onObject held inObject hin
 
-/-- A setter added to `Object.prototype`: `construct` runs it and leaves no own property; the
-guarded write defines the property. -/
-example : (construct storing (fresh true (.accessor true)) 1 true false).events =
+/-! An alternative rule assumes an unmodified `Object.prototype`, on which only `__proto__`'s
+assignment reaches an accessor and none reaches a read-only property, and so on a standard
+prototype assigns every key but `__proto__`. It is `constructOn` with `inObject` set to whether the
+key is `__proto__`, so `constructOn_data` covers it where that assumption holds. The examples below
+apply it, with `inObject` false, where `Object.prototype` holds the key. -/
+
+/-- A setter added to `Object.prototype`: the alternative rule runs it and leaves no own property;
+the guarded write defines the property. -/
+example : (constructOn storing (fresh true (.accessor true)) 1 true false).events =
       [.inheritedSetter] ∧
-    (construct storing (fresh true (.accessor true)) 1 true false).slot.own = none := ⟨rfl, rfl⟩
+    (constructOn storing (fresh true (.accessor true)) 1 true false).slot.own = none := ⟨rfl, rfl⟩
 example : constructOn storing (fresh true (.accessor true)) 1 true true =
     ⟨true, ⟨some (.data 1 plain), .accessor true, true⟩, []⟩ := rfl
 
-/-- A read-only property of a frozen `Object.prototype`: `construct`'s assignment fails, and the
-guarded write defines the property. -/
-example : (construct storing (fresh true (.data false)) 1 true false).ok = false := rfl
+/-- A read-only property of a frozen `Object.prototype`: the alternative rule's assignment fails,
+and the guarded write defines the property. -/
+example : (constructOn storing (fresh true (.data false)) 1 true false).ok = false := rfl
 example : constructOn storing (fresh true (.data false)) 1 true true =
     ⟨true, ⟨some (.data 1 plain), .data false, true⟩, []⟩ := rfl
 
+/-- An accessor on any other prototype, such as a class's: the property is defined. -/
+example : constructOn storing ⟨none, .accessor true, true⟩ 1 false false =
+    ⟨true, ⟨some (.data 1 plain), .accessor true, true⟩, []⟩ := rfl
 
 /-! ### A recipe's assignment through an inherited setter
 

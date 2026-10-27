@@ -5,8 +5,9 @@ import { thrown } from './fixtures/thrown'
 // Enumerability is content: key listing, spread and JSON observe it, so a new object keeps its
 // source's. Writability and configurability protect the source and are not copied into a
 // snapshot or an object reconcile adds. An existing object keeps the attributes of its existing
-// properties, and a produce draft follows its object's attributes. PropertyWrite.constructFrom states
-// the rule for new objects and the property-construct bridge compares it natively.
+// properties, and a produce draft follows its object's attributes.
+// PropertyWrite.constructFromOn_data states the rule for new objects and the property-construct
+// bridge compares it natively.
 
 const hidden = Symbol('hidden')
 

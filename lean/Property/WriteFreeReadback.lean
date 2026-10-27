@@ -29,31 +29,23 @@ open Reconcile.PropertyWrite
 
 variable {K V : Type} [DecidableEq K] [DecidableEq V]
 
-/-! ## One key -/
+/-! ## One key
 
-/-- `publishProperty`'s write-free branch: the key is own and reads as the wanted value. -/
-def unchanged (s : Slot V) (v : V) : Bool :=
-  match s.own with
-  | some own => decide (read own = v)
-  | none => false
+`publishProperty`'s write-free branch is `readsAs`: the key is own and reads as the wanted value,
+which is also what readback checks of it. -/
 
 /-- The runtime's publication with the descriptor the pre-write check read: presence and
 attributes come from `pre`, the value is read from the live slot `s`. -/
 def publishKnown (env : Env V) (pre s : Slot V) (v : V) (proto : Bool) : Outcome V :=
-  match pre.own with
-  | some (.data _ a) =>
-    match s.own with
-    | some own => if read own = v then ⟨true, s, []⟩ else assign env s v a
-    | none => publish env s v proto
-  | _ => publish env s v proto
+  match pre.own, s.own with
+  | some (.data _ a), some _ => if readsAs s v then ⟨true, s, []⟩ else assign env s v a
+  | _, _ => publish env s v proto
 
 /-- With stable reads the pre-write slot is the live slot, and publication is unchanged. -/
 theorem publishKnown_eq (env : Env V) (s : Slot V) (v : V) (proto : Bool) :
     publishKnown env s s v proto = publish env s v proto := by
-  unfold publishKnown publish
-  rcases hs : s.own with _ | own
-  · simp
-  · cases own <;> simp
+  unfold publishKnown publish write
+  rcases s.own with _ | ⟨x, a⟩ | ⟨x, st, e, c⟩ <;> simp
 
 /-! ## Plain objects -/
 
@@ -82,24 +74,22 @@ structure Observed (K V : Type) where
 def Listed (o : Observed K V) : Prop := ∀ k, k ∈ o.keys ↔ (o.slot k).own.isSome
 
 /-- `publish` in `src/types/object.ts` writes nothing: the observed keys are aligned with the
-requested ones and need no deletion, and every requested key is unchanged. -/
+requested ones and need no deletion, and every requested key already reads as wanted. -/
 def objectWriteFree (desired : List K) (want : K → V) (o : Observed K V) : Bool :=
   alignedPrefix o.keys desired && decide (o.keys.length ≤ desired.length) &&
-    desired.all fun k => unchanged (o.slot k) (want k)
+    desired.all fun k => readsAs (o.slot k) (want k)
 
 /-- `matches` in `src/types/object.ts`: exactly the requested keys in order, each reading as the
 wanted value. -/
 def objectMatches (desired : List K) (want : K → V) (o : Observed K V) : Prop :=
   o.keys = desired ∧ ∀ k ∈ desired, readsAs (o.slot k) (want k) = true
 
-theorem unchanged_isSome (s : Slot V) (v : V) (h : unchanged s v = true) : s.own.isSome := by
-  unfold unchanged at h
-  split at h <;> simp_all
+instance (desired : List K) (want : K → V) (o : Observed K V) :
+    Decidable (objectMatches desired want o) :=
+  inferInstanceAs (Decidable (_ ∧ _))
 
-theorem unchanged_readsAs (s : Slot V) (v : V) (h : unchanged s v = true) :
-    readsAs s v = true := by
-  unfold unchanged at h
-  unfold readsAs
+theorem readsAs_isSome (s : Slot V) (v : V) (h : readsAs s v = true) : s.own.isSome := by
+  unfold readsAs at h
   split at h <;> simp_all
 
 /-- A write-free publication of a plain object is followed by an accepting readback. -/
@@ -110,10 +100,9 @@ theorem object_writeFree_matches (desired : List K) (want : K → V) (o : Observ
   obtain ⟨⟨haligned, hlength⟩, hall⟩ := h
   have hprefix := alignedPrefix_prefix o.keys desired haligned hlength
   have hsub : desired ⊆ o.keys := fun k hk =>
-    (hlisted k).2 (unchanged_isSome _ _ (hall k hk))
+    (hlisted k).2 (readsAs_isSome _ _ (hall k hk))
   have hle : desired.length ≤ o.keys.length := (hnodup.subperm hsub).length_le
-  refine ⟨hprefix.eq_of_length (le_antisymm hlength hle), fun k hk => ?_⟩
-  exact unchanged_readsAs _ _ (hall k hk)
+  exact ⟨hprefix.eq_of_length (le_antisymm hlength hle), hall⟩
 
 /-! ## Arrays -/
 
@@ -131,7 +120,11 @@ def arrayWriteFree (length : Nat) (want : Nat → Option V) (o : ObservedArray V
 /-- `matches` in `src/types/array.ts`: the length, the holes and every present value. -/
 def arrayMatches (length : Nat) (want : Nat → Option V) (o : ObservedArray V) : Prop :=
   o.length = length ∧ ∀ i < length, (o.element i).isSome = (want i).isSome ∧
-    ∀ v, want i = some v → o.element i = some v
+    ∀ v ∈ want i, o.element i = some v
+
+instance (length : Nat) (want : Nat → Option V) (o : ObservedArray V) :
+    Decidable (arrayMatches length want o) :=
+  inferInstanceAs (Decidable (_ ∧ _))
 
 /-- A write-free publication of an array is followed by an accepting readback. -/
 theorem array_writeFree_matches (length : Nat) (want : Nat → Option V) (o : ObservedArray V)
@@ -155,29 +148,24 @@ result; the counterexample below is such a rejection. -/
 /-- Publication of one key, decided from `pre`, the slot as read before the call's first write; a
 write acts on `s`, the slot when publication reaches the key. -/
 def publishPre (env : Env V) (pre s : Slot V) (v : V) (proto : Bool) : Outcome V :=
-  match pre.own with
-  | some own =>
-    if read own = v then ⟨true, s, []⟩
-    else match own with
-      | .accessor .. => set env s v
-      | .data _ a => assign env s v a
-  | none => publish env s v proto
+  if readsAs pre v then ⟨true, s, []⟩
+  else match pre.own with
+    | some (.accessor ..) => set env s v
+    | some (.data _ a) => assign env s v a
+    | none => publish env s v proto
 
 /-- With stable reads the pre-write slot is the live slot, and the decision is `publish`'s. -/
 theorem publishPre_eq (env : Env V) (s : Slot V) (v : V) (proto : Bool) :
     publishPre env s s v proto = publish env s v proto := by
-  unfold publishPre publish
-  rcases s.own with _ | own <;> rfl
+  unfold publishPre publish write
+  split
+  · rfl
+  · rcases s.own with _ | ⟨x, a⟩ | ⟨x, st, e, c⟩ <;> simp
 
 /-- A key whose pre-write read already holds the wanted value is not written. -/
 theorem publishPre_unchanged (env : Env V) (pre s : Slot V) (v : V) (proto : Bool)
-    (h : unchanged pre v = true) : publishPre env pre s v proto = ⟨true, s, []⟩ := by
-  unfold unchanged at h
-  unfold publishPre
-  split at h
-  · simp only [decide_eq_true_eq] at h
-    simp [h]
-  · cases h
+    (h : readsAs pre v = true) : publishPre env pre s v proto = ⟨true, s, []⟩ := by
+  simp [publishPre, h]
 
 /-- One key of an attempt: its slot before the call's first write, its slot when publication
 reaches it, the wanted value and whether the key is `__proto__`. -/
@@ -188,7 +176,7 @@ structure Key (V : Type) where
   proto : Bool
 
 /-- Whether publication writes the key: its pre-write read does not hold the wanted value. -/
-def Key.writes (k : Key V) : Bool := !unchanged k.pre k.want
+def Key.writes (k : Key V) : Bool := !readsAs k.pre k.want
 
 /-- The key's slot after its publication, which readback observes. -/
 def Key.after (env : Env V) (k : Key V) : Slot V := (publishPre env k.pre k.live k.want k.proto).slot
@@ -212,11 +200,11 @@ theorem accepts_readsAs (env : Env V) (keys : List (Key V))
   · have hw : k.writes = false := by
       rw [List.any_eq_false] at hnone
       simpa using hnone k hk
-    have hu : unchanged k.pre k.want = true := by simpa [Key.writes] using hw
+    have hu : readsAs k.pre k.want = true := by simpa [Key.writes] using hw
     have hafter : k.after env = k.live := by
       simp [Key.after, publishPre_unchanged env k.pre k.live k.want k.proto hu]
     rw [hafter, stable hnone k hk]
-    exact unchanged_readsAs _ _ hu
+    exact hu
   · exact hall k hk
 
 /-! ## Later passes
@@ -227,35 +215,20 @@ later pass decides each of its keys from that value (`publishSeen`) instead of r
 each pass calls a getter of `current` once, at its readback. A decision a write in between made
 stale can only reject the pass (`acceptsRetry_readsAs`). -/
 
-/-- `writeProperty` in `src/types/shared/property-publication.ts`: `publish` once a read has shown
-that the key needs a write, deciding by the live slot without reading its value again. -/
-def write (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
-  match s.own with
-  | some (.accessor ..) => set env s v
-  | some (.data _ a) => assign env s v a
-  | none => if proto || inheritedAccessor s.inherited then define s v plain else assign env s v plain
-
 /-- Publication of one key decided from `seen`, a value read earlier: skipped when that is the
-wanted value and written on the live slot otherwise. A later pass decides each key of a node its
-previous readback matched from what that readback saw, and an array's first publication each index
-from what capture read. -/
+wanted value and written on the live slot otherwise (`PropertyWrite.write`, `writeProperty`). A
+later pass decides each key of a node its previous readback matched from what that readback saw,
+and an array's first publication each index from what capture read. -/
 def publishSeen (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
   if seen = v then ⟨true, s, []⟩ else write env s v proto
 
 /-- With stable reads the live slot still reads as `seen`, and the decision is `publish`'s. -/
 theorem publishSeen_eq (env : Env V) (seen : V) (s : Slot V) (v : V) (proto : Bool)
     (h : readsAs s seen = true) : publishSeen env seen s v proto = publish env s v proto := by
-  unfold readsAs at h
-  unfold publishSeen publish write
-  split at h
-  · rename_i own hown
-    simp only [decide_eq_true_eq] at h
-    subst h
-    by_cases hv : read own = v
-    · simp [hv]
-    · simp only [hv, if_false, hown]
-      cases own <;> rfl
-  · cases h
+  have hv : readsAs s v = decide (seen = v) := by
+    unfold readsAs at h ⊢
+    split at h <;> simp_all
+  simp [publishSeen, publish, hv]
 
 /-- One key of a later pass: the value its previous readback saw, its slot when publication
 reaches it, the wanted value and whether the key is `__proto__`. -/
@@ -303,7 +276,7 @@ theorem collection_writeFree_matches {α β : Type} [DecidableEq α] (cur next :
 changed to 8 by another key's setter is not written, and readback rejects the attempt, which a live
 decision would have rewritten. The extra rejection is the price of one read. -/
 example :
-    unchanged (⟨some (.data 7 plain), .none, true⟩ : Slot Nat) 7 = true ∧
+    readsAs (⟨some (.data 7 plain), .none, true⟩ : Slot Nat) 7 = true ∧
       readsAs (publishPre storing ⟨some (.data 7 plain), .none, true⟩
         ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = false ∧
       readsAs (publish storing ⟨some (.data 8 plain), .none, true⟩ 7 false).slot 7 = true := by
@@ -322,7 +295,7 @@ example : objectWriteFree [0, 1] (fun _ => 7)
 
 /-- Counterexample for alignment: a non-configurable key out of order needs no write, yet the
 readback rejects the order, so write-freedom alone does not decide readback. -/
-example : (([0, 1].all fun k => unchanged
+example : (([0, 1].all fun k => readsAs
       ((fun _ => (⟨some (.data 7 ⟨true, true, false⟩), .none, true⟩ : Slot Nat)) k) 7) = true) ∧
     alignedPrefix [1, 0] [0, 1] = false := by decide
 

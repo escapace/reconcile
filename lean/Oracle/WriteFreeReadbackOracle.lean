@@ -6,7 +6,7 @@ from every ordered subset of the keys `a`, `b` and `c`, each holding its wanted 
 and of an array onto `[1, 2]` and `[1, hole]` from every array of length up to three whose
 elements are the wanted value, another value or a hole. Each row reports whether publication
 writes nothing (`objectWriteFree`, `arrayWriteFree`) and whether the readback accepts what it
-observes before any write. -/
+observes before any write (`objectMatches`, `arrayMatches`). -/
 
 namespace Reconcile.WriteFreeReadbackOracle
 
@@ -61,10 +61,6 @@ private structure ArrayRow where
   accepts : Bool
   deriving ToJson
 
-def arrayAccepts (want : List (Option Nat)) (o : List (Option Nat)) : Bool :=
-  decide (o.length = want.length) &&
-    (List.range want.length).all fun i => decide (o.getD i none = want.getD i none)
-
 def run : IO Unit := do
   let objects := orders.flatMap fun keys => (assignments keys).map (keys, ·)
   let arrayCases := (List.range wanted.length).flatMap fun w =>
@@ -75,14 +71,14 @@ def run : IO Unit := do
     IO.println (toJson ({
       keys, values := (keys.zip same).map fun (k, b) => valueOf k b
       writeFree := objectWriteFree [0, 1] wantObject o
-      accepts := decide (o.keys = [0, 1]) && [0, 1].all fun k => readsAs (o.slot k) (wantObject k)
-      } : ObjectRow)).compress
+      accepts := decide (objectMatches [0, 1] wantObject o) } : ObjectRow)).compress
   for (w, elements) in arrayCases do
     let want := wanted.getD w []
     let o : ObservedArray Nat := ⟨elements.length, fun i => elements.getD i none⟩
+    let wantAt := fun i => want.getD i none
     IO.println (toJson ({
       wanted := w, elements
-      writeFree := arrayWriteFree want.length (fun i => want.getD i none) o
-      accepts := arrayAccepts want elements } : ArrayRow)).compress
+      writeFree := arrayWriteFree want.length wantAt o
+      accepts := decide (arrayMatches want.length wantAt o) } : ArrayRow)).compress
 
 end Reconcile.WriteFreeReadbackOracle

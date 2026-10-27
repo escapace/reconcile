@@ -137,11 +137,8 @@ function compare(
   checkStatus(row, key, status, before, after)
   assert.deepEqual(after, expected(jsonObject(row.after)), `${key}: descriptor`)
   assert.equal(calls.ownSetter, integerIn(row.ownSetterCalls, 0, 1), `${key}: own setter`)
-  assert.equal(
-    calls.inheritedSetter,
-    integerIn(row.inheritedSetterCalls, 0, 0),
-    `${key}: inherited`,
-  )
+  // No inherited setter runs (PropertyWrite.reconcileKey_no_inherited_setter).
+  assert.equal(calls.inheritedSetter, 0, `${key}: inherited`)
   // Object.prototype's own __proto__ setter would replace the prototype.
   assert.equal(Object.getPrototypeOf(current) === Object.prototype, key === '__proto__' || onObject)
 }

@@ -1,3 +1,5 @@
+import Property.KeyOrder
+
 /-!
 # Finalization reads
 
@@ -9,11 +11,12 @@
   `src/finalization.ts`). Copies only accumulate, and a pass that makes one is followed by a pass
   that observes every slot again and makes none, so the last observation sees every copy the
   decision sees and decides the same (`decisions_gated`).
-- **Symbol keys.** A working copy lists its keys as `OrdinaryOwnPropertyKeys` does, strings before
-  symbols, so its last key is a symbol exactly when it holds one (`lastSymbol_iff`). The copy starts
-  holding a symbol exactly when its first key list ends in one and records each symbol written, so
-  a copy that never did holds none and its string keys are all its keys (`keys_exact`,
-  `PropertyDraftState.keys` in `src/types/shared/draft-properties.ts`).
+- **Symbol keys.** A working copy lists its keys as `OrdinaryOwnPropertyKeys` does
+  (`KeyOrder.ownKeys`), strings before symbols, so its last key is a symbol exactly when it holds
+  one (`lastSymbol_iff`). The copy's flag starts set exactly when its first key list ends in a
+  symbol and is set by each symbol written, so a copy whose flag is clear holds none and its string
+  keys are all its keys (`keys_exact`, `PropertyDraftState.keys` in
+  `src/types/shared/draft-properties.ts`).
 - **Draft lookups.** The finalization walk looks each object's draft up once. Drafts are only added,
   each addition counted, and never replaced, so after a walk a draft found before is still that
   draft, and one absent before can exist only if the count moved (`reread_exact`, `checkState` in
@@ -90,104 +93,94 @@ theorem decisions_gated {D : Type} (start : List Nat) (earlier : List Pass) (las
   rw [hfinal]
   exact decisions_observe seen choose rest slots
 
-/-! ## Symbol keys -/
+/-! ## Symbol keys
 
-/-- A property key: a string or a symbol. -/
-inductive Key where
-  | str (name : String)
-  | sym (id : Nat)
-  deriving DecidableEq
+A working copy is an ordinary object, so it lists its keys as `KeyOrder.ownKeys` does, and the
+recipe's assignments and deletions are `KeyOrder`'s operations on it. -/
 
-def Key.isSymbol : Key → Bool
-  | .sym _ => true
-  | .str _ => false
+section SymbolKeys
 
-/-- A working copy's keys in `OrdinaryOwnPropertyKeys` order: its string keys, then its symbols. -/
-structure Store where
-  names : List String
-  symbols : List Nat
-
-def Store.ownKeys (s : Store) : List Key := s.names.map .str ++ s.symbols.map .sym
-
-def Store.stringKeys (s : Store) : List Key := s.names.map .str
+open Reconcile.PropertyOrder Reconcile.PropertyPlacement Reconcile.KeyOrder
 
 /-- Whether a key list ends in a symbol. -/
-def lastSymbol (keys : List Key) : Bool := (keys.getLast?.map Key.isSymbol).getD false
+def lastSymbol (keys : List Key) : Bool := (keys.getLast?.map isSymbol).getD false
 
-/-- A key list in `OrdinaryOwnPropertyKeys` order ends in a symbol exactly when it holds one. -/
-theorem lastSymbol_iff (s : Store) : lastSymbol s.ownKeys = !s.symbols.isEmpty := by
-  unfold lastSymbol Store.ownKeys
-  rcases List.eq_nil_or_concat s.symbols with h | ⟨xs, x, h⟩
-  · rw [h]
-    rcases List.eq_nil_or_concat s.names with hn | ⟨ys, y, hn⟩
-    · rw [hn]; rfl
-    · rw [hn]; simp [Key.isSymbol]
-  · rw [h]; simp [Key.isSymbol]
+/-- `Object.getOwnPropertyNames`: the own keys that are not symbols, in own-key order. -/
+def stringKeys (created : List Key) : List Key := (ownKeys created).filter fun k => !isSymbol k
 
-/-- A write to a working copy: a string key set, a symbol set, or a key deleted. -/
-inductive Write where
-  | setName (name : String)
-  | setSymbol (id : Nat)
-  | delete (key : Key)
+/-- An object's own keys end in a symbol exactly when it holds one. -/
+theorem lastSymbol_iff (created : List Key) :
+    lastSymbol (ownKeys created) = !(created.filter isSymbol).isEmpty := by
+  unfold lastSymbol
+  rcases List.eq_nil_or_concat (created.filter isSymbol) with h | ⟨xs, x, h⟩
+  · have hnone : ∀ k ∈ ownKeys created, isSymbol k = false := fun k hk => by
+      by_contra hs
+      have : k ∈ (ownKeys created).filter isSymbol := List.mem_filter.mpr ⟨hk, by simpa using hs⟩
+      rw [ownKeys_filter_symbol, h] at this
+      simp at this
+    rw [h]
+    rcases hl : (ownKeys created).getLast? with _ | k
+    · rfl
+    · simp [hnone k (List.mem_of_getLast? hl)]
+  · have hx : isSymbol x = true := by
+      have : x ∈ created.filter isSymbol := by rw [h]; simp
+      exact (List.mem_filter.mp this).2
+    unfold ownKeys
+    rw [h]
+    simp [hx]
 
-def Write.apply : Write → Store → Store
-  | .setName n, s => if s.names.contains n then s else { s with names := s.names ++ [n] }
-  | .setSymbol i, s => if s.symbols.contains i then s else { s with symbols := s.symbols ++ [i] }
-  | .delete (.str n), s => { s with names := s.names.filter (· != n) }
-  | .delete (.sym i), s => { s with symbols := s.symbols.filter (· != i) }
+/-- The flag after an operation: assigning a symbol sets it. -/
+def flag : Op → Bool → Bool
+  | .assign key, holds => holds || isSymbol key
+  | .remove _, holds => holds
 
-/-- The flag after a write: a symbol write sets it. -/
-def Write.flag : Write → Bool → Bool
-  | .setSymbol _, _ => true
-  | _, holds => holds
+/-- The flag after `ops` from flag `holds`. -/
+def flagAfter (holds : Bool) (ops : List Op) : Bool :=
+  ops.foldl (fun holds op => flag op holds) holds
 
-/-- The flag and copy after `writes` from flag `holds` and copy `s`. -/
-def afterFrom (holds : Bool) (s : Store) (writes : List Write) : Bool × Store :=
-  writes.foldl (fun (hs : Bool × Store) w => (w.flag hs.1, w.apply hs.2)) (holds, s)
+/-- An object whose flag is clear holds no symbol. -/
+def Holds (holds : Bool) (created : List Key) : Prop := holds = false → created.filter isSymbol = []
 
-/-- The flag and copy after `writes`, the flag starting as whether the first key list ends in a
-symbol. -/
-def afterWrites (start : Store) (writes : List Write) : Bool × Store :=
-  afterFrom (lastSymbol start.ownKeys) start writes
-
-/-- A copy whose flag is clear holds no symbol. -/
-def Holds (holds : Bool) (s : Store) : Prop := holds = false → s.symbols = []
-
-theorem holds_step (holds : Bool) (s : Store) (w : Write) (h : Holds holds s) :
-    Holds (w.flag holds) (w.apply s) := by
+theorem holds_step (holds : Bool) (created : List Key) (op : Op) (h : Holds holds created) :
+    Holds (flag op holds) (KeyOrder.apply created op) := by
   intro hflag
-  cases w with
-  | setName n =>
-    simp only [Write.flag] at hflag
-    have := h hflag
-    simp only [Write.apply]
-    split <;> simp [this]
-  | setSymbol i => simp [Write.flag] at hflag
-  | delete k =>
-    simp only [Write.flag] at hflag
-    have := h hflag
-    cases k <;> simp [Write.apply, this]
+  cases op with
+  | assign key =>
+    simp only [flag, Bool.or_eq_false_iff] at hflag
+    have hs := h hflag.1
+    simp only [KeyOrder.apply]
+    split
+    · exact hs
+    · simp [List.filter_append, hs, hflag.2]
+  | remove key =>
+    simp only [KeyOrder.apply, ← List.erase_filter, h hflag, List.erase_nil]
 
-theorem holds_after (holds : Bool) (s : Store) (writes : List Write) (h : Holds holds s) :
-    Holds (afterFrom holds s writes).1 (afterFrom holds s writes).2 := by
-  induction writes generalizing holds s with
+theorem holds_after (holds : Bool) (created : List Key) (ops : List Op)
+    (h : Holds holds created) : Holds (flagAfter holds ops) (KeyOrder.run created ops) := by
+  induction ops generalizing holds created with
   | nil => exact h
-  | cons w ws ih => exact ih _ _ (holds_step holds s w h)
+  | cons op ops ih => exact ih _ _ (holds_step holds created op h)
 
-/-- Whatever the writes, a copy whose flag is clear lists all its keys as its string keys: the
-symbol listing can be skipped. -/
-theorem keys_exact (start : Store) (writes : List Write) :
-    (afterWrites start writes).1 = false →
-      (afterWrites start writes).2.ownKeys = (afterWrites start writes).2.stringKeys := by
+/-- The flag starts as whether the copy's first key list ends in a symbol, and whatever the writes,
+a copy whose flag is clear lists all its keys as its string keys: the symbol listing can be
+skipped. -/
+theorem keys_exact (start : List Key) (ops : List Op) :
+    flagAfter (lastSymbol (ownKeys start)) ops = false →
+      ownKeys (KeyOrder.run start ops) = stringKeys (KeyOrder.run start ops) := by
   intro hflag
-  have hstart : Holds (lastSymbol start.ownKeys) start := by
+  have hstart : Holds (lastSymbol (ownKeys start)) start := by
     intro h
     rw [lastSymbol_iff] at h
     simpa using h
-  have hs := holds_after _ _ writes hstart hflag
-  unfold afterWrites at hs ⊢
-  generalize (afterFrom (lastSymbol start.ownKeys) start writes).2 = s at hs ⊢
-  simp [Store.ownKeys, Store.stringKeys, hs]
+  have hs := holds_after _ _ ops hstart hflag
+  unfold stringKeys
+  refine (List.filter_eq_self.mpr fun k hk => ?_).symm
+  have : k ∉ (ownKeys (KeyOrder.run start ops)).filter isSymbol := by
+    rw [ownKeys_filter_symbol, hs]
+    simp
+  simpa [List.mem_filter, hk] using this
+
+end SymbolKeys
 
 /-! ## Draft lookups -/
 

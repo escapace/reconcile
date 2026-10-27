@@ -59,16 +59,15 @@ function checkRow(row: Row): number {
   const results = holdingObjectPrototype(onObject(row, count), key, () =>
     builds(sourceOf(row, key, count), row.base !== 'custom', row.enumerable === true),
   )
-  for (const result of results) {
-    assert.equal(row.ok, true)
+  for (const result of results)
     assert.deepEqual(Object.getOwnPropertyDescriptor(result, key), {
       configurable: after.configurable,
       enumerable: after.enumerable,
       value: after.value,
       writable: after.writable,
     })
-  }
-  assert.equal(setterCalls, integerIn(row.setterCalls, 0, 0), 'inherited setter')
+  // Every write succeeds and runs no setter (PropertyWrite.constructFromOn_data).
+  assert.equal(setterCalls, 0, 'inherited setter')
   return results.length
 }
 

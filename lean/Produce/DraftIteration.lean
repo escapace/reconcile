@@ -92,8 +92,9 @@ theorem write_after_iterate (d : Draft) (k v : Nat) :
 theorem kept_untouched (base : List (Nat × Nat)) : kept ⟨base, none, false⟩ = true := by
   simp [kept, source]
 
-/-- Each object has one draft, so mapping members to their drafts is injective, and the members a
-`Set` combination returns stay distinct when each object member is replaced by its draft. -/
+/-- When mapping members to their drafts is injective, as one draft per object makes it, the
+members a `Set` combination returns stay distinct after each is replaced by its draft
+(`List.Nodup.map`). -/
 theorem drafted_nodup {α β : Type} (draft : α → β) (injective : Function.Injective draft)
     (members : List α) (distinct : members.Nodup) : (members.map draft).Nodup :=
   distinct.map injective

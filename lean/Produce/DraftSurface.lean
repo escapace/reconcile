@@ -30,7 +30,8 @@ inductive Key where
   | other
   deriving DecidableEq, Repr
 
-/-- Whether the heap model represents an own property with this key on this kind. -/
+/-- Whether the heap model represents an own property with this key on this kind: a table
+transcribed from the surface `Defs` lists, not derived from `Defs`, which has no key classes. -/
 def represented : Kind → Key → Bool
   | .object, _ => true
   | .array, .index => true
@@ -52,7 +53,8 @@ def admits (kind : Kind) (key : Key) : Bool :=
   | .typed => key == .index
   | .native => false
 
-/-- A draft accepts a write exactly when the result can carry it, so no accepted write is lost. -/
+/-- The runtime's admission agrees with `represented` on every kind and key class: a draft accepts
+a write exactly where the table says the result carries it. -/
 theorem admits_iff_represented (kind : Kind) (key : Key) :
     admits kind key = represented kind key := by
   cases kind <;> cases key <;> rfl
@@ -99,8 +101,8 @@ def resolvesToItself : Returned → Bool
 def keeps (dataChanged : Bool) (returned : List Returned) : Bool :=
   !dataChanged && returned.all resolvesToItself
 
-/-- A kept object's live getter returns what the rebuilt object would hold, so keeping it changes
-no value a caller reads; a handle never escapes into the result. -/
+/-- An object is kept exactly when the recipe changed none of its data and every getter returned a
+primitive or a kept child, the value the result holds at that slot. -/
 theorem keeps_iff (dataChanged : Bool) (returned : List Returned) :
     keeps dataChanged returned = true ↔
       dataChanged = false ∧ ∀ r ∈ returned, r = .primitive ∨ r = .keptChild := by

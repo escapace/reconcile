@@ -21,7 +21,10 @@ remembers each object it settles as unchanged. Two repeated walks are avoided he
 Every check keeps the invariant that each settled object has its list kept and settled children
 (`check_step`, `needs_settled`), so a walk from an unchanged object meets only kept lists
 (`settled_reach_recorded`). With the changed objects fixed, a settled object reaches none of them
-(`needs_unchanged`): settling early never answers wrongly.
+(`needs_unchanged`): settling early never answers wrongly. With no closure fact, no change found
+after a walk and fuel for one nested walk per object reached, the converse holds as well
+(`needs_complete`): an object whose subtree is unchanged needs no copy, so no unchanged subtree is
+copied.
 
 The runtime's other answers, a closure fact, a changed object and a change found after the walk,
 are questions to `Oracle`, which may depend on the state. That repeated reads of an object list
@@ -579,6 +582,168 @@ theorem needs_unchanged (g : Graph) (o : Oracle) (c : Nat → Bool) (hc : ∀ s 
       · split <;> simp [h']
     · simp [needs, hr] at h
   exact hsound u (settled_reach_recorded g _ hinv hn hu).1
+
+/-! ## Completeness
+
+With no closure fact and no change found after a walk, the walk also answers negatively for every
+object whose subtree is unchanged, given fuel for one nested walk per object it can reach. -/
+
+/-- Every object settled as needing a copy reaches one of the changed objects `c`. -/
+def Complete (g : Graph) (c : Nat → Bool) (s : State) : Prop :=
+  ∀ v, s.memo v = some true → ∃ u, Relation.ReflTransGen (fun a b => b ∈ g a) v u ∧ c u = true
+
+theorem initial_complete (g : Graph) (c : Nat → Bool) : Complete g c initial := by
+  intro v hv
+  simp [initial] at hv
+
+/-- Visiting more leaves no more of `R` unvisited. -/
+theorem unvisited_le (R : List Nat) {a b : List Nat} (h : ∀ v ∈ a, v ∈ b) :
+    (R.filter (· ∉ b)).length ≤ (R.filter (· ∉ a)).length := by
+  have hsub : R.filter (· ∉ b) = (R.filter (· ∉ a)).filter (· ∉ b) := by
+    rw [List.filter_filter]
+    apply List.filter_congr
+    intro x _
+    by_cases hb : x ∈ b
+    · simp [hb]
+    · have ha : x ∉ a := fun ha => hb (h x ha)
+      simp [hb, ha]
+  rw [hsub]
+  exact List.length_filter_le _ _
+
+/-- Visiting an unvisited object of `R` leaves fewer unvisited. -/
+theorem unvisited_lt (R : List Nat) {a : List Nat} {n : Nat} (hn : n ∈ R) (ha : n ∉ a) :
+    (R.filter (· ∉ n :: a)).length < (R.filter (· ∉ a)).length := by
+  have hsub : R.filter (· ∉ n :: a) = (R.filter (· ∉ a)).filter (· ≠ n) := by
+    rw [List.filter_filter]
+    apply List.filter_congr
+    intro x _
+    simp
+  rw [hsub, List.length_filter_lt_length_iff_exists]
+  exact ⟨n, List.mem_filter.mpr ⟨hn, by simpa using ha⟩, by simp⟩
+
+/-- A walk keeps a property of the state that each check keeps, and finds a child that needs a copy
+only where a check answered so. -/
+theorem walk_complete (f : State → Nat → Result) (P : State → Prop) (target : Nat → Prop) :
+    ∀ l : List Nat, (∀ s m, m ∈ l → P s → ((f s m).needs = true → target m) ∧ P (f s m).state) →
+      ∀ s, P s → ((walk f s l).needs = true → ∃ m ∈ l, target m) ∧ P (walk f s l).state
+  | [], _, s, hs => ⟨fun h => by simp [walk] at h, hs⟩
+  | m :: ms, hf, s, hs => by
+    obtain ⟨hm, hs'⟩ := hf s m List.mem_cons_self hs
+    cases hn : (f s m).needs
+    · simp only [walk, hn, Bool.false_eq_true, if_false]
+      obtain ⟨h₁, h₂⟩ := walk_complete f P target ms
+        (fun s' m' hm' => hf s' m' (List.mem_cons_of_mem _ hm')) _ hs'
+      exact ⟨fun h => let ⟨m', hm', ht⟩ := h₁ h; ⟨m', List.mem_cons_of_mem _ hm', ht⟩, h₂⟩
+    · simp only [walk, hn, if_true]
+      exact ⟨fun _ => ⟨m, List.mem_cons_self, hm hn⟩, hs'⟩
+
+/-- With no closure fact and no change found after a walk, and more fuel than the objects of `R`
+the state has not visited, where `R` holds every object `n` reaches: a check answers that `n`
+needs a copy only when `n` reaches a changed object, and settles only such objects as needing
+one. -/
+theorem check_complete (g : Graph) (o : Oracle) (c : Nat → Bool)
+    (hfact : ∀ s n, o.fact s n = false) (hc : ∀ s n, o.changed s n = c n)
+    (hafter : ∀ s n, o.after s n = false) (R : List Nat) :
+    ∀ fuel s n, (∀ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u → u ∈ R) →
+      (R.filter (· ∉ s.visited)).length < fuel → Complete g c s →
+      ((check g o fuel s n).needs = true →
+          ∃ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u ∧ c u = true) ∧
+        Complete g c (check g o fuel s n).state
+  | 0, _, _, _, hfuel, _ => absurd hfuel (Nat.not_lt_zero _)
+  | fuel + 1, s, n, hR, hfuel, hs => by
+    have hf := hfact s n
+    rcases hm : s.memo n with _ | b
+    · by_cases hch : c n = true
+      · have hch' : o.changed s n = true := by rw [hc]; exact hch
+        simp only [check, hf, hm, hch', Bool.false_eq_true, if_false, if_true]
+        refine ⟨fun _ => ⟨n, .refl, hch⟩, fun v hv => ?_⟩
+        by_cases hvn : v = n
+        · subst hvn; exact ⟨v, .refl, hch⟩
+        · exact hs v (by simpa [State.settle, Function.update_of_ne hvn] using hv)
+      have hch' : o.changed s n = false := by rw [hc]; simpa using hch
+      by_cases hv : n ∈ s.visited
+      · simp only [check, hf, hm, hch', hv, Bool.false_eq_true, if_false, if_true]
+        exact ⟨fun h => by simp at h, hs⟩
+      have hlt := unvisited_lt R (hR n .refl) hv
+      -- Each child's check keeps completeness, and the fuel bound since it only visits more.
+      have hwalk := walk_complete (check g o fuel)
+        (fun s' => Complete g c s' ∧ (R.filter (· ∉ s'.visited)).length < fuel)
+        (fun m => ∃ u, Relation.ReflTransGen (fun a b => b ∈ g a) m u ∧ c u = true) (g n)
+        (fun s' m hm hP => by
+          have hRm : ∀ u, Relation.ReflTransGen (fun a b => b ∈ g a) m u → u ∈ R := fun u hu =>
+            hR u (Relation.ReflTransGen.head hm hu)
+          obtain ⟨hneeds, hcomp⟩ := check_complete g o c hfact hc hafter R fuel s' m hRm hP.2 hP.1
+          exact ⟨hneeds, hcomp, Nat.lt_of_le_of_lt
+            (unvisited_le R (check_step g o fuel s' m).1.2.2.2.2.2) hP.2⟩)
+        (s.visit n) ⟨hs, show (R.filter (· ∉ n :: s.visited)).length < fuel by omega⟩
+      rcases hw : walk (check g o fuel) (s.visit n) (g n) with ⟨wb, wp, s'⟩
+      rw [hw] at hwalk
+      obtain ⟨hneeds, hcomp, -⟩ := hwalk
+      have hrec : Complete g c (s'.record n (g n)) := fun v hv =>
+        hcomp v (by simpa [State.record] using hv)
+      cases wb
+      · have ha := hafter (s'.record n (g n)) n
+        cases wp
+        · simp only [check, hf, hm, hch', hv, hw, ha, Bool.false_eq_true, if_false]
+          refine ⟨fun h => by simp at h, fun v hv' => hrec v ?_⟩
+          by_cases hvn : v = n
+          · subst hvn; simp [State.settle] at hv'
+          · simpa [State.settle, Function.update_of_ne hvn] using hv'
+        · simp only [check, hf, hm, hch', hv, hw, ha, Bool.false_eq_true, if_false, if_true]
+          exact ⟨fun h => by simp at h, hrec⟩
+      · obtain ⟨m, hm', u, hu, hcu⟩ := hneeds rfl
+        have hreach : ∃ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u ∧ c u = true :=
+          ⟨u, Relation.ReflTransGen.head hm' hu, hcu⟩
+        simp only [check, hf, hm, hch', hv, hw, Bool.false_eq_true, if_false, if_true]
+        refine ⟨fun _ => hreach, fun v hv' => ?_⟩
+        by_cases hvn : v = n
+        · subst hvn; exact hreach
+        · exact hcomp v (by simpa [State.settle, Function.update_of_ne hvn] using hv')
+    · simp only [check, hf, hm, Bool.false_eq_true, if_false]
+      exact ⟨fun h => hs n (by rw [hm, h]), hs⟩
+
+/-- With no closure fact, no change found after a walk and more fuel than the objects `n` reaches,
+a question keeps every object settled as needing a copy reaching a changed object. -/
+theorem needs_keeps_complete (g : Graph) (o : Oracle) (c : Nat → Bool)
+    (hfact : ∀ s n, o.fact s n = false) (hc : ∀ s n, o.changed s n = c n)
+    (hafter : ∀ s n, o.after s n = false) (fuel : Nat) (s : State) (n : Nat) (R : List Nat)
+    (hR : ∀ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u → u ∈ R) (hfuel : R.length < fuel)
+    (hs : Complete g c s) : Complete g c (needs g o fuel s n).2 := by
+  have h := (check_complete g o c hfact hc hafter R fuel { s with visited := [] } n hR
+    (by rw [List.filter_eq_self.mpr (by simp)]; exact hfuel) hs).2
+  cases hn : (check g o fuel { s with visited := [] } n).needs
+  · have hgoal : (needs g o fuel s n).2.memo =
+        (settleAll (check g o fuel { s with visited := [] } n).state
+          (check g o fuel { s with visited := [] } n).state.visited).memo := by
+      simp [needs, hn]
+    intro v hv
+    rw [hgoal, settleAll_memo] at hv
+    split at hv
+    · simp at hv
+    · exact h v hv
+  · have hgoal : (needs g o fuel s n).2.memo =
+        (check g o fuel { s with visited := [] } n).state.memo := by
+      simp [needs, hn]
+    intro v hv
+    rw [hgoal] at hv
+    exact h v hv
+
+/-- With no closure fact, no change found after a walk and more fuel than the objects `n` reaches,
+a question about an object that reaches no changed object answers that it needs no copy: with
+`needs_unchanged`, the answer is negative exactly when the object's subtree is unchanged. -/
+theorem needs_complete (g : Graph) (o : Oracle) (c : Nat → Bool)
+    (hfact : ∀ s n, o.fact s n = false) (hc : ∀ s n, o.changed s n = c n)
+    (hafter : ∀ s n, o.after s n = false) (fuel : Nat) (s : State) (n : Nat) (R : List Nat)
+    (hR : ∀ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u → u ∈ R) (hfuel : R.length < fuel)
+    (hs : Complete g c s)
+    (hu : ∀ u, Relation.ReflTransGen (fun a b => b ∈ g a) n u → c u = false) :
+    (needs g o fuel s n).1 = false := by
+  have h := (check_complete g o c hfact hc hafter R fuel { s with visited := [] } n hR
+    (by rw [List.filter_eq_self.mpr (by simp)]; exact hfuel) hs).1
+  cases hn : (check g o fuel { s with visited := [] } n).needs
+  · simp [needs, hn]
+  · obtain ⟨u, hreach, hcu⟩ := h hn
+    simp [hu u hreach] at hcu
 
 /-- The oracle the examples use: object 2 changed, nothing else. -/
 def changedTwo : Oracle :=

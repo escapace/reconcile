@@ -26,11 +26,6 @@ def decode (fields : Array Nat) : Except String Key := do
   | 2 => pure (.symbol fields[1]!)
   | _ => throw "Invalid key class"
 
-def initial (desired : List Key) : Cursor :=
-  { names := desired
-    symbols := desired.dropWhile (fun key => match key with | .symbol _ => false | _ => true)
-    retained := 0 }
-
 def advance (desired : List Key) (state : Option (Cursor × Bool)) (key : Key) :
     Option (Cursor × Bool) := state.map fun pair =>
   let next := referenceStep desired key pair.1
@@ -56,7 +51,8 @@ def check (input : Input) : IO Json := do
     position := through
   commands := commands ++ (previous.drop position).map Command.advance
   let aligned := previous.zip desired |>.all (fun pair => pair.1 == pair.2)
-  let cursor := if input.ordered && !aligned then some (initial desired, false) else none
+  let cursor :=
+    if input.ordered && !aligned then some (PropertyOrder.initial desired, false) else none
   let native : Native (Option (Cursor × Bool)) (List Json) :=
     { probe := fun _ world => (world, .ok true)
       consume := fun id current world => (world ++ [observe input.finals[id]! current], none) }

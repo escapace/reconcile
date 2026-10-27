@@ -209,18 +209,8 @@ example : ([Key.name 0].filter (fun key => [Key.name 0, .name 1].contains key)) 
 `i` is a current own key exactly when `i` is below the current key count. -/
 theorem aligned_desired_mem {α : Type} (previous desired : List α) (unique : desired.Nodup)
     (aligned : Aligned previous desired) (i : Nat) (hi : i < desired.length) :
-    desired[i] ∈ previous ↔ i < previous.length := by
-  constructor
-  · intro member
-    by_contra outside
-    obtain ⟨j, hj, same⟩ := List.getElem_of_mem member
-    have hjd : j < desired.length := by omega
-    have equal : desired[j] = desired[i] := (aligned j hj hjd).symm.trans same
-    have := (List.Nodup.getElem_inj_iff unique).mp equal
-    omega
-  · intro inside
-    rw [← aligned i inside hi]
-    exact List.getElem_mem inside
+    desired[i] ∈ previous ↔ i < previous.length :=
+  aligned_mem desired previous unique (fun j hd hp => (aligned j hp hd).symm) i hi
 
 /-- The reference decision: some requested key the object does not own reaches an inherited
 accessor (`inherited` folds in the `__proto__` exclusion and the prototype walk). -/

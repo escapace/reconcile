@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
+import { matchesKind } from '../src/adapters/recognition'
+import { atomValue, isNode } from '../src/graph/edge'
+import { capture } from '../src/publication/capture'
 import { reconcile } from '../src/reconcile'
+import { publicationTypes } from '../src/types/builtins'
 
 const NAMES = ['a', 'b', 'c']
 const WANTED: ReadonlyArray<ReadonlyArray<number | undefined>> = [
@@ -46,6 +50,22 @@ function observed(target: object, traps: Traps): object {
   })
 }
 
+/** The runtime's readback of `current` against `next` before any write: the kind check and
+ * `matches` that `publishGraph`'s readback asks of the root, whose edges here are primitives. */
+function readbackAccepts(current: object, next: object): boolean {
+  const graph = capture(publicationTypes, next)
+  assert.ok(isNode(graph.root))
+  const node = graph.nodes[graph.root.node]
+  return (
+    matchesKind(publicationTypes, current, node.layout.kind) &&
+    publicationTypes.policies[node.layout.kind].matches(
+      node,
+      current,
+      (actual, wanted) => !isNode(wanted) && Object.is(actual, atomValue(wanted)),
+    )
+  )
+}
+
 /** Reconciles a counted `current` onto `next`, then checks the raw `current` equals `next`. */
 function run(current: object, next: object): Traps {
   const traps: Traps = { counts: new Map(), wrote: false }
@@ -65,7 +85,13 @@ function objectRow<T>(row: Record<string, unknown>, valueOf: (value: number) => 
 
 function checkObject(row: Record<string, unknown>): boolean {
   const current = objectRow(row, (value) => value)
-  const traps = run(current, { a: 1, b: 2 })
+  const next = { a: 1, b: 2 }
+  assert.equal(
+    readbackAccepts(current, next),
+    row.accepts,
+    `object ${JSON.stringify(current)} readback`,
+  )
+  const traps = run(current, next)
   // The preflight lists the keys once (names and symbols); a readback lists them again.
   const elided = traps.counts.get('ownKeys') === 2
   assert.equal(elided, row.writeFree, `object ${JSON.stringify(current)} readback elided`)
@@ -95,7 +121,14 @@ const wantedOf = (row: Record<string, unknown>): ReadonlyArray<number | undefine
   WANTED[integerIn(row.wanted, 0, WANTED.length - 1)]
 
 function checkArray(row: Record<string, unknown>): boolean {
-  const traps = run(sparse(arrayRow(row, (value) => value)), sparse(wantedOf(row)))
+  const current = sparse(arrayRow(row, (value) => value))
+  const next = sparse(wantedOf(row))
+  assert.equal(
+    readbackAccepts(current, next),
+    row.accepts,
+    `array ${JSON.stringify(row.elements)} readback`,
+  )
+  const traps = run(current, next)
   // Publication reads the length once; a readback reads it again.
   const elided = traps.counts.get('get:length') === 1
   assert.equal(elided, row.writeFree, `array ${JSON.stringify(row.elements)} readback elided`)
@@ -160,7 +193,8 @@ function checkArrayReads(row: Record<string, unknown>): void {
   }
 }
 
-/** Checks one row's elision and reads; whether its readback was elided. */
+/** Checks one row's readback before any write, elision and reads; whether its readback was
+ * elided. */
 function checkRow(row: Record<string, unknown>): boolean {
   const object = 'keys' in row
   const elided = object ? checkObject(row) : checkArray(row)
@@ -169,15 +203,17 @@ function checkRow(row: Record<string, unknown>): boolean {
   return elided
 }
 
-/** Compares readback elision and the reads of `current` with Lean's `Property.WriteFreeReadback`. */
+/** Compares the readback, its elision and the reads of `current` with Lean's
+ * `Property.WriteFreeReadback`. */
 export async function checkWriteFreeReadbackRuntime(oracle: Oracle): Promise<void> {
   // 46 ordered key subsets with their values and 53 arrays of length up to three.
   const rows = await oracleCorpus(oracle, 'WriteFreeReadback', 99, 64 * 1024)
   let elided = 0
   for (const line of rows) if (checkRow(jsonObject(JSON.parse(line)))) elided += 1
   console.log(
-    `WriteFreeReadback Lean/native bridge: ${rows.length} publications, ${elided} write-free ` +
-      'with the readback elided, every other one read back; each requested object value of ' +
-      '`current` read once without a write and twice with one',
+    `WriteFreeReadback Lean/native bridge: ${rows.length} publications whose readback before ` +
+      `any write answers as Lean's matches, ${elided} write-free with the readback elided, every ` +
+      'other one read back; each requested object value of `current` read once without a write ' +
+      'and twice with one',
   )
 }

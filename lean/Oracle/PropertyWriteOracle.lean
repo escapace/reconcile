@@ -63,11 +63,11 @@ private structure Observation where
   status : String
   after : Descriptor
   ownSetterCalls : Nat
-  inheritedSetterCalls : Nat
   deriving ToJson
 
 /-- Every own descriptor, inherited descriptor, extensibility and written value; `__proto__`
-where an inherited accessor with a setter is what `Object.prototype` holds. -/
+where an inherited accessor with a setter is what `Object.prototype` holds. No row runs an
+inherited setter (`reconcileKey_no_inherited_setter`), so the rows leave the count out. -/
 def run : IO Unit := do
   let cases := owns.flatMap fun own => inheriteds.flatMap fun inherited =>
     bools.flatMap fun extensible => [0, 1].flatMap fun value =>
@@ -88,8 +88,7 @@ def run : IO Unit := do
         value
         status := statusName result.status
         after := describe result.slot.own
-        ownSetterCalls := result.events.count .ownSetter
-        inheritedSetterCalls := result.events.count .inheritedSetter }
+        ownSetterCalls := result.events.count .ownSetter }
     IO.println (toJson observation).compress
 
 private structure GuardedConstruction where
@@ -100,15 +99,14 @@ private structure GuardedConstruction where
   proto : Bool
   value : Nat
   enumerable : Bool
-  ok : Bool
   after : Descriptor
-  setterCalls : Nat
   deriving ToJson
 
 /-- New-object writes on a custom prototype holding each inherited descriptor, on a null
 prototype, and on `Object.prototype` holding each descriptor for the key, or its own `__proto__`
-accessor; each from an enumerable and a non-enumerable source property
-(`constructFromOn_fresh`). -/
+accessor; each from an enumerable and a non-enumerable source property. Every write succeeds and
+runs no setter (`constructFromOn_data`, `constructFromOn_fresh`), so the rows give the property it
+creates. -/
 def runConstructOn : IO Unit := do
   let bases : List (String × Inherited × Bool) :=
     (inheriteds.map fun i => ("custom", i, false)) ++ [("null", .none, false)] ++
@@ -120,8 +118,8 @@ def runConstructOn : IO Unit := do
     let slot : Slot Nat := ⟨none, if base == "null" then .none else held, true⟩
     let outcome := constructFromOn storing slot value standard (held != .none) enumerable
     let observation : GuardedConstruction :=
-      { base, inherited := inheritedName held, proto, value, enumerable, ok := outcome.ok
-        after := describe outcome.slot.own, setterCalls := outcome.events.length }
+      { base, inherited := inheritedName held, proto, value, enumerable
+        after := describe outcome.slot.own }
     IO.println (toJson observation).compress
 
 private structure SetterWrite where
