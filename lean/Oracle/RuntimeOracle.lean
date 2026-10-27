@@ -24,16 +24,14 @@ import Oracle.FactRenamingOracle
 import Oracle.DeferredOrderOracle
 import Oracle.SpecOracle
 
-/-! Sequential JSON-line requests share one imported Lean environment.
-Oracle output remains unchanged. A record-separator line terminates each response;
-JSON strings cannot contain that unescaped control character. -/
+/-! Sequential JSON-line requests share one imported Lean environment. A record-separator line
+terminates each response; JSON strings cannot contain that unescaped control character. -/
 namespace Reconcile.RuntimeOracle
 
 open Lean
 
 private structure Request where
   family : String
-  args : List String := []
   input : String := ""
   deriving FromJson
 
@@ -43,8 +41,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "SerializationCollection" => SerializationCollectionOracle.run request.input
   | "OwnedNativeChild" => OwnedNativeChildOracle.run request.input
   | "NativeValue" => NativeValueOracle.run request.input
-  | "Contract" =>
-    if (← ContractOracle.run request.args) != 0 then throw (IO.userError "Contract oracle failed")
+  | "Contract" => ContractOracle.run
   | "PropertyOrder" => PropertyOrderOracle.run
   | "PropertyWrite" => PropertyWriteOracle.run
   | "PropertyConstructOn" => PropertyWriteOracle.runConstructOn

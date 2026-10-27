@@ -42,15 +42,10 @@ export async function checkOwnedNativeChildRuntime(oracle: Oracle): Promise<void
     const source = new URL(fixture.href)
     const text = child.toString()
     inputs.push({
-      actualChild: 1,
       canonicalQuery: text === '' ? '' : `?${text}`,
       captured,
       child: 1,
-      equal: true,
-      forced: false,
-      metadata: null,
       owner: 0,
-      ownerChanged: false,
       source: [...source.searchParams],
       sourceQuery: query(source),
       touched: fixture.touched,
@@ -62,17 +57,9 @@ export async function checkOwnedNativeChildRuntime(oracle: Oracle): Promise<void
     actual.push({ child: 1, entries: [...adopted.searchParams], owner: 0, query: query(adopted) })
   }
   const expected = JSON.parse(
-    await oracle('OwnedNativeChild', [], { input: JSON.stringify(inputs) }),
+    await oracle('OwnedNativeChild', { input: JSON.stringify(inputs) }),
   ) as Observation[]
-  assert.deepEqual(
-    actual,
-    expected.map(({ child, entries, owner, query: rawQuery }) => ({
-      child,
-      entries,
-      owner,
-      query: rawQuery,
-    })),
-  )
+  assert.deepEqual(actual, expected)
   console.log(`OwnedNativeChild: ${actual.length} production carrier adoption projections`)
   checkOwnedPublicationRuntime()
 }

@@ -1,5 +1,5 @@
 // Sensitivity audit of the Spec bridges: applies one deliberate defect at a time to the runtime
-// sources, runs the strict reconcile bridge, or the phase bridge where a mutant names it, in a
+// sources, runs the reconcile bridge, or the phase bridge where a mutant names it, in a
 // child process and expects it to fail. A mutant
 // that survives names a case the generator does not produce or a difference the comparison does
 // not see; a mutant expected to survive names the gap it stands for, and a verdict that differs
@@ -135,7 +135,7 @@ type Verdict = 'hung' | 'killed' | 'survived'
 const BRIDGES = {
   outcome: {
     agreed: 'reports 0;',
-    command: ['scripts/lean-spec-bridge.ts', '--op', 'reconcile', '--strict'],
+    command: ['scripts/lean-spec-bridge.ts', '--op', 'reconcile'],
     runs: [[], ['--writes'], ['--writes', '--hazards']],
   },
   phases: {
@@ -149,7 +149,7 @@ type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
 
 /** One bridge run in its own process group. It saw nothing when it finished with the bridge's
  * report of no difference; a mutant that throws inside the runtime is caught as well, since the
- * bridge reports errors. A run takes a few seconds; one that loops is cut off, with every process
+ * bridge reports errors. A run takes some seconds; one that loops is cut off, with every process
  * it started, well inside the round. */
 async function runBridge(
   bridge: Bridge,

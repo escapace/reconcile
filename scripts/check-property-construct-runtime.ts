@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
-import { prototypeHolding } from './property-bridge-fixtures'
+import { holdingObjectPrototype, inherited, prototypeHolding } from './property-bridge-fixtures'
 import { deserialize } from '../src/deserialize'
 import { produce } from '../src/produce'
 import { reconcile } from '../src/reconcile'
@@ -9,32 +9,12 @@ import { snapshot } from '../src/snapshot'
 
 type Row = Record<string, unknown>
 
-interface Calls {
-  setter: number
-}
-
-const inheritedDescriptors: Partial<
-  Record<string, (calls: Calls) => PropertyDescriptor | undefined>
-> = {
-  accessor: (calls) => ({
-    configurable: true,
-    get: () => 7,
-    set: () => {
-      calls.setter += 1
-    },
-  }),
-  data: () => ({ configurable: true, value: 7, writable: true }),
-  getter: () => ({ configurable: true, get: () => 7 }),
-  none: () => undefined,
-  readonly: () => ({ configurable: true, value: 7, writable: false }),
-}
-
 /** The source whose own data property a new object must copy, with the row's enumerability, on
  * a custom prototype holding the inherited descriptor, a null prototype or `Object.prototype`. */
-function sourceOf(row: Row, key: string, calls: Calls): object {
+function sourceOf(row: Row, key: string, count: () => void): object {
   const prototype =
     row.base === 'custom'
-      ? prototypeHolding(inheritedDescriptors, row.inherited, key, calls)
+      ? prototypeHolding(inherited(row.inherited, count), key)
       : row.base === 'null'
         ? null
         : Object.prototype
@@ -44,22 +24,6 @@ function sourceOf(row: Row, key: string, calls: Calls): object {
     value: integerIn(row.value, 0, 1),
     writable: true,
   })
-}
-
-/** Runs `run` while `Object.prototype` holds the row's descriptor for `key`, which no other code
- * reads; `__proto__` is its own accessor. */
-function holdingObjectPrototype<T>(row: Row, key: string, calls: Calls, run: () => T): T {
-  const make = inheritedDescriptors[String(row.inherited)]
-  assert.ok(make !== undefined, `Unknown inherited descriptor ${String(row.inherited)}`)
-  const descriptor = row.base === 'object' && row.proto !== true ? make(calls) : undefined
-  if (descriptor === undefined) return run()
-  // eslint-disable-next-line no-extend-native -- the bridge installs a modified Object.prototype on purpose
-  Object.defineProperty(Object.prototype, key, descriptor)
-  try {
-    return run()
-  } finally {
-    Reflect.deleteProperty(Object.prototype, key)
-  }
 }
 
 /** Every way the library builds a new object from a source: `snapshot`, a `produce` rebuild, an
@@ -81,13 +45,19 @@ function builds(source: object, standard: boolean, enumerable: boolean): object[
   return results
 }
 
+/** The descriptor `Object.prototype` holds for a row on that base; there `__proto__` is its own
+ * accessor. */
+const onObject = (row: Row, count: () => void): PropertyDescriptor | undefined =>
+  row.base === 'object' && row.proto !== true ? inherited(row.inherited, count) : undefined
+
 /** Compares every new object built from one Lean case with the Lean outcome. */
 function checkRow(row: Row): number {
   const key = row.proto === true ? '__proto__' : 'reconcileBridgeKey'
-  const calls: Calls = { setter: 0 }
+  let setterCalls = 0
+  const count = () => (setterCalls += 1)
   const after = jsonObject(row.after)
-  const results = holdingObjectPrototype(row, key, calls, () =>
-    builds(sourceOf(row, key, calls), row.base !== 'custom', row.enumerable === true),
+  const results = holdingObjectPrototype(onObject(row, count), key, () =>
+    builds(sourceOf(row, key, count), row.base !== 'custom', row.enumerable === true),
   )
   for (const result of results) {
     assert.equal(row.ok, true)
@@ -98,7 +68,7 @@ function checkRow(row: Row): number {
       writable: after.writable,
     })
   }
-  assert.equal(calls.setter, integerIn(row.setterCalls, 0, 0), 'inherited setter')
+  assert.equal(setterCalls, integerIn(row.setterCalls, 0, 0), 'inherited setter')
   return results.length
 }
 

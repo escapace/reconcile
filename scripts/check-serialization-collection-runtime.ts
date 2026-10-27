@@ -160,7 +160,7 @@ function check(request: Request, expected: Response): void {
 export async function checkSerializationCollectionRuntime(oracle: Oracle): Promise<void> {
   const cases = requests()
   const responses = JSON.parse(
-    await oracle('SerializationCollection', [], { input: JSON.stringify(cases) }),
+    await oracle('SerializationCollection', { input: JSON.stringify(cases) }),
   ) as Response[]
   assert.equal(responses.length, cases.length)
   for (let index = 0; index < cases.length; index++) check(cases[index], responses[index])

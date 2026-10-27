@@ -2,7 +2,7 @@ import Property.PropertyWrite
 import Lean
 
 /-! Oracles for the `PropertyWrite`, `PropertyConstructOn` and `PropertyThroughSetter` families:
-single-key outcomes of `reconcileKey` and the alternative rule over every descriptor case,
+single-key outcomes of `reconcileKey` over every descriptor case,
 new-object writes by `constructFromOn`, and a recipe's assignment through an inherited setter
 (`draftThroughSetter`). -/
 

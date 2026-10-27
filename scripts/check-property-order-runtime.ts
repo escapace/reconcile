@@ -1,21 +1,13 @@
 import assert from 'node:assert/strict'
 import { integerIn, oracleCorpus, strictWitnesses, type Oracle } from './lean-oracle'
+import { decodeKey } from './property-bridge-fixtures'
 import { PropertyOrder } from '../src/types/shared/property-publication'
 
 const symbols = [Symbol('first'), Symbol('second')]
 
-/** Decodes a Lean key code: index names, ordinary names and symbols, by residue. */
+/** Decodes a Lean key code; labels run to 2: two index names, three names and two symbols. */
 function key(code: number): PropertyKey {
-  const label = Math.floor(code / 3)
-  switch (code % 3) {
-    case 0:
-      return String(label)
-    case 1:
-      return `name-${label}`
-    default:
-      assert.ok(label < symbols.length)
-      return symbols[label]
-  }
+  return decodeKey(code, 7, symbols)
 }
 
 function codes(value: unknown): number[] {

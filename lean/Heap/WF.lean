@@ -5,7 +5,7 @@ import Mathlib.Logic.Relation
 # Reachability and surface equivalence
 
 Defines the edge relation from heap payloads, `Reachable` via `Relation.ReflTransGen`, and
-`SurfaceEq`, the main correctness relation.
+`SurfaceEq`, by which `Heap.Publication` compares a published heap with its source.
 -/
 
 namespace Reconcile

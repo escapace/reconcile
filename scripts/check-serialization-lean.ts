@@ -289,13 +289,20 @@ function checkLiteralRoot(document: string, result: Response): void {
   assert.deepEqual(normalizeModel(result.expanded), sourceModel(decodeText(document)))
   assert.deepEqual(result.reemitted, JSON.parse(document))
 }
+/** Lean's response to each wire, in order. */
+async function ask(run: Oracle, wires: readonly unknown[]): Promise<Response[]> {
+  const input = JSON.stringify(wires.map((wire) => ({ wire })))
+  const responses = JSON.parse(await run('Serialization', { input })) as Response[]
+  assert.equal(responses.length, wires.length)
+  return responses
+}
+
 async function checkLiteralRoots(run: Oracle): Promise<void> {
   const documents = literalDocuments()
-  const requests = documents.map((document) => ({ wire: JSON.parse(document) as unknown }))
-  const results = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify(requests) }),
-  ) as Response[]
-  assert.equal(results.length, documents.length)
+  const results = await ask(
+    run,
+    documents.map((document) => JSON.parse(document) as unknown),
+  )
   for (let index = 0; index < results.length; index++)
     checkLiteralRoot(documents[index], results[index])
 }
@@ -321,10 +328,7 @@ function wire([shapes, layouts, ids, payloads]: unknown[][]): unknown[] {
 
 export async function checkSerializationRuntime(run: Oracle): Promise<void> {
   const wires = good.map((x) => serialize(x.input))
-  const responses = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify(wires.map((wire) => ({ wire }))) }),
-  ) as Response[]
-  assert.equal(responses.length, good.length)
+  const responses = await ask(run, wires)
   for (let index = 0; index < good.length; index++) {
     const expected = sourceModel(good[index].input)
     const r = responses[index]
@@ -375,9 +379,7 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
     [[], [[2, 0], [2]], [0, 1, 1], [[1], [], []]],
   ].map(wire)
   invalid.push([-6, [], [[0, 0]]], [[0], [[1]]])
-  const rejected = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify(invalid.map((wire) => ({ wire }))) }),
-  ) as Response[]
+  const rejected = await ask(run, invalid)
   for (let index = 0; index < invalid.length; index++) {
     assert.equal(rejected[index].ok, false, JSON.stringify(invalid[index]))
     assert.throws(() => decodeText(JSON.stringify(invalid[index])), JSON.stringify(invalid[index]))
@@ -406,9 +408,7 @@ export async function checkSerializationRuntime(run: Oracle): Promise<void> {
       [[1], [5]],
     ],
   ].map(wire)
-  const agreed = JSON.parse(
-    await run('Serialization', [], { input: JSON.stringify(accepted.map((wire) => ({ wire }))) }),
-  ) as Response[]
+  const agreed = await ask(run, accepted)
   for (let index = 0; index < accepted.length; index++) {
     const text = JSON.stringify(accepted[index])
     assert.equal(agreed[index].ok, true, text)

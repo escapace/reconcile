@@ -67,10 +67,9 @@ function checkRow(row: Record<string, unknown>, copied: boolean): number {
     s: new Set((row.members as unknown[]).map(value)),
     t: new Set((row.keys as unknown[]).map(value)),
   }
-  const current = plain
   const label = copied ? 'copied' : 'unwritten'
   let checked = 0
-  produce(current, (draft) => {
+  produce(plain, (draft) => {
     const drafts = [draft.pool[0], draft.pool[1], 7]
     // Every form an object can take here: itself and its draft.
     const identities = new Map<unknown, number>([
@@ -86,7 +85,7 @@ function checkRow(row: Record<string, unknown>, copied: boolean): number {
       draft.s.delete(99)
     }
     const keys: unknown[] = (row.keys as number[]).map((identity) => drafts[identity])
-    const forms = operandForms(current.t, draft.t, keys)
+    const forms = operandForms(plain.t, draft.t, keys)
     for (const operand of operands) {
       const check = (method: (typeof methods)[number]) => {
         const result = (draft.s[method] as (other: unknown) => unknown)(forms[operand])

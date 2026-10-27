@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import { jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
-import { decodeKey } from './property-bridge-fixtures'
-import { isReconcileError } from '../src/error'
-import { reconcile } from '../src/reconcile'
+import { decodeKey, reconciled } from './property-bridge-fixtures'
 
 const symbols = [Symbol('first'), Symbol('second')]
 
@@ -44,16 +42,6 @@ function snapshotOf(target: object): Array<[PropertyKey, unknown]> {
   return Reflect.ownKeys(target).map((property) => [property, Reflect.get(target, property)])
 }
 
-function attempt(current: object, next: object): boolean {
-  try {
-    assert.equal(reconcile(current, next), current)
-    return true
-  } catch (error) {
-    assert.ok(isReconcileError(error) && error.cause.type === 'PublicationRejected', String(error))
-    return false
-  }
-}
-
 /** Runs `reconcile` for one fixed set and compares it with Lean's kept keys. */
 function checkFixed(
   current: readonly PropertyKey[],
@@ -65,7 +53,7 @@ function checkFixed(
   const before = snapshotOf(target)
   const next = Object.fromEntries(desired.map((property) => [property, 1]))
   const placeable = [...fixed].every((property) => kept.has(property))
-  assert.equal(attempt(target, next), placeable, 'placement outcome')
+  assert.equal(reconciled(target, next), placeable, 'placement outcome')
   if (placeable) {
     assert.deepEqual(Reflect.ownKeys(target), desired, 'placed order')
     assert.ok(desired.every((property) => Reflect.get(target, property) === 1))

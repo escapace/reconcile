@@ -149,7 +149,7 @@ export async function checkNativeValueRuntime(oracle: Oracle): Promise<void> {
     actual.push(checked.actual)
   }
   const expected = JSON.parse(
-    await oracle('NativeValue', [], { input: JSON.stringify(active) }),
+    await oracle('NativeValue', { input: JSON.stringify(active) }),
   ) as Result[]
   assert.deepEqual(actual, expected)
   console.log(

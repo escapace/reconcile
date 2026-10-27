@@ -12,17 +12,11 @@
 // Standalone: pnpm exec tsx scripts/lean-spec-phases.ts [--seeds N] [--from S] [--hazards]
 //   [--binary] [--nodes N] [--dump SEED]
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
-import { loadEsbuild } from './esbuild'
+import { bundleWithHooks, type Hook } from './esbuild'
 import type { Oracle } from './lean-oracle'
 import { materialize, materializeClasses, materializeNext, toJs } from './spec-realize'
-import { genCase, type Case, type Options } from './spec-generator'
-
-const ROOT = path.resolve(import.meta.dirname, '..')
+import { GATE_OPTIONS, genCase, seedRange, type Case, type Options } from './spec-generator'
 
 /** What the reference's phases are, by node id of the next graph and the current graph. */
 interface Phases {
@@ -63,7 +57,7 @@ interface Recorder {
 const RECORDER = '__reconcilePhases'
 
 /** The statements of `publishGraph` after which the recorder runs, and what it records there. */
-const HOOKS: ReadonlyArray<[anchor: string, hook: string]> = [
+const HOOKS: readonly Hook[] = [
   [
     'const domains = candidates(types, records, root, graph, note)\n',
     `globalThis.${RECORDER}?.discovered(graph, domains)\n`,
@@ -76,46 +70,16 @@ const HOOKS: ReadonlyArray<[anchor: string, hook: string]> = [
 
 export type Library = typeof import('../src/index')
 
-/** Bundles the sources with the recorder calls after each hook's statement and loads the bundle. */
-export async function instrumented(): Promise<Library> {
-  const esbuild = loadEsbuild()
-  const result = await esbuild.build({
-    bundle: true,
-    entryPoints: [path.join(ROOT, 'src/index.ts')],
-    format: 'esm',
-    platform: 'node',
-    plugins: [
-      {
-        name: 'phase-recorder',
-        setup(build: {
-          onLoad: (
-            options: { filter: RegExp },
-            callback: (arguments_: { path: string }) => unknown,
-          ) => void
-        }) {
-          build.onLoad({ filter: /publication-engine\.ts$/ }, ({ path: file }) => {
-            let contents = readFileSync(file, 'utf8')
-            for (const [anchor, hook] of HOOKS) {
-              assert.equal(contents.split(anchor).length, 2, `hook anchor moved: ${anchor}`)
-              contents = contents.replace(anchor, anchor + hook)
-            }
-            return { contents, loader: 'ts' }
-          })
-        },
-      },
-    ],
-    target: 'esnext',
-    write: false,
-  })
-  const directory = mkdtempSync(path.join(tmpdir(), 'reconcile-phases-'))
-  try {
-    const file = path.join(directory, 'index.mjs')
-    writeFileSync(file, result.outputFiles[0].contents)
-    return (await import(pathToFileURL(file).href)) as Library
-  } finally {
-    rmSync(directory, { force: true, recursive: true })
-  }
-}
+let bundled: Promise<Library> | undefined
+
+/** The sources bundled with the recorder calls after each hook's statement, loaded once per
+ * process; the phase gate and the enumeration share it. */
+export const instrumented = async (): Promise<Library> =>
+  await (bundled ??= bundleWithHooks(
+    "export * from './src/index'",
+    /publication-engine\.ts$/,
+    HOOKS,
+  ) as Promise<Library>)
 
 /** Runs `operation` with the recorder installed; the recording, or undefined when the call
  * published nothing. */
@@ -308,24 +272,12 @@ export async function checkPhaseCases(
   ids: readonly number[] = cases.map((_, index) => index),
 ): Promise<{ passes: number; reports: PhaseReport[] }> {
   const input = JSON.stringify(cases.map(request))
-  const output = (await oracle('Spec', [], { input, maxBuffer: 256 * 1024 * 1024 })).trim()
+  const output = (await oracle('Spec', { input, maxBuffer: 256 * 1024 * 1024 })).trim()
   const phases = JSON.parse(output) as Phases[]
   assert.equal(phases.length, cases.length)
   const reports = cases.flatMap((c, index) => checkCase(library, ids[index], c, phases[index]))
   const passes = phases.reduce((sum, p) => sum + p.rounds.length, 0)
   return { passes, reports }
-}
-
-const seedsFrom = (from: number, count: number): number[] =>
-  Array.from({ length: count }, (_, index) => from + index)
-
-const GATE_OPTIONS: Options = {
-  accessors: true,
-  attributes: true,
-  inherited: true,
-  nodes: 6,
-  reorder: true,
-  same: true,
 }
 
 /** The seeded batches `check-lean.ts` runs: every phase difference fails. */
@@ -341,7 +293,7 @@ export async function checkSpecPhasesGate(oracle: Oracle): Promise<void> {
     const { cases, passes, reports } = await checkPhases(
       library,
       oracle,
-      seedsFrom(1, count),
+      seedRange(1, count),
       options,
     )
     assert.deepEqual(
@@ -377,14 +329,14 @@ if (process.argv[1]?.endsWith('lean-spec-phases.ts')) {
     const library = await instrumented()
     const seeds =
       values.dump === undefined
-        ? seedsFrom(Number(values.from), Number(values.seeds))
+        ? seedRange(Number(values.from), Number(values.seeds))
         : [Number(values.dump)]
     const { cases, passes, reports } = await checkPhases(library, oracle.run, seeds, options)
     if (values.dump !== undefined) {
       const c = genCase(seeds[0], options)
       console.log(`cur  ${show(c.cur)}\nnext ${show(c.next)}\nsame ${show(c.same)}`)
       const input = JSON.stringify([request(c)])
-      console.log(`reference ${(await oracle.run('Spec', [], { input })).trim()}`)
+      console.log(`reference ${(await oracle.run('Spec', { input })).trim()}`)
     }
     console.log(`cases ${cases}; passes ${passes}; differences ${reports.length}`)
     for (const r of reports.slice(0, 20)) console.log(`seed ${r.seed}: ${r.detail}`)

@@ -4,7 +4,7 @@ import { produce } from '../src/produce'
 
 type Row = Record<string, unknown>
 
-/** `DraftSurfaceOracle` kinds: a value to draft and a reader for the written key in the result. */
+/** `DraftSurfaceOracle` kinds, each a fresh value to draft. */
 const kinds: ReadonlyArray<() => object> = [
   () => ({ a: 1 }),
   () => [1, 2],

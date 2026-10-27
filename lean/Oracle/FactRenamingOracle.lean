@@ -3,7 +3,7 @@ import Lean
 
 /-! Oracle for the `FactRenaming` family: for each history of fact and rule actions it checks
 that renaming the facts by a permutation renames the observed queries and orders, over an
-exhaustive small corpus with bounded 64-fact cases, or over the histories in a fixture file. -/
+exhaustive small corpus with bounded 64-fact cases. -/
 
 namespace Reconcile.FactRenamingOracle
 
@@ -61,7 +61,7 @@ private def alphabet (size : Nat) : List (List Nat) :=
   (List.range size).flatMap (fun fact => [[0, fact], [1, fact]]) ++
     (List.range size).flatMap fun source => (List.range size).map fun target => [2, source, target]
 
-private def corpus : IO Unit := do
+def run : IO Unit := do
   let small := words 5 (alphabet 2)
   let three := words 3 (alphabet 3)
   IO.println (small.length + three.length + 4)
@@ -74,6 +74,5 @@ private def corpus : IO Unit := do
   emit ⟨64, swaps, (List.range 64).map (fun fact => [0, fact]) ++ cycle ++ [[1, 63]]⟩
   emit ⟨64, swaps, [[1, 0]] ++ cycle ++ cycle ++ [[0, 63], [1, 0]]⟩
 
-def run : IO Unit := corpus
 
 end Reconcile.FactRenamingOracle

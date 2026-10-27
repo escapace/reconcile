@@ -1,18 +1,23 @@
-// Differential fixtures for the captured immutable core. Recipe/proxy semantics
-// remain runtime-tested boundaries; this checks graph values, aliases and reuse.
+// Differential fixtures for the captured immutable core. Recipe/proxy semantics remain
+// runtime-tested boundaries; this checks graph values, aliases and reuse. Each fixture is a
+// numbered graph whose edges are `child<slot>` properties, grounded at a path from the root and
+// reported in the vocabulary of the Lean contract oracle.
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import type { Oracle } from './lean-oracle'
 import { produce } from '../src/produce'
-import {
-  checkGraphFixtures,
-  groundPaths,
-  identityLabels,
-  linkChildren,
-  nodeAt,
-  observeGraph,
-  type GraphNode,
-  type GraphObservation,
-} from './lean-graph-fixtures'
+
+interface GraphNode {
+  [key: string]: number | GraphNode
+  value: number
+}
+
+interface GraphObservation {
+  edges: number[][]
+  identities: number[]
+  name: string
+  values: number[]
+}
 
 interface Fixture {
   after: number[]
@@ -22,13 +27,32 @@ interface Fixture {
   undo: boolean
 }
 
-/** The input graph. */
+const FIXTURES = 'lean/fixtures/reuse-fixtures.json'
+
+/** The input graph: slot `i` of node `id` points at node `children[id][i]`. */
 function inputGraph(fixture: Fixture): GraphNode[] {
   const size = fixture.before.length
   const current: GraphNode[] = fixture.before.map((value) => ({ value }))
   assert.ok(fixture.children.flat().every((child) => child >= 0 && child < size))
-  linkChildren(current, (id) => fixture.children[id])
+  current.forEach((node, id) =>
+    fixture.children[id].forEach((child, slot) => {
+      node[`child${slot}`] = current[child]
+    }),
+  )
   return current
+}
+
+/** Breadth-first child-slot paths from node 0 to every reachable node. */
+function groundPaths(children: readonly number[][]): Map<number, string[]> {
+  const paths = new Map<number, string[]>([[0, []]])
+  const pending = [0]
+  for (const id of pending)
+    children[id].forEach((child, slot) => {
+      if (paths.has(child)) return
+      paths.set(child, [...paths.get(id)!, `child${slot}`])
+      pending.push(child)
+    })
+  return paths
 }
 
 /** Writes the fixture's final value, through an undone intermediate write when requested. */
@@ -53,9 +77,10 @@ function observeCaptured(fixture: Fixture): GraphObservation {
   assert.ok(size > 0 && fixture.after.length === size && fixture.children.length === size)
   const current = inputGraph(fixture)
   // Ground every fixture node at an actual path from the public root.
-  const paths = groundPaths((id) => fixture.children[id])
+  const paths = groundPaths(fixture.children)
   assert.equal(paths.size, size, `${fixture.name}: unreachable fixture node`)
-  const at = (root: GraphNode, id: number): GraphNode => nodeAt(root, paths.get(id)!)
+  const at = (root: GraphNode, id: number): GraphNode =>
+    paths.get(id)!.reduce((node, key) => node[key] as GraphNode, root)
   const result = produce(current[0], (draft) => {
     for (let id = 0; id < size; id += 1) rewrite(fixture, id, () => at(draft, id))
     return draft
@@ -65,19 +90,28 @@ function observeCaptured(fixture: Fixture): GraphObservation {
   resultNodes.forEach((node, id) => {
     assert.equal(resultNodes.indexOf(node), id, `${fixture.name}: distinct nodes collapsed`)
   })
-  const identity = identityLabels(current, resultNodes, size, fixture.name)
+  // A kept node is labelled by its input index, a new one by the node count plus its index.
+  const identity = (node: GraphNode): number => {
+    const old = current.indexOf(node)
+    if (old >= 0) return old
+    const fresh = resultNodes.indexOf(node)
+    assert.ok(fresh >= 0, `${fixture.name}: unexpected result identity`)
+    return size + fresh
+  }
   checkInputKept(fixture, current, resultNodes)
-  return observeGraph(fixture.name, resultNodes, identity, (node, id) =>
-    fixture.children[id].map((_, slot) => identity(node[`child${slot}`] as GraphNode)),
-  )
+  return {
+    edges: resultNodes.map((node, id) =>
+      fixture.children[id].map((_, slot) => identity(node[`child${slot}`] as GraphNode)),
+    ),
+    identities: resultNodes.map(identity),
+    name: fixture.name,
+    values: resultNodes.map((node) => node.value),
+  }
 }
 
 export async function checkCapturedRuntime(oracle: Oracle): Promise<void> {
-  await checkGraphFixtures(
-    oracle,
-    'Contract',
-    'lean/fixtures/reuse-fixtures.json',
-    'captured',
-    observeCaptured,
-  )
+  const fixtures = JSON.parse(readFileSync(FIXTURES, 'utf8')) as Fixture[]
+  const expected = JSON.parse(await oracle('Contract')) as GraphObservation[]
+  assert.deepEqual(fixtures.map(observeCaptured), expected)
+  console.log(`Lean/runtime agreement: ${fixtures.length} captured graph fixtures passed.`)
 }

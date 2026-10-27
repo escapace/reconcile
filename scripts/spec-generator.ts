@@ -13,7 +13,6 @@ export type GraphNode =
   | { extensible: boolean; fields: Array<[string, Slot]>; kind: 'object'; proto: Prototype }
   | { kind: 'date'; ms: number }
   | { kind: 'set'; members: Value[] }
-/** The view constructors a graph uses, by name; a view's offset and length are in bytes. */
 export type Kind = GraphNode['kind']
 export type NodeOf<K extends Kind> = Extract<GraphNode, { kind: K }>
 export type Prototype = 'null' | 'object' | { cls: number }
@@ -21,6 +20,7 @@ export type Slot =
   { a: Attributes; v: Value } | { c: boolean; e: boolean; get: Value; set: boolean | null }
 export type Value =
   boolean | number | string | { atom: number } | { ref: number } | { undef: true } | null
+/** The view constructors a graph uses, by name; a view's offset and length are in bytes. */
 export type ViewConstructor = 'DataView' | 'Int16Array' | 'Uint8Array'
 /** A table of one function per node kind, and the call that dispatches on a node's kind. */
 export type ByKind<A extends unknown[], R> = { [K in Kind]: (node: NodeOf<K>, ...rest: A) => R }
@@ -30,7 +30,6 @@ export const byKind = <A extends unknown[], R>(
   ...rest: A
 ): R => (table[node.kind] as (node: GraphNode, ...rest: A) => R)(node, ...rest)
 
-/** The own slots of each class prototype, by class label. */
 export interface Case {
   /** The slots the class prototypes hold; empty without the `inherited` option. */
   classes: Classes
@@ -39,6 +38,7 @@ export interface Case {
   /** Per next node, the current node that is the same object. */
   same: Array<number | null>
 }
+/** The own slots of each class prototype, by class label. */
 export type Classes = Array<Array<[string, Slot]>>
 export interface Graph {
   nodes: GraphNode[]
@@ -64,6 +64,20 @@ export interface Options {
   /** Positions of `next` that hold `current` objects. */
   same?: boolean
 }
+
+/** The options of the gate's batches, before each adds its own. */
+export const GATE_OPTIONS: Options = {
+  accessors: true,
+  attributes: true,
+  inherited: true,
+  nodes: 6,
+  reorder: true,
+  same: true,
+}
+
+/** The `count` seeds from `from`. */
+export const seedRange = (from: number, count: number): number[] =>
+  Array.from({ length: count }, (_, index) => from + index)
 
 /** A small deterministic PRNG (mulberry32). */
 export class Rng {
@@ -647,11 +661,11 @@ export interface Recipe {
 const draftChildren: ByKind<[], Array<[Value | { hole: true }, Step]>> = {
   array: (o) => o.entries.map((entry, index) => [entry, { index }]),
   buffer: () => [],
-  // A view's `buffer` getter returns the buffer's draft.
   date: () => [],
   map: (o) => o.entries.map(([, v], mapValue) => [v, { mapValue }]),
   object: (o) => o.fields.flatMap(([key, s]) => ('v' in s ? [[s.v, { key }]] : [])),
   set: (o) => o.members.map((m, member) => [m, { member }]),
+  // A view's `buffer` getter returns the buffer's draft.
   view: (o) => [[o.buffer, { key: 'buffer' }]],
 }
 
@@ -678,7 +692,7 @@ export function draftPaths(graph: Graph): Map<number, Step[]> {
   return paths
 }
 
-/** The simulated draft heap of a recipe: its random source and the values a recipe may write. */
+/** A recipe's random source and the values it may write. */
 interface Simulation {
   rng: Rng
   value: (pReference?: number) => Value
@@ -789,10 +803,10 @@ function setOp(target: NodeOf<'set'>, sim: Simulation, id: number): Op | undefin
 /** A write a draft of the node accepts, applied to the simulation, or none. */
 const draftOps: ByKind<[sim: Simulation, id: number], Op | undefined> = {
   array: arrayOp,
-  // A byte written through a `Uint8Array` over the buffer's copy.
   map: mapOp,
   object: objectOp,
   set: setOp,
+  // A byte written through a `Uint8Array` over the buffer's copy.
   buffer: (target, sim, id) => {
     if (target.bytes.length === 0) return undefined
     const index = sim.rng.int(target.bytes.length)

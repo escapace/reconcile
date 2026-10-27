@@ -6,7 +6,14 @@ import { ATOM_KIND } from '../src/constants'
 import type { PrototypeRead } from '../src/types'
 import { publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
-import { ranked, tails as recognitionTails } from './check-recognition-plain-runtime'
+import {
+  attempt,
+  level,
+  ranked,
+  tails as recognitionTails,
+  thrown,
+  type Reads,
+} from './check-recognition-plain-runtime'
 
 /** The real chains of `IngressOracle.tails`, from the first prototype to `null`, in its order:
  * the RecognitionPlain bridge's chains before its throwing read, then listed ones; the last entry
@@ -21,25 +28,6 @@ const tails: ReadonlyArray<readonly object[]> = [
   [],
 ]
 const RAISING_TAIL = 15
-
-const thrown = new Error('prototype read')
-
-/** Prototype reads of the object itself and of its custom prototypes, counted apart. */
-interface Reads {
-  count: number
-  own: number
-}
-
-/** A prototype level whose reads `count` adds to and, if `throws`, fail. */
-function level(prototype: object | null, count: () => void, throws: boolean): object {
-  return new Proxy(Object.create(prototype) as object, {
-    getPrototypeOf(target) {
-      count()
-      if (throws) throw thrown
-      return Reflect.getPrototypeOf(target)
-    },
-  })
-}
 
 /** `depth` custom prototypes over a tail that count their reads in `reads.count`; on the
  * throwing tail the deepest one's read throws. */
@@ -68,12 +56,7 @@ function ingress(
 ): { kind: unknown; reads: Reads } {
   const reads = { count: 0, own: 0 }
   const value = build(depth, tail, brand, reads)
-  try {
-    return { kind: recognize(publicationTypes, value, read), reads }
-  } catch (error) {
-    assert.equal(error, thrown, 'the prototype read error propagates')
-    return { kind: thrown, reads }
-  }
+  return { kind: attempt(() => recognize(publicationTypes, value, read)), reads }
 }
 
 /** The kind Lean's outcome names. */

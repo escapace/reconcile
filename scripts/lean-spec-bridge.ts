@@ -1,10 +1,10 @@
 // Random differential bridge for the `Spec` family: generates graphs, runs the production
 // runtime on real objects built from them, recaptures the result as a graph (identities, values,
 // descriptors, prototypes, extensibility) and compares it with the Lean reference model's result
-// on the same case. Getter counts are compared as a report.
+// on the same case, getter counts included. A standalone batch fails on any difference.
 //
 // Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts [--op reconcile|produce|snapshot]
-//   [--seeds N] [--from S] [--strict] [--dump SEED] [--writes] [--hazards] [--binary] [--features]
+//   [--seeds N] [--from S] [--dump SEED] [--writes] [--hazards] [--binary] [--features]
 //   [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited] [--nodes N]
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
@@ -25,10 +25,12 @@ import {
 } from './spec-realize'
 import {
   byKind,
+  GATE_OPTIONS,
   genCase,
   genProduceCase,
   isReference,
   mapReferences,
+  seedRange,
   slotValue,
   type ByKind,
   type Case,
@@ -217,13 +219,13 @@ const encode = (o: object, visit: Visit): GraphNode =>
 /** The Lean reference's outcome. For `produce`, an origin is a current index, `-k - 1` for the
  * `k`th object the recipe created, or null for a new object. */
 export interface Outcome {
-  /** Lean encodes a triple as nested pairs; `reconcile` only. */
   nodes: GraphNode[]
   ok: boolean
   origins: Array<number | null>
+  root: Value
+  /** Getter counts as `[current index, [key, count]]`, Lean's nested pairs; `reconcile` only. */
   gets?: Array<[number, [string, number]]>
   /** 0 when the call is rejected before any write; `reconcile` only. */
-  root: Value
   passes?: number
   /** The writes of every decision pass, as `[current index, [key, 'set' | 'delete']]`. */
   allWrites?: Array<[number, [string, string]]>
@@ -329,13 +331,13 @@ const errorReport = (seed: number, error: unknown): Report => ({
   seed,
 })
 
-/** Runs `operation`; a rejected publication is a status, any other error is returned. */
 interface Attempt {
   rejected: boolean
   error?: unknown
   result?: unknown
 }
 
+/** Runs `operation`; a rejected publication is a status, any other error is returned. */
 function attempt(operation: () => unknown): Attempt {
   try {
     return { rejected: false, result: operation() }
@@ -705,57 +707,65 @@ const checks = { produce: produceCheck, reconcile: reconcileCheck, snapshot: sna
 /** Asks the oracle for the outcomes of `requests`, one per request. */
 async function ask(oracle: Oracle, requests: readonly object[]): Promise<Outcome[]> {
   const input = JSON.stringify(requests)
-  const output = (await oracle('Spec', [], { input, maxBuffer: 64 * 1024 * 1024 })).trim()
+  const output = (await oracle('Spec', { input, maxBuffer: 64 * 1024 * 1024 })).trim()
   const outcomes = JSON.parse(output) as Outcome[]
   assert.equal(outcomes.length, requests.length)
   return outcomes
 }
 
-/** Asks the oracle once for the outcomes of `cases` and compares each, reported under its id. */
+/** Asks the oracle once for the outcomes of `cases` and compares each in every mode: plain, or
+ * `reconcile` through recording proxies where the mode is `true`. A report is filed under its
+ * case's id, and each mode's reports are listed apart. */
 async function compareAll<T>(
   check: Check<T>,
   oracle: Oracle,
   cases: readonly T[],
   ids: readonly number[],
-): Promise<Report[]> {
+  modes: readonly boolean[],
+): Promise<Report[][]> {
   const outcomes = await ask(oracle, cases.map(check.request))
-  return cases.flatMap((c, index) => check.compare(ids[index], c, outcomes[index]))
+  const previous = writesMode
+  try {
+    return modes.map((writes) => {
+      writesMode = writes
+      return cases.flatMap((c, index) => check.compare(ids[index], c, outcomes[index]))
+    })
+  } finally {
+    writesMode = previous
+  }
 }
 
-/** Generates cases from `seeds`, asks the oracle once for all of them and compares. */
+/** Generates cases from `seeds`, asks the oracle once for all of them and compares in each mode. */
 async function checkSpec<T>(
   check: Check<T>,
   oracle: Oracle,
   seeds: readonly number[],
   options: Options,
-): Promise<{ cases: number; reports: Report[] }> {
+  modes: readonly boolean[] = [writesMode],
+): Promise<{ cases: number; reports: Report[][] }> {
   const cases = seeds.map((seed) => check.generate(seed, options))
-  return { cases: cases.length, reports: await compareAll(check, oracle, cases, seeds) }
+  return { cases: cases.length, reports: await compareAll(check, oracle, cases, seeds, modes) }
 }
 
-/** Compares the given cases with the reference, `reconcile` through recording proxies when
- * `writes` is set; a report's seed is its case's index. */
+/** Compares the given cases with the reference in each mode, as `compareAll` does; a report's
+ * seed is its case's index. */
 export async function checkCases<T>(
   check: Check<T>,
   oracle: Oracle,
   cases: readonly T[],
-  writes = false,
-): Promise<Report[]> {
-  writesMode = writes
-  try {
-    return await compareAll(
-      check,
-      oracle,
-      cases,
-      cases.map((_, index) => index),
-    )
-  } finally {
-    writesMode = false
-  }
+  modes: readonly boolean[] = [false],
+): Promise<Report[][]> {
+  return await compareAll(
+    check,
+    oracle,
+    cases,
+    cases.map((_, index) => index),
+    modes,
+  )
 }
 
 /** The seeds `1` to `count`. */
-const seeds = (count: number): number[] => Array.from({ length: count }, (_, index) => 1 + index)
+const seeds = (count: number): number[] => seedRange(1, count)
 
 function summary(reports: readonly Report[]): string {
   const counts = new Map<string, number>()
@@ -903,62 +913,38 @@ async function features(
     )
 }
 
-const GATE_OPTIONS: Options = {
-  accessors: true,
-  attributes: true,
-  inherited: true,
-  nodes: 6,
-  reorder: true,
-  same: true,
-}
-
 /** The seeded batch `check-lean.ts` runs: every difference of `reconcile`, getter counts
  * included, and of `produce` or `snapshot` fails. */
 export async function checkSpecGate(oracle: Oracle): Promise<void> {
-  const reconciled = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
-  assert.deepEqual(
-    reconciled.reports,
-    [],
-    `Spec reconcile: ${reconciled.reports.length} differences`,
-  )
-  writesMode = true
-  const written = await checkSpec(reconcileCheck, oracle, seeds(1500), GATE_OPTIONS)
-  assert.deepEqual(written.reports, [], `Spec writes: ${written.reports.length} differences`)
-  // Hazards: more accessors and dropping setters below the root, also through the recording
-  // proxies, so demotion passes are common.
-  const hazardous = await checkSpec(reconcileCheck, oracle, seeds(3000), {
-    ...GATE_OPTIONS,
-    hazards: true,
-  })
-  assert.deepEqual(hazardous.reports, [], `Spec hazards: ${hazardous.reports.length} differences`)
-  // Buffers and views beside the other kinds, also through the recording proxies.
   const binary: Options = { ...GATE_OPTIONS, binary: true }
-  const binaryReconciled = await checkSpec(reconcileCheck, oracle, seeds(1500), binary)
-  writesMode = false
-  assert.deepEqual(
-    binaryReconciled.reports,
-    [],
-    `Spec binary reconcile: ${binaryReconciled.reports.length} differences`,
-  )
-  const produced = await checkSpec(produceCheck, oracle, seeds(1500), GATE_OPTIONS)
-  assert.deepEqual(produced.reports, [], `Spec produce: ${produced.reports.length} differences`)
-  const binaryProduced = await checkSpec(produceCheck, oracle, seeds(1500), binary)
-  assert.deepEqual(
-    binaryProduced.reports,
-    [],
-    `Spec binary produce: ${binaryProduced.reports.length} differences`,
-  )
-  const copied = await checkSpec(snapshotCheck, oracle, seeds(500), GATE_OPTIONS)
-  assert.deepEqual(copied.reports, [], `Spec snapshot: ${copied.reports.length} differences`)
-  const binaryCopied = await checkSpec(snapshotCheck, oracle, seeds(500), binary)
-  assert.deepEqual(
-    binaryCopied.reports,
-    [],
-    `Spec binary snapshot: ${binaryCopied.reports.length} differences`,
-  )
-  console.log(
-    `Spec bridge: reconcile ${reconciled.cases} cases (${summary(reconciled.reports)}), ${written.cases} through recording proxies (${summary(written.reports)}), ${hazardous.cases} with hazards (${summary(hazardous.reports)}), ${binaryReconciled.cases} with buffers and views (${summary(binaryReconciled.reports)}); produce ${produced.cases} cases (${summary(produced.reports)}), ${binaryProduced.cases} with buffers and views (${summary(binaryProduced.reports)}); snapshot ${copied.cases} cases (${summary(copied.reports)}), ${binaryCopied.cases} with buffers and views (${summary(binaryCopied.reports)})`,
-  )
+  // The default cases plain and through the recording proxies; hazards (more accessors and
+  // dropping setters below the root, so demotion passes are common) and buffers and views beside
+  // the other kinds through the proxies only.
+  const summaries: string[] = []
+  const gate = async <T>(
+    name: string,
+    check: Check<T>,
+    count: number,
+    options: Options,
+    modes: boolean[],
+  ): Promise<void> => {
+    const { cases, reports } = await checkSpec(check, oracle, seeds(count), options, modes)
+    reports.forEach((list, mode) => {
+      const label = modes[mode] ? `${name} through recording proxies` : name
+      assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
+      summaries.push(`${label} ${cases} cases (${summary(list)})`)
+    })
+  }
+  await gate('reconcile', reconcileCheck, 1500, GATE_OPTIONS, [false, true])
+  await gate('reconcile with hazards', reconcileCheck, 3000, { ...GATE_OPTIONS, hazards: true }, [
+    true,
+  ])
+  await gate('reconcile with buffers and views', reconcileCheck, 1500, binary, [true])
+  await gate('produce', produceCheck, 1500, GATE_OPTIONS, [false])
+  await gate('produce with buffers and views', produceCheck, 1500, binary, [false])
+  await gate('snapshot', snapshotCheck, 500, GATE_OPTIONS, [false])
+  await gate('snapshot with buffers and views', snapshotCheck, 500, binary, [false])
+  console.log(`Spec bridge: ${summaries.join('; ')}`)
 }
 
 /** Shows one case, the reference's outcome and the comparison. */
@@ -992,13 +978,14 @@ async function batch<T>(
   from: number,
   count: number,
   options: Options,
-  strict: boolean,
 ): Promise<void> {
-  const list = Array.from({ length: count }, (_, index) => from + index)
-  const { cases, reports } = await checkSpec(check, oracle, list, options)
+  const {
+    cases,
+    reports: [reports],
+  } = await checkSpec(check, oracle, seedRange(from, count), options)
   console.log(`cases ${cases}; reports ${reports.length}; ${summary(reports)}`)
   show(reports)
-  if (strict && reports.some((r) => r.kind !== 'getters')) process.exitCode = 1
+  if (reports.length > 0) process.exitCode = 1
 }
 
 if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
@@ -1018,7 +1005,6 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       reorder: { default: true, type: 'boolean' },
       same: { default: true, type: 'boolean' },
       seeds: { default: '200', type: 'string' },
-      strict: { default: false, type: 'boolean' },
       writes: { default: false, type: 'boolean' },
     },
   })
@@ -1040,14 +1026,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
     const check = checks[values.op as keyof typeof checks] as Check<unknown>
     if (values.features) await features(oracle.run, seeds(Number(values.seeds)), options)
     else if (values.dump === undefined)
-      await batch(
-        check,
-        oracle.run,
-        Number(values.from),
-        Number(values.seeds),
-        options,
-        values.strict,
-      )
+      await batch(check, oracle.run, Number(values.from), Number(values.seeds), options)
     else await dump(check, oracle.run, Number(values.dump), options)
   } finally {
     await oracle.close()

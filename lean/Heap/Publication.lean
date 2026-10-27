@@ -337,26 +337,4 @@ theorem checkPublication_sound [DecidableEq A] [DecidableEq I] [DecidableEq J]
   have h := List.all_eq_true.mp accepted (i, nd) (covers i nd hn)
   exact of_decide_eq_true h
 
-/-- Image projection composes without changing atoms. -/
-theorem Value.remap_comp {K : Type} (f : I → J) (g : J → K) (v : Value A I) :
-    (v.remap f).remap g = v.remap (g ∘ f) := by cases v <;> rfl
-
-/-- Two publication stages compose their images and prototype policies. -/
-theorem Node.remap_comp {K : Type} (f : I → J) (g : J → K)
-    (p q : ProtoLabel → ProtoLabel) (nd : Node A I) :
-    (nd.remap f p).remap g q = nd.remap (g ∘ f) (q ∘ p) := by
-  cases nd <;> simp [Node.remap, remapFields, List.map_map, Function.comp_def,
-    Value.remap_comp, Option.map_map]
-
-/-- Captured immutable finalization and mutable publication compose locally;
-    there is no assumed transitive global-equivalence or rebasing axiom. -/
-theorem Published.compose {K : Type} [DecidableEq I] [DecidableEq J] [DecidableEq K]
-    {source : Heap A I} {middle : Heap A J} {result : Heap A K}
-    {f : I → J} {g : J → K} {p : I → ProtoLabel → ProtoLabel} {q : J → ProtoLabel → ProtoLabel}
-    (first : Published source middle f p) (second : Published middle result g q) :
-    Published source result (g ∘ f) (fun i => q (f i) ∘ p i) := by
-  intro i nd hn
-  have h := second (f i) _ (first i nd hn)
-  simpa [Node.remap_comp] using h
-
 end Reconcile

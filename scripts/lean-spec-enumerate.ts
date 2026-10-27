@@ -1027,13 +1027,11 @@ const label = (check: string) => (r: { detail: string; seed: number }) => ({ ...
 
 async function runReconcile(name: string, oracle: Oracle, library: Library): Promise<Universe> {
   const cases = RECONCILE[name]()
-  const plain = await chunked(
-    cases,
-    async (chunk) => await checkCases(reconcileCheck, oracle, chunk),
-  )
-  const writes = await chunked(
-    cases,
-    async (chunk) => await checkCases(reconcileCheck, oracle, chunk, true),
+  // One oracle request per chunk serves the plain comparison and the one through recording proxies.
+  const compared = await chunked(cases, async (chunk) =>
+    (await checkCases(reconcileCheck, oracle, chunk, [false, true])).flatMap((list, mode) =>
+      list.map(label(mode === 0 ? 'result' : 'writes')),
+    ),
   )
   const phases = await chunked(
     cases,
@@ -1042,11 +1040,7 @@ async function runReconcile(name: string, oracle: Oracle, library: Library): Pro
   return {
     cases: cases.length,
     name,
-    reports: [
-      ...plain.map(label('result')),
-      ...writes.map(label('writes')),
-      ...phases.map(label('phases')),
-    ],
+    reports: [...compared, ...phases.map(label('phases'))],
     show: (index) => reconcileCheck.show(cases[index]),
   }
 }
@@ -1057,7 +1051,7 @@ async function runCopies<T>(
   cases: readonly T[],
   oracle: Oracle,
 ): Promise<Universe> {
-  const reports = await chunked(cases, async (chunk) => await checkCases(check, oracle, chunk))
+  const reports = await chunked(cases, async (chunk) => (await checkCases(check, oracle, chunk))[0])
   return {
     cases: cases.length,
     name,

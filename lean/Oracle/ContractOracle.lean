@@ -106,12 +106,11 @@ private def runFixture (fixture : ReuseFixture) : Except String ReuseObservation
       (fixture.children[i]!.zip edges[i]!).map fun (c, r) => present c r).toArray
   }
 
-def run (args : List String) : IO UInt32 := do
-  let path := args.headD "lean/fixtures/reuse-fixtures.json"
-  let content ← IO.FS.readFile path
+def run : IO Unit := do
+  let content ← IO.FS.readFile "lean/fixtures/reuse-fixtures.json"
   let parsed := Json.parse content >>= fromJson? (α := Array ReuseFixture)
   match parsed >>= (·.mapM runFixture) with
-  | .error error => IO.eprintln error; return 1
-  | .ok observations => IO.println (toJson observations).compress; return 0
+  | .error error => throw (IO.userError error)
+  | .ok observations => IO.println (toJson observations).compress
 
 end Reconcile.ContractOracle

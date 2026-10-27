@@ -2,8 +2,7 @@ import Graph.SeededRequirements
 import Lean
 
 /-! Oracle for the `SeededRequirements` family: the `SeededRequirements` closure over all
-three-node graphs and short seed words plus larger boundary cases, or over the native-compiled
-graphs in a fixture file. -/
+three-node graphs and short seed words plus larger boundary cases. -/
 
 namespace Reconcile.SeededRequirementsOracle
 
@@ -38,9 +37,9 @@ private def emit (parents : List (List Nat)) (seeds : List Nat) : IO Unit := do
       trace := before.processed, oldScans, newScans }
   IO.println (toJson observation).compress
 
-/-- All three-node directed graphs, seed words of length at most three and
-both ordinary and duplicated rows; larger boundary families follow. -/
-private def emitCorpus : IO Unit := do
+/-- Emits the exhaustive fixed corpus: all three-node directed graphs, seed words of length at
+most three and both ordinary and duplicated rows; larger boundary families follow. -/
+def run : IO Unit := do
   let seeds := wordsUpTo 3 (List.range 3)
   IO.println (512 * seeds.length * 2 + 6)
   for mask in List.range 512 do
@@ -59,7 +58,5 @@ private def emitCorpus : IO Unit := do
   emit fanout [0, 0]
   emit fanout (List.range 64)
 
-/-- Emits the exhaustive fixed corpus. -/
-def run : IO Unit := emitCorpus
 
 end Reconcile.SeededRequirementsOracle

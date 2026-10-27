@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
 export type Oracle = (
   family: string,
-  arguments_?: string[],
   options?: { input?: string; maxBuffer?: number },
 ) => Promise<string>
 
@@ -18,17 +17,16 @@ function completed(marker: string, output: string[]): string {
   return output.join('\n') + '\n'
 }
 
-function request(family: string, arguments_: string[], input = ''): string {
-  return JSON.stringify({ args: arguments_, family, input }) + '\n'
+function request(family: string, input = ''): string {
+  return JSON.stringify({ family, input }) + '\n'
 }
 
 function logDuration(family: string, started: number): void {
   console.log(`Oracle ${family}: ${((performance.now() - started) / 1000).toFixed(3)}s`)
 }
 
-/** Audit once, then share one native oracle process across sequential requests. */
+/** Shares one native oracle process across sequential requests; the gate audits axioms first. */
 export async function startOracle() {
-  execFileSync('python3', ['scripts/check-axioms.py'], { stdio: 'inherit', timeout: 120_000 })
   const child = spawn('.lake/build/bin/reconcile-oracle', [], {
     stdio: ['pipe', 'pipe', 'inherit'],
   })
@@ -81,7 +79,7 @@ export async function startOracle() {
     await exited
     throw error
   }
-  const run: Oracle = async (family, arguments_ = [], options = {}) => {
+  const run: Oracle = async (family, options = {}) => {
     assert(!closed && !pending, 'Oracle requests require an open, idle session')
     limit = options.maxBuffer ?? DEFAULT_OUTPUT_LIMIT
     assert(Number.isSafeInteger(limit) && limit > 0, 'Invalid oracle output limit')
@@ -89,7 +87,7 @@ export async function startOracle() {
     pending = true
     const started = performance.now()
     try {
-      child.stdin.write(request(family, arguments_, options.input))
+      child.stdin.write(request(family, options.input))
       return await reply()
     } finally {
       logDuration(family, started)
@@ -106,7 +104,7 @@ export async function oracleCorpus(
   size: number,
   maxBuffer: number,
 ): Promise<string[]> {
-  const lines = (await oracle(family, [], { maxBuffer })).trim().split('\n')
+  const lines = (await oracle(family, { maxBuffer })).trim().split('\n')
   assert.equal(Number(lines.shift()), size, 'The finite bridge corpus changed')
   assert.equal(lines.length, size)
   return lines

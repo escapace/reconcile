@@ -16,11 +16,11 @@ import { bufferOfView, viewElement } from '../src/types/shared/binary-native'
 const inChainOf = (constructor: { readonly prototype: unknown }, value: object): boolean =>
   Object.prototype.isPrototypeOf.call(constructor.prototype, value)
 
-/** Whether `value` is no view, or a view over a buffer of this environment: one whose chain holds
- * `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`. */
 /** `%TypedArray%`, as a probe target: the class every built-in typed array class extends. */
 const typedArrayClass = { prototype: Object.getPrototypeOf(Uint8Array.prototype) as object }
 
+/** Whether `value` is no view, or a view over a buffer of this environment: one whose chain holds
+ * `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`. */
 const knownView = (value: object): boolean => {
   if (!ArrayBuffer.isView(value)) return true
   const buffer = bufferOfView(value)

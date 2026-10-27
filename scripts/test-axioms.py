@@ -41,15 +41,12 @@ class AuditTests(unittest.TestCase):
             '    throwError "No private declarations were discovered"\n'
             "  let (_, state) :=",
         )
+        # Reject an existing standard dependency without introducing any new axiom; the audit
+        # reaches the axiom check only after it found the private declarations. The gate runs the
+        # passing audit over every module.
+        self.assertEqual(source.count("#[`propext, `Classical.choice, `Quot.sound]"), 1)
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "Audit.lean"
-            path.write_text(source)
-            result = subprocess.run(["lake", "env", "lean", str(path)], cwd=ROOT,
-                                    capture_output=True, text=True, check=True)
-            self.assertRegex(result.stdout, r"Axiom audit passed: [1-9]\d* declarations across 4 modules")
-            self.assertNotIn("warning:", result.stdout + result.stderr)
-            # Reject an existing standard dependency without introducing any new axiom.
-            self.assertEqual(source.count("#[`propext, `Classical.choice, `Quot.sound]"), 1)
             path.write_text(source.replace("#[`propext, `Classical.choice, `Quot.sound]", "#[]"))
             rejected = subprocess.run(["lake", "env", "lean", str(path)], cwd=ROOT,
                                       capture_output=True, text=True)

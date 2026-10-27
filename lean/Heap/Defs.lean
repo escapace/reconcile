@@ -6,8 +6,8 @@ import Mathlib.Data.List.Pairwise
 /-!
 # Heap model
 
-Proof-facing definitions of the finite heaps that the specifications of `snapshot`, `reconcile`
-and `produce` are stated over.
+Proof-facing definitions of the finite heaps that publication (`Heap.Publication`), reuse
+selection (`Heap.ReuseClosure`, `Produce.Immutable`) and the Contract oracle are stated over.
 
 Node kinds: plain objects, arrays, dates, maps, sets, array buffers, data views and typed arrays.
 The modeled surface:
@@ -30,7 +30,6 @@ The heap model leaves out:
 - extra own properties on Map/Set/Date/ArrayBuffer/DataView/TypedArray
 - engine-level behavior (hidden classes, GC, delete performance)
 - full ECMAScript SameValue/SameValueZero proofs
-- custom snapshot/reconcile implementations
 
 Representation:
 
@@ -38,35 +37,13 @@ Representation:
 - plain objects are ordered exact-key records (`AList`)
 - maps and sets are ordinal sequences (`List`-based)
 - buffers and views are separate node kinds
-- `Finmap` for heaps and witness maps
+- `Finmap` for heaps
 - `AList` for ordered plain-object fields
 - `Relation.ReflTransGen` for reachability
 - subtypes used sparingly, with separate well-formedness predicates preferred
 -/
 
 namespace Reconcile
-
-/-! ## Identity types -/
-
-/-- Current-heap node identifier. -/
-structure CurId where
-  val : Nat
-deriving DecidableEq, Hashable, Repr, Ord
-
-/-- Next-heap node identifier. -/
-structure NextId where
-  val : Nat
-deriving DecidableEq, Hashable, Repr, Ord
-
-/-- Fresh node identifier allocated during reconcile. -/
-structure FreshId where
-  val : Nat
-deriving DecidableEq, Hashable, Repr, Ord
-
-/-- Result-heap node identifier: either a reused current node or a freshly allocated one. -/
-abbrev ResId := CurId ⊕ FreshId
-
-instance : DecidableEq ResId := inferInstance
 
 /-! ## Value type -/
 
@@ -208,21 +185,6 @@ def Node.childRefs {A : Type} {ι : Type} : Node A ι → List ι
       | .atom _ => none
 
 /-! ## Well-formedness predicates -/
-
-/-- A map entry sequence is well-formed if keys are pairwise related by the
-    abstract key-equivalence relation (no duplicate keys). We parameterize by
-    a decidable key-equivalence to stay JS-free. -/
-structure MapWF (A : Type) (ι : Type)
-    (keyEq : Value A ι → Value A ι → Prop) [DecidableRel keyEq] where
-  entries : List (Value A ι × Value A ι)
-  nodupKeys : entries.Pairwise (fun a b => ¬ keyEq a.1 b.1)
-
-/-- A set value sequence is well-formed if values are pairwise related by the
-    abstract value-equivalence relation (no duplicates). -/
-structure SetWF (A : Type) (ι : Type)
-    (valEq : Value A ι → Value A ι → Prop) [DecidableRel valEq] where
-  values : List (Value A ι)
-  nodupVals : values.Pairwise (fun a b => ¬ valEq a b)
 
 /-- A node is well-formed with respect to a heap if every child reference
     is in the heap domain. -/

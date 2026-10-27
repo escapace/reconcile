@@ -650,7 +650,7 @@ def demote (input : Input) (al : Discovery) (pin : Array Bool) :
 
 /-- The result of the reference: whether the call succeeds, and per next node the current object
 kept there and the contents; `root` is the result's root. The trace fields count observations:
-`gets` per current object and key, `writes` per kept current object. -/
+`gets` per current object and key, `allWrites` per kept current object. -/
 structure Outcome where
   ok : Bool
   origins : Array (Option Nat)
@@ -659,10 +659,9 @@ structure Outcome where
   /-- The number of decision passes: one, plus one per demotion. -/
   passes : Nat
   gets : List (Nat × String × Nat)
-  /-- The final decision's writes, as `(current object, key, kind)`. -/
-  writes : List (Nat × String × String)
-  /-- The writes of every pass, without duplicates: a pass writes what its decision needs, and a
-  later pass writes a slot again when its decision keeps another object there. -/
+  /-- The writes of every pass, as `(current object, key, kind)`, without duplicates: a pass writes
+  what its decision needs, and a later pass writes a slot again when its decision keeps another
+  object there. -/
   allWrites : List (Nat × String × String)
   deriving Lean.ToJson, Repr
 
@@ -725,11 +724,10 @@ def publish (input : Input) (al : Discovery) (pin : Array Bool)
     | some i => if pin[j]?.getD false then input.next.node j
       else keptObj (input.cur.node i) (input.next.node j)
     | none => freshCopy (input.next.node j)
-  let writes := writesOfDecision input pin kept
   let allWrites := (rounds.map (writesOfDecision input pin)).flatten.eraseDups
   let readbacks := if allWrites.isEmpty then [] else rounds.map (readbackKeys input pin)
   { ok := true, origins := kept, nodes, root := .ref r, passes := rounds.length,
-    gets := getCounts (capturedKeys input al) readbacks, writes, allWrites }
+    gets := getCounts (capturedKeys input al) readbacks, allWrites }
 
 /-- The input with every array's extensibility as observed. -/
 def normalized (raw : Input) : Input :=
@@ -744,11 +742,11 @@ def run (raw : Input) : Outcome :=
   let n := input.next.nodes.size
   let asIs : Outcome :=
     { ok := true, origins := (Array.range n).map fun j => input.same[j]?.bind id,
-      nodes := input.next.nodes, root := input.next.root, passes := 0, gets := [], writes := [],
+      nodes := input.next.nodes, root := input.next.root, passes := 0, gets := [],
       allWrites := [] }
   let rejected (passes : Nat) : Outcome :=
     { ok := false, origins := #[], nodes := #[], root := .prim .undef, passes, gets := [],
-      writes := [], allWrites := [] }
+      allWrites := [] }
   match input.cur.root, input.next.root with
   | .ref _, .ref r =>
     let al := discover input

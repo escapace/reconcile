@@ -27,7 +27,6 @@ private structure Input where
 
 private structure Observation where
   input : Input
-  domains : Reconcile.Policy.Domains
   masks : List (List Bool)
   orders : List (Option (List Nat))
   deriving ToJson
@@ -68,11 +67,11 @@ private def emit (input : Input) : IO Unit := do
       let kept := (List.range size).filter fun i => bits[i]?.getD false
       Reconcile.Construction.schedule (fun i => input.dependencies[i]?.getD [])
         kept.toFinset (List.range size)
-    let observation : Observation := { input, domains := domains p, masks, orders := masks.map order }
+    let observation : Observation := { input, masks, orders := masks.map order }
     IO.println (toJson observation).compress
   else throw (IO.userError "Invalid child index or non-reserved immutable label")
 
-private def emitCorpus : IO Unit := do
+def run : IO Unit := do
   IO.println (8192 + 3)
   for graph in List.range 512 do
     for flags in List.range 8 do
@@ -91,6 +90,5 @@ private def emitCorpus : IO Unit := do
     proposed := 1, storage := 2, eligible := false, fixed := true, children := [] }
   emit { rows := [impossible], dependencies := [[]] }
 
-def run : IO Unit := emitCorpus
 
 end Reconcile.CompactImmutableOracle

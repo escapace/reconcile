@@ -3,7 +3,7 @@ import Lean
 
 /-! Oracle for the `OwnedNativeChild` family: adoption of a captured URL carrier and its
 parameter child under `Types.OwnedNativeChild`, reporting the query, entries, owner and child
-identities, admission, construction response and reuse. -/
+identities. -/
 
 namespace Reconcile.OwnedNativeChildOracle
 open Lean OwnedNativeChild
@@ -16,11 +16,6 @@ structure Input where
   touched : Bool
   owner : Nat
   child : Nat
-  actualChild : Nat
-  metadata : Option Nat := none
-  equal : Bool := true
-  forced : Bool := false
-  ownerChanged : Bool := false
   deriving FromJson
 
 def evaluate (input : Input) : Json :=
@@ -32,10 +27,7 @@ def evaluate (input : Input) : Json :=
     ("query", toJson adopted.query.1),
     ("entries", toJson adopted.payload),
     ("child", toJson adopted.child),
-    ("owner", toJson adopted.carrier),
-    ("admitted", toJson (admit (fun _ => input.actualChild) input.owner input.child)),
-    ("response", toJson (constructionResponse (fun _ => input.metadata) input.child)),
-    ("reuse", toJson (chooseReuse input.equal (forceChild input.forced input.ownerChanged)))]
+    ("owner", toJson adopted.carrier)]
 
 def run (input : String) : IO Unit := do
   let json ← IO.ofExcept (Json.parse input)

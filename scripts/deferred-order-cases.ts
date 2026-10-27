@@ -5,21 +5,16 @@ import type { PropertySurface } from '../src/types/shared/property-publication'
 
 export interface DeferredOrderCase {
   readonly current: object
-  readonly events: string[]
   readonly name: string
   readonly node: CapturedNode
-  readonly properties: Map<PropertyKey, Edge>
   readonly surface: PropertySurface<{ kind: symbol }>
   readonly failure?: Error
 }
 
-// fallow-ignore-next-line unused-export -- read by the run module that check-deferred-order-runtime.ts generates as source text
 export const deferredKeys: PropertyKey[] = ['0', '2', 'a', 'b', Symbol('s'), Symbol('t')]
 
 const modes = ['ordinary', 'fixed-late', 'sealed', 'unordered', 'incompatible'] as const
 type Mode = (typeof modes)[number]
-
-const label = (key: PropertyKey): string => String(deferredKeys.indexOf(key))
 
 function capturedNode(properties: Map<PropertyKey, Edge>, keys: PropertyKey[]): CapturedNode {
   return {
@@ -55,27 +50,6 @@ function desiredOrder(mask: number): PropertyKey[] {
   return [...numeric, ...names.reverse(), ...symbols.reverse()]
 }
 
-function recordingHandler(events: string[]): ProxyHandler<object> {
-  return {
-    get(target, key, receiver): unknown {
-      events.push(`get:${label(key)}`)
-      return Reflect.get(target, key, receiver)
-    },
-    getOwnPropertyDescriptor(target, key) {
-      events.push(`descriptor:${label(key)}`)
-      return Reflect.getOwnPropertyDescriptor(target, key)
-    },
-    isExtensible(target) {
-      events.push('extensible')
-      return Reflect.isExtensible(target)
-    },
-    ownKeys(target) {
-      events.push('keys')
-      return Reflect.ownKeys(target)
-    },
-  }
-}
-
 /** The first `length` keys; `fixed-late` fixes the last one and `sealed` prevents extensions. */
 function orderedBase(length: number, mode: Mode): object {
   const keys = deferredKeys.slice(0, length)
@@ -91,8 +65,7 @@ function orderedBase(length: number, mode: Mode): object {
 
 function orderedCase(length: number, mask: number, mode: Mode): DeferredOrderCase {
   const wanted = desiredOrder(mask)
-  const events: string[] = []
-  const current = new Proxy(orderedBase(length, mode), recordingHandler(events))
+  const current = orderedBase(length, mode)
   const properties = new Map<PropertyKey, Edge>(
     wanted.map((key) => [key, { node: undefined, value: 1 }]),
   )
@@ -101,7 +74,6 @@ function orderedCase(length: number, mask: number, mode: Mode): DeferredOrderCas
     ordered: mode !== 'unordered',
     compatible(_node, receiver) {
       assert.equal(receiver, current)
-      events.push('compatible')
       return mode !== 'incompatible'
     },
     keys(receiver) {
@@ -114,10 +86,8 @@ function orderedCase(length: number, mask: number, mode: Mode): DeferredOrderCas
   }
   return {
     current,
-    events,
     name: `${length}-${mask}-${mode}`,
     node: capturedNode(properties, wanted),
-    properties,
     surface,
   }
 }
@@ -126,65 +96,41 @@ function arrayCase(extensible: boolean): DeferredOrderCase {
   const base: number[] = [1]
   base[2] = 1
   if (!extensible) Object.preventExtensions(base)
-  const events: string[] = []
-  const current = new Proxy(base, {
-    getOwnPropertyDescriptor(target, key) {
-      events.push(`descriptor:${String(key)}`)
-      return Reflect.getOwnPropertyDescriptor(target, key)
-    },
-    isExtensible(target) {
-      events.push('extensible')
-      return Reflect.isExtensible(target)
-    },
-  })
   const properties = new Map<PropertyKey, Edge>([
     ['0', { node: undefined, value: 1 }],
     ['2', { node: undefined, value: 1 }],
     ['length', { node: undefined, value: 3 }],
   ])
   return {
-    current,
-    events,
+    current: base,
     name: `array-${extensible}`,
     node: capturedNode(properties, [...properties.keys()]),
-    properties,
     surface: nativeSurface(properties, false),
   }
 }
 
 /** Reading the descriptor of `a` fixes `b` and prevents extensions while preflight runs. */
 function lateFixedCase(): DeferredOrderCase {
-  const base = { a: 1, b: 1 }
-  const events: string[] = []
-  const current = new Proxy(base, {
-    get(target, key, receiver): unknown {
-      events.push(`get:${String(key)}`)
-      return Reflect.get(target, key, receiver)
+  const current = new Proxy(
+    { a: 1, b: 1 },
+    {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === 'a') {
+          Object.defineProperty(target, 'b', { configurable: false, writable: false })
+          Object.preventExtensions(target)
+        }
+        return Reflect.getOwnPropertyDescriptor(target, key)
+      },
     },
-    getOwnPropertyDescriptor(target, key) {
-      events.push(`descriptor:${String(key)}`)
-      if (key === 'a') {
-        Object.defineProperty(target, 'b', { configurable: false, writable: false })
-        Object.preventExtensions(target)
-        events.push('fixed-b-and-nonextensible')
-      }
-      return Reflect.getOwnPropertyDescriptor(target, key)
-    },
-    isExtensible(target) {
-      events.push('extensible')
-      return Reflect.isExtensible(target)
-    },
-  })
+  )
   const properties = new Map<PropertyKey, Edge>([
     ['a', { node: undefined, value: 1 }],
     ['b', { node: undefined, value: 1 }],
   ])
   return {
     current,
-    events,
     name: 'descriptor-mutates-late-fixed-and-extensibility',
     node: capturedNode(properties, ['b', 'a']),
-    properties,
     surface: nativeSurface(properties, true),
   }
 }
@@ -192,22 +138,18 @@ function lateFixedCase(): DeferredOrderCase {
 /** The application error thrown at `boundary` must leave preflight with its identity intact. */
 function throwingCase(boundary: string): DeferredOrderCase {
   const failure = new Error(`deferred-order:${boundary}`)
-  const events: string[] = []
   const base = { a: 1, b: 1 }
   Object.defineProperty(base, 'b', { configurable: false, writable: false })
   const current = new Proxy(base, {
     get(target, key, receiver): unknown {
-      events.push(`get:${String(key)}`)
       if (boundary === 'get') throw failure
       return Reflect.get(target, key, receiver)
     },
     getOwnPropertyDescriptor(target, key) {
-      events.push(`descriptor:${String(key)}`)
       if (boundary === 'descriptor' && key === 'b') throw failure
       return Reflect.getOwnPropertyDescriptor(target, key)
     },
     isExtensible(target) {
-      events.push('extensible')
       if (boundary === 'extensible') throw failure
       return Reflect.isExtensible(target)
     },
@@ -216,11 +158,9 @@ function throwingCase(boundary: string): DeferredOrderCase {
   const properties = new Map<PropertyKey, Edge>([['b', { node: undefined, value: 1 }]])
   return {
     current,
-    events,
     failure,
     name: `throw-${boundary}`,
     node: capturedNode(properties, ['b']),
-    properties,
     surface: nativeSurface(properties, true),
   }
 }

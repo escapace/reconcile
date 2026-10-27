@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
-import { prototypeHolding } from './property-bridge-fixtures'
-import { isReconcileError } from '../src/error'
-import { reconcile } from '../src/reconcile'
+import {
+  holdingObjectPrototype,
+  inherited,
+  prototypeHolding,
+  reconciled,
+} from './property-bridge-fixtures'
 
 interface Calls {
   inheritedSetter: number
@@ -23,22 +26,6 @@ function accessor(
     stored = value
   }
   return { set: withSetter ? set : undefined, get: () => stored }
-}
-
-const inheritedDescriptors: Partial<
-  Record<string, (calls: Calls) => PropertyDescriptor | undefined>
-> = {
-  accessor: (calls) => ({
-    configurable: true,
-    ...accessor(7, true, () => (calls.inheritedSetter += 1)),
-  }),
-  data: () => ({ configurable: true, value: 7, writable: true }),
-  getter: (calls) => ({
-    configurable: true,
-    ...accessor(7, false, () => (calls.inheritedSetter += 1)),
-  }),
-  none: () => undefined,
-  readonly: () => ({ configurable: true, value: 7, writable: false }),
 }
 
 /** Defines the own descriptor a Lean slot describes. */
@@ -75,23 +62,13 @@ function build(row: Row, onObject: boolean) {
 /** `__proto__`, or the key no other code reads. */
 const keyOf = (row: Row): string => (row.proto === true ? '__proto__' : KEY)
 
+/** The row's inherited descriptor, whose setter counts into `calls`. */
+const inheritedOf = (row: Row, calls: Calls): PropertyDescriptor | undefined =>
+  inherited(row.inherited, () => (calls.inheritedSetter += 1))
+
 /** A new object on a fixture prototype holding the row's inherited descriptor. */
 const onFixture = (row: Row, key: string, calls: Calls): object =>
-  Object.create(prototypeHolding(inheritedDescriptors, row.inherited, key, calls)) as object
-
-/** Runs `run` while `Object.prototype` holds the row's inherited descriptor for the bridge key,
- * which no other code reads. */
-function holdingObjectPrototype<T>(row: Row, calls: Calls, run: () => T): T {
-  const descriptor = inheritedDescriptors[String(row.inherited)]?.(calls)
-  if (descriptor === undefined) return run()
-  // eslint-disable-next-line no-extend-native -- the bridge installs a modified Object.prototype on purpose
-  Object.defineProperty(Object.prototype, KEY, descriptor)
-  try {
-    return run()
-  } finally {
-    Reflect.deleteProperty(Object.prototype, KEY)
-  }
-}
+  Object.create(prototypeHolding(inheritedOf(row, calls), key)) as object
 
 /** Describes an own property the way the oracle encodes it. */
 function describe(target: object, key: string): Row {
@@ -124,28 +101,19 @@ function expected(descriptor: Row): Row {
     : { configurable, enumerable, kind, setter, value }
 }
 
-/** Runs `reconcile` and reduces its outcome to `done` or `rejected`. */
-function outcome(current: object, next: object): string {
-  try {
-    assert.equal(reconcile(current, next), current)
-    return 'done'
-  } catch (error) {
-    assert.ok(isReconcileError(error) && error.cause.type === 'PublicationRejected', String(error))
-    return 'rejected'
-  }
-}
-
-type Wrap = (target: object) => object | undefined
+type Wrap = (target: object) => object
 
 /** The ordinary object and a forwarding proxy. */
 const wraps: readonly Wrap[] = [(target) => target, (target) => new Proxy(target, {})]
 
 /** Runs `reconcile` on one realization and compares it with the Lean outcome. */
-function checkRealization(row: Row, wrap: Wrap, onObject = false): boolean {
+function checkRealization(row: Row, wrap: Wrap, onObject = false): void {
   const { calls, key, target } = build(row, onObject)
   if (onObject)
-    return holdingObjectPrototype(row, calls, () => compare(row, wrap, calls, key, target, true))
-  return compare(row, wrap, calls, key, target)
+    holdingObjectPrototype(inheritedOf(row, calls), KEY, () =>
+      compare(row, wrap, calls, key, target, true),
+    )
+  else compare(row, wrap, calls, key, target)
 }
 
 function compare(
@@ -155,9 +123,8 @@ function compare(
   key: string,
   target: object,
   onObject = false,
-): boolean {
+): void {
   const current = wrap(target)
-  if (current === undefined) return false
   const before = describe(target, key)
   const next = Object.defineProperty({}, key, {
     configurable: true,
@@ -165,7 +132,7 @@ function compare(
     value: integerIn(row.value, 0, 1),
     writable: true,
   })
-  const status = outcome(current, next)
+  const status = reconciled(current, next) ? 'done' : 'rejected'
   const after = describe(current, key)
   checkStatus(row, key, status, before, after)
   assert.deepEqual(after, expected(jsonObject(row.after)), `${key}: descriptor`)
@@ -177,7 +144,6 @@ function compare(
   )
   // Object.prototype's own __proto__ setter would replace the prototype.
   assert.equal(Object.getPrototypeOf(current) === Object.prototype, key === '__proto__' || onObject)
-  return true
 }
 
 /** A rejection before writing leaves the descriptor as it was. */
@@ -187,6 +153,12 @@ function checkStatus(row: Row, key: string, status: string, before: Row, after: 
   if (rejectedBefore) assert.deepEqual(after, before, `${key}: written before rejection`)
 }
 
+/** Realizes each row through each wrap; the number of realizations. */
+function realize(rows: readonly Row[], onObject = false): number {
+  for (const row of rows) for (const wrap of wraps) checkRealization(row, wrap, onObject)
+  return rows.length * wraps.length
+}
+
 /** Compares `reconcile` on single-key objects with every Lean outcome, natively and through
  * proxies. */
 export async function checkPropertyWriteRuntime(oracle: Oracle): Promise<void> {
@@ -194,14 +166,15 @@ export async function checkPropertyWriteRuntime(oracle: Oracle): Promise<void> {
   const rows = (await oracleCorpus(oracle, 'PropertyWrite', 664, 1024 * 1024)).map((line) =>
     jsonObject(JSON.parse(line)),
   )
-  const realizations = rows.flatMap((row) => wraps.filter((wrap) => checkRealization(row, wrap)))
+  const realizations = realize(rows)
   // The same slots with the inherited descriptor on Object.prototype, as any code can add it.
-  const onObject = rows
-    .filter((row) => row.proto !== true)
-    .flatMap((row) => wraps.filter((wrap) => checkRealization(row, wrap, true)))
+  const onObject = realize(
+    rows.filter((row) => row.proto !== true),
+    true,
+  )
   console.log(
-    `Property-write Lean/native bridge: ${rows.length} outcomes, ${realizations.length} native ` +
-      `realizations through reconcile and ${onObject.length} with the inherited descriptor on ` +
+    `Property-write Lean/native bridge: ${rows.length} outcomes, ${realizations} native ` +
+      `realizations through reconcile and ${onObject} with the inherited descriptor on ` +
       `Object.prototype`,
   )
 }

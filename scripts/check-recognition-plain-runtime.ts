@@ -1,32 +1,11 @@
 import assert from 'node:assert/strict'
 import { checkRealChains } from './check-atoms-runtime'
 import { integerIn, jsonObject, oracleCorpus, type Oracle } from './lean-oracle'
-import { ARRAY_BUFFER_KIND } from '../src/types/array-buffer'
-import { DATA_VIEW_KIND } from '../src/types/data-view'
-import { DATE_KIND } from '../src/types/date'
-import { MAP_KIND } from '../src/types/map'
-import { OBJECT_KIND } from '../src/types/object'
-import { SET_KIND } from '../src/types/set'
-import { TEMPORAL_KIND } from '../src/types/temporal'
-import { TYPED_ARRAY_KIND } from '../src/types/typed-array'
-import { URL_KIND } from '../src/types/url'
-import { URL_SEARCH_PARAMS_KIND } from '../src/types/url-search-parameters'
 import { publicationTypes } from '../src/types/builtins'
-import { orderedScan } from './recognition-scan'
+import { orderedScan, recognitionOrder } from './recognition-scan'
 
-/** Kinds at ranks 1 to 10, in recognition order. */
-export const ranked = [
-  DATE_KIND,
-  MAP_KIND,
-  SET_KIND,
-  ARRAY_BUFFER_KIND,
-  DATA_VIEW_KIND,
-  TYPED_ARRAY_KIND,
-  TEMPORAL_KIND,
-  URL_KIND,
-  URL_SEARCH_PARAMS_KIND,
-  OBJECT_KIND,
-]
+/** Kinds at ranks 1 to 10, in recognition order; arrays, at rank 0, are atoms there. */
+export const ranked = recognitionOrder.slice(1)
 
 /** The real chains of `RecognitionPlainOracle.tails`, from the first prototype to `null`, in its
  * order; the last entry stands for the throwing read. */
@@ -45,19 +24,19 @@ export const tails: ReadonlyArray<readonly object[]> = [
 ]
 const RAISING_TAIL = 10
 
-const thrown = new Error('prototype read')
+export const thrown = new Error('prototype read')
 
 /** Prototype reads of the object itself and of its custom prototypes, counted apart. */
-interface Reads {
+export interface Reads {
   count: number
   own: number
 }
 
-/** A prototype level whose own prototype reads are counted and, if `throws`, fail. */
-function level(prototype: object | null, reads: { count: number }, throws: boolean): object {
+/** A prototype level whose reads `count` adds to and, if `throws`, fail. */
+export function level(prototype: object | null, count: () => void, throws: boolean): object {
   return new Proxy(Object.create(prototype) as object, {
     getPrototypeOf(target) {
-      reads.count += 1
+      count()
       if (throws) throw thrown
       return Reflect.getPrototypeOf(target)
     },
@@ -83,10 +62,10 @@ function build(depth: number, tail: number, view: View, reads: Reads): object {
   const throwing = tail === RAISING_TAIL ? 0 : -1
   let prototype = first(tails[tail])
   for (let index = 0; index < depth; index++)
-    prototype = level(prototype, reads, index === throwing)
+    prototype = level(prototype, () => (reads.count += 1), index === throwing)
   return view.brand
     ? (Object.setPrototypeOf(branded(view), prototype) as object)
-    : level(prototype, ownReads(reads), depth === throwing)
+    : level(prototype, () => (reads.own += 1), depth === throwing)
 }
 
 /** A `Uint8Array` or a `DataView` over a buffer whose prototype is `null` when `foreign`. */
@@ -96,18 +75,8 @@ function branded(view: View): ArrayBufferView {
   return view.typed ? new Uint8Array(buffer) : new DataView(buffer)
 }
 
-/** A counter that adds the object's own reads to `own`. */
-const ownReads = (reads: Reads): { count: number } => ({
-  get count() {
-    return reads.own
-  },
-  set count(value: number) {
-    reads.own = value
-  },
-})
-
 /** Runs one recognition, reporting its kind or that it threw the prototype read's error. */
-function attempt(run: () => unknown): unknown {
+export function attempt(run: () => unknown): unknown {
   try {
     return run()
   } catch (error) {

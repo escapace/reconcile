@@ -39,19 +39,15 @@ function search(scenario: string, query: string, method: (typeof searches)[numbe
   })
 }
 
-/** Searches the array draft of `scenario` for each form of each value in `DraftMembersOracle` and
- * compares the results with Lean's. */
-function checkArray(rows: ReadonlyArray<Record<string, unknown>>, scenario: string): number {
-  let checked = 0
-  for (const row of rows) {
-    if (row.scenario !== scenario) continue
-    for (const method of searches) {
-      const found = search(scenario, String(row.query), method)
-      assert.deepEqual(found, row[method], `${scenario} ${method}(${String(row.query)})`)
-      checked += 1
-    }
+/** Searches the array draft of a row's scenario for the row's form with each method and compares
+ * the results with Lean's. */
+function checkRow(row: Record<string, unknown>): void {
+  const scenario = String(row.scenario)
+  assert.ok((scenarios as readonly string[]).includes(scenario), scenario)
+  for (const method of searches) {
+    const found = search(scenario, String(row.query), method)
+    assert.deepEqual(found, row[method], `${scenario} ${method}(${String(row.query)})`)
   }
-  return checked
 }
 
 /** Compares array draft searches with Lean's `DraftMembers`. */
@@ -61,10 +57,9 @@ export async function checkDraftMembersRuntime(oracle: Oracle): Promise<void> {
   const rows = (await oracleCorpus(oracle, 'DraftMembers', 14, 64 * 1024)).map((line) =>
     jsonObject(JSON.parse(line)),
   )
-  let checked = 0
-  for (const scenario of scenarios) checked += checkArray(rows, scenario)
+  for (const row of rows) checkRow(row)
   console.log(
-    `Draft-members Lean/native bridge: ${checked} searches of array drafts find an object in ` +
-      'any of its forms where Lean does',
+    `Draft-members Lean/native bridge: ${rows.length * searches.length} searches of array drafts ` +
+      'find an object in any of its forms where Lean does',
   )
 }

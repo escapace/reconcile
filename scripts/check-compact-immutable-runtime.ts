@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict'
-import type { Oracle } from './lean-oracle'
-import { compactFixture, type Domains } from '../src/__tests__/fixtures/compact-immutable'
+import { oracleCorpus, type Oracle } from './lean-oracle'
+import { compactFixture } from '../src/__tests__/fixtures/compact-immutable'
 import type { CompactImmutableInput } from '../src/__tests__/fixtures/compact-immutable'
 import { constructionOrder } from '../src/graph/construction'
 import { immutableSelections } from '../src/graph/immutable-selection'
 
 interface Observation {
-  domains: Domains
   input: CompactImmutableInput
   masks: boolean[][]
   orders: Array<number[] | null>
@@ -53,17 +52,13 @@ function checkCase(observation: Observation, context: string, totals: Totals): v
 
 /** Checks the actual compact iterator against Lean's full ranked streams and construction orders. */
 export async function checkCompactImmutableRuntime(oracle: Oracle): Promise<void> {
-  const output = await oracle('CompactImmutable', [], { maxBuffer: 128 * 1024 * 1024 })
-  const lines = output.trimEnd().split('\n')
-  const count = Number(lines.shift())
-  assert.ok(Number.isSafeInteger(count) && count > 0, 'Invalid compact oracle case count')
-  assert.equal(lines.length, count)
+  const lines = await oracleCorpus(oracle, 'CompactImmutable', 8195, 128 * 1024 * 1024)
   const totals: Totals = { plans: 0, reordered: 0 }
   for (const [index, line] of lines.entries())
     checkCase(JSON.parse(line) as Observation, `Compact immutable oracle case ${index}`, totals)
   assert.ok(totals.reordered > 0)
   console.log(
-    `Compact immutable bridge: ${count} cases, ${totals.plans} ranked plans, ` +
+    `Compact immutable bridge: ${lines.length} cases, ${totals.plans} ranked plans, ` +
       `${totals.reordered} reordered construction orders.`,
   )
 }
