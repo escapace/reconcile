@@ -98,6 +98,19 @@ const MUTANTS: readonly Mutant[] = [
     replace: '      return this.visit(child, kind)\n',
   },
   {
+    file: 'src/publication/capture.ts',
+    find: '      for (let next = stack.pop(); next !== undefined; next = stack.pop()) {\n',
+    name: 'keep-walk-breadth-first',
+    replace: '      for (let next = stack.shift(); next !== undefined; next = stack.shift()) {\n',
+  },
+  {
+    file: 'src/types/object.ts',
+    find: '      edge(Reflect.get(value, names[index]) as unknown, names[index])\n',
+    name: 'next-property-read-twice',
+    replace:
+      '      edge((Reflect.get(value, names[index]), Reflect.get(value, names[index])) as unknown, names[index])\n',
+  },
+  {
     file: 'src/types/shared/properties.ts',
     find: '  hasOwn(current, key) ? Reflect.get(current, key) : undefined',
     name: 'own-value-through-prototype',

@@ -28,7 +28,8 @@ function atom(references: Map<object, Edge>, source: object): Edge {
 }
 
 /**
- * One aligned capture: traverses native observations and records the graph.
+ * One aligned capture: traverses native observations and records the graph. Its reads of `next`
+ * are `Spec.Reconcile.captureStep`'s.
  *
  * @remarks
  * Memoize the private reference before observing children. Construction edges may precede begin;
@@ -337,7 +338,7 @@ class AlignedCapture extends Detached {
   // capture requires, and everything the walk met is protected from reuse elsewhere. The walk
   // is an explicit stack over the publication observation surface: no records, no selection.
   // It stops at the first root it meets and forgets what it marked on the way.
-  // Returns whether the candidate is kept.
+  // Returns whether the candidate is kept. Its reads are `Spec.Reconcile.keepWalk`'s.
   private keep(candidate: object, kind: symbol): boolean {
     const types = this.types
     let policy = types.policies[kind]

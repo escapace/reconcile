@@ -1,3 +1,5 @@
+import Property.Descriptor
+
 /-! Writing one property of an existing object, as `reconcile` does.
 
 An object's content is its own properties; its prototype, including accessors on it, is
@@ -26,17 +28,11 @@ A proxy whose traps forward to an ordinary object meets this; other
 exotic objects are outside the model. -/
 namespace Reconcile.PropertyWrite
 
-structure Attrs where
-  writable : Bool
-  enumerable : Bool
-  configurable : Bool
-  deriving DecidableEq, Repr
+export Attrs (plain copied)
 
-/-- An own property. An accessor's getter returns `stored`. -/
-inductive Own (V : Type) where
-  | data (value : V) (attrs : Attrs)
-  | accessor (stored : V) (setter enumerable configurable : Bool)
-  deriving DecidableEq, Repr
+/-- An own property (`OwnProperty`) whose accessor records only whether it has a setter: the
+setter's effect is application code, which `Env` supplies. -/
+abbrev Own (V : Type) := OwnProperty V Bool
 
 /-- The first descriptor on the prototype chain, as `OrdinarySet` sees it. -/
 inductive Inherited where
@@ -78,18 +74,6 @@ structure Result (V : Type) where
   events : List Event
 
 variable {V : Type} [DecidableEq V]
-
-/-- The attributes of a property created by assignment or by `defineData`. -/
-def plain : Attrs := ⟨true, true, true⟩
-
-/-- The attributes of a property `reconcile` adds, or a new object copies, from a source property
-with this enumerability: writable and configurable, with the source's enumerability. -/
-def copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
-
-/-- `[[Get]]` of an own property. -/
-def read : Own V → V
-  | .data value _ => value
-  | .accessor stored .. => stored
 
 /-- `OrdinarySet` with the target as receiver. -/
 def set (env : Env V) (s : Slot V) (v : V) : Outcome V :=
@@ -177,7 +161,7 @@ def admissible (s : Slot V) (v : V) (proto : Bool) : Bool :=
 /-- The readback of `matches`: the own property exists and reads as `v`. -/
 def readsAs (s : Slot V) (v : V) : Bool :=
   match s.own with
-  | some own => decide (read own = v)
+  | some own => decide (own.value = v)
   | none => false
 
 /-- `writeProperty`: the write once a read has shown that the key needs one, deciding by the
@@ -219,7 +203,7 @@ def admissibleOld (s : Slot V) (v : V) : Bool :=
 def publishOld (env : Env V) (s : Slot V) (v : V) (proto : Bool) : Outcome V :=
   match s.own with
   | some own =>
-    if read own = v then ⟨true, s, []⟩
+    if own.value = v then ⟨true, s, []⟩
     else match own with
       | .accessor _ _ e true => define s v ⟨true, e, true⟩
       | .accessor _ _ _ false =>
@@ -259,7 +243,7 @@ theorem publish_accessor (env : Env V) (s : Slot V) (v stored : V) (setter e c p
     publish env s v proto = set env s v ∧
       ((set env s v).slot = env.ownSetter s v ∨ (set env s v).slot = s) := by
   constructor
-  · simp [publish, readsAs, write, hs, read, hv]
+  · simp [publish, readsAs, write, hs, OwnProperty.value, hv]
   · cases setter <;> simp [set, hs]
 
 omit [DecidableEq V] in
@@ -332,18 +316,19 @@ theorem reconcileKey_complete (env : Env V) (hstore : Storing env) (s : Slot V) 
   rcases own with _ | ⟨x, ⟨w, e, c⟩⟩ | ⟨x, st, e, c⟩
   · cases proto <;> rcases inh with _ | ⟨w⟩ | ⟨st⟩ <;> (try cases w) <;> (try cases st) <;>
       cases ext <;>
-      simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs, read,
-        inheritedAccessor, plain]
+      simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs,
+        OwnProperty.value, inheritedAccessor, plain]
   · by_cases hx : x = v
-    · simp_all [reconcileKey, admissible, publish, readsAs, read]
+    · simp_all [reconcileKey, admissible, publish, readsAs, OwnProperty.value]
     · cases w <;> cases c <;>
-        simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs, read]
+        simp_all [reconcileKey, admissible, publish, write, assign, set, define, readsAs,
+          OwnProperty.value]
   · by_cases hx : x = v
-    · simp_all [reconcileKey, admissible, publish, readsAs, read]
+    · simp_all [reconcileKey, admissible, publish, readsAs, OwnProperty.value]
     · have hst : st = true := by simpa [admissible, hx] using h
       subst hst
       have := hstore ⟨some (.accessor x true e c), inh, ext⟩ v x true e c rfl
-      simp_all [reconcileKey, admissible, publish, write, set, readsAs, read]
+      simp_all [reconcileKey, admissible, publish, write, set, readsAs, OwnProperty.value]
 
 /-- A key the object holds as an own data property keeps its attributes: a `publish` that
 succeeds leaves the property as it is or writes `v` in place with the same attributes. -/
@@ -354,10 +339,11 @@ theorem publish_keeps_attrs (env : Env V) (s : Slot V) (v x : V) (a : Attrs) (pr
   simp only at hown
   subst hown
   by_cases hx : x = v
-  · left; simp [publish, readsAs, read, hx]
+  · left; simp [publish, readsAs, OwnProperty.value, hx]
   · right
     obtain ⟨w, e, c⟩ := a
-    cases w <;> cases c <;> simp_all [publish, readsAs, write, read, assign, set, define]
+    cases w <;> cases c <;>
+      simp_all [publish, readsAs, write, OwnProperty.value, assign, set, define]
 
 /-- A key the object lacks becomes an own data property holding `v`, and no setter runs: a key
 whose assignment would reach an accessor is defined. For an object `reconcile` keeps, the check

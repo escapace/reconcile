@@ -31,6 +31,8 @@ export const atoms = Array.from({ length: ATOMS }, (_, index) => (): number => i
 
 /** Getter and setter calls per object and key, recorded by the accessors `materialize` installs. */
 export type Counters = Map<object, Map<string, { get: number; set: number }>>
+/** Called with its object and key each time a getter that `materialize` installs runs. */
+export type OnGet = (o: object, key: string) => void
 /** Whether an installed setter stores its value, by setter function. */
 export const setterStores = new WeakMap<object, boolean>()
 export type Resolve = (v: Value) => unknown
@@ -155,13 +157,15 @@ export function materializeClasses(classes: Classes, counters: Counters): object
 }
 
 /** Builds the objects of a graph; `fixed(j)` supplies an existing object for node `j`, `wrap`
- * replaces a new shell before it is filled, and `classes` are the prototypes of the class labels. */
+ * replaces a new shell before it is filled, `classes` are the prototypes of the class labels, and
+ * `onGet` sees each getter run in order. */
 export function materialize(
   graph: Graph,
   counters: Counters,
   fixed: (index: number) => object | undefined = () => undefined,
   wrap: (o: object, index: number) => object = (o) => o,
   classes: Prototypes = prototypes,
+  onGet?: OnGet,
 ): object[] {
   const objects: object[] = Array.from({ length: graph.nodes.length })
   const resolve: Resolve = (v) => toJs(v, objects)
@@ -172,7 +176,7 @@ export function materialize(
         objects[index] = fixed(index) ?? wrap(byKind(shells, node, classes, resolve), index)
     })
   const accessor = (o: object, key: string, slot: Accessor): void =>
-    defineAccessor(o, key, slot, resolve, counters)
+    defineAccessor(o, key, slot, resolve, counters, onGet)
   graph.nodes.forEach((node, index) => {
     if (fixed(index) === undefined) byKind(fillers, node, objects[index], resolve, accessor)
   })
@@ -180,15 +184,16 @@ export function materialize(
 }
 
 /** Builds the next graph of a case over its current objects: a next node that is a current
- * object is that object. */
+ * object is that object. The accessors of the other nodes count their calls in `counters`. */
 export const materializeNext = (
   c: Case,
   current: readonly object[],
   classes: Prototypes,
+  counters: Counters = new Map(),
 ): object[] =>
   materialize(
     c.next,
-    new Map(),
+    counters,
     (index) => (c.same[index] === null ? undefined : current[c.same[index]]),
     undefined,
     classes,
@@ -208,6 +213,7 @@ function defineAccessor(
   slot: Accessor,
   resolve: Resolve,
   counters: Counters,
+  onGet?: OnGet,
 ): void {
   let store = resolve(slot.get)
   const count = { get: 0, set: 0 }
@@ -224,6 +230,7 @@ function defineAccessor(
     set: stores === null ? undefined : setter,
     get(): unknown {
       count.get += 1
+      onGet?.(o, key)
       return store
     },
   })

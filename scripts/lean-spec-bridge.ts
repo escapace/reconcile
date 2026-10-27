@@ -1,16 +1,31 @@
 // Random differential bridge for the `Spec` family: generates graphs, runs the production
 // runtime on real objects built from them, recaptures the result as a graph (identities, values,
 // descriptors, prototypes, extensibility) and compares it with the Lean reference model's result
-// on the same case, getter counts included. A standalone batch fails on any difference.
+// on the same case, the getter counts of every current object and of every object only `next`
+// holds included. A standalone batch fails on any difference.
 //
-// Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts [--op reconcile|produce|snapshot]
-//   [--seeds N] [--from S] [--dump SEED] [--writes] [--hazards] [--binary] [--features]
-//   [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited] [--nodes N]
-// --dump SEED shows that case, the reference's outcome and each difference; --features prints how
-// often each feature occurs among the `reconcile` cases instead of comparing them.
+// The round trip runs `serialize`, JSON text and `deserialize` on the graphs restricted to what
+// `serialize` accepts and compares the restored value with the reference's `snapshot`.
+//
+// Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts
+//   [--op reconcile|produce|snapshot|roundtrip]
+//   [--seeds N] [--from S] [--dump SEED] [--writes] [--hazards] [--binary] [--getters]
+//   [--features] [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited]
+//   [--nodes N]
+// --getters adds accessors to the objects only `next` holds; --dump SEED shows that case, the
+// reference's outcome and each difference; --features prints how often each feature occurs among
+// the `reconcile` cases instead of comparing them.
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
-import { isReconcileError, produce, reconcile, snapshot } from '../src/index'
+import {
+  deserialize,
+  isReconcileError,
+  produce,
+  reconcile,
+  requiredMaxBytes,
+  serialize,
+  snapshot,
+} from '../src/index'
 import type { Oracle } from './lean-oracle'
 import {
   atoms,
@@ -30,6 +45,7 @@ import {
   GATE_OPTIONS,
   genCase,
   genProduceCase,
+  isHole,
   isReference,
   mapReferences,
   seedRange,
@@ -225,8 +241,13 @@ export interface Outcome {
   ok: boolean
   origins: Array<number | null>
   root: Value
-  /** Getter counts as `[current index, [key, count]]`, Lean's nested pairs; `reconcile` only. */
+  /** Getter counts of current objects after `next` is read, as `[current index, [key, count]]`,
+   * Lean's nested pairs; `reconcile` only. */
   gets?: Array<[number, [string, number]]>
+  /** Getter counts of current objects while `next` is read, labelled like `gets`. */
+  nextGets?: Array<[number, [string, number]]>
+  /** Getter counts of the objects only `next` holds, as `[next index, [key, count]]`. */
+  freshGets?: Array<[number, [string, number]]>
   /** 0 when the call is rejected before any write; `reconcile` only. */
   passes?: number
   /** The writes of every decision pass, as `[current index, [key, 'set' | 'delete']]`. */
@@ -349,32 +370,59 @@ function attempt(operation: () => unknown): Attempt {
   }
 }
 
-/** The getter counts the runtime made so far, labelled `<current index>.<key>`, leaving out the
- * objects `next` holds, whose getters reading `next` runs; then resets the counts. */
+/** The getter counts the runtime made so far, labelled `<prefix> <index>.<key>` by the object's
+ * index in `objects`; then resets the counts. */
 function getterCounts(
   counters: Counters,
-  current: readonly object[],
-  held: ReadonlySet<object>,
+  objects: readonly object[],
+  prefix: string,
 ): Map<string, number> {
   const counts = new Map<string, number>()
   for (const [o, byKey] of counters)
     for (const [k, count] of byKey) {
-      if (!held.has(o)) counts.set(`${current.indexOf(o)}.${k}`, count.get)
+      counts.set(`${prefix} ${objects.indexOf(o)}.${k}`, count.get)
       count.get = 0
     }
   return counts
 }
 
-/** The getter counts the reference expects, labelled like `getterCounts`. */
-const wantedGets = (expected: Outcome, current: readonly object[], held: ReadonlySet<object>) =>
-  new Map(
-    (expected.gets ?? [])
-      .filter(([index]) => !held.has(current[index]))
-      .map(([index, [k, n]]) => [`${index}.${k}`, n]),
-  )
+type Counts = Array<[number, [string, number]]>
 
-/** Getter counts for accessor slots of current objects that `next` does not hold, which must
- * agree both ways. */
+/** Counts labelled like `getterCounts`, the counts of each label added up. */
+function labelled(prefix: string, ...lists: Array<Counts | undefined>): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const list of lists)
+    for (const [index, [k, n]] of list ?? []) {
+      const label = `${prefix} ${index}.${k}`
+      counts.set(label, (counts.get(label) ?? 0) + n)
+    }
+  return counts
+}
+
+/** The getter counts of current objects the reference expects: after `next` is read, and while
+ * it is read, for the objects `next` holds. */
+const wantedGets = (expected: Outcome): Map<string, number> =>
+  labelled('current', expected.gets, expected.nextGets)
+
+/** The getter counts of the objects only `next` holds the reference expects. */
+const wantedFreshGets = (expected: Outcome): Map<string, number> =>
+  labelled('next', expected.freshGets)
+
+/** Reports a setter of an object only `next` holds that ran: `reconcile` never writes to `next`. */
+function reportNextSetters(seed: number, counters: Counters, next: readonly object[]): Report[] {
+  const reports: Report[] = []
+  for (const [o, byKey] of counters)
+    for (const [key, count] of byKey)
+      if (count.set > 0)
+        reports.push({
+          detail: `next ${next.indexOf(o)}.${key}: ${count.set} sets`,
+          kind: 'writes',
+          seed,
+        })
+  return reports
+}
+
+/** Getter counts for accessor slots, which must agree both ways. */
 function reportGetters(
   seed: number,
   actual: ReadonlyMap<string, number>,
@@ -494,6 +542,7 @@ function reportWrites(
 /** Runs one case through `reconcile` and compares with the reference outcome. */
 function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const counters: Counters = new Map()
+  const nextCounters: Counters = new Map()
   const writes: Writes = new Map()
   const armed = { on: false }
   const wrap = (o: object, index: number): object =>
@@ -502,17 +551,23 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const classes = materializeClasses(c.classes, prototypeCounters)
   classIndex = new Map(classes.map((p, index) => [p, index]))
   const current = materialize(c.cur, counters, undefined, wrap, classes)
-  const next = materializeNext(c, current, classes)
-  const held = new Set(c.same.flatMap((index) => (index === null ? [] : [current[index]])))
+  const next = materializeNext(c, current, classes, nextCounters)
   const before = stable(recapture(current[0], current))
-  getterCounts(counters, current, held)
+  getterCounts(counters, current, 'current')
   armed.on = true
   const run = attempt(() => reconcile(toJs(c.cur.root, current), toJs(c.next.root, next)))
   armed.on = false
-  const gets = getterCounts(counters, current, held)
-  const reports = reconcileReports(seed, c, expected, run, current, held, before, gets, writes)
+  const gets = getterCounts(counters, current, 'current')
+  const freshGets = getterCounts(nextCounters, next, 'next')
+  const reports = reconcileReports(seed, c, expected, run, current, before, gets, writes)
+  // `next` is read in full whether the call succeeds or not.
+  if (!('error' in run)) reportGetters(seed, freshGets, wantedFreshGets(expected), reports)
   classIndex = prototypeIndex
-  return [...reports, ...prototypeReports(seed, prototypeCounters, classes)]
+  return [
+    ...reports,
+    ...reportNextSetters(seed, nextCounters, next),
+    ...prototypeReports(seed, prototypeCounters, classes),
+  ]
 }
 
 /** The reports of a run's outcome against the reference's. */
@@ -522,7 +577,6 @@ function reconcileReports(
   expected: Outcome,
   run: Attempt,
   current: readonly object[],
-  held: ReadonlySet<object>,
   before: string,
   gets: ReadonlyMap<string, number>,
   writes: Writes,
@@ -534,7 +588,7 @@ function reconcileReports(
     return [{ detail: 'reference rejects; runtime succeeded', kind: 'rejection', seed }]
   const reports: Report[] = []
   compareCaptured(seed, recapture(run.result, current), expected, reports)
-  reportGetters(seed, gets, wantedGets(expected, current, held), reports)
+  reportGetters(seed, gets, wantedGets(expected), reports)
   reportWrites(seed, c, current, writes, expected, reports)
   return reports
 }
@@ -704,7 +758,161 @@ export const snapshotCheck: Check<Graph> = {
   show: (graph) => `cur ${stable(graph)}`,
 }
 
-const checks = { produce: produceCheck, reconcile: reconcileCheck, snapshot: snapshotCheck }
+/** A value `serialize` accepts in place of an atom, which stands for a function: a string no
+ * generated value has. */
+const serializableValue = (v: Value): Value =>
+  typeof v === 'object' && v !== null && 'atom' in v ? `f${v.atom}` : v
+
+/** A slot as `serialize` accepts it: enumerable, with its other attributes, or its accessor. */
+const serializableSlot = (s: Slot): Slot =>
+  'v' in s
+    ? { a: [s.a[0], true, s.a[2]], v: serializableValue(s.v) }
+    : { ...s, e: true, get: serializableValue(s.get) }
+
+/** Each node as `serialize` accepts it: atoms replaced, every property enumerable, a class
+ * prototype replaced with `Object.prototype` and a resizable buffer fixed in length. */
+const serializables: ByKind<[], GraphNode> = {
+  array: (n) => ({
+    ...n,
+    entries: n.entries.map((entry) => (isHole(entry) ? entry : serializableValue(entry))),
+  }),
+  buffer: (n) => ({ ...n, max: null }),
+  date: (n) => n,
+  map: (n) => ({
+    ...n,
+    entries: n.entries.map(([k, v]): [Value, Value] => [
+      serializableValue(k),
+      serializableValue(v),
+    ]),
+  }),
+  object: (n) => ({
+    ...n,
+    fields: n.fields.map(([k, slot]): [string, Slot] => [k, serializableSlot(slot)]),
+    proto: n.proto === 'null' ? 'null' : 'object',
+  }),
+  set: (n) => ({ ...n, members: n.members.map(serializableValue) }),
+  view: (n) => n,
+}
+
+/** A graph restricted to what `serialize` accepts. Read-only properties, accessors, integrity
+ * levels, holes, sharing and cycles stay. */
+const serializableGraph = (graph: Graph): Graph => ({
+  nodes: graph.nodes.map((node) => byKind(serializables, node)),
+  root: serializableValue(graph.root),
+})
+
+/** The values a node other than a plain object holds, in the order `serialize` visits them. */
+const childValues: ByKind<[], Value[]> = {
+  array: (n) => n.entries.filter((entry): entry is Value => !isHole(entry)),
+  buffer: () => [],
+  date: () => [],
+  map: (n) => n.entries.flat(),
+  object: (n) => n.fields.map(([, slot]) => slotValue(slot)),
+  set: (n) => n.members,
+  view: (n) => [n.buffer],
+}
+
+/** The getter runs `serialize` makes, as `<node>.<key>`: depth first from the root, each node's
+ * values in order, a getter run as its key is read, before its value is visited. */
+function getterOrder(graph: Graph): string[] {
+  const seen = new Set<number>()
+  const order: string[] = []
+  const visit = (v: Value): void => {
+    if (!isReference(v) || seen.has(v.ref)) return
+    seen.add(v.ref)
+    const node = graph.nodes[v.ref]
+    if (node.kind === 'object')
+      for (const [key, slot] of node.fields) {
+        if ('get' in slot) order.push(`${v.ref}.${key}`)
+        visit(slotValue(slot))
+      }
+    else for (const child of byKind(childValues, node)) visit(child)
+  }
+  visit(graph.root)
+  return order
+}
+
+/** Serializes `value`, writes and parses the JSON text, and deserializes it with the size
+ * `requiredMaxBytes` measures; `refused` is whether one byte less is refused as too large. */
+function roundTrip(value: unknown): { refused: boolean; result: unknown } {
+  const text = JSON.stringify(serialize(value))
+  const maxBytes = requiredMaxBytes(JSON.parse(text), { maxBytes: Infinity })
+  let refused = false
+  try {
+    deserialize(JSON.parse(text), { maxBytes: maxBytes - 1 })
+  } catch (error) {
+    refused = isReconcileError(error) && error.cause.type === 'DeserializeLimitExceeded'
+  }
+  return { refused, result: deserialize(JSON.parse(text), { maxBytes }) }
+}
+
+/** Reports each getter of the source that did not run exactly once, each setter that ran, and a
+ * getter order other than depth first. */
+function reportSourceReads(
+  seed: number,
+  counters: Counters,
+  objects: readonly object[],
+  calls: readonly string[],
+  graph: Graph,
+): Report[] {
+  const reports: Report[] = []
+  for (const [o, byKey] of counters)
+    for (const [key, count] of byKey)
+      if (count.get !== 1 || count.set !== 0)
+        reports.push({
+          detail: `${objects.indexOf(o)}.${key}: ${count.get} gets, ${count.set} sets`,
+          kind: 'getters',
+          seed,
+        })
+  const order = getterOrder(graph).join(' ')
+  if (calls.join(' ') !== order)
+    reports.push({ detail: `runtime ${calls.join(' ')}\nmodel ${order}`, kind: 'getters', seed })
+  return reports
+}
+
+/** Runs one graph through `serialize`, JSON text and `deserialize`, and compares the restored
+ * value with the reference's `snapshot` of the graph: on the graphs `serialize` accepts, the round
+ * trip restores what `snapshot` copies, every object new. */
+function compareRoundTrip(seed: number, graph: Graph, expected: Outcome): Report[] {
+  const counters: Counters = new Map()
+  const calls: string[] = []
+  const objects: object[] = materialize(
+    graph,
+    counters,
+    undefined,
+    undefined,
+    undefined,
+    (o, key) => calls.push(`${objects.indexOf(o)}.${key}`),
+  )
+  const value = toJs(graph.root, objects)
+  const before = stable(recapture(value, objects))
+  for (const byKey of counters.values()) for (const count of byKey.values()) count.get = 0
+  calls.length = 0
+  const run = attempt(() => roundTrip(value))
+  if ('error' in run) return [errorReport(seed, run.error)]
+  const reports = reportSourceReads(seed, counters, objects, calls, graph)
+  const { refused, result } = run.result as ReturnType<typeof roundTrip>
+  if (!refused)
+    reports.push({ detail: 'one byte below the size accepted', kind: 'rejection', seed })
+  if (stable(recapture(value, objects)) !== before)
+    reports.push({ detail: 'the source changed', kind: 'current-changed', seed })
+  compareCaptured(seed, recapture(result, objects), expected, reports)
+  return reports
+}
+
+export const roundTripCheck: Check<Graph> = {
+  compare: compareRoundTrip,
+  generate: (seed, options) => serializableGraph(genCase(seed, options).cur),
+  request: (graph) => ({ cur: graph, op: 'snapshot' }),
+  show: (graph) => `cur ${stable(graph)}`,
+}
+
+const checks = {
+  produce: produceCheck,
+  reconcile: reconcileCheck,
+  roundtrip: roundTripCheck,
+  snapshot: snapshotCheck,
+}
 
 /** Asks the oracle for the outcomes of `requests`, one per request. */
 async function ask(oracle: Oracle, requests: readonly object[]): Promise<Outcome[]> {
@@ -920,8 +1128,8 @@ async function features(
 export async function checkSpecGate(oracle: Oracle): Promise<void> {
   const binary: Options = { ...GATE_OPTIONS, binary: true }
   // The default cases plain and through the recording proxies; hazards (more accessors and
-  // dropping setters below the root, so demotion passes are common) and buffers and views beside
-  // the other kinds through the proxies only.
+  // dropping setters below the root, so demotion passes are common), buffers and views beside
+  // the other kinds, and accessors on the objects only `next` holds through the proxies only.
   const summaries: string[] = []
   const gate = async <T>(
     name: string,
@@ -942,10 +1150,18 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
     true,
   ])
   await gate('reconcile with buffers and views', reconcileCheck, 1500, binary, [true])
+  await gate(
+    'reconcile with accessors in next',
+    reconcileCheck,
+    1500,
+    { ...GATE_OPTIONS, nextAccessors: true },
+    [true],
+  )
   await gate('produce', produceCheck, 1500, GATE_OPTIONS, [false])
   await gate('produce with buffers and views', produceCheck, 1500, binary, [false])
   await gate('snapshot', snapshotCheck, 500, GATE_OPTIONS, [false])
   await gate('snapshot with buffers and views', snapshotCheck, 500, binary, [false])
+  await gate('round trip with buffers and views', roundTripCheck, 1500, binary, [false])
   console.log(`Spec bridge: ${summaries.join('; ')}`)
 }
 
@@ -1000,6 +1216,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       dump: { type: 'string' },
       features: { default: false, type: 'boolean' },
       from: { default: '1', type: 'string' },
+      getters: { default: false, type: 'boolean' },
       hazards: { default: false, type: 'boolean' },
       inherited: { default: true, type: 'boolean' },
       nodes: { default: '6', type: 'string' },
@@ -1020,6 +1237,7 @@ if (process.argv[1]?.endsWith('lean-spec-bridge.ts')) {
       binary: values.binary,
       hazards: values.hazards,
       inherited: values.inherited,
+      nextAccessors: values.getters,
       nodes: Number(values.nodes),
       reorder: values.reorder,
       same: values.same,

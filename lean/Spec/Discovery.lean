@@ -99,6 +99,22 @@ theorem pending_dead (cur : Graph) (node : Obj) {wv wc : List (Nat × Option Nat
       rw [hnone]
       exact Pending.dead ih
 
+/-- Capture's walk with its reads (`captureStep`) pushes the children `visitStep` pushes, each
+with the same object at its position. -/
+theorem captureChildren_map (cur : Graph) (node : Obj) (aligned : Option Nat) :
+    (captureChildren cur node aligned).map (fun e => (e.1, e.2.1)) =
+      visitChildren cur node aligned := by
+  unfold captureChildren visitChildren
+  induction node.slots with
+  | nil => rfl
+  | cons s ss ih =>
+    obtain ⟨pos, v⟩ := s
+    cases v with
+    | prim _ => simpa using ih
+    | ref c =>
+      simp only [List.filterMap_cons, List.map_cons, ih]
+      cases aligned <;> cases pos.property <;> rfl
+
 theorem mem_candidateChildren {cur : Graph} {node : Obj} {p c : Nat} {y : Option Nat}
     (h : (c, y) ∈ candidateChildren cur node p) :
     ∃ pos, (pos, Val.ref c) ∈ node.slots ∧ y = ((cur.node p).occupant pos).bind Val.refId := by

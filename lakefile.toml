@@ -45,6 +45,7 @@ roots = [
   "Heap.Publication",
   "Property.PropertyOrder",
   "Oracle.PropertyOrderOracle",
+  "Property.Descriptor",
   "Property.PropertyWrite",
   "Oracle.PropertyWriteOracle",
   "Property.Retain",

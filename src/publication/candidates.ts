@@ -46,7 +46,7 @@ export function candidates(
   note?: PublicationNote,
 ): Candidates {
   // When no edge of the captured graph may offer another object, each node's only candidate is its
-  // aligned current object (Spec.Discovery.candidates_eq_aligned), so discovery does not walk. A
+  // aligned current object (Spec.Reconcile.candidates_eq_aligned), so discovery does not walk. A
   // kept subtree is an atom edge, which discovery does not walk either.
   const currents = alignment?.offersOther === false ? alignment.currents : undefined
   // The prototype discovery's recognition read for each object it aligned, by object.

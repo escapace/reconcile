@@ -59,6 +59,8 @@ export interface Options {
   binary?: boolean
   /** The largest graph. */
   nodes?: number
+  /** Accessor slots on the objects only `next` holds, whose getters reading `next` runs. */
+  nextAccessors?: boolean
   /** Key and entry reorders in `next`. */
   reorder?: boolean
   /** Positions of `next` that hold `current` objects. */
@@ -569,6 +571,25 @@ function addHolders(
   }
 }
 
+/** With the `nextAccessors` option, turns some data slots of the objects only `next` holds into
+ * accessors over the same value and enumerability. */
+function addNextAccessors(
+  rng: Rng,
+  nodes: GraphNode[],
+  same: ReadonlyArray<number | null>,
+  options: Options,
+): void {
+  if (options.nextAccessors !== true) return
+  nodes.forEach((n, id) => {
+    if (n.kind !== 'object' || same[id] !== null) return
+    n.fields = n.fields.map(([key, s]): [string, Slot] =>
+      'v' in s && rng.chance(0.4)
+        ? [key, { c: rng.chance(0.8), e: s.a[1], get: s.v, set: rng.pick([null, true, false]) }]
+        : [key, s],
+    )
+  })
+}
+
 /** A `next` graph derived from `cur`: the mirror of each node, changed by value edits, key and
  * entry additions, removals and reorders, kind changes, and positions that hold `current`
  * objects. Returns the graph and, per next node, the current node it is. */
@@ -591,6 +612,7 @@ function genNext(
   // A view that is a current object keeps its buffer, which is one too.
   bindViews(rng, nodes, (id) => same[id] !== null && same[id] !== undefined)
   while (same.length < nodes.length) same.push(null)
+  addNextAccessors(rng, nodes, same, options)
   return { next: { nodes, root: { ref: 0 } }, same }
 }
 

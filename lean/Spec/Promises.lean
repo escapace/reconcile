@@ -18,6 +18,11 @@ theorem shows the reference keeps it on every input, not only the generated ones
   (`retainPrefix_feasible_iff`).
 - `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
   and at most once when no pass writes (`get_bound`, `read_once_before_write`).
+- `reconcile` reads of `next`: a getter of an object only `next` holds runs at most once
+  (`freshGets_le_one`), and the walks that keep subtrees in place run each getter at most once
+  (`captureReads_once`). An object kept in place is neither written nor read back; read as
+  `current`, its getters run at most once, only where it is another node's candidate
+  (`run_pinned`).
 - `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
   key always (`objectWrites_set_iff`, `objectWrites_delete_iff`); an array index, a map or set
   entry, a date's time and a buffer's bytes likewise, and a view takes none
@@ -61,8 +66,9 @@ theorem shows the reference keeps it on every input, not only the generated ones
 Four counterexamples each show, on one input, a wrong definition that a theorem rules out:
 retaining only the common prefix, reading back after a write-free pass, writing every key and
 re-adding a moved key as plain data. Two examples show that `writesOf_nil_iff` needs distinct keys
-and identities that keep each object at one node, and three that `decide_injective` needs each of
-its premises.
+and identities that keep each object at one node, three that `decide_injective` needs each of its
+premises, and two that an object kept in place can run a getter twice while `next` is read when it
+is also inside an object that refers to `current`, or also a `Map` value.
 -/
 
 namespace Reconcile.Spec.Reconcile
@@ -966,7 +972,7 @@ theorem keptObject_accessor (proto : Proto) (cFields : List (String × Slot)) (e
   rw [hc] at h
   refine ⟨ns, hmem, h.2 ?_⟩
   obtain ⟨l₁, l₂, hl, -⟩ := List.lookup_eq_some_iff.mp hc
-  have hcm : (p.1, Slot.accessor v setter e c) ∈ cFields := by simp [hl]
+  have hcm : (p.1, OwnProperty.accessor v setter e c) ∈ cFields := by simp [hl]
   simp only [objectAdmits, Bool.and_eq_true, List.all_eq_true] at hadm
   have hk : (nFields.map Prod.fst).contains p.1 = true :=
     List.contains_iff_mem.mpr (List.mem_map.mpr ⟨_, hmem, rfl⟩)
@@ -1799,6 +1805,461 @@ theorem run_last_unblocked (input : Input) (c r : Nat) (hc : input.cur.root = .r
   · rename_i hroot
     rw [if_neg hroot]
     exact hlast.resolve_left fun h => hroot (by unfold rounds; rw [h]; rfl)
+
+/-! ## Reads of `next`
+
+Capture reads `next` in one walk, beside the walks that keep subtrees in place (`captureReads`).
+A getter of an object only `next` holds runs once at most (`freshGets_le_one`), and the walks that
+keep subtrees in place run each getter once at most (`captureReads_once`). An object kept in place
+is then neither written nor read back (`run_pinned`). An object `current` and `next` share can
+still run a getter twice while `next` is read: two examples show it for an object kept in place
+that is also inside an object referring to `current`, or also a `Map` value in `next`, the
+exceptions the promise names. -/
+
+/-- `eraseDups` keeps each element once, and only elements of its list. -/
+theorem eraseDups_spec {α : Type} [BEq α] [LawfulBEq α] :
+    ∀ (l : List α), (∀ x ∈ l.eraseDups, x ∈ l) ∧ l.eraseDups.Nodup
+  | [] => by simp
+  | a :: as => by
+    have ih := eraseDups_spec (as.filter fun b => !b == a)
+    rw [List.eraseDups_cons]
+    refine ⟨?_, List.nodup_cons.2 ⟨fun ha => by simpa using ih.1 a ha, ih.2⟩⟩
+    intro x hx
+    rcases List.mem_cons.1 hx with rfl | hx
+    · exact List.mem_cons_self
+    · exact List.mem_cons_of_mem _ (List.mem_filter.1 (ih.1 x hx)).1
+termination_by l => l.length
+decreasing_by
+  exact Nat.lt_succ_of_le (List.length_filter_le _ _)
+
+/-- A read of an object runs each of its getters once. -/
+theorem getters_nodup (o : Obj) : (getters o).Nodup :=
+  ((eraseDups_spec (keysOf o)).2).filter _
+
+/-- Pairing a list without duplicates with one tag gives each pair at most once, and none with
+another tag. -/
+theorem count_tagged {β γ : Type} [DecidableEq β] [DecidableEq γ] (t : β) {l : List γ}
+    (hl : l.Nodup) (x : β × γ) :
+    (l.map fun k => (t, k)).count x ≤ if x.1 = t then 1 else 0 := by
+  split
+  · exact List.nodup_iff_count_le_one.1 (hl.map fun a b h => (Prod.mk.inj h).2) x
+  · rename_i hx
+    rw [List.count_eq_zero_of_not_mem]
+    intro hm
+    obtain ⟨k, _, rfl⟩ := List.mem_map.1 hm
+    exact hx rfl
+
+/-- A keep walk runs current objects' getters only. One that meets no root reads none of
+`closure`, and each getter of the objects it returns at most once and no other. -/
+theorem keepWalk_spec (cur : Graph) (stop : Nat → Bool) (closure : List Nat) :
+    ∀ fuel stack walked (reads : List (Owner × String)),
+      (∀ s ∈ walked, closure.contains s = false) →
+      (∀ e ∈ reads, ∃ s, e.1 = .cur s) →
+      (∀ s k, reads.count (.cur s, k) ≤ if walked.contains s then 1 else 0) →
+      (∀ e ∈ (keepWalk cur stop closure fuel stack walked reads).2, ∃ s, e.1 = .cur s) ∧
+      ∀ walked', (keepWalk cur stop closure fuel stack walked reads).1 = some walked' →
+        (∀ s ∈ walked', closure.contains s = false) ∧
+        ∀ s k, (keepWalk cur stop closure fuel stack walked reads).2.count (.cur s, k) ≤
+          if walked'.contains s then 1 else 0
+  | 0, _, walked, reads, hc, ho, hn => by
+    refine ⟨ho, fun w hw => ?_⟩
+    simp only [keepWalk, Option.some.injEq] at hw
+    subst hw
+    exact ⟨hc, hn⟩
+  | _ + 1, [], walked, reads, hc, ho, hn => by
+    refine ⟨ho, fun w hw => ?_⟩
+    simp only [keepWalk, Option.some.injEq] at hw
+    subst hw
+    exact ⟨hc, hn⟩
+  | fuel + 1, s :: stack, walked, reads, hc, ho, hn => by
+    simp only [keepWalk]
+    split
+    · exact keepWalk_spec cur stop closure fuel stack walked reads hc ho hn
+    · rename_i hs
+      simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at hs
+      split
+      · exact ⟨ho, fun _ h => by simp at h⟩
+      · apply keepWalk_spec
+        · intro s' hs'
+          rcases List.mem_cons.1 hs' with rfl | hs'
+          · exact hs.1
+          · exact hc s' hs'
+        · intro e he
+          rcases List.mem_append.1 he with he | he
+          · exact ho e he
+          · obtain ⟨k, _, rfl⟩ := List.mem_map.1 he
+            exact ⟨s, rfl⟩
+        · intro s' k
+          rw [List.count_append]
+          have h1 := hn s' k
+          have h2 := count_tagged (Owner.cur s) (getters_nodup (cur.node s)) (Owner.cur s', k)
+          by_cases hss : s' = s
+          · subst hss
+            simp only [hs.2, Bool.false_eq_true, ite_false, ite_true, List.contains_cons,
+              beq_self_eq_true, Bool.true_or] at h1 h2 ⊢
+            omega
+          · have hne : (Owner.cur s' = Owner.cur s) = False := by simp [hss]
+            simp only [hne, ite_false, List.contains_cons, Bool.or_eq_true, beq_iff_eq, hss,
+              false_or] at h2 ⊢
+            omega
+
+/-- The keep walk capture makes at a pending child, if it makes one, as `keepWalk_spec` has it. -/
+theorem keepAt_spec (input : Input) (stop : Nat → Bool) (closure : List Nat) (j : Nat)
+    (occupant : Option Nat) (keeps : Bool) :
+    (∀ e ∈ (keepAt input stop closure j occupant keeps).2, ∃ s, e.1 = .cur s) ∧
+    ∀ walked, (keepAt input stop closure j occupant keeps).1 = some walked →
+      (∀ s ∈ walked, closure.contains s = false) ∧
+      ∀ s k, (keepAt input stop closure j occupant keeps).2.count (.cur s, k) ≤
+        if walked.contains s then 1 else 0 := by
+  unfold keepAt
+  split
+  · split
+    · exact keepWalk_spec input.cur stop closure _ _ [] [] (by simp) (by simp) (by simp)
+    · simp
+  · simp
+
+/-- The getter runs of the walks that keep subtrees in place. -/
+def keepRuns (reads : List Read) : List (Owner × String) :=
+  (reads.filter fun e => e.1 == .keep).map Prod.snd
+
+/-- The keep walks' getter runs of reads made one after another. -/
+theorem keepRuns_append (a b : List Read) : keepRuns (a ++ b) = keepRuns a ++ keepRuns b := by
+  simp [keepRuns]
+
+/-- Getter runs that one reading tags: the keep walks' runs exactly when it is `keep`. -/
+theorem keepRuns_tagged (t : Reading) (l : List (Owner × String)) :
+    keepRuns (l.map fun e => (t, e)) = if t = .keep then l else [] := by
+  induction l with
+  | nil => split <;> rfl
+  | cons e l ih =>
+    simp only [keepRuns, List.map_cons, List.filter_cons] at ih ⊢
+    by_cases ht : t = .keep
+    · subst ht
+      simp only [if_true] at ih
+      simp [ih]
+    · simp only [ht, if_false] at ih
+      have : (t == Reading.keep) = false := by simpa using ht
+      simp [this, ih, ht]
+
+/-- Marking node `j` as met leaves every other node as it was. -/
+theorem getD_setIfInBounds (known : Array Bool) (j j' : Nat) :
+    (known.setIfInBounds j true)[j']?.getD true = (j == j' || known[j']?.getD true) := by
+  rw [Array.getElem?_setIfInBounds]
+  by_cases h : j = j'
+  · subst h
+    by_cases hj : j < known.size <;> simp [hj]
+  · simp [h]
+
+/-- Only next node `j` runs the getters of next node `j`. -/
+theorem ownerOf_next {input : Input} {j j' : Nat} (h : ownerOf input j = .next j') : j' = j := by
+  unfold ownerOf at h
+  split at h <;> simp_all
+
+/-- Along capture's walk, a getter of an object only `next` holds runs once at most, when its node
+is visited, and a getter the walks that keep subtrees in place run, once at most, when its object
+joins the closure. -/
+theorem captureStep_spec (input : Input) (stop : Nat → Bool) :
+    ∀ fuel pending (known : Array Bool) closure (reads : List Read),
+      (∀ j k, (reads.map Prod.snd).count (.next j, k) ≤
+        if known[j]?.getD true then 1 else 0) →
+      (∀ i k, (keepRuns reads).count (.cur i, k) ≤ if closure.contains i then 1 else 0) →
+      (∀ j k, ((captureStep input stop fuel pending known closure reads).2.map Prod.snd).count
+        (.next j, k) ≤ 1) ∧
+      ∀ i k, (keepRuns (captureStep input stop fuel pending known closure reads).2).count
+        (.cur i, k) ≤ 1
+  | 0, _, known, closure, reads, hf, hk =>
+    ⟨fun j k => (hf j k).trans (by split <;> simp),
+      fun i k => (hk i k).trans (by split <;> simp)⟩
+  | _ + 1, [], known, closure, reads, hf, hk =>
+    ⟨fun j k => (hf j k).trans (by split <;> simp),
+      fun i k => (hk i k).trans (by split <;> simp)⟩
+  | fuel + 1, (j, occupant, keeps) :: rest, known, closure, reads, hf, hk => by
+    simp only [captureStep]
+    split
+    · exact captureStep_spec input stop fuel rest known closure reads hf hk
+    · rename_i hj
+      obtain ⟨hcur, hok⟩ := keepAt_spec input stop closure j occupant keeps
+      have hnext : ∀ j' k,
+          (keepAt input stop closure j occupant keeps).2.count (.next j', k) = 0 :=
+        fun j' k => List.count_eq_zero_of_not_mem fun hm => by
+          obtain ⟨s, hs⟩ := hcur _ hm
+          simp at hs
+      split
+      · rename_i walked wr heq
+        rw [heq] at hok hnext
+        obtain ⟨hdis, hcount⟩ := hok walked rfl
+        apply captureStep_spec
+        · intro j' k
+          have h1 := hf j' k
+          have h2 := hnext j' k
+          simp only [List.map_append, List.map_map, List.count_append, getD_setIfInBounds]
+          have : (Prod.snd ∘ fun e : Owner × String => (Reading.keep, e)) = id := rfl
+          rw [this, List.map_id, h2]
+          split at h1 <;> simp_all
+        · intro i k
+          have h1 := hk i k
+          have h2 := hcount i k
+          rw [keepRuns_append, keepRuns_tagged, if_pos rfl, List.count_append]
+          simp only [List.contains_append, Bool.or_eq_true] at h1 h2 ⊢
+          by_cases hw : walked.contains i = true
+          · have hc : closure.contains i = false := hdis i (by simpa using hw)
+            simp only [hw, hc, if_true, true_or] at h1 h2 ⊢
+            simp at h1
+            omega
+          · have hw' : walked.contains i = false := by simpa using hw
+            simp only [hw', Bool.false_eq_true, false_or, if_false] at h1 h2 ⊢
+            omega
+      · rename_i wr heq
+        rw [heq] at hnext
+        apply captureStep_spec
+        · intro j' k
+          have h1 := hf j' k
+          have h2 : wr.count (.next j', k) = 0 := hnext j' k
+          have h3 := count_tagged (ownerOf input j) (getters_nodup (input.next.node j))
+            (Owner.next j', k)
+          simp only [List.map_append, List.map_map, List.count_append, getD_setIfInBounds]
+          have e1 : (Prod.snd ∘ fun e : Owner × String => (Reading.discard, e)) = id := rfl
+          have e2 : (Prod.snd ∘ fun k : String => (Reading.observe, ownerOf input j, k)) =
+              fun k => (ownerOf input j, k) := rfl
+          rw [e1, e2, List.map_id, h2]
+          by_cases ho : Owner.next j' = ownerOf input j
+          · have hjj := ownerOf_next ho.symm
+            subst hjj
+            have hk0 : known[j']?.getD true = false := by simpa using hj
+            dsimp only at h3
+            rw [if_pos ho] at h3
+            simp only [hk0, Bool.false_eq_true, if_false] at h1
+            simp only [beq_self_eq_true, Bool.true_or, if_true]
+            omega
+          · dsimp only at h3
+            rw [if_neg ho] at h3
+            split at h1 <;> split <;> simp_all
+        · intro i k
+          have hobs : keepRuns ((getters (input.next.node j)).map
+              fun k => (Reading.observe, ownerOf input j, k)) = [] := by
+            simp [keepRuns]
+          rw [keepRuns_append, keepRuns_append, keepRuns_tagged, hobs]
+          simpa using hk i k
+
+
+/-- Reading `next` runs each getter of an object only `next` holds at most once, and the walks
+that keep subtrees in place run each getter at most once: a subtree kept in place is read once. -/
+theorem captureReads_once (input : Input) (r : Nat) :
+    (∀ j k, ((captureReads input r).map Prod.snd).count (.next j, k) ≤ 1) ∧
+    ∀ i k, (keepRuns (captureReads input r)).count (.cur i, k) ≤ 1 :=
+  captureStep_spec input _ _ _ _ [] [] (by simp) (by simp [keepRuns])
+
+/-- A count of `freshCounts` is the number of reads of its next node and key. -/
+theorem mem_freshCounts {reads : List Read} {e : Nat × String × Nat}
+    (he : e ∈ freshCounts reads) :
+    e.2.2 = (reads.map Prod.snd).count (.next e.1, e.2.1) := by
+  simp only [freshCounts, readCounts, List.mem_filterMap, List.mem_map] at he
+  obtain ⟨_, ⟨⟨o, k⟩, _, rfl⟩, h⟩ := he
+  cases o with
+  | cur i => simp at h
+  | next j =>
+    simp only [Option.some.injEq] at h
+    subst h
+    rfl
+
+/-- A getter of an object that only `next` holds runs at most once in a call: only reading `next`
+runs it (`Outcome.freshGets`). -/
+theorem freshGets_le_one (input : Input) : ∀ e ∈ (run input).freshGets, e.2.2 ≤ 1 := by
+  simp only [run]
+  split
+  · intro e he
+    rw [mem_freshCounts he]
+    exact (captureReads_once _ _).1 _ _
+  · simp
+
+/-- A pass writes only to objects its decision keeps at unpinned nodes. -/
+theorem mem_writesOfDecision {input : Input} {pin : Array Bool} {kept : Array (Option Nat)}
+    {e : Nat × String × String} (h : e ∈ writesOfDecision input pin kept) :
+    ∃ j, j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧
+      kept[j]?.bind id = some e.1 := by
+  simp only [writesOfDecision, List.mem_flatMap, List.mem_range] at h
+  obtain ⟨j, hj, he⟩ := h
+  split at he
+  · rename_i i hi
+    split at he
+    · simp at he
+    · rename_i hp
+      obtain ⟨⟨k, w⟩, _, rfl⟩ := List.mem_map.1 he
+      exact ⟨j, hj, by simpa using hp, hi⟩
+  · simp at he
+
+/-- A pass reads back only objects its decision keeps at unpinned nodes. -/
+theorem mem_readbackKeys {input : Input} {pin : Array Bool} {kept : Array (Option Nat)}
+    {i : Nat} {k : String} (h : (i, k) ∈ readbackKeys input pin kept) :
+    ∃ j, j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧
+      kept[j]?.bind id = some i := by
+  have h := (eraseDups_spec _).1 _ h
+  simp only [List.mem_flatMap, List.mem_range] at h
+  obtain ⟨j, hj, he⟩ := h
+  split at he
+  · simp at he
+  · rename_i hp
+    split at he
+    · rename_i i' hi
+      obtain ⟨k', _, hk'⟩ := List.mem_filterMap.1 he
+      split at hk'
+      · simp only [Option.some.injEq, Prod.mk.injEq] at hk'
+        obtain ⟨rfl, rfl⟩ := hk'
+        exact ⟨j, hj, by simpa using hp, hi⟩
+      · simp at hk'
+    · simp at he
+
+/-- The comparison reads only objects that are candidates of some node. -/
+theorem mem_capturedKeys {input : Input} {al : Discovery} {i : Nat} {k : String}
+    (h : (i, k) ∈ capturedKeys input al) : ∃ c : Nat, i ∈ al.candidates[c]?.getD [] := by
+  have h := (eraseDups_spec _).1 _ h
+  simp only [List.mem_flatMap, List.mem_range] at h
+  obtain ⟨c, _, i', hi', hk⟩ := h
+  obtain ⟨k', _, hk'⟩ := List.mem_filterMap.1 hk
+  split at hk'
+  · simp only [Option.some.injEq, Prod.mk.injEq] at hk'
+    obtain ⟨rfl, rfl⟩ := hk'
+    exact ⟨c, hi'⟩
+  · simp at hk'
+
+/-- A pinned node has no candidate. -/
+theorem discover_pinned_candidates (input : Input) (j : Nat)
+    (h : (discover input).pinned[j]?.getD false = true) :
+    (discover input).candidates[j]?.getD [] = [] := by
+  cases hr : input.next.root with
+  | prim p =>
+    simp only [discover, hr]
+    by_cases hj : j < input.next.nodes.size <;> simp [hj]
+  | ref r =>
+    simp only [discover, hr] at h ⊢
+    generalize visitStep input.cur input.next input.next.budget [(r, input.cur.root.refId)]
+      (Array.replicate input.next.nodes.size false)
+      (Array.replicate input.next.nodes.size none) [] = vs at h ⊢
+    obtain ⟨order, first⟩ := vs
+    simp only at h ⊢
+    rw [Array.getElem?_mapIdx]
+    cases (candidateStep input.cur input.next (input.next.budget * (input.cur.nodes.size + 1))
+      [(r, input.cur.root.refId)] (Array.replicate input.next.nodes.size []))[j]? with
+    | none => simp
+    | some cs => simp [h]
+
+/-- An object kept in place is neither changed nor read back: given that each current object is at
+most one next node, no pass writes to the object at a pinned node, and read as `current` its
+getters run at most once, in the comparison of another node it is a candidate of, which only an
+object `current` also holds at another position is. -/
+theorem run_pinned (raw : Input)
+    (hsame : ∀ (a b x : Nat), raw.same[a]?.bind id = some x → raw.same[b]?.bind id = some x →
+      a = b)
+    (j i : Nat) (hj : j < raw.next.nodes.size)
+    (hpin : (discover (normalized raw)).pinned[j]?.getD false = true)
+    (hs : raw.same[j]?.bind id = some i) :
+    (∀ e ∈ (run raw).allWrites, e.1 ≠ i) ∧ ∀ e ∈ (run raw).gets, e.1 = i →
+      e.2.2 ≤ 1 ∧
+        ∃ c : Nat, c ≠ j ∧ i ∈ (discover (normalized raw)).candidates[c]?.getD [] := by
+  have hj' : j < (normalized raw).next.nodes.size := by
+    simpa [normalized, Graph.normalize] using hj
+  have hkeep : ∀ (r : Nat) (kept : Array (Option Nat)),
+      kept ∈ rounds (normalized raw) (discover (normalized raw)) r → ∀ b : Nat,
+      (discover (normalized raw)).pinned[b]?.getD false = false →
+      kept[b]?.bind id ≠ some i := by
+    intro r kept hk b hb hbi
+    have := demote_pinned (normalized raw) (discover (normalized raw))
+      (discover (normalized raw)).pinned r (fun a b x _ _ _ _ ha hb => hsame a b x ha hb) _ kept hk
+      b j i hj' hpin hs hbi
+    subst this
+    simp [hpin] at hb
+  have hwrites : ∀ (r : Nat),
+      ∀ e ∈ ((rounds (normalized raw) (discover (normalized raw)) r).map
+      (writesOfDecision (normalized raw) (discover (normalized raw)).pinned)).flatten.eraseDups,
+      e.1 ≠ i := by
+    intro r e he hei
+    obtain ⟨l, hl, he⟩ := List.mem_flatten.1 ((eraseDups_spec _).1 _ he)
+    obtain ⟨kept, hk, rfl⟩ := List.mem_map.1 hl
+    obtain ⟨b, _, hb, hbi⟩ := mem_writesOfDecision he
+    exact hkeep r kept hk b hb (hei ▸ hbi)
+  have hgets : ∀ (r : Nat) (captured : List (Nat × String))
+      (readbacks : List (List (Nat × String))),
+      (∀ l ∈ readbacks, ∃ kept ∈ rounds (normalized raw) (discover (normalized raw)) r,
+        l = readbackKeys (normalized raw) (discover (normalized raw)).pinned kept) →
+      ∀ e ∈ getCounts captured readbacks, e.1 = i →
+        e.2.2 ≤ 1 ∧ (i, e.2.1) ∈ captured := by
+    intro r captured readbacks hr e he hei
+    simp only [getCounts, List.mem_map] at he
+    obtain ⟨⟨i', k⟩, hmem, rfl⟩ := he
+    dsimp only at hei ⊢
+    subst hei
+    have hnil : ∀ l ∈ readbacks, l.contains (i', k) = false := by
+      intro l hl
+      obtain ⟨kept, hk, rfl⟩ := hr l hl
+      rw [Bool.eq_false_iff]
+      intro hc
+      obtain ⟨b, _, hb, hbi⟩ := mem_readbackKeys (List.contains_iff_mem.1 hc)
+      exact hkeep r kept hk b hb hbi
+    rw [List.filter_eq_nil_iff.2 fun l hl => by rw [hnil l hl]; decide]
+    refine ⟨by split <;> simp, ?_⟩
+    rcases List.mem_append.1 ((eraseDups_spec _).1 _ hmem) with h | h
+    · exact h
+    · obtain ⟨l, hl, hk⟩ := List.mem_flatten.1 h
+      have := hnil l hl
+      rw [List.contains_iff_mem.2 hk] at this
+      exact absurd this (by decide)
+  simp only [run]
+  split
+  · dsimp only
+    split
+    · simp
+    · rename_i _ _ _ r _ _ _
+      simp only [publish]
+      refine ⟨hwrites r, fun e he hei => ?_⟩
+      obtain ⟨hle, hcap⟩ := hgets r _ _ (fun l hl => by
+        split at hl
+        · simp at hl
+        · obtain ⟨kept, hk, rfl⟩ := List.mem_map.1 hl
+          exact ⟨kept, hk, rfl⟩) e he hei
+      obtain ⟨c, hc⟩ := mem_capturedKeys hcap
+      refine ⟨hle, c, fun hcj => ?_, hc⟩
+      subst hcj
+      rw [discover_pinned_candidates _ _ hpin] at hc
+      simp at hc
+  · simp
+
+
+private def plainObject (fields : List (String × Val)) : Obj :=
+  .object .object (fields.map fun (k, v) => (k, .data v Attrs.plain)) true
+
+private def getterObject : Obj :=
+  .object .object [("g", .accessor (.prim (.num 1)) (some true) true true)] true
+
+/-- `current` holds `p`, which has a getter, at `b` and inside `c`, which refers to `current`;
+`next` holds both at their positions. -/
+private def insideRootRef : Input where
+  cur := ⟨#[plainObject [("a", .ref 1), ("b", .ref 2)],
+    plainObject [("up", .ref 0), ("p", .ref 2)], getterObject], .ref 0⟩
+  next := ⟨#[plainObject [("a", .ref 1), ("b", .ref 2), ("n", .prim (.num 1))],
+    plainObject [("up", .ref 3), ("p", .ref 2)], getterObject,
+    plainObject [("a", .ref 1), ("b", .ref 2)]], .ref 0⟩
+  same := #[none, some 1, some 2, some 0]
+
+/-- `p`, kept in place, runs its getter twice while `next` is read: the walk from `c` reads it
+before it meets `current`, and the walk that keeps it reads it again. -/
+example : ((captureReads insideRootRef 0).filter (·.2 == (.cur 2, "g"))).map Prod.fst =
+    [.discard, .keep] ∧ (discover insideRootRef).pinned[2]? = some true := by
+  decide +kernel
+
+/-- `current` holds `x`, which has a getter, inside `p`; `next` holds `p` in place and `x` as a
+`Map` value. -/
+private def mapValue : Input where
+  cur := ⟨#[plainObject [("b", .ref 1), ("m", .ref 2)], plainObject [("x", .ref 3)],
+    .map [(.prim (.num 1), .prim (.num 0))], getterObject], .ref 0⟩
+  next := ⟨#[plainObject [("b", .ref 1), ("m", .ref 3)], plainObject [("x", .ref 2)],
+    getterObject, .map [(.prim (.num 1), .ref 2)]], .ref 0⟩
+  same := #[none, some 1, some 3, none]
+
+/-- `x`, inside a subtree kept in place, runs its getter twice while `next` is read: the walk that
+keeps `p` reads it, and capture visits it as the `Map` value. -/
+example : ((captureReads mapValue 0).filter (·.2 == (.cur 3, "g"))).map Prod.fst =
+    [.keep, .observe] ∧ (discover mapValue).pinned[2]? = some true := by
+  decide +kernel
 
 /-! ## Demands -/
 

@@ -1,4 +1,5 @@
 import Lean
+import Property.Descriptor
 
 /-!
 # Specification graphs
@@ -25,7 +26,8 @@ objects, numbers that are not integers (`Prim.num` holds an integer), `-0` and `
 Temporal values.
 
 `Obj.copy` is the one copy rule: `snapshot` copies every node with it and `reconcile` adds every
-node it keeps nothing at with it.
+node it keeps nothing at with it. A slot is `Property.Descriptor`'s `OwnProperty`, the descriptor
+`PropertyWrite` writes, with its attributes `Attrs`.
 -/
 
 namespace Reconcile.Spec
@@ -48,39 +50,10 @@ inductive Val where
   | ref (id : Nat)
   deriving DecidableEq, Repr, Inhabited
 
-/-- The attributes of a data property. -/
-structure Attrs where
-  writable : Bool
-  enumerable : Bool
-  configurable : Bool
-  deriving DecidableEq, Repr, Inhabited
-
-/-- The attributes an assignment gives a new property. -/
-def Attrs.plain : Attrs := ⟨true, true, true⟩
-
-/-- The attributes of a copied or added property: writable and configurable, with the source's
-enumerability. -/
-def Attrs.copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
-
-/-- An own property: data with attributes, or an accessor whose getter returns `value` and whose
-setter is absent (`none`), stores what it receives (`some true`) or drops it (`some false`). -/
-inductive Slot where
-  | data (value : Val) (attrs : Attrs)
-  | accessor (value : Val) (setter : Option Bool) (enumerable configurable : Bool)
-  deriving DecidableEq, Repr, Inhabited
-
-/-- The value a read of the slot returns. -/
-def Slot.value : Slot → Val
-  | .data v _ => v
-  | .accessor v _ _ _ => v
-
-def Slot.enumerable : Slot → Bool
-  | .data _ a => a.enumerable
-  | .accessor _ _ e _ => e
-
-def Slot.configurable : Slot → Bool
-  | .data _ a => a.configurable
-  | .accessor _ _ _ c => c
+/-- An own property (`OwnProperty`, with `Attrs`): data with attributes, or an accessor whose
+getter returns its value and whose setter is absent (`none`), stores what it receives
+(`some true`) or drops it (`some false`). -/
+abbrev Slot := OwnProperty Val (Option Bool)
 
 /-- A prototype label: `Object.prototype`, `null`, or the prototype of class `id`. -/
 inductive Proto where

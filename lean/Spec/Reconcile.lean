@@ -29,7 +29,9 @@ graphs, in three phases that mirror the runtime's design:
    decision that keeps no root rejects the call, and the passes stop there.
 
 The result is one node per `next` node, with the `current` object it keeps, if any, the number
-of passes, and the trace model's observations: the getter counts and the writes of every pass.
+of passes, and the trace model's observations: the getter runs of reading `next`, which capture
+does in one walk that keeps each object already in place without visiting it (`captureReads`),
+the getter runs of reading `current`, and the writes of every pass.
 -/
 
 namespace Reconcile.Spec
@@ -64,7 +66,7 @@ def Obj.slots : Obj → List (Pos × Val)
 /-- The value a node holds at a position, if any. -/
 def Obj.occupant (o : Obj) (pos : Pos) : Option Val :=
   match o, pos with
-  | .object _ fields _, .key k => (fields.lookup k).map Slot.value
+  | .object _ fields _, .key k => (fields.lookup k).map OwnProperty.value
   | .array entries _, .index i => entries[i]?.bind id
   | .map entries, .mapKey p => entries[p]?.map Prod.fst
   | .map entries, .mapValue p => entries[p]?.map Prod.snd
@@ -101,6 +103,24 @@ the untouched ones precede every re-added one and keep their relative order. It 
 greedy matching, `PropertyPlacement.matched`. -/
 def retainPrefix {K : Type} [DecidableEq K] (cur next : List K) : List K :=
   PropertyPlacement.matched next cur
+
+/-- The own properties of a plain object; none for another node. -/
+def fieldsOf : Obj → List (String × Slot)
+  | .object _ fields _ => fields
+  | _ => []
+
+/-- The own keys of a plain object, in order. -/
+def keysOf (o : Obj) : List String := (fieldsOf o).map Prod.fst
+
+/-- Whether a node holds `k` as an own accessor, whose getter a read of the key runs. -/
+def getterAt (o : Obj) (k : String) : Bool :=
+  match (fieldsOf o).lookup k with
+  | some (.accessor ..) => true
+  | _ => false
+
+/-- The getters a read of every own property of a node runs, each key once: its own accessors, in
+key order. -/
+def getters (o : Obj) : List String := (keysOf o).eraseDups.filter (getterAt o)
 
 /-! ## Read -/
 
@@ -226,15 +246,139 @@ def discover (input : Input) : Discovery :=
       (input.next.budget * (input.cur.nodes.size + 1)) [(r, root)] (Array.replicate n [])
     ⟨order, first, pin, found.mapIdx fun j cs => if pin[j]?.getD false then [] else cs⟩
 
+/-! ## Reads of `next`
+
+Capture reads `next` in one depth-first walk, as `visitStep` visits it, but keeps an object
+already in place as it is instead of visiting it: when an aligned node's property or array element
+holds the current object at that position, or an object inside a subtree kept earlier, a second
+walk (`keepWalk`) reads that object's subtree in the current graph, and keeps it when the walk
+meets neither root. A walk that meets a root has read what it passed and keeps nothing, and the
+object is then visited. Every other node `next` reaches is read once when it is visited. A read
+of an object runs each of its own getters once; the trace records each run with whose getter it
+is and why it ran. These are the reads the getter counts of `current` leave out (`Outcome.gets`). -/
+
+/-- Whose getter a read runs: current object `i`, or next node `j`, which no current object is. -/
+inductive Owner where
+  | cur (i : Nat)
+  | next (j : Nat)
+  deriving DecidableEq, Repr
+
+/-- Why a getter runs while `next` is read: capture visits its node (`observe`), a walk keeps its
+subtree in place (`keep`), or a walk reads it before it meets a root (`discard`). -/
+inductive Reading where
+  | observe
+  | keep
+  | discard
+  deriving DecidableEq, Repr
+
+/-- One getter run while `next` is read. -/
+abbrev Read := Reading × Owner × String
+
+/-- Whose getters a read of next node `j` runs: the current object it is, if any. -/
+def ownerOf (input : Input) (j : Nat) : Owner :=
+  match input.same[j]?.bind id with
+  | some i => .cur i
+  | none => .next j
+
+/-- The walk that keeps a current object in place (`keep` in `capture.ts`): depth first over the
+current graph from the objects on `stack`, with an explicit stack on which an object's children are
+pushed in slot order, so the last one is walked first. An object of `closure`, which earlier walks
+kept, or one this walk read already, is passed by; any other object is read, running each of its
+getters. The walk stops at the first object `stop` names, a root. Returns the objects it read when
+it met no root, `none` when it met one, and its reads, as `(owner, key)`. -/
+def keepWalk (cur : Graph) (stop : Nat → Bool) (closure : List Nat) :
+    Nat → List Nat → List Nat → List (Owner × String) →
+      Option (List Nat) × List (Owner × String)
+  | 0, _, walked, reads => (some walked, reads)
+  | _ + 1, [], walked, reads => (some walked, reads)
+  | fuel + 1, s :: stack, walked, reads =>
+    if closure.contains s || walked.contains s then
+      keepWalk cur stop closure fuel stack walked reads
+    else if stop s then (none, reads)
+    else
+      keepWalk cur stop closure fuel ((cur.node s).refs.reverse ++ stack) (s :: walked)
+        (reads ++ (getters (cur.node s)).map fun k => (.cur s, k))
+
+/-- The pending children of a node that capture visits aligned with `aligned`: per reference, the
+child, the object at its position of the aligned object, and whether the edge may keep the child
+in place, which only a property or array element of an aligned node may. Without the last, this is
+`visitChildren` (`captureChildren_map`). -/
+def captureChildren (cur : Graph) (node : Obj) (aligned : Option Nat) :
+    List (Nat × Option Nat × Bool) :=
+  node.slots.filterMap fun (pos, v) =>
+    match v with
+    | .ref c => some (c,
+        match aligned with
+        | some p =>
+          if pos.property then (((cur.node p).occupant pos).bind Val.refId, true) else (none, false)
+        | none => (none, false))
+    | .prim _ => none
+
+/-- The keep walk capture makes at pending child `j` (`adopt` in `capture.ts`): one when the edge
+may keep the child, the child is a current object of a kind that can be kept as it is, and it is
+the object at its position or inside a subtree kept earlier (`closure`); otherwise `(none, [])`. -/
+def keepAt (input : Input) (stop : Nat → Bool) (closure : List Nat) (j : Nat)
+    (occupant : Option Nat) (keeps : Bool) : Option (List Nat) × List (Owner × String) :=
+  match input.same[j]?.bind id with
+  | some i =>
+    if keeps && keepable (input.next.node j).kind && (occupant == some i || closure.contains i) then
+      keepWalk input.cur stop closure input.cur.budget [i] [] []
+    else (none, [])
+  | none => (none, [])
+
+/-- Capture's walk of `next` (`AlignedCapture` in `capture.ts`) and its reads. A pending child is
+visited unless capture met it already (`known`). A keep walk at it (`keepAt`) that meets no root
+keeps the child, adds what it read to `closure` and visits nothing below it; a walk that meets a
+root is discarded. A child not kept is visited: read once, aligned with the object at its position
+when that has its kind, and its children pushed. Returns the closure and the reads, in order. -/
+def captureStep (input : Input) (stop : Nat → Bool) :
+    Nat → List (Nat × Option Nat × Bool) → Array Bool → List Nat → List Read →
+      List Nat × List Read
+  | 0, _, _, closure, reads => (closure, reads)
+  | _ + 1, [], _, closure, reads => (closure, reads)
+  | fuel + 1, (j, occupant, keeps) :: rest, known, closure, reads =>
+    if known[j]?.getD true then captureStep input stop fuel rest known closure reads
+    else
+      match keepAt input stop closure j occupant keeps with
+      | (some walked, walkReads) =>
+        captureStep input stop fuel rest (known.setIfInBounds j true) (walked ++ closure)
+          (reads ++ walkReads.map fun e => (.keep, e))
+      | (none, walkReads) =>
+        let node := input.next.node j
+        let aligned := occupant.filter fun p => (input.cur.node p).kind == node.kind
+        captureStep input stop fuel (captureChildren input.cur node aligned ++ rest)
+          (known.setIfInBounds j true) closure
+          (reads ++ walkReads.map (fun e => (.discard, e)) ++
+            (getters node).map fun k => (.observe, ownerOf input j, k))
+
+/-- The roots a keep walk stops at: the current root, and the current object `next`'s root `r`
+is, if any. -/
+def rootStop (input : Input) (r : Nat) (s : Nat) : Bool :=
+  input.cur.root.refId == some s || (input.same[r]?.bind id) == some s
+
+/-- The getter runs of reading `next`, whose root is node `r`, in order. -/
+def captureReads (input : Input) (r : Nat) : List Read :=
+  (captureStep input (rootStop input r) input.next.budget [(r, input.cur.root.refId, false)]
+    (Array.replicate input.next.nodes.size false) [] []).2
+
+/-- Per owner and key, how many reads run its getter. -/
+def readCounts (reads : List Read) : List (Owner × String × Nat) :=
+  let runs := reads.map Prod.snd
+  runs.eraseDups.map fun (o, k) => (o, k, runs.count (o, k))
+
+/-- The read counts of current objects, by current index. -/
+def curCounts (reads : List Read) : List (Nat × String × Nat) :=
+  (readCounts reads).filterMap fun
+    | (.cur i, k, n) => some (i, k, n)
+    | (.next _, _, _) => none
+
+/-- The read counts of the objects only `next` holds, by next index. -/
+def freshCounts (reads : List Read) : List (Nat × String × Nat) :=
+  (readCounts reads).filterMap fun
+    | (.next j, k, n) => some (j, k, n)
+    | (.cur _, _, _) => none
+
 /-! ## Decide -/
-
-/-- The own properties of a plain object; none for another node. -/
-def fieldsOf : Obj → List (String × Slot)
-  | .object _ fields _ => fields
-  | _ => []
-
-/-- The own keys of a plain object, in order. -/
-def keysOf (o : Obj) : List String := (fieldsOf o).map Prod.fst
 
 /-- Whether a slot's value cannot be written: a non-writable, non-configurable data property or an
 accessor without a setter. -/
@@ -666,7 +810,7 @@ def rounds (input : Input) (al : Discovery) (r : Nat) : List (Array (Option Nat)
 
 /-- The result of the reference: whether the call succeeds, and per next node the current object
 kept there and the contents; `root` is the result's root. The trace fields count observations:
-`gets` per current object and key, `allWrites` per kept current object. -/
+`gets`, `nextGets` and `freshGets` per object and key, `allWrites` per kept current object. -/
 structure Outcome where
   ok : Bool
   origins : Array (Option Nat)
@@ -675,7 +819,14 @@ structure Outcome where
   /-- The number of decision passes: one, plus one per demotion; none when the first decision
   keeps no root, which rejects the call before any write. -/
   passes : Nat
+  /-- The getter runs of current objects read as `current`, per current object and key: the reads
+  that compare them with `next` and each pass's readback. -/
   gets : List (Nat × String × Nat)
+  /-- The getter runs of current objects read as part of `next` (`captureReads`), per current
+  object and key: the objects `next` holds, the subtrees kept in place among them. -/
+  nextGets : List (Nat × String × Nat) := []
+  /-- The getter runs of the objects only `next` holds, per next node and key. -/
+  freshGets : List (Nat × String × Nat) := []
   /-- The writes of every pass, as `(current object, key, kind)`, without duplicates: a pass writes
   what its decision needs, and a later pass writes a slot again when its decision keeps another
   object there. -/
@@ -683,13 +834,7 @@ structure Outcome where
   deriving Lean.ToJson, Repr
 
 /-- Whether current object `i` holds `k` as an accessor, whose getter a read of the key runs. -/
-def accessorKey (input : Input) (i : Nat) (k : String) : Bool :=
-  match input.cur.node i with
-  | .object _ cf _ =>
-    match cf.lookup k with
-    | some (.accessor ..) => true
-    | _ => false
-  | _ => false
+def accessorKey (input : Input) (i : Nat) (k : String) : Bool := getterAt (input.cur.node i) k
 
 /-- The getters the read phase runs: each accessor of a candidate at a key of a next node it is a
 candidate of, once per current object and key however many nodes share the candidate. -/
@@ -763,13 +908,18 @@ def run (raw : Input) : Outcome :=
       allWrites := [] }
   match input.cur.root, input.next.root with
   | .ref _, .ref r =>
+    -- `next` is read in full before any decision, whether the call succeeds or not.
+    let reads := captureReads input r
+    let withReads (o : Outcome) : Outcome :=
+      { o with nextGets := curCounts reads, freshGets := freshCounts reads }
     let al := discover input
     let passes := rounds input al r
     let final := passes.getLastD #[]
     -- A root the first decision cannot keep rejects the call before any write; a root a write
     -- blocked, after the passes that found it.
-    if (final[r]?.bind id).isNone then rejected (if passes.length = 1 then 0 else passes.length)
-    else publish input al al.pinned passes final r
+    withReads (if (final[r]?.bind id).isNone then
+      rejected (if passes.length = 1 then 0 else passes.length)
+    else publish input al al.pinned passes final r)
   | _, _ => asIs
 
 end Reconcile.Spec.Reconcile
