@@ -93,6 +93,27 @@ describe('README publication semantics', () => {
       assert.equal(result[3], undefined)
     })
 
+    it('changes next too when next holds an object of current at another index', () => {
+      const a = { id: 'a' }
+      const b = { id: 'b' }
+      const c = { id: 'c' }
+      const items = [a, b, c]
+      const state = { items }
+      const next = { items: state.items.slice(1) }
+      const built = snapshot(next) as typeof next
+
+      const result = reconcile(state, next)
+
+      assert.equal(result, state)
+      assert.equal(result.items, items)
+      assert.equal(result.items[0], a)
+      assert.equal(result.items[1], b)
+      assert.deepEqual(result, built)
+      // b takes the contents next holds at its own index, and next holds b at index 0.
+      assert.equal(next.items[0], b)
+      assert.deepEqual(next.items, [{ id: 'c' }, { id: 'c' }])
+    })
+
     it('matches maps by entry order and iterates in the next order', () => {
       const first = { id: 'first' }
       const second = { id: 'second' }

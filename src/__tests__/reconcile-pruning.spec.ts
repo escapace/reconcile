@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
-import { reconcile, ReconcileError } from '../index'
+import { isReconcileError, reconcile, ReconcileError } from '../index'
+import { thrown } from './fixtures/thrown'
 
 describe('identical-occupant pruning', () => {
   it('reads a pinned subtree once and never writes into it or verifies it', () => {
@@ -19,6 +20,27 @@ describe('identical-occupant pruning', () => {
     assert.equal(current.child, child)
     assert.equal(child.nested, nested)
     assert.equal(reads, 1)
+  })
+
+  it('runs a getter again when next reaches it through an object that refers to current', () => {
+    let reads = 0
+    const placed = {
+      get value(): number {
+        reads += 1
+        return 1
+      },
+    }
+    const current: Record<string, unknown> = { b: placed }
+    // eslint-disable-next-line perfectionist/sort-objects -- The reference to current is read first.
+    const link = { up: current, p: placed }
+    current.a = link
+    const result = reconcile(current, { a: link, b: placed, n: 1 })
+    assert.equal(result, current)
+    assert.equal(current.a, link)
+    assert.equal(current.b, placed)
+    assert.equal(link.p, placed)
+    assert.equal(current.n, 1)
+    assert.equal(reads, 2)
   })
 
   it('captures a shared subtree that points at the next root so it reaches the live root', () => {
@@ -100,6 +122,34 @@ describe('identical-occupant pruning', () => {
     assert.equal(current.a.n, 5)
   })
 
+  it('does not keep an object in place that next holds first at another position', () => {
+    const placed = { n: 1 }
+    const occupant = { n: 0 }
+    const current = { a: occupant, b: placed }
+    const result = reconcile(current, { a: placed, b: placed })
+    assert.equal(result, current)
+    // placed is matched at a, where current holds occupant, so occupant takes its contents at both
+    // positions and current drops placed.
+    assert.equal(current.a, occupant)
+    assert.equal(current.b, occupant)
+    assert.equal(occupant.n, 1)
+    assert.equal(placed.n, 1)
+  })
+
+  it('keeps an object that next holds first elsewhere when it is inside an object that stays', () => {
+    const placed = { n: 1 }
+    const occupant = { n: 0 }
+    const box = { placed }
+    const current = { a: occupant, b: box }
+    const result = reconcile(current, { a: placed, b: box })
+    assert.equal(result, current)
+    assert.equal(current.a, placed)
+    assert.equal(current.b, box)
+    assert.equal(box.placed, placed)
+    assert.equal(placed.n, 1)
+    assert.equal(occupant.n, 0)
+  })
+
   it('never writes into a frozen pinned subtree', () => {
     const frozen = Object.freeze({ list: Object.freeze([1]), n: 0 })
     const current = { counter: 0, frozen }
@@ -107,6 +157,45 @@ describe('identical-occupant pruning', () => {
     assert.equal(result, current)
     assert.equal(current.frozen, frozen)
     assert.equal(current.counter, 1)
+  })
+
+  it('throws without writing when the current root cannot hold an object that stays', () => {
+    // The root is frozen, or a is read-only and not configurable, or a getter without a setter.
+    const blocks: Array<(root: object, other: object) => unknown> = [
+      (root) => Object.freeze(root),
+      (root) => Object.defineProperty(root, 'a', { configurable: false, writable: false }),
+      (root, other) => Object.defineProperty(root, 'a', { get: () => other }),
+    ]
+    for (const block of blocks) {
+      const placed = { n: 1 }
+      const other = { n: 0 }
+      const box = { placed }
+      const current = { a: other, b: box }
+      block(current, other)
+      const caught = thrown(() => reconcile(current, { a: placed, b: box }))
+      assert.ok(isReconcileError(caught) && caught.cause.type === 'PublicationRejected')
+      assert.deepEqual(Object.keys(current), ['a', 'b'])
+      assert.equal(current.a, other)
+      assert.equal(current.b, box)
+      assert.equal(box.placed, placed)
+      assert.equal(other.n, 0)
+    }
+  })
+
+  it('replaces a frozen object inside current that cannot hold an object that stays', () => {
+    const placed = { n: 1 }
+    const other = { n: 0 }
+    const holder = Object.freeze({ item: other })
+    const box = { placed }
+    const current = { a: holder, b: box }
+    const result = reconcile(current, { a: { item: placed }, b: box })
+    assert.equal(result, current)
+    assert.notEqual(current.a, holder)
+    assert.equal(current.a.item, placed)
+    assert.equal(holder.item, other)
+    assert.equal(other.n, 0)
+    assert.equal(current.b, box)
+    assert.equal(box.placed, placed)
   })
 
   it('publishes a reference to the current root as a copy of its old state, as before', () => {
@@ -134,6 +223,43 @@ describe('identical-occupant pruning', () => {
     assert.equal(current.buffer, buffer)
     assert.equal(current.view, view)
     assert.equal(current.counter, 1)
+  })
+
+  it('never treats an object inside a Map or Set entry as already in place', () => {
+    for (const wrap of [
+      (entry: object) => new Map([['key', entry]]),
+      (entry: object) => new Map([[entry, 'value']]),
+      (entry: object) => new Set([entry]),
+    ]) {
+      const placed = { v: 'x' }
+      const entry = { placed }
+      const collection = wrap(entry)
+      const current = { a: placed, b: collection }
+      const result = reconcile(current, { a: { v: 'n' }, b: wrap({ placed }) })
+      assert.equal(result, current)
+      // placed is at entry.placed on both sides but not in place there, so current keeps it at a,
+      // the first position read, and the entry receives a new object.
+      assert.equal(current.a, placed)
+      assert.equal(placed.v, 'n')
+      assert.equal(current.b, collection)
+      assert.include([...collection].flat(), entry)
+      assert.notEqual(entry.placed, placed)
+      assert.deepEqual(entry.placed, { v: 'x' })
+    }
+  })
+
+  it('keeps an object in place at a property that next reads before a Map holding it', () => {
+    const placed = { v: 'x' }
+    const map = new Map<number, object>()
+    const current = { a: placed, b: placed, m: map }
+    const result = reconcile(current, { a: { v: 'n' }, b: placed, m: new Map([[1, placed]]) })
+    assert.equal(result, current)
+    assert.equal(current.b, placed)
+    assert.equal(current.m, map)
+    assert.equal(map.get(1), placed)
+    assert.notEqual(current.a, placed)
+    assert.deepEqual(current.a, { v: 'n' })
+    assert.equal(placed.v, 'x')
   })
 
   it('walks a subtree that stays in place without reading the values it would copy', () => {

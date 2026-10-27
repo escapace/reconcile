@@ -354,6 +354,50 @@ describe('URL owned search parameters', () => {
     assert.strictEqual(current.url?.searchParams, inside.params)
   })
 
+  it("holds next's own URL wherever next places the owner of parameters that stay", () => {
+    const href = 'https://example.test/?q=1'
+    for (const urlFirst of [false, true]) {
+      for (const occupant of [new URL('https://other.test/?r=2'), { r: 2 }]) {
+        const url = new URL(href)
+        const inside = { params: url.searchParams }
+        const current = urlFirst ? { url: occupant, inside } : { inside, url: occupant }
+        const next = urlFirst ? { url, inside } : { inside, url }
+        assert.strictEqual(reconcile(current, next), current)
+        assert.strictEqual(current.inside, inside)
+        assert.strictEqual(current.url, url)
+        // next is unchanged.
+        assert.strictEqual(next.url, url)
+        assert.strictEqual(inside.params, url.searchParams)
+        assert.strictEqual(url.href, href)
+      }
+    }
+    // The URL as a Map value.
+    const owner = new URL(href)
+    const box = { params: owner.searchParams }
+    const root = { box, map: new Map([[1, new URL('https://other.test/')]]) }
+    assert.strictEqual(reconcile(root, { box, map: new Map([[1, owner]]) }), root)
+    assert.strictEqual(root.map.get(1), owner)
+    assert.strictEqual(owner.href, href)
+  })
+
+  it('does not keep a URL or URLSearchParams in place outside an object that stays', () => {
+    for (const make of [
+      (name: string) => new URL(`https://${name}.test/`),
+      (name: string) => new URLSearchParams(`${name}=1`),
+    ]) {
+      const placed = make('placed')
+      const current = { a: placed, b: placed }
+      const next = { a: make('next'), b: placed }
+      assert.strictEqual(reconcile(current, next), current)
+      // placed is kept at a, the first position read, and takes the text next holds there, so
+      // next, which holds it at b, changes too; b receives a new object with the old text.
+      assert.strictEqual(current.a, placed)
+      assert.strictEqual(String(placed), String(next.a))
+      assert.notStrictEqual(current.b, placed)
+      assert.strictEqual(String(current.b), String(make('placed')))
+    }
+  })
+
   it('rejects in reconcile a URL whose search parameters have a replaced prototype', () => {
     for (const parametersFirst of [true, false]) {
       const url = new URL('https://example.test/?q=1')
