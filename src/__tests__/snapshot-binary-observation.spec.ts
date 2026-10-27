@@ -158,8 +158,9 @@ describe('snapshot of a typed array met before its buffer', () => {
     }
     expect(copy.part.buffer.byteLength).toBe(8)
     expect([copy.part.byteOffset, copy.part.length]).toEqual([2, 4])
-    expect(copy.growing.buffer.resizable).toBe(true)
-    expect(copy.growing.buffer.maxByteLength).toBe(16)
+    const growing = copy.growing.buffer as ArrayBuffer
+    expect(growing.resizable).toBe(true)
+    expect(growing.maxByteLength).toBe(16)
     expect(Array.from(new Uint8Array(copy.growing.buffer))).toEqual([1, 2, 3, 4])
   })
 })
