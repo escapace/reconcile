@@ -81,7 +81,7 @@ import { publicationTypes } from './types/builtins'
  * its position, and `current` also holds it wherever else `next` places it. When a
  * `URLSearchParams` stays, `current` also holds the URL that owns it wherever `next` places that
  * URL. An object inside `current` that cannot hold one of these objects, such as a frozen object,
- * is replaced by a new object; if `current` itself cannot, the call throws `PublicationRejected`.
+ * is replaced; if `current` itself cannot, the call throws `PublicationRejected`.
  * When the call succeeds, only which objects `current` holds can differ from those rules, not the
  * contents it ends with.
  *
