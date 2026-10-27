@@ -272,7 +272,7 @@ Each function keeps or replaces objects as follows:
 | `snapshot(value)`                             | No                   | All new, except objects kept by reference                                                        |
 | `deserialize(serialize(value), { maxBytes })` | No                   | All new                                                                                          |
 
-- **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth, or a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one: such an object is updated like any other.
+- **Objects already in place.** An object in `next` that is already the object at the same position in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. The result is the same as updating it; only work is skipped. `reconcile` does not skip an object that contains `current` or `next` at any depth, an object that `next` holds first, in the order `reconcile` reads `next`, at a position where it is not already in place, or a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one: such an object is updated like any other.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
@@ -591,7 +591,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L100-L112 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L105-L117 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -631,7 +631,7 @@ On an object that `reconcile` keeps and updates, an own getter for a key that `n
 
 `next` is read completely before `current` changes. When both arguments are objects that are not kept by reference, a successful call returns `current`. When either is a primitive, a function or another object kept by reference, the call returns `next` and changes nothing.
 
-An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents once, as part of `next`, and does not change them or read them again. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the final state is the same as if it had been updated. This does not apply to an object that refers to `current` or `next` at any depth, or to a key, value or member of a `Map` or `Set` that is not itself in place, or anything inside one; such an object is updated like any other.
+An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents as part of `next` and does not change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside it stay where they are unless `next` places them elsewhere, and the final state is the same as if it had been updated. This does not apply to an object that refers to `current` or `next` at any depth, to an object that `next` holds first, in the order `reconcile` reads `next`, at a position where it is not already in place, or to a key, value or member of a `Map` or `Set` that is not itself already in place, or anything inside one; such an object is updated like any other. `reconcile` can still run the getters of an object already in place more than once, as part of `next` or of `current`. It does so when `current` or `next` also holds the object, or an object that contains it, at another position, including in a `Map` or `Set`, or when the object is inside an object of `next` that refers to `current` or `next`.
 
 ### Examples
 
