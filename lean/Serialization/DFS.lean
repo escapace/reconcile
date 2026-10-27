@@ -48,6 +48,17 @@ theorem Steps.trans {g : Graph} {a b c : Config} {left right : List Event}
   | done => simpa using j
   | next hs _ ih => simpa [List.append_assoc] using Steps.next hs (ih j)
 
+/-- A fresh node without children is entered and its frame popped: the trace is its `enter`
+alone, as when the encoder captures a leaf at once (`src/serialization/leaf.ts`). -/
+theorem leaf_contract (g : Graph) (node : Nat) (memo : List Nat) (rest : List Frame)
+    (fresh : node ∉ memo) (empty : g node = []) :
+    Steps g ⟨.visit node :: rest, memo⟩ [.enter node] ⟨rest, node :: memo⟩ := by
+  have enter : Steps g ⟨.visit node :: rest, memo⟩ [.enter node]
+      ⟨.resume node 0 [] :: rest, node :: memo⟩ := Steps.single (by simp [step, fresh, empty])
+  have finish : Steps g ⟨.resume node 0 [] :: rest, node :: memo⟩ [] ⟨rest, node :: memo⟩ :=
+    Steps.single rfl
+  simpa using enter.trans finish
+
 -- Independent recursive specification: a child's entire recursive traversal precedes
 -- recursion over the remainder of its parent's ordered adjacency list.
 inductive Recursive (g : Graph) : Frame → List Nat → List Event → List Nat → Prop where

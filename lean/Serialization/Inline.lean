@@ -11,7 +11,10 @@ specification `Recursive`, with an identical event trace.
 
 Events are `SerializationDFS`'s `enter`/`edge` observations: `edge` stands for reading the child
 slot and tokenizing it, `enter` for reserving the child's identity. A child that is already
-in `seen` produces only its edge.
+in `seen` produces only its edge. The runtime has no visit frame: it reserves a child's identity
+on discovery and captures a leaf at once (`node` in `src/serialization/emit.ts`), which is
+`scan`'s `leaf` branch and refines the stack machine by `leaf_contract`
+(`inline_step_refines`, given that every `leaf` node has no children).
 -/
 
 namespace SerializationInline
@@ -79,22 +82,18 @@ theorem scan_refines (g : Graph) (leaf : Nat → Bool) (hleaf : ∀ n, leaf n �
         Steps.single (by simp [step, hs])
       have tail := ih (index + 1) seen hnext
       simpa [scan, hs] using edge.trans (skip.trans tail)
-    · have enter : Steps g
-          ⟨.visit child :: .resume parent (index + 1) children :: rest.map (lowerFrame g), seen⟩
-          [.enter child]
-          ⟨.resume child 0 (g child) :: .resume parent (index + 1) children ::
-            rest.map (lowerFrame g), child :: seen⟩ :=
-        Steps.single (by simp [step, hs])
-      by_cases hl : leaf child
-      · have empty := hleaf child hl
-        have pop : Steps g
-            ⟨.resume child 0 (g child) :: .resume parent (index + 1) children ::
-              rest.map (lowerFrame g), child :: seen⟩ []
-            ⟨.resume parent (index + 1) children :: rest.map (lowerFrame g), child :: seen⟩ :=
-          Steps.single (by simp [step, empty])
+    · by_cases hl : leaf child
+      · have captured := leaf_contract g child seen
+          (.resume parent (index + 1) children :: rest.map (lowerFrame g)) hs (hleaf child hl)
         have tail := ih (index + 1) (child :: seen) hnext
-        simpa [scan, hs, hl] using edge.trans (enter.trans (pop.trans tail))
-      · have whole := edge.trans enter
+        simpa [scan, hs, hl] using edge.trans (captured.trans tail)
+      · have enter : Steps g
+            ⟨.visit child :: .resume parent (index + 1) children :: rest.map (lowerFrame g), seen⟩
+            [.enter child]
+            ⟨.resume child 0 (g child) :: .resume parent (index + 1) children ::
+              rest.map (lowerFrame g), child :: seen⟩ :=
+          Steps.single (by simp [step, hs])
+        have whole := edge.trans enter
         simpa [scan, hs, hl, lowerI, lowerFrame, hnext] using whole
 
 theorem inline_step_refines {g : Graph} {leaf : Nat → Bool} (hleaf : ∀ n, leaf n → g n = [])

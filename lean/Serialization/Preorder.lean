@@ -34,10 +34,6 @@ def ends (c : Graph) (n v : Nat) : Option Nat :=
 termination_by n - v
 decreasing_by omega
 
-theorem range'_cat (s a b : Nat) :
-    List.range' s a ++ List.range' (s + a) b = List.range' s (a + b) := by
-  simp
-
 /-- A scan only moves its cursor forward when every end lies past its node. -/
 theorem scan_ge (e : Nat → Option Nat) :
     ∀ (rs : List Nat) (k k' : Nat), scan e rs k = some k' →
@@ -130,7 +126,7 @@ theorem range'_split {l1 l2 : List Nat} {k j : Nat} (h : l1 ++ l2 = List.range' 
     have := congrArg List.length h; simp at this; omega
   have hs : List.range' k j =
       List.range' k l1.length ++ List.range' (k + l1.length) (j - l1.length) := by
-    rw [range'_cat]; congr 1; omega
+    rw [List.range'_append_1]; congr 1; omega
   rw [hs] at h
   obtain ⟨h1, h2⟩ := List.append_inj h (by simp)
   exact ⟨hl, h1, h2⟩
@@ -219,7 +215,7 @@ theorem scan_recursive {c : Graph} {n b : Nat}
           obtain ⟨t2, f2, hrec2, hen2, hf2, hk⟩ := ih e1 k' p (i + 1) f1 (by omega) hf1 h
           refine ⟨.edge p i r :: (t1 ++ t2), f2, .child hrec1 hrec2, ?_, hf2, by omega⟩
           simp only [entered, entered_append, hen1, hen2]
-          have hc := range'_cat r (e1 - r) (k' - e1)
+          have hc := @List.range'_append_1 r (e1 - r) (k' - e1)
           rw [show r + (e1 - r) = e1 by omega] at hc
           rw [hc]; congr 1; omega
       · cases h

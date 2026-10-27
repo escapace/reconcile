@@ -1,9 +1,10 @@
-// Native observations are supplied by JavaScript; Lean compares finite payload decisions.
+// Native observations are supplied by JavaScript; Lean's `Types.NativeWrites` decides what
+// publication keeps and writes.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { capture } from '../src/publication/capture'
 import { atomValue, isNode } from '../src/graph/edge'
-import type { Edge } from '../src/types'
+import type { Edge, PublicationNote } from '../src/types'
 import { produceTypes, publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
 import { snapshot } from '../src/snapshot'
@@ -23,8 +24,9 @@ interface Payload {
 interface Result {
   compatible: boolean
   entries: Array<[string, string]>
-  published: boolean
   reusable: boolean
+  /** Whether a kept value was left unwritten (`note.unchanged`); null when it was not kept. */
+  unchanged: boolean | null
 }
 interface TemporalConstructor {
   from: (value: unknown) => object
@@ -64,7 +66,11 @@ function constructTemporal(payload: Payload): object | undefined {
 
 function observe(value: object, kind: string): Pick<Payload, 'entries' | 'values'> {
   if (kind === 'URL') return { entries: [], values: [(value as URL).href] }
-  if (kind === 'URLSearchParams') return { entries: [...(value as URLSearchParams)], values: [] }
+  if (kind === 'URLSearchParams')
+    return {
+      entries: [...(value as URLSearchParams)],
+      values: [(value as URLSearchParams).toString()],
+    }
   if (kind === 'Duration')
     return { entries: [], values: durationFields.map((field) => String(Reflect.get(value, field))) }
   return { entries: [], values: [(value as { toString: () => string }).toString()] }
@@ -103,15 +109,25 @@ function evaluateFacets(current: object, desired: object, kind: symbol, name: st
     assert.equal(edge, node.edges[0])
     return (current as URL).searchParams
   }
-  const published = compatible && policy.publish(node, current, resolve)
-  if (published) {
+  let unchanged: boolean | null = null
+  if (compatible) {
+    // The policy reports a write by leaving `unchanged` false; it must set it either way.
+    const note: PublicationNote = {
+      facts: undefined,
+      prototype: undefined,
+      reads: undefined,
+      unchanged: undefined as unknown as boolean,
+    }
+    assert.equal(policy.publish(node, current, resolve, undefined, note), true)
+    assert.equal(typeof note.unchanged, 'boolean')
+    unchanged = note.unchanged
     assert.equal(
       policy.matches(node, current, (value, edge) => value === resolve(edge)),
       true,
     )
     assert.deepEqual(observe(current, name), observe(desired, name))
   }
-  return { compatible, entries: observe(current, name).entries, published, reusable }
+  return { compatible, entries: observe(current, name).entries, reusable, unchanged }
 }
 
 /** Captures oracle labels before publication can mutate the native current value. */

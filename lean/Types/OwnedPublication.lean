@@ -58,6 +58,11 @@ theorem clear_empty (serialize : List E → Q) (normalize : C → C) (state : St
     simpa using List.isEmpty_iff.mp h
   · rfl
 
+/-- Clearing, then appending, leaves exactly the appended entries, duplicates and order kept. -/
+theorem sequential_payload (serialize : List E → Q) (normalize : C → C) (entries : List E)
+    (state : State E Q C) : (sequential serialize normalize entries state).payload = entries := by
+  simp [sequential, append_many, clear_empty]
+
 theorem bulk_equivalent (serialize : List E → Q) (normalize : C → C) (entries : List E)
     (state : State E Q C) :
     bulk serialize normalize entries state = sequential serialize normalize entries state := by
@@ -68,12 +73,6 @@ theorem bulk_identity (serialize : List E → Q) (normalize : C → C) (entries 
     (bulk serialize normalize entries state).owner = state.owner ∧
     (bulk serialize normalize entries state).child = state.child := by
   simp [bulk, clear]; split <;> exact ⟨rfl, rfl⟩
-
-/-- Sealed construction edges justify lookup; no native observation is repeated. -/
-theorem sealed_owner_sound (childOf : Nat → Nat) (edges : List (Nat × Nat))
-    (valid : ∀ edge ∈ edges, childOf edge.1 = edge.2)
-    (owner child : Nat) (found : (owner, child) ∈ edges) : childOf owner = child :=
-  valid (owner, child) found
 
 -- Directly assigning the final query without clearing can retain an opaque path
 -- that sequential native mutation normalizes. The clear phase cannot be dropped.

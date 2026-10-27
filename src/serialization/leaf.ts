@@ -1,5 +1,6 @@
 import type { Leaf } from './contracts'
-// Correspondence: Refinement.lean leaf_contract / leaf_step_refines.
+// Correspondence: Inline.lean inline_step_refines (premise hleaf: a leaf has no children),
+// through DFS.lean leaf_contract.
 // These facets have no child yield. The caller reserves identity before invoking
 // them; an error native extraction throws propagates.
 import { encodeBytes } from './binary'

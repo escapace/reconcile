@@ -46,16 +46,18 @@ export function level(prototype: object | null, count: () => void, throws: boole
 /** The first prototype of a tail, or `null` for the empty chain. */
 const first = (tail: readonly object[]): object | null => tail[0] ?? null
 
-/** The view an object is, if any: a `Uint8Array` or a `DataView`. */
+/** The view an object is, if any: a `Uint8Array` or a `DataView`, over a buffer whose prototype is
+ * `null` when `foreign` and whose prototype's prototype read throws when `raises`. */
 interface View {
   brand: boolean
   foreign: boolean
+  raises: boolean
   typed: boolean
 }
 
 /** An object behind `depth` custom prototypes that count their reads; on the throwing tail the
  * read after them throws. A branded object is a `Uint8Array` or a `DataView`, which a proxy would
- * lose, over a buffer whose prototype is `null` when `foreign`. */
+ * lose, over the buffer `branded` makes. */
 function build(depth: number, tail: number, view: View, reads: Reads): object {
   // Levels count from the deepest custom prototype, created first, to the object at `depth`; on
   // the throwing tail the deepest level's read throws.
@@ -68,10 +70,20 @@ function build(depth: number, tail: number, view: View, reads: Reads): object {
     : level(prototype, () => (reads.own += 1), depth === throwing)
 }
 
-/** A `Uint8Array` or a `DataView` over a buffer whose prototype is `null` when `foreign`. */
+/** A `Uint8Array` or a `DataView` over a buffer whose prototype is `null` when `foreign`, and a
+ * prototype whose own prototype read throws when `raises`. */
 function branded(view: View): ArrayBufferView {
   const buffer = new ArrayBuffer(1)
   if (view.foreign) Object.setPrototypeOf(buffer, null)
+  if (view.raises)
+    Object.setPrototypeOf(
+      buffer,
+      new Proxy(Object.create(null) as object, {
+        getPrototypeOf() {
+          throw thrown
+        },
+      }),
+    )
   return view.typed ? new Uint8Array(buffer) : new DataView(buffer)
 }
 
@@ -85,18 +97,19 @@ export function attempt(run: () => unknown): unknown {
   }
 }
 
-/** Each known-kind check on a fresh object matches Lean's recognition bounded at that rank. */
+/** Each known-kind check on a fresh object matches Lean's recognition bounded at that rank, the
+ * error it raises included. */
 function checkKnown(row: Record<string, unknown>, depth: number, tail: number, view: View): void {
-  assert.ok(Array.isArray(row.known) && row.known.length === ranked.length)
-  for (const [index, expected] of row.known.entries()) {
+  const { known, knownRaised } = row
+  assert.ok(Array.isArray(known) && known.length === ranked.length)
+  assert.ok(Array.isArray(knownRaised) && knownRaised.length === ranked.length)
+  for (const [index, expected] of known.entries()) {
     const matched = attempt(() =>
       publicationTypes.matches(ranked[index], build(depth, tail, view, { count: 0, own: 0 })),
     )
-    assert.equal(
-      matched,
-      row.raised === true ? thrown : expected,
-      `known-kind check at rank ${index + 1}`,
-    )
+    const raised = knownRaised[index] as unknown
+    assert.ok(typeof raised === 'boolean')
+    assert.equal(matched, raised ? thrown : expected, `known-kind check at rank ${index + 1}`)
   }
 }
 
@@ -126,16 +139,17 @@ function checkReads(
  * the failed `DataView` probe already decided: one per custom prototype once that probe runs its
  * walks, for a typed array over a recognized buffer. */
 function repeated(row: Record<string, unknown>, view: View): number {
-  const walks = view.typed && !view.foreign && (row.selected as number) >= 6
+  const walks = view.typed && !view.foreign && !view.raises && (row.selected as number) >= 6
   return walks ? (row.depth as number) : 0
 }
 
 /** The view a row describes; a typed array also holds the view brand. */
 function viewOf(row: Record<string, unknown>): View {
-  const { brand, foreign, typed } = row
+  const { brand, bufferRaises: raises, foreign, typed } = row
   assert.ok(typeof brand === 'boolean' && typeof foreign === 'boolean')
+  assert.ok(typeof raises === 'boolean' && (brand || !raises))
   assert.ok(typeof typed === 'boolean' && (brand || !typed))
-  return { brand, foreign, typed }
+  return { brand, foreign, raises, typed }
 }
 
 /** Compares one Lean recognition with the runtime recognizer, its reads and each known-kind
@@ -157,8 +171,9 @@ function checkRow(row: Record<string, unknown>): void {
 export async function checkRecognitionPlainRuntime(oracle: Oracle): Promise<void> {
   checkRealChains(tails)
   // 11 tails behind zero to two custom prototypes, without a view brand and as a typed array or a
-  // `DataView` over a recognized or a foreign buffer; a branded object cannot throw on its own read.
-  const rows = await oracleCorpus(oracle, 'RecognitionPlain', 161, 64 * 1024)
+  // `DataView` over a recognized, a foreign or a raising buffer; a branded object cannot throw on
+  // its own read.
+  const rows = await oracleCorpus(oracle, 'RecognitionPlain', 225, 64 * 1024)
   for (const line of rows) checkRow(jsonObject(JSON.parse(line)))
   console.log(
     `RecognitionPlain Lean/native bridge: ${rows.length} prototype chains, full recognition and ` +

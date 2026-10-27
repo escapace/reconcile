@@ -110,7 +110,7 @@ theorem classify_reads (chain : Chain) (h : chain.head? ≠ some .array) :
   | .data label :: tail, _ => exact scan_reads _ 1
   | .array :: tail, h => exact absurd rfl h
 
-/-- Ingress recognition: the structural scan of `Types.Recognition` selects a rank; the
+/-- Ingress recognition: the structural scan of `Types.RecognitionPlain` selects a rank; the
 plain-object fallback is then split by the walk. Known-kind checks keep the structural scan. -/
 inductive Ingress where
   | structural (rank : Nat)

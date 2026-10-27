@@ -1,5 +1,3 @@
-import Types.OwnedPublication
-
 /-! A feasibility witness for lazy ownership discovery, not a JavaScript specification. A native
 carrier owner is allocated together with its fixed child before its source owner is known. Public
 output uses these native identities. -/
@@ -55,11 +53,6 @@ def admit (childOf : Nat → Nat) (owner child : Nat) : Bool :=
 theorem admitted_iff (childOf : Nat → Nat) (owner child : Nat) :
     admit childOf owner child = true ↔ childOf owner = child := by simp [admit]
 
-/-- Private construction metadata is consulted only after external memo lookup.
-    Absence falls back to that exact externally selected value. -/
-def constructionResponse (metadata : Nat → Option Nat) (selected : Nat) : Nat :=
-  (metadata selected).getD selected
-
 /-- Changed owned parents force the registered child copy to survive immutable
     finalization. Discovery only accumulates force; sealed replay re-evaluates any
     child visited before its parent. -/
@@ -81,31 +74,18 @@ theorem force_monotone (forced changed : Bool) (h : forced = true) :
 example : ownedReuseValid true (chooseReuse true false) = false := rfl
 example : ownedReuseValid true (chooseReuse true (forceChild false true)) = true := rfl
 
-/-- Try ranked immutable choices in order, skipping allocation failures before any
-    fresh-write phase. Native preparation must leave prior application objects alone. -/
-def firstPrepared {Choice Result : Type} (prepare : Choice → Option Result) :
-    List Choice → Option Result
-  | [] => none
-  | choice :: rest => match prepare choice with
-    | some result => some result
-    | none => firstPrepared prepare rest
-
+/-- Ranked immutable choices are tried in order with `List.findSome?`, skipping allocation
+    failures before any fresh-write phase: the first successful preparation wins. Native
+    preparation must leave prior application objects alone. -/
 theorem first_prepared_ranked {Choice Result : Type} (prepare : Choice → Option Result)
     (priorChoices : List Choice) (choice : Choice) (rest : List Choice) (result : Result)
     (failed : ∀ prior ∈ priorChoices, prepare prior = none)
     (success : prepare choice = some result) :
-    firstPrepared prepare (priorChoices ++ choice :: rest) = some result := by
-  induction priorChoices with
-  | nil => simp [firstPrepared, success]
-  | cons prior tail ih =>
-    have hp := failed prior (by simp)
-    have ht : ∀ prior ∈ tail, prepare prior = none := by
-      intro prior h
-      exact failed prior (by simp [h])
-    simpa [firstPrepared, hp] using ih ht
+    (priorChoices ++ choice :: rest).findSome? prepare = some result := by
+  rw [List.findSome?_append, List.findSome?_eq_none_iff.mpr failed]
+  simp [success]
 
-example : firstPrepared (fun n : Nat => if n = 0 then none else some n) [0, 1, 2] =
-    some 1 := rfl
+example : [0, 1, 2].findSome? (fun n : Nat => if n = 0 then none else some n) = some 1 := rfl
 
 namespace ContractTest
 example : admit (fun n => n + 1) 0 1 = true := rfl

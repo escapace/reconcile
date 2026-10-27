@@ -19,10 +19,14 @@ const inChainOf = (constructor: { readonly prototype: unknown }, value: object):
 /** `%TypedArray%`, as a probe target: the class every built-in typed array class extends. */
 const typedArrayClass = { prototype: Object.getPrototypeOf(Uint8Array.prototype) as object }
 
-/** Whether `value` is no view, or a view over a buffer of this environment: one whose chain holds
- * `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`. */
+/** Whether `value` is no view, a view whose prototype is `Object.prototype` or `null`, which no
+ * view probe accepts, or a view over a buffer of this environment: one whose chain holds
+ * `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`. Walking the buffer's chain can throw,
+ * so the view probes call this where built-in recognition walks it. */
 const knownView = (value: object): boolean => {
   if (!ArrayBuffer.isView(value)) return true
+  const prototype = Object.getPrototypeOf(value) as object | null
+  if (prototype === Object.prototype || prototype === null) return true
   const buffer = bufferOfView(value)
   return inChainOf(ArrayBuffer, buffer) || inChainOf(SharedArrayBuffer, buffer)
 }
@@ -32,8 +36,8 @@ const knownView = (value: object): boolean => {
  * last and has none.
  *
  * @remarks
- * Each probe reads the value again, as the ordered scan of `Types.Recognition` does. Built-in
- * recognition reads it once and must agree with this scan.
+ * Each probe reads the value again, as the ordered scan `scanTrace` of `Types.RecognitionPlain`
+ * does. Built-in recognition reads it once and must agree with this scan.
  */
 const probes: ReadonlyArray<readonly [symbol, (value: object) => boolean]> = [
   [ARRAY_KIND, (value) => Array.isArray(value)],
@@ -41,7 +45,15 @@ const probes: ReadonlyArray<readonly [symbol, (value: object) => boolean]> = [
   [MAP_KIND, (value) => inChainOf(Map, value)],
   [SET_KIND, (value) => inChainOf(Set, value)],
   [ARRAY_BUFFER_KIND, (value) => inChainOf(ArrayBuffer, value)],
-  [DATA_VIEW_KIND, (value) => inChainOf(DataView, value) && knownView(value)],
+  // The buffer is walked after the walk for `DataView`, whatever it found, as built-in recognition
+  // walks it before its bound at this rank.
+  [
+    DATA_VIEW_KIND,
+    (value) => {
+      const dataView = inChainOf(DataView, value)
+      return knownView(value) && dataView
+    },
+  ],
   [
     TYPED_ARRAY_KIND,
     (value) =>

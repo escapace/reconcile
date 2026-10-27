@@ -19,8 +19,8 @@ sparse arrays, JSON literals including objects and arrays, and shared scalar nod
 `presenceRuns`. The TypeScript bridge requires the re-emitted document to equal every
 `serialize` output, and requires accepted non-canonical documents to decode to the same graph
 in Lean and at runtime. Each response also carries the document's size in words, computed with
-`Size.lean`'s `accounting` over the decoded nodes, which the runtime must accept at exactly eight
-bytes per word.
+`Size.lean`'s `accounting` and charge table (`tableCharges`) over the decoded nodes, which the
+runtime must accept at exactly eight bytes per word.
 Fixed-schema headers (a sparse array's length and presence runs, a bigint's digits) are split
 from the slots by tag, as the runtime schema does.
 -/
@@ -122,15 +122,25 @@ def parseDocument (wire : Json) : E Parsed := do
   let nodes ← need "positional decode" (decodeRelaxed V document)
   return ⟨shapes, layouts, descriptors, split.map Prod.fst, nodes⟩
 
-/-- Canonical bigint text (`Size.lean` `CanonicalInt`): an optional `-`, then `0x` and lowercase
-hexadecimal digits with no leading zero; `-0x0` is not one. -/
+/-- Bigint text as `Size.lean` reads it: an optional `-`, then `0x` and digits, each a decimal
+digit or a lowercase letter up to `f`; none for any other text. -/
+def parseBigint (text : String) : Option (Bool × List Nat) :=
+  let hexDigit (c : Char) : Option Nat :=
+    if c.isDigit then some (c.toNat - '0'.toNat)
+    else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10) else none
+  let (negative, rest) := match text.toList with
+    | '-' :: rest => (true, rest)
+    | rest => (false, rest)
+  match rest with
+  | '0' :: 'x' :: digits => (digits.mapM hexDigit).map (negative, ·)
+  | _ => none
+
+/-- Canonical bigint text: `Size.lean`'s `CanonicalInt`, which `encodeInt_decodeInt` proves
+canonical: no leading zero, and `-0x0` is not one. -/
 def bigintText (text : String) : Bool :=
-  let hex (c : Char) : Bool := c.isDigit || ('a' ≤ c && c ≤ 'f')
-  match text.toList with
-  | ['0', 'x', '0'] => true
-  | '-' :: '0' :: 'x' :: d :: rest => d != '0' && hex d && rest.all hex
-  | '0' :: 'x' :: d :: rest => d != '0' && hex d && rest.all hex
-  | _ => false
+  match parseBigint text with
+  | some parsed => decide (SerializationSize.CanonicalInt parsed)
+  | none => false
 
 /-- Checks each node's fixed-schema header and returns the node's tag, shape id, and the
 sparse length and present positions when it has them. -/
@@ -158,13 +168,6 @@ def checkHeader (shapes : List (List String)) (v : Node (List Nat) Lit) (header 
     | _ => throw "bigint"
   if !header.isEmpty ∨ !v.slots.isEmpty then throw "scalar"
   return none
-
-/-- Defining a repeated key keeps its first position and its last value, as the runtime's
-property definitions do. -/
-def foldKeys {α : Type} (es : List (String × α)) : List (String × α) :=
-  es.foldl (fun acc (k, v) =>
-    if acc.any (·.1 == k) then acc.map fun (k', v') => (k', if k' == k then v else v')
-    else acc ++ [(k, v)]) []
 
 /-- A JSON object or array in a literal slot decodes to a fresh value referenced only there. It
 expands to model rows numbered from `base` in completion order; Lean's object model orders keys,
@@ -208,36 +211,23 @@ partial def sizeJson : Json → SerializationSize.Json
 /-- The words of a literal where it occurs (`Size.lean` `words`). -/
 def literalWords (j : Json) : Nat := SerializationSize.words (sizeJson j)
 
-/-- A bigint occurrence's words from its canonical text: `Size.lean`'s `bigintWords` of the
-digits after the sign and `0x`. -/
-def bigintWords (text : String) : Nat :=
-  SerializationSize.bigintWords
-    ((text.toList.drop (if text.startsWith "-" then 3 else 2)).map Char.toNat)
-
-/-- The runtime's charges: a record's header, a key slot and a value slot per property and its
-keys' payloads; an array's header and a slot per index, holes included; scalar and bigint nodes
-own nothing, and a bigint is charged its digits at every occurrence. -/
-def charges (shapes : List (List String)) (nodes : List (Node (List Nat) Lit))
-    (headers : List (List Json)) (infos : List (Option (Nat × List Nat))) :
-    SerializationSize.Charges where
-  own i :=
-    let v := nodes.getD i ⟨[], []⟩
-    let tag := v.key.headD 0
-    if tag ≤ 1 then
-      let keys := shapes.getD (v.key.getD 1 0) []
-      1 + 2 * keys.length + (keys.map fun k => SerializationSize.stringWords (utf16Length k)).sum
-    else if tag == 2 then 1 + v.slots.length
-    else if tag == 3 then 1 + ((infos.getD i none).map Prod.fst).getD 0
-    else 0
-  lit i := ((nodes.getD i ⟨[], []⟩).slots.map fun s => match s with
-    | .lit j => literalWords j
-    | .ref _ => 0).sum
-  occ i :=
-    if (nodes.getD i ⟨[], []⟩).key.headD 0 == 18 then
-      match (headers.getD i []).headD .null with
-      | .str text => bigintWords text
-      | _ => 0
-    else 0
+/-- What `Size.lean`'s charge table reads of node `i`: its tag, its shape's keys, its slots, a
+sparse array's length, its literals' words and a bigint's digits. -/
+def tableNode (shapes : List (List String)) (nodes : List (Node (List Nat) Lit))
+    (headers : List (List Json)) (infos : List (Option (Nat × List Nat))) (i : Nat) :
+    SerializationSize.TableNode :=
+  let v := nodes.getD i ⟨[], []⟩
+  let tag := v.key.headD 0
+  { tag
+    keys := if tag ≤ 1 then (shapes.getD (v.key.getD 1 0) []).map utf16Length else []
+    slots := v.slots.length
+    length := ((infos.getD i none).map Prod.fst).getD 0
+    literals := (v.slots.map fun s => match s with
+      | .lit j => literalWords j
+      | .ref _ => 0).sum
+    digits := match (headers.getD i []).headD .null with
+      | .str text => ((parseBigint text).map Prod.snd).getD []
+      | _ => [] }
 
 def kindText (tag : Nat) : String := if tag == 0 then "object" else if tag == 1 then "nullObject"
   else "array"
@@ -278,9 +268,11 @@ def evaluate (request : Json) : E Json := do
       | none =>
         if tag ≤ 1 then pure ([], parsed.shapes[v.key[1]!]!)
         else pure ([toString v.slots.length], (List.range v.slots.length).map toString)
+    -- Defining a repeated key keeps its first position and its last value, as the runtime's
+    -- property definitions do (`SerializationCollection.first_insertion_order`, `last_value`).
     -- Overwritten values are dropped before expansion, so every expanded row is reachable.
     let mut edges : List Json := []
-    for (k, s) in foldKeys (keys.zip v.slots) do
+    for (k, s) in SerializationCollection.foldMap [] (keys.zip v.slots) do
       let (t, rest) := (token s).run extra
       extra := rest
       edges := edges ++ [toJson [toJson k, t]]
@@ -299,9 +291,14 @@ def evaluate (request : Json) : E Json := do
   let control := encodeControl V encoded.descriptors (parsed.shapes.map (·.map toJson))
     layouts
   let reemitted := toJson [Json.arr control.toArray, Json.arr payloads.toArray]
-  -- Executes Size.lean's accounting; accounting_eq_reachable: every charged node is reachable.
+  -- Executes Size.lean's accounting with its charge table; accounting_eq_reachable: every
+  -- charged node is reachable. Every node's children are among its slots, so table_node_count
+  -- bounds the node count by the words once the table admits every node.
+  let table := tableNode parsed.shapes parsed.nodes parsed.headers infos
+  if !(List.range parsed.nodes.length).all fun i => decide (table i).Admitted then
+    throw "charge table premise"
   let words := SerializationSize.accounting children parsed.nodes.length
-    (charges parsed.shapes parsed.nodes parsed.headers infos)
+    (SerializationSize.tableCharges table)
   return Json.mkObj [("ok", toJson true), ("expanded", Json.mkObj [("root", root),
     ("rows", toJson (rows ++ extra.toList))]), ("reemitted", reemitted), ("words", toJson words)]
 

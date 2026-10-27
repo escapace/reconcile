@@ -174,7 +174,8 @@ const position3 = /* @__PURE__ */ positionTable((value) => value << 16)
  * alphabet, for `length` that `decodedSize` predicted. The text's ASCII codes are decoded in place:
  * each group of four is read as one little-endian word and its three bytes written as one, behind
  * the codes still to be read. The view is the library's own, so its methods are called as such.
- * Base64.lean decode_spec and decode_encode; writes_behind and final_after for the order.
+ * Base64.lean decode_in_place models this loop over one buffer and proves it returns RFC 4648's
+ * bytes (wholeGroups_memory: no write reaches a code still to be read); decode_encode.
  */
 function decodeTable(text: string, length: number): ArrayBuffer | undefined {
   const size = text.length

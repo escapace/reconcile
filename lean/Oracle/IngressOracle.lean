@@ -1,4 +1,5 @@
 import Types.Ingress
+import Oracle.RecognitionPlainOracle
 import Lean
 
 /-! Oracle for the `Ingress` family: recognizes every built-in and listed prototype tail behind up
@@ -12,25 +13,25 @@ open Reconcile.Types Reconcile.Types.Ingress Lean
 
 private def object : Proto := ⟨.object, .object⟩
 
-/-- Real chains from a built-in prototype to `null`, in the order the bridge numbers them:
-`null`, `Object.prototype`, `Date`, `Map`, `Set`, `ArrayBuffer` and `DataView`, `Uint8Array`
-with `%TypedArray%`, `URL`, `URLSearchParams`, the listed `RegExp`, `Error`, `Promise` and `Blob`,
-and `TypeError`, which inherits `Error`. Index 15 is a throwing read after the custom
-prototypes. -/
+/-- A prototype of the RecognitionPlain bridge's chains, which no atom constructor's chain
+holds: `Object.prototype`, or a data prototype with its own label. -/
+private def unlisted : RecognitionPlain.Proto → Proto
+  | .object => object
+  | .builtin rank => ⟨.data rank, .builtin rank⟩
+  | .other label => ⟨.data (20 + label), .other label⟩
+
+/-- Real chains from a built-in prototype to `null`, in the order the bridge numbers them: the
+RecognitionPlain bridge's chains before its throwing read (`null`, `Object.prototype`, `Date`,
+`Map`, `Set`, `ArrayBuffer`, `DataView`, `Uint8Array` with `%TypedArray%`, `URL` and
+`URLSearchParams`), then the listed `RegExp`, `Error`, `Promise` and `Blob`, and `TypeError`,
+which inherits `Error`. Index 15 is a throwing read after the custom prototypes. -/
 def tails : List (List Proto) :=
-  [[], [object]] ++
-  (List.range 5).map (fun r => [⟨.data (r + 2), .builtin (r + 1)⟩, object]) ++
-  [[⟨.data 7, .other 0⟩, ⟨.data 8, .builtin 6⟩, object], [⟨.data 9, .other 2⟩, object],
-    [⟨.data 10, .other 3⟩, object]] ++
+  (RecognitionPlainOracle.tails.take RecognitionPlainOracle.raisingTail).map (·.map unlisted) ++
   ([0, 1, 6, 12].zip [4, 5, 6, 7]).map
     (fun (atom, other) => [⟨.listed atom, .other other⟩, object]) ++
   [[⟨.data 0, .other 8⟩, ⟨.listed 1, .other 5⟩, object], []]
 
 def raisingTail : Nat := 15
-
-/-- `URL.prototype` and `URLSearchParams.prototype` as the tails label them; no Temporal value
-occurs. -/
-def targets : RecognitionPlain.Targets := { temporal := [], url := .other 2, params := .other 3 }
 
 private structure Observation where
   depth : Nat
@@ -42,11 +43,11 @@ private structure Observation where
   separate : Nat
   deriving ToJson
 
-private def describe : Outcome → String × Nat
-  | .structural r => ("structural", r)
-  | .object => ("object", 10)
-  | .atom => ("atom", 10)
-  | .raised => ("raised", 0)
+private def describe : Option Atoms.Ingress → String × Nat
+  | some (.structural r) => ("structural", r)
+  | some .object => ("object", 10)
+  | some .atom => ("atom", 10)
+  | none => ("raised", 0)
 
 def run : IO Unit := do
   let cases := (List.range 3).flatMap fun depth => (List.range tails.length).flatMap fun tail =>
@@ -58,6 +59,7 @@ def run : IO Unit := do
       protos := (List.range depth).map (fun l => ⟨.data (100 + l), .other (100 + l)⟩) ++
         tails.getD tail []
       raises := tail = raisingTail }
+    let targets := RecognitionPlainOracle.targets
     let (outcome, rank) := describe (ingress .miss chain brand targets)
     IO.println (toJson ({
       depth, tail, brand, outcome, rank

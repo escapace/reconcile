@@ -1,9 +1,11 @@
+import Types.OwnedPublication
+
 /-!
-# Writes into kept native values
+# Publication of native values
 
 The `Spec` model has no `URL`, `URLSearchParams` or Temporal value. This module models what
-`reconcile` publication writes into a current one that a node keeps, by the contents the runtime
-compares:
+`reconcile` publication does with a current one at a node, by the contents the runtime compares,
+and the NativeValue bridge runs it against the runtime's policies:
 
 - A `URL` compares its `href` and writes `next`'s `href` only when the two differ: `publish` in
   `urlPublication` (`src/types/url.ts`), through `setNativeURLHref`
@@ -11,29 +13,34 @@ compares:
 - A `URLSearchParams` compares its serialization and replaces its entries with `next`'s only when
   the two differ: `publish` in `urlSearchParametersPublication`
   (`src/types/url-search-parameters.ts`), through `replaceNativeParameters`
-  (`src/types/shared/url-carrier.ts`), which returns whether it wrote.
+  (`src/types/shared/url-carrier.ts`), which returns whether it wrote. Replacing clears the list,
+  then appends `next`'s entries in order (`entriesAfter`, `OwnedPublication.sequential`), so
+  duplicates and their order survive (`OwnedPublication.sequential_payload`).
 - A Temporal value is immutable. A current one is admitted only when it equals `next`'s value
   (`matches` and `requirements` in `temporalPublication`, `src/types/temporal.ts`); otherwise the
   node takes a copy. Its `publish` writes nothing.
 
+A policy reports a write by leaving `note.unchanged` false, which is `writes ≠ []` here.
+
 The runtime obligation (_Native writes_ in the Lean guide): each comparison reads exactly the
 contents the model names, and a write leaves the value's compared contents equal to `next`'s. For
 a URL or parameter text taken from a native value, setting it and reading it back returns the same
-text. Lean proves neither that nor Temporal equality.
+text. Lean proves neither that nor Temporal equality, nor native parsing.
 
 - A kept value is written exactly when its contents differ from `next`'s (`publish_nil_iff`); a
   URL writes only its `href` and a parameter list only its entries (`publish_url`,
   `publish_parameters`).
 - A Temporal value is kept, unwritten, exactly when it equals `next`'s, and is otherwise replaced
-  (`publish_temporal`).
+  (`publish_temporal`); so the preflight admits a Temporal value exactly when its class and fields
+  equal `next`'s (`temporal_compatible_iff`).
 - After publication the node holds `next`'s contents (`result_eq`).
 -/
 
 namespace Reconcile.Types.NativeWrites
 
 /-- A native value by the contents publication compares: a `URL` by its `href`, a
-`URLSearchParams` by its serialization, a Temporal value by its class and the fields its
-comparison reads. -/
+`URLSearchParams` by its serialization, a Temporal value by its class (constructor) and the
+fields its comparison reads, all ten components for a `Duration`. -/
 inductive Native where
   | url (href : String)
   | parameters (text : String)
@@ -64,6 +71,22 @@ def result (cur next : Native) : Native :=
   | .keep [] => cur
   | .keep _ => next
   | .replace => next
+
+/-- Whether the preflight admits the current value, so publication keeps it. -/
+def compatible (cur next : Native) : Bool :=
+  match publish cur next with
+  | .keep _ => true
+  | .replace => false
+
+/-- Whether `produce` may reuse the value for an equal one (the kind's `equivalent`): equality
+of the compared contents. It never identifies two visible objects. -/
+def reusable (cur next : Native) : Bool := decide (cur = next)
+
+/-- A kept `URLSearchParams`'s entries after publication: its own when nothing is written,
+otherwise those clearing the list and appending `next`'s in order leave. -/
+def entriesAfter {E : Type} (writes : List String) (current next : List E) : List E :=
+  if writes = [] then current
+  else (OwnedPublication.sequential (fun _ => ()) id next ⟨0, 0, current, (), ()⟩).payload
 
 /-- A kept value is written exactly when its contents differ from `next`'s: no write reaches a
 value that already holds them. -/
@@ -109,6 +132,18 @@ theorem publish_temporal (k : String) (a : List String) (next : Native) :
   | url _ => rfl
   | parameters _ => rfl
 
+/-- The preflight admits a Temporal value exactly when its class and fields equal `next`'s. -/
+theorem temporal_compatible_iff (k l : String) (a b : List String) :
+    compatible (.temporal k a) (.temporal l b) = true ↔ k = l ∧ a = b := by
+  rw [compatible, publish_temporal]
+  by_cases h : Native.temporal l b = .temporal k a
+  · simp only [h, if_true, true_iff]
+    injection h with h1 h2
+    exact ⟨h1.symm, h2.symm⟩
+  · simp only [h, if_false, Bool.false_eq_true, false_iff]
+    rintro ⟨rfl, rfl⟩
+    exact h rfl
+
 /-- After publication a node holds `next`'s contents, kept or replaced. -/
 theorem result_eq (cur next : Native) : result cur next = next := by
   unfold result
@@ -136,6 +171,20 @@ example :
       .keep [] ∧
     publish (.temporal "PlainDate" ["2024-01-01"]) (.temporal "PlainDate" ["2024-01-02"]) =
       .replace := by
+  decide
+
+/-- An equal value of another Temporal class or constructor is replaced. -/
+example : publish (.temporal "Instant/0" ["0"]) (.temporal "Instant/1" ["0"]) = .replace := by
+  decide
+
+/-- A `Duration` keeps its components: one second is not a thousand milliseconds. -/
+example : publish (.temporal "Duration" ["seconds", "1", "milliseconds", "0"])
+    (.temporal "Duration" ["seconds", "0", "milliseconds", "1000"]) = .replace := by
+  decide
+
+/-- Rewriting a parameter list keeps `next`'s duplicates and their order. -/
+example : entriesAfter ["entries"] [("x", "old")] [("b", "1"), ("a", "2"), ("b", "3")] =
+    [("b", "1"), ("a", "2"), ("b", "3")] := by
   decide
 
 end Reconcile.Types.NativeWrites

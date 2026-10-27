@@ -23,7 +23,9 @@ This module proves the finite facts the runtime's accounting relies on:
   obligation: a folded `Map` or `Set`, a repeated shape key or a caller-aliased payload keeps
   fewer occurrences than it was charged, so the value can be smaller than the accounting.
 * `node_count_le_accounting`: a document has at most as many nodes as words, so a node count
-  above the limit can be rejected before any table is allocated.
+  above the limit can be rejected before any table is allocated. The runtime's table for records,
+  arrays and shared scalars (`tableCharges`) meets its premise for every node the decoder admits
+  (`table_node_count`); the Serialization bridge runs that table.
 * `stops_iff`: stopping at the first running total above the limit rejects exactly the
   documents whose total is above it. `accepts_iff_bytes`: in bytes, eight per charged word is
   the smallest accepted limit. That `requiredMaxBytes` returns it is checked by the bridge, not
@@ -39,7 +41,9 @@ This module proves the finite facts the runtime's accounting relies on:
 * `decodeInt_encodeInt`, `encodeInt_decodeInt`: hexadecimal bigint text is canonical.
 
 Which words a node is charged (its header, slots and contents) is the runtime's table; the
-theorems hold for any charges with the stated premises.
+theorems other than `table_node_count` hold for any charges with the stated premises. The native
+kinds' charges (dates, buffers, views, URLs, parameters and Temporal values) are outside
+`tableCharges`.
 -/
 
 namespace SerializationSize
@@ -144,7 +148,7 @@ theorem nonroot_child {c : Graph} {n : Nat} (h : check c n = true) (hc : Closed 
 per link), a document has at most as many nodes as words. The runtime rejects a document
 whose node count exceeds the limit before allocating its tables. -/
 theorem node_count_le_accounting {c : Graph} {n : Nat} (w : Charges) (h : check c n = true)
-    (hc : Closed c n) (hown : ∀ v, (c v).length ≤ w.own v) : n ≤ accounting c n w := by
+    (hc : Closed c n) (hown : ∀ v < n, (c v).length ≤ w.own v) : n ≤ accounting c n w := by
   classical
   have hsub : (Finset.range n).erase 0 ⊆ (Finset.range n).biUnion (fun u => (c u).toFinset) := by
     intro v hv
@@ -161,7 +165,8 @@ theorem node_count_le_accounting {c : Graph} {n : Nat} (w : Charges) (h : check 
       _ ≤ ∑ u ∈ Finset.range n, (c u).length :=
             Finset.sum_le_sum fun u _ => List.toFinset_card_le _
   have hwords : ∑ u ∈ Finset.range n, (c u).length ≤ ∑ u ∈ Finset.range n, nodeWords c w u := by
-    exact Finset.sum_le_sum fun u _ => by unfold nodeWords; have := hown u; omega
+    exact Finset.sum_le_sum fun u hu => by
+      unfold nodeWords; have := hown u (Finset.mem_range.1 hu); omega
   unfold accounting
   omega
 
@@ -302,7 +307,9 @@ def memberText : List (Nat × Json) → Nat
 end
 
 mutual
-theorem words_lt_text : ∀ value : Json, 1 + words value ≤ text value
+/-- A JSON value's size (its root slot and its words) is at most its JSON text length, so a
+limit of eight bytes per character of JSON text accepts it. -/
+theorem json_words_le_text : ∀ value : Json, 1 + words value ≤ text value
   | .null => by simp [words, text]
   | .bool true => by simp [words, text]
   | .bool false => by simp [words, text]
@@ -313,20 +320,16 @@ theorem words_lt_text : ∀ value : Json, 1 + words value ≤ text value
 theorem itemWords_le_text : ∀ items : List Json, itemWords items ≤ itemText items
   | [] => by simp [itemWords, itemText]
   | item :: rest => by
-    have := words_lt_text item
+    have := json_words_le_text item
     have := itemWords_le_text rest
     simp only [itemWords, itemText]; omega
 theorem memberWords_le_text : ∀ members : List (Nat × Json), memberWords members ≤ memberText members
   | [] => by simp [memberWords, memberText]
   | (key, value) :: rest => by
-    have := words_lt_text value
+    have := json_words_le_text value
     have := memberWords_le_text rest
     simp only [memberWords, memberText, stringWords]; omega
 end
-
-/-- A JSON value's size (its root slot and its words) is at most its JSON text length, so a
-limit of eight bytes per character of JSON text accepts it. -/
-theorem json_words_le_text (value : Json) : 1 + words value ≤ text value := words_lt_text value
 
 /-! ## Hexadecimal bigint text -/
 
@@ -373,6 +376,9 @@ def decodeInt : Bool × List Nat → Int
 def CanonicalInt (text : Bool × List Nat) : Prop :=
   Canonical text.2 ∧ (text.1 = true → ofHex text.2 ≠ 0)
 
+instance (text : Bool × List Nat) : Decidable (CanonicalInt text) := by
+  unfold CanonicalInt Canonical; infer_instance
+
 theorem decodeInt_encodeInt (z : Int) : decodeInt (encodeInt z) = z := by
   simp only [decodeInt, encodeInt, ofHex_hexDigits, decide_eq_true_eq]
   split <;> omega
@@ -394,6 +400,64 @@ theorem encodeInt_decodeInt (text : Bool × List Nat) (h : CanonicalInt text) :
 
 /-- A bigint occurrence's words: sixteen hexadecimal digits per 64-bit word. -/
 def bigintWords (digits : List Nat) : Nat := (digits.length + 15) / 16
+
+/-! ## The runtime's charges for records, arrays and shared scalars -/
+
+/-- What the runtime's charge table reads of a node of a record, an array or a shared scalar:
+its tag (0 a record, 1 a null-prototype record, 2 a dense and 3 a sparse array, 13 to 17 a
+shared scalar, 18 a bigint), its shape's keys as UTF-16 lengths, its slot count, an array's
+length, the words of the JSON literals in its slots, and a bigint's hexadecimal digits. -/
+structure TableNode where
+  tag : Nat
+  keys : List Nat
+  slots : Nat
+  length : Nat
+  literals : Nat
+  digits : List Nat
+
+/-- The runtime's table for these nodes (`decode.ts` and `facets/*.ts`; the README's size
+table): a record's header, a key slot and a value slot per property and its keys' payloads; an
+array's header and a slot per index, holes included; a scalar or bigint node owns nothing, and a
+bigint is charged its digits at every occurrence. -/
+def tableCharges (nodes : Nat → TableNode) : Charges where
+  own v :=
+    let node := nodes v
+    if node.tag ≤ 1 then 1 + 2 * node.keys.length + (node.keys.map stringWords).sum
+    else if node.tag = 2 then 1 + node.slots
+    else if node.tag = 3 then 1 + node.length
+    else 0
+  lit v := (nodes v).literals
+  occ v := if (nodes v).tag = 18 then bigintWords (nodes v).digits else 0
+
+/-- A node as the decoder admits it: a record has a slot per key of its shape, a sparse array no
+more values than its length, and a scalar or bigint node no slot. -/
+def TableNode.Admitted (node : TableNode) : Prop :=
+  (node.tag ≤ 1 → node.slots = node.keys.length) ∧ (node.tag = 3 → node.slots ≤ node.length) ∧
+    (3 < node.tag → node.slots = 0)
+
+instance (node : TableNode) : Decidable node.Admitted := by
+  unfold TableNode.Admitted; infer_instance
+
+/-- The table charges an admitted node at least one word per slot. -/
+theorem table_own_ge_slots (nodes : Nat → TableNode) (v : Nat) (h : (nodes v).Admitted) :
+    (nodes v).slots ≤ (tableCharges nodes).own v := by
+  obtain ⟨hrec, hsparse, hscalar⟩ := h
+  simp only [tableCharges]
+  split
+  · rename_i ht; rw [hrec ht]; omega
+  · split
+    · omega
+    · split
+      · rename_i _ ht; have := hsparse ht; omega
+      · rw [hscalar (by omega)]
+
+/-- With the runtime's table, a document of admitted nodes, whose children are among their
+slots, has at most as many nodes as words: `node_count_le_accounting`'s premise holds. -/
+theorem table_node_count {c : Graph} {n : Nat} (nodes : Nat → TableNode) (h : check c n = true)
+    (hc : Closed c n) (hadmitted : ∀ v < n, (nodes v).Admitted)
+    (hslots : ∀ v < n, (c v).length ≤ (nodes v).slots) : n ≤ accounting c n (tableCharges nodes) :=
+  node_count_le_accounting _ h hc fun v hv =>
+    (hslots v hv).trans (table_own_ge_slots nodes v (hadmitted v hv))
 
 /-! ## Examples and counterexamples -/
 
@@ -444,6 +508,17 @@ def chain : Graph := fun v => if v = 0 then [1] else []
 example : check chain 2 = true ∧ accounting chain 2 ⟨fun _ => 0, fun _ => 0, fun _ => 0⟩ < 2 := by
   refine ⟨by decide, ?_⟩
   simp [accounting, nodeWords, chain]
+
+/-- Counterexample for `TableNode.Admitted`: a scalar node with a slot is charged nothing for
+it, so the table would charge the two-node chain fewer words than it has nodes. -/
+example : accounting chain 2 (tableCharges fun v => ⟨13, [], if v = 0 then 1 else 0, 0, 0, []⟩) <
+    2 ∧ ¬ TableNode.Admitted ⟨13, [], 1, 0, 0, []⟩ := by
+  refine ⟨by simp [accounting, nodeWords, chain, tableCharges], by decide⟩
+
+/-- A dense array of one slot referencing a shared scalar: the table charges three words. -/
+example : accounting chain 2 (tableCharges fun v => if v = 0 then ⟨2, [], 1, 1, 0, []⟩
+    else ⟨13, [], 0, 0, 0, []⟩) = 3 := by
+  simp [accounting, nodeWords, chain, tableCharges, Finset.sum_range_succ]
 
 /-- `[0]` meets the JSON bound exactly: three words, three characters. -/
 example : 1 + words (.arr [.num]) = 3 ∧ text (.arr [.num]) = 3 := by

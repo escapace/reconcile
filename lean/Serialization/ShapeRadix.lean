@@ -1,3 +1,5 @@
+import Serialization.Positional
+
 /-!
 # Path-compressed per-call shape trie
 
@@ -6,9 +8,11 @@ is a label `k :: rest` taken from the keys array of the shape that created it; c
 keyed by the label's first key. An unmatched suffix becomes one leaf, and a shape that
 diverges or ends inside an edge splits that edge. Lookups that succeed change nothing.
 
-This file proves the trie denotes exactly the finite map from key sequences to ids that the
-signature memo maintains, so both assign identical first-occurrence ids. Keys have any type
-with decidable equality (JavaScript property names are UTF-16 code-unit sequences).
+This file proves the trie denotes exactly the finite map from key sequences to ids that
+first-use interning maintains (`SerializationPositional.internAll`), so the trie assigns
+`internAll`'s ids (`radix_eq_internAll`), which `renumber_first_use` and the decoder's
+first-use check take as given. Keys have any type with decidable equality (JavaScript property
+names are UTF-16 code-unit sequences).
 
 Runtime premises, not proved here: trie nodes are fresh per call and reachable by one path,
 so the in-place `Map.set` and edge split agree with the functional `setR` below; label slices
@@ -293,50 +297,67 @@ def internR (r : Radix κ) (next : Nat) (keys : List κ) : Nat × Radix κ × Na
   | some id => (id, r, next)
   | none => (next, setR r keys next, next + 1)
 
-def internMemo (m : List κ → Option Nat) (next : Nat) (keys : List κ) :
-    Nat × (List κ → Option Nat) × Nat :=
-  match m keys with
-  | some id => (id, m, next)
-  | none => (next, fun q => if q = keys then some next else m q, next + 1)
-
+/-- The ids the trie assigns to a list of shapes, in order. -/
 def runRadix : Radix κ → Nat → List (List κ) → List Nat
   | _, _, [] => []
   | r, next, keys :: rest =>
     let x := internR r next keys
     x.1 :: runRadix x.2.1 x.2.2 rest
 
-def runMemo : (List κ → Option Nat) → Nat → List (List κ) → List Nat
-  | _, _, [] => []
-  | m, next, keys :: rest =>
-    let x := internMemo m next keys
-    x.1 :: runMemo x.2.1 x.2.2 rest
+open SerializationPositional in
+/-- Appending a new entry leaves the ids interning gives the table's entries. -/
+private theorem intern_append {α : Type} [DecidableEq α] {table : List α} {x q : α}
+    (hq : q ∈ table) : (intern (table ++ [x]) q).1 = (intern table q).1 := by
+  simp only [intern, hq, if_true, List.mem_append, true_or]
+  exact List.idxOf_append_of_mem hq
 
-theorem radix_matches_memo (shapes : List (List κ)) :
-    ∀ (r : Radix κ) (m : List κ → Option Nat) (next : Nat), (∀ q, getR r q = m q) →
-      runRadix r next shapes = runMemo m next shapes := by
+open SerializationPositional in
+/-- The appended entry's id is the table's length. -/
+private theorem intern_append_self {α : Type} [DecidableEq α] {table : List α} {x : α}
+    (hx : x ∉ table) : (intern (table ++ [x]) x).1 = table.length := by
+  simp only [intern, List.mem_append, List.mem_singleton, or_true, if_true]
+  rw [List.idxOf_append_of_notMem hx]
+  simp
+
+open SerializationPositional in
+/-- A trie that denotes a first-use table assigns, from the table's length on, exactly the ids
+interning into that table assigns. -/
+theorem radix_matches_table (shapes : List (List κ)) :
+    ∀ (r : Radix κ) (table : List (List κ)),
+      (∀ q, getR r q = if q ∈ table then some (intern table q).1 else none) →
+      runRadix r table.length shapes = (internAll table shapes).1 := by
   induction shapes with
-  | nil => intro _ _ _ _; rfl
+  | nil => intro _ _ _; rfl
   | cons keys rest ih =>
-    intro r m next h
-    simp only [runRadix, runMemo, internR, internMemo, h keys]
-    cases hm : m keys with
-    | some id => simp [ih r m next h]
-    | none =>
-      simp only
+    intro r table h
+    by_cases hk : keys ∈ table
+    · have hi : intern table keys = ((intern table keys).1, table) := by simp [intern, hk]
+      simp only [runRadix, internR, h keys, hk, if_true, internAll]
+      rw [hi, ih r table h]
+    · have hi : intern table keys = (table.length, table ++ [keys]) := by simp [intern, hk]
+      simp only [runRadix, internR, h keys, hk, if_false, internAll, hi]
       congr 1
-      apply ih
-      intro q
-      rw [getR_setR keys.length r keys q next (Nat.le_refl _), h]
+      have := ih (setR r keys table.length) (table ++ [keys]) (by
+        intro q
+        rw [getR_setR keys.length r keys q table.length (Nat.le_refl _), h q]
+        by_cases hq : q = keys
+        · subst hq
+          simp [intern_append_self hk]
+        · by_cases ht : q ∈ table
+          · simp [hq, ht, intern_append (x := keys) ht]
+          · simp [hq, ht])
+      simpa using this
 
 def empty : Radix κ := .node none []
 
 theorem getR_empty (q : List κ) : getR (empty : Radix κ) q = none := by
   cases q <;> simp [empty, getR, getR_cons, findR]
 
-/-- The path-compressed trie assigns exactly the signature memo's first-occurrence ids. -/
-theorem radix_matches_signature (shapes : List (List κ)) :
-    runRadix (empty : Radix κ) 0 shapes = runMemo (fun _ => none) 0 shapes :=
-  radix_matches_memo shapes empty _ 0 getR_empty
+open SerializationPositional in
+/-- The path-compressed trie assigns exactly the first-use ids of Positional's interning. -/
+theorem radix_eq_internAll (shapes : List (List κ)) :
+    runRadix (empty : Radix κ) 0 shapes = (internAll [] shapes).1 :=
+  radix_matches_table shapes empty [] (by simp [getR_empty])
 
 unseal getR setR in
 example : runRadix (empty : Radix String) 0

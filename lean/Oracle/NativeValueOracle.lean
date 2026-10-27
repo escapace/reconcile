@@ -1,11 +1,12 @@
-import Types.NativeValue
+import Types.NativeWrites
 import Lean
 
-/-! Oracle for the `NativeValue` family: for each fixture pair, facet compatibility, immutable
-reuse, publication and appended entries under `Types.NativeValue`. -/
+/-! Oracle for the `NativeValue` family: for each fixture pair, publication under
+`Types.NativeWrites`: whether the preflight keeps the current value, whether `produce` may reuse
+it, whether a kept value is written, and a parameter list's entries afterwards. -/
 
 namespace Reconcile.NativeValueOracle
-open Lean Types.NativeValue
+open Lean Types.NativeWrites
 
 structure InputPayload where
   kind : String
@@ -19,34 +20,34 @@ structure Input where
   desired : InputPayload
   deriving FromJson
 
-def temporalKind : String → Except String TemporalKind
-  | "Instant" => pure .instant
-  | "Duration" => pure .duration
-  | "PlainDate" => pure .plainDate
-  | "PlainTime" => pure .plainTime
-  | "PlainDateTime" => pure .plainDateTime
-  | "PlainYearMonth" => pure .plainYearMonth
-  | "PlainMonthDay" => pure .plainMonthDay
-  | "ZonedDateTime" => pure .zonedDateTime
-  | _ => throw "Unknown native kind"
+def temporalKinds : List String :=
+  ["Instant", "Duration", "PlainDate", "PlainTime", "PlainDateTime", "PlainYearMonth",
+    "PlainMonthDay", "ZonedDateTime"]
 
-def decode (input : InputPayload) : Except String Payload := do
-  match input.kind with
-  | "URL" =>
-    match input.values with
-    | [href] => pure (.url href)
-    | _ => throw "URL requires one href label"
-  | "URLSearchParams" => pure (.parameters input.entries)
-  | kind => pure (.temporal (← temporalKind kind) input.constructor input.values)
+/-- A URL by its `href`, a parameter list by its text, a Temporal value by its class and
+constructor label and its observed fields. -/
+def decode (input : InputPayload) : Except String Native := do
+  match input.kind, input.values with
+  | "URL", [href] => pure (.url href)
+  | "URL", _ => throw "URL requires one href label"
+  | "URLSearchParams", [text] => pure (.parameters text)
+  | "URLSearchParams", _ => throw "URLSearchParams requires its text"
+  | kind, values =>
+    if temporalKinds.contains kind then pure (.temporal s!"{kind}/{input.constructor}" values)
+    else throw "Unknown native kind"
 
 def evaluate (input : Input) : Except String Json := do
   let current ← decode input.current
   let desired ← decode input.desired
+  let (unchanged, entries) := match publish current desired with
+    | .keep writes =>
+      (some writes.isEmpty, entriesAfter writes input.current.entries input.desired.entries)
+    | .replace => (none, input.current.entries)
   pure (Json.mkObj [
     ("compatible", toJson (compatible current desired)),
     ("reusable", toJson (reusable current desired)),
-    ("published", toJson ((publish current desired).isSome)),
-    ("entries", toJson (appendEntries [] input.desired.entries))])
+    ("unchanged", toJson unchanged),
+    ("entries", toJson entries)])
 
 def run (input : String) : IO Unit := do
   let json ← IO.ofExcept (Json.parse input)

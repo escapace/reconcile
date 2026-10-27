@@ -1,6 +1,7 @@
 import { sparseArray } from '../standard-prototypes'
-// ShapeRadix.lean radix_matches_signature: equal key sequences share one id, assigned in
-// first-occurrence order; the proof is generic in the key type. Record shapes intern their
+// ShapeRadix.lean radix_eq_internAll: equal key sequences share one id, assigned in
+// first-occurrence order as Positional.lean internAll assigns it; the proof is generic in the
+// key type. Record shapes intern their
 // property names and layouts their nonnegative integers.
 // Path-compressed per-call trie node: the edge into it is keys[from..to) of the sequence that
 // created it; children are keyed by the first key of their edge, in a Map for names and a sparse
