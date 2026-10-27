@@ -1,4 +1,4 @@
-import Graph.Requirements
+import Mathlib.Data.Finset.Card
 
 /-! Ordered admission for the positive closure worklist. This retains the first
 occurrence, unlike a rightmost-deduplication specification. -/

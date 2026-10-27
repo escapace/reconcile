@@ -1,5 +1,4 @@
 import Mathlib.Data.List.Basic
-import Lean
 
 /-! Closed, finite selection constraints and the reference model of the ranked selection stream,
 to which `CompactImmutable` relates the masks of `src/graph/immutable-selection.ts`. Native capture
@@ -10,14 +9,14 @@ namespace Reconcile.Policy
 structure Requirement where
   node : Nat
   identity : Nat
-  deriving DecidableEq, Repr, Lean.FromJson, Lean.ToJson
+  deriving DecidableEq, Repr
 
 structure Choice where
   identity : Nat
   storage : Nat
   retained : Bool
   required : List Requirement
-  deriving DecidableEq, Repr, Lean.FromJson, Lean.ToJson
+  deriving DecidableEq, Repr
 
 abbrev Plan := List Choice
 abbrev Domains := List (List Choice)
@@ -67,33 +66,6 @@ theorem feasiblePlans_exact (domains : Domains) (plan : Plan) :
   simp [feasiblePlans, assignments_allowed, check_iff_feasible]
 
 def score (plan : Plan) : Nat := (plan.map fun choice => if choice.retained then 1 else 0).sum
-
--- Earliest plan wins equal scores, matching traversal-order tie breaking.
-def best : List Plan → Option Plan
-  | [] => none
-  | plan :: rest =>
-    match best rest with
-    | none => some plan
-    | some next => some (if score next ≤ score plan then plan else next)
-
-theorem best_mem {plans : List Plan} {plan : Plan} (h : best plans = some plan) : plan ∈ plans := by
-  induction plans generalizing plan with
-  | nil => simp [best] at h
-  | cons head rest ih =>
-    simp only [best] at h
-    split at h
-    · cases h; simp
-    · rename_i next hn
-      split at h
-      · cases h; simp
-      · cases h; exact List.mem_cons_of_mem head (ih hn)
-
-def select (domains : Domains) : Option Plan := best (feasiblePlans domains)
-
-theorem select_sound {domains : Domains} {plan : Plan} (h : select domains = some plan) :
-    allowed domains plan ∧ feasible plan :=
-  (feasiblePlans_exact domains plan).mp (best_mem h)
-
 
 theorem allowed_length {domains : Domains} {plan : Plan} (h : allowed domains plan) :
     plan.length = domains.length := by

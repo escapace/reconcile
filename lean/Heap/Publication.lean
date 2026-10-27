@@ -1,7 +1,9 @@
 import Heap.WF
 
 /-! Captured-graph publication core, without JavaScript execution semantics. A selected image
-is installed before any edge is populated. -/
+is installed before any edge is populated. `Published` is the local readback obligation for one
+image; `Published.surface` lifts it to equality with the source at every depth, and
+`Published.edge_lift` and `Published.path` carry every edge and cycle to the result. -/
 
 namespace Reconcile
 
@@ -43,9 +45,6 @@ def Node.remap (image : I → J) (proto : ProtoLabel → ProtoLabel) : Node A I 
     · subst key; simp [remapFields]
     · simp_all [remapFields]
 
-@[simp] theorem Node.remap_kind (image : I → J) (proto) (nd : Node A I) :
-    (nd.remap image proto).kind = nd.kind := by cases nd <;> rfl
-
 @[simp] theorem Node.remap_childRefs (image : I → J) (proto) (nd : Node A I) :
     (nd.remap image proto).childRefs = nd.childRefs.map image := by
   cases nd with
@@ -78,72 +77,100 @@ def Node.remap (image : I → J) (proto : ProtoLabel → ProtoLabel) : Node A I 
   | arrayBuffer => rfl
   | dataView => rfl
 
+/-- Every value slot of a node: field values, present array entries, map keys and values, set
+members, a view's buffer and a typed array's buffer and elements. -/
+def Node.values : Node A I → List (Value A I)
+  | .plainObject _ fs => fs.map (·.2)
+  | .array es => es.filterMap id
+  | .date _ => []
+  | .map es => es.flatMap fun e => [e.1, e.2]
+  | .set vs => vs
+  | .arrayBuffer _ => []
+  | .dataView b _ _ => [.ref b]
+  | .typedArray _ b _ _ es => .ref b :: es
+
+/-- A node's child references are the references among its values. -/
+theorem Node.mem_childRefs {nd : Node A I} {r : I} :
+    r ∈ nd.childRefs ↔ Value.ref r ∈ nd.values := by
+  cases nd with
+  | plainObject p fs =>
+    simp only [Node.childRefs, Node.values, List.mem_filterMap, List.mem_map]
+    constructor
+    · rintro ⟨⟨k, v⟩, hm, hv⟩
+      cases v with
+      | atom => simp at hv
+      | ref x => simp only [Option.some.injEq] at hv; subst hv; exact ⟨⟨k, .ref x⟩, hm, rfl⟩
+    · rintro ⟨⟨k, v⟩, hm, rfl⟩; exact ⟨⟨k, .ref r⟩, hm, rfl⟩
+  | array es =>
+    simp only [Node.childRefs, Node.values, List.mem_filterMap, id]
+    constructor
+    · rintro ⟨e, hm, he⟩; rcases e with _ | (_ | _) <;> simp_all
+    · rintro ⟨e, hm, rfl⟩; exact ⟨some (.ref r), hm, rfl⟩
+  | map es =>
+    simp only [Node.childRefs, Node.values, List.mem_flatMap]
+    refine exists_congr fun ⟨k, v⟩ => and_congr_right fun _ => ?_
+    cases k <;> cases v <;> simp
+  | set vs =>
+    simp only [Node.childRefs, Node.values, List.mem_filterMap]
+    constructor
+    · rintro ⟨v, hm, hv⟩; cases v <;> simp_all
+    · intro hm; exact ⟨.ref r, hm, rfl⟩
+  | typedArray t b o l es =>
+    simp only [Node.childRefs, Node.values, List.mem_cons, List.mem_filterMap, Value.ref.injEq]
+    constructor
+    · rintro (h | ⟨v, hm, hv⟩)
+      · exact Or.inl h
+      · cases v <;> simp_all
+    · rintro (h | hm)
+      · exact Or.inl h
+      · exact Or.inr ⟨.ref r, hm, rfl⟩
+  | date => simp [Node.childRefs, Node.values]
+  | arrayBuffer => simp [Node.childRefs, Node.values]
+  | dataView => simp [Node.childRefs, Node.values]
+
 /-- Payloads depend only on the image of their direct child references. -/
 theorem Node.remap_congr (nd : Node A I) (f g : I → J) (proto)
     (h : ∀ r ∈ nd.childRefs, f r = g r) : nd.remap f proto = nd.remap g proto := by
+  have hv : ∀ v ∈ nd.values, v.remap f = v.remap g := by
+    rintro (_ | r) hm
+    · rfl
+    · simp [Value.remap, h r (Node.mem_childRefs.mpr hm)]
   cases nd with
   | plainObject p fs =>
     simp only [Node.remap, remapFields]
     congr 1
     apply List.map_congr_left
-    intro kv hk
-    rcases kv with ⟨k, v⟩
-    cases v with
-    | atom => rfl
-    | ref r =>
-      have he := h r (by simp only [Node.childRefs, List.mem_filterMap]; exact ⟨⟨k, .ref r⟩, hk, rfl⟩)
-      simp [Value.remap, he]
+    rintro ⟨k, v⟩ hk
+    simp [hv v (List.mem_map.mpr ⟨⟨k, v⟩, hk, rfl⟩)]
   | array es =>
     simp only [Node.remap]
     congr 1
     apply List.map_congr_left
-    intro e he
-    cases e with
-    | none => rfl
-    | some v => cases v with
-      | atom => rfl
-      | ref r =>
-        have hr := h r (by simp only [Node.childRefs, List.mem_filterMap]; exact ⟨some (.ref r), he, rfl⟩)
-        simp [Value.remap, hr]
+    rintro (_ | v) he
+    · rfl
+    · simp [hv v (List.mem_filterMap.mpr ⟨some v, he, rfl⟩)]
   | map es =>
     simp only [Node.remap]
     congr 1
     apply List.map_congr_left
     intro e he
-    have hv (v : Value A I) (hv : v = e.1 ∨ v = e.2) : v.remap f = v.remap g := by
-      cases v with
-      | atom => rfl
-      | ref r =>
-        have hr := h r (by
-          simp only [Node.childRefs, List.mem_flatMap]
-          refine ⟨e, he, ?_⟩
-          rcases hv with hv | hv <;> rw [← hv] <;> simp)
-        simp [Value.remap, hr]
-    exact Prod.ext (hv _ (Or.inl rfl)) (hv _ (Or.inr rfl))
+    have hm (v) (hv : v = e.1 ∨ v = e.2) : v ∈ (Node.map es).values :=
+      List.mem_flatMap.mpr ⟨e, he, by rcases hv with rfl | rfl <;> simp⟩
+    exact Prod.ext (hv _ (hm _ (Or.inl rfl))) (hv _ (hm _ (Or.inr rfl)))
   | set vs =>
     simp only [Node.remap]
     congr 1
-    apply List.map_congr_left
-    intro v hv
-    cases v with
-    | atom => rfl
-    | ref r =>
-      have hr := h r (by simp only [Node.childRefs, List.mem_filterMap]; exact ⟨.ref r, hv, rfl⟩)
-      simp [Value.remap, hr]
-  | dataView b o l => simp only [Node.remap]; rw [h b (by simp [Node.childRefs])]
+    exact List.map_congr_left hv
+  | dataView b o l =>
+    have hb := hv (.ref b) (by simp [Node.values])
+    simp only [Value.remap, Value.ref.injEq] at hb
+    simp only [Node.remap, hb]
   | typedArray t b o l es =>
-    have hb := h b (by simp [Node.childRefs])
+    have hb := hv (.ref b) (by simp [Node.values])
+    simp only [Value.remap, Value.ref.injEq] at hb
     simp only [Node.remap, hb]
     congr 1
-    apply List.map_congr_left
-    intro v hv
-    cases v with
-    | atom => rfl
-    | ref r =>
-      have hr := h r (by
-        simp only [Node.childRefs, List.mem_cons, List.mem_filterMap]
-        exact Or.inr ⟨.ref r, hv, rfl⟩)
-      simp [Value.remap, hr]
+    exact List.map_congr_left fun v hm => hv v (List.mem_cons_of_mem _ hm)
   | date => rfl
   | arrayBuffer => rfl
 
@@ -177,7 +204,10 @@ private theorem remap_node_surface [AtomEq A] [DecidableEq I] [DecidableEq J]
     (ih : ∀ v, RootWF source v → SurfaceEqBounded source result depth v (v.remap image))
     (nd : Node A I) (proto) (hw : NodeWF source nd) :
     SurfaceEqBounded.NodeSurfaceEqBounded source result depth nd (nd.remap image proto) := by
-  have child (r : I) (hr : r ∈ nd.childRefs) : RootWF source (.ref r) := hw r hr
+  have child : ∀ v ∈ nd.values, SurfaceEqBounded source result depth v (v.remap image) := by
+    rintro (_ | r) hm
+    · exact ih _ trivial
+    · exact ih _ (hw r (Node.mem_childRefs.mpr hm))
   cases nd with
   | plainObject p fs =>
     simp only [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded, remapFields_keys]
@@ -185,13 +215,7 @@ private theorem remap_node_surface [AtomEq A] [DecidableEq I] [DecidableEq J]
     intro k v rv hv hrv
     rw [remapFields_lookup, hv] at hrv
     cases hrv
-    apply ih
-    cases v with
-    | atom => trivial
-    | ref r =>
-      apply child r
-      simp only [Node.childRefs, List.mem_filterMap]
-      exact ⟨⟨k, .ref r⟩, List.of_mem_dlookup hv, rfl⟩
+    exact child v (List.mem_map.mpr ⟨⟨k, v⟩, List.of_mem_dlookup hv, rfl⟩)
   | array es =>
     simp only [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded, List.length_map]
     refine ⟨trivial, ?_⟩
@@ -199,15 +223,7 @@ private theorem remap_node_surface [AtomEq A] [DecidableEq I] [DecidableEq J]
     simp only [List.getElem_map]
     cases he : es[i] with
     | none => trivial
-    | some v =>
-      change SurfaceEqBounded source result depth v (v.remap image)
-      apply ih
-      cases v with
-      | atom => trivial
-      | ref r =>
-        apply child r
-        simp only [Node.childRefs, List.mem_filterMap]
-        exact ⟨some (.ref r), he ▸ List.getElem_mem hi, rfl⟩
+    | some v => exact child v (List.mem_filterMap.mpr ⟨some v, he ▸ List.getElem_mem hi, rfl⟩)
   | date => simp [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded]
   | arrayBuffer => simp [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded]
   | map es =>
@@ -215,44 +231,24 @@ private theorem remap_node_surface [AtomEq A] [DecidableEq I] [DecidableEq J]
     refine ⟨trivial, ?_⟩
     intro i hi hj
     simp only [List.getElem_map]
-    have hwv (v : Value A I) (hv : v = es[i].1 ∨ v = es[i].2) : RootWF source v := by
-      cases v with
-      | atom => trivial
-      | ref r =>
-        apply child r
-        simp only [Node.childRefs, List.mem_flatMap]
-        refine ⟨es[i], List.getElem_mem hi, ?_⟩
-        rcases hv with h | h
-        · rw [← h]; simp
-        · rw [← h]; simp
-    exact ⟨ih _ (hwv _ (Or.inl rfl)), ih _ (hwv _ (Or.inr rfl))⟩
+    have hm : ∀ v, (v = es[i].1 ∨ v = es[i].2) → v ∈ (Node.map es).values := fun v hv =>
+      List.mem_flatMap.mpr ⟨es[i], List.getElem_mem hi, by rcases hv with rfl | rfl <;> simp⟩
+    exact ⟨child _ (hm _ (Or.inl rfl)), child _ (hm _ (Or.inr rfl))⟩
   | set vs =>
     simp only [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded, List.length_map]
     refine ⟨trivial, ?_⟩
     intro i hi hj
     simp only [List.getElem_map]
-    apply ih
-    cases hv : vs[i] with
-    | atom => trivial
-    | ref r =>
-      apply child r
-      simp only [Node.childRefs, List.mem_filterMap]
-      exact ⟨.ref r, hv ▸ List.getElem_mem hi, rfl⟩
+    exact child _ (List.getElem_mem hi)
   | dataView b o l =>
     simp only [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded]
-    exact ⟨trivial, trivial, ih (.ref b) (child b (by simp [Node.childRefs]))⟩
+    exact ⟨trivial, trivial, child (.ref b) (by simp [Node.values])⟩
   | typedArray t b o l es =>
     simp only [Node.remap, SurfaceEqBounded.NodeSurfaceEqBounded, List.length_map]
-    refine ⟨trivial, trivial, trivial, ih (.ref b) (child b (by simp [Node.childRefs])), trivial, ?_⟩
+    refine ⟨trivial, trivial, trivial, child (.ref b) (by simp [Node.values]), trivial, ?_⟩
     intro i hi hj
     simp only [List.getElem_map]
-    apply ih
-    cases hv : es[i] with
-    | atom => trivial
-    | ref r =>
-      apply child r
-      simp only [Node.childRefs, List.mem_cons, List.mem_filterMap]
-      exact Or.inr ⟨.ref r, hv ▸ List.getElem_mem hi, rfl⟩
+    exact child _ (List.mem_cons_of_mem _ (List.getElem_mem hi))
 
 /-- Global observable correctness follows from local payload correspondence. -/
 theorem Published.surface [AtomEq A] [DecidableEq I] [DecidableEq J]

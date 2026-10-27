@@ -1,10 +1,10 @@
 import Produce.Immutable
 import Lean
 
-/-! Oracle for the `Contract` family. It runs each graph in `reuse-fixtures.json` through
-`Policy.select` and the verified immutable core (`Immutable.publish`), checks the compiler facts,
-the readback and the unchanged input frame, and reports the selected identities, values and edges.
--/
+/-! Oracle for the `Contract` family. It runs each graph in `reuse-fixtures.json` through the head
+of `Policy.rankedPlans` and the verified immutable core (`Immutable.publishFresh`), checks the
+compiler facts, the readback and the unchanged input frame, and reports the selected identities,
+values and edges. -/
 
 namespace Reconcile.ContractOracle
 
@@ -15,7 +15,6 @@ structure ReuseFixture where
   before : Array Nat
   after : Array Nat
   children : Array (Array Nat)
-  undo : Bool
   deriving FromJson
 
 structure ReuseObservation where
@@ -47,7 +46,7 @@ private def runCanonical (name : String) (before after : Array Nat) (children : 
     if before[i]! = after[i]! then
       [⟨i, i, true, children[i]!.toList.map fun child => ⟨child, child⟩⟩, fresh]
     else [fresh]
-  let some plan := Policy.select domains
+  let some plan := (Policy.rankedPlans domains).head?
     | throw s!"{name}: no feasible assignment"
   if hzero : plan.length = 0 then
     throw s!"{name}: empty assignment"
@@ -68,8 +67,10 @@ private def runCanonical (name : String) (before after : Array Nat) (children : 
     }
     if !Immutable.checkCompiled input domains then
       throw s!"{name}: invalid compiler facts"
-    let result := Immutable.publish input
-    let image := fun i => Immutable.image plan (finite i)
+    let survivors := Immutable.survivors plan
+    let result := Immutable.publishFresh survivors input.proposed input.fresh input.proto
+      input.records input.before
+    let image := fun i => Immutable.reuseImage survivors input.proposed input.fresh (finite i)
     if !checkPublication image (fun _ => id) records result then
       throw s!"{name}: immutable core failed readback"
     if ids.any (fun r => result.lookup r != before'.lookup r) then

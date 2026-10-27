@@ -1,6 +1,5 @@
 import Produce.Immutable
 import Mathlib.Data.List.FinRange
-import Graph.RequirementAdmission
 
 /-! Finite retained-bit representation. Native acquisition remains outside
 this model. Reserved labels express private fresh identities/storage, not a claim
@@ -278,13 +277,6 @@ theorem mask_eligible {size : Nat} (p : Problem size) (i : Fin size) :
     mask (eligibleBits p (List.finRange size)) i = (p.row i).eligible := by
   simp [mask, eligibleBits]
 
-theorem score_le_length (bits : List Bool) : score bits ≤ bits.length := by
-  induction bits with
-  | nil => simp [score]
-  | cons bit rest ih =>
-    simp only [score, List.map_cons, List.sum_cons, List.length_cons] at ih ⊢
-    split <;> omega
-
 /-- When no two rows share a storage, as no two runtime records do, every mask is separated, so
 the search needs no owner tracking. -/
 theorem separated_of_injective {size : Nat} (p : Problem size)
@@ -332,9 +324,9 @@ theorem ranked_head {size : Nat} (p : Problem size)
     simp only [decide_eq_true_eq]
     omega
   have length : score bits ≤ size := by
-    have := score_le_length bits
-    simp only [hbits, eligibleBits, List.length_map, List.length_finRange] at this
-    exact this
+    have hl : bits.length = size := by simp [hbits, eligibleBits]
+    rw [← decode_score p (List.finRange size) bits (by simpa using hl), decode_plan p bits hl]
+    simpa using Policy.score_le_length (plan p (mask bits))
   unfold ranked
   rw [Policy.head_ranks nonempty above size length]
   exact own

@@ -2,15 +2,13 @@ import Heap.Defs
 import Mathlib.Logic.Relation
 
 /-!
-# Reachability and surface equivalence
+# Edges and surface equivalence
 
-Defines the edge relation from heap payloads, `Reachable` via `Relation.ReflTransGen`, and
-`SurfaceEq`, by which `Heap.Publication` compares a published heap with its source.
+Defines the edge relation from heap payloads and `SurfaceEq`, by which `Heap.Publication`
+compares a published heap with its source.
 -/
 
 namespace Reconcile
-
-open Relation
 
 /-! ## Edge relation -/
 
@@ -18,10 +16,6 @@ open Relation
     reference to `b`. -/
 def edge {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) (a b : ι) : Prop :=
   ∃ node, h.lookup a = some node ∧ b ∈ node.childRefs
-
-/-- Reachability in a heap via reflexive-transitive closure of `edge`. -/
-def Reachable {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) : ι → ι → Prop :=
-  ReflTransGen (edge h)
 
 /-! ## Surface equivalence -/
 

@@ -158,27 +158,6 @@ def schedule (deps : Dependencies) (retained : Finset Nat) (nodes : List Nat) : 
   let pending := fresh.filter fun node => !(deps node).isEmpty
   (waves deps nodes.length (retained ∪ shells.toFinset) pending).map (shells ++ ·)
 
-/-- When no fresh node has construction inputs, every fresh node is a shell and the order is
-the fresh nodes in their given order. -/
-theorem schedule_shells_only {deps : Dependencies} {retained : Finset Nat} {nodes : List Nat}
-    (shells : ∀ node ∈ nodes, node ∉ retained → deps node = []) :
-    schedule deps retained nodes = some (nodes.filter fun node => decide (node ∉ retained)) := by
-  have pending : (nodes.filter fun node => decide (node ∉ retained)).filter
-      (fun node => !(deps node).isEmpty) = [] := by
-    rw [List.filter_eq_nil_iff]
-    intro node member
-    obtain ⟨inNodes, fresh⟩ := List.mem_filter.mp member
-    simp [shells node inNodes (by simpa using fresh)]
-  have all : (nodes.filter fun node => decide (node ∉ retained)).filter
-      (fun node => (deps node).isEmpty) = nodes.filter fun node => decide (node ∉ retained) := by
-    rw [List.filter_eq_self]
-    intro node member
-    obtain ⟨inNodes, fresh⟩ := List.mem_filter.mp member
-    simp [shells node inNodes (by simpa using fresh)]
-  unfold schedule
-  simp only [pending, all]
-  cases nodes.length <;> simp [waves]
-
 theorem waves_nil {deps : Dependencies} {fuel : Nat} {known : Finset Nat} :
     waves deps fuel known [] = some [] := by
   cases fuel <;> rfl
@@ -234,6 +213,21 @@ theorem schedule_flat {deps : Dependencies} {retained : Finset Nat} {nodes : Lis
   have last := waves_all_ready bound allReady
   simp only [schedule, flatSchedule]
   exact congrArg (Option.map (shells ++ ·)) last
+
+/-- When no fresh node has construction inputs, every fresh node is a shell and the order is
+the fresh nodes in their given order. -/
+theorem schedule_shells_only {deps : Dependencies} {retained : Finset Nat} {nodes : List Nat}
+    (shells : ∀ node ∈ nodes, node ∉ retained → deps node = []) :
+    schedule deps retained nodes = some (nodes.filter fun node => decide (node ∉ retained)) := by
+  rw [schedule_flat fun node hn hr d hd => by simp [shells node hn hr] at hd, flatSchedule]
+  set fresh := nodes.filter fun node => decide (node ∉ retained)
+  have empty (node) (hn : node ∈ fresh) : (deps node).isEmpty = true := by
+    obtain ⟨hm, hf⟩ := List.mem_filter.mp hn
+    simp [shells node hm (by simpa using hf)]
+  have all : fresh.filter (fun node => (deps node).isEmpty) = fresh := List.filter_eq_self.mpr empty
+  have none : fresh.filter (fun node => !(deps node).isEmpty) = [] :=
+    List.filter_eq_nil_iff.mpr fun n hn => by simp [empty n hn]
+  simp only [all, none, List.append_nil]
 
 /-- A plan retaining every node constructs nothing: its order is empty, so publication allocates
 and writes nothing and each node keeps its own target. -/

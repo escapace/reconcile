@@ -10,10 +10,6 @@ open RequirementAdmission RequirementPropagation OnlineRequirements
 
 abbrev Renaming := Nat ≃ Nat
 
-theorem membership (names : Renaming) (known : Finset Nat) (fact : Nat) :
-    names fact ∈ known.image names ↔ fact ∈ known := by
-  simp [Finset.mem_image]
-
 theorem list_set (names : Renaming) (facts : List Nat) :
     (facts.map names).toFinset = facts.toFinset.image names := by
   ext fact
@@ -26,7 +22,7 @@ theorem admission (names : Renaming) (known : Finset Nat) (facts : List Nat) :
   | cons head rest ih =>
     by_cases present : head ∈ known
     · simp [admit, present, ih]
-    · simpa [admit, membership, present, Finset.image_insert] using
+    · simpa [admit, names.injective.mem_finset_image, present, Finset.image_insert] using
         congrArg (List.cons (names head)) (ih (insert head known))
 
 def graph (names : Renaming) (edges : Graph) : Graph :=
@@ -62,17 +58,13 @@ theorem run_eq (names : Renaming) (edges : Graph) (fuel : Nat) (work : State) :
       rw [← step_eq]
       exact ih _
 
-theorem append_eq (names : Renaming) (row : List Nat) (fact : Nat) :
-    (appendUnique row fact).map names = appendUnique (row.map names) (names fact) := by
-  by_cases present : fact ∈ row <;> simp [appendUnique, present]
-
 theorem graph_add (names : Renaming) (edges : Graph) (source target : Nat) :
     graph names (add edges source target) =
       add (graph names edges) (names source) (names target) := by
   funext fact
   by_cases equal : fact = names source
   · subst fact
-    simp [graph, add, append_eq]
+    simp [graph, add]
   · have inverse : names.symm fact ≠ source := by
       intro same
       apply equal
@@ -94,8 +86,8 @@ def event (names : Renaming) : Event → Event
   | .imply source target => .imply (names source) (names target)
 
 theorem event_eq (names : Renaming) (fuel : Nat) (current : Online) (input : Event) :
-    online names (eventStep false fuel current input) =
-      eventStep false fuel (online names current) (event names input) := by
+    online names (eventStep fuel current input) =
+      eventStep fuel (online names current) (event names input) := by
   cases input with
   | require fact => exact expand_eq names fuel current fact
   | imply source target =>
@@ -104,11 +96,12 @@ theorem event_eq (names : Renaming) (fuel : Nat) (current : Online) (input : Eve
           graph := add (graph names current.graph) (names source) (names target) } := by
       simp [online, graph_add]
     by_cases active : source ∈ current.known
-    · have mapped : names source ∈ (online names current).known := (membership _ _ _).mpr active
+    · have mapped : names source ∈ (online names current).known :=
+        names.injective.mem_finset_image.mpr active
       simpa [eventStep, event, active, mapped, edges] using
         expand_eq names fuel { current with graph := add current.graph source target } target
     · have mapped : names source ∉ (online names current).known :=
-        fun member => active ((membership _ _ _).mp member)
+        fun member => active (names.injective.mem_finset_image.mp member)
       simpa [eventStep, event, active, mapped] using edges
 
 /-- Membership queries have no closure effect, even when the native interner first sees a key. -/
@@ -123,7 +116,7 @@ def action (names : Renaming) : Action → Action
 
 def execute (fuel : Nat) (current : Online) : Action → Option Bool × Online
   | .query fact => (some (decide (fact ∈ current.known)), current)
-  | .update input => (none, eventStep false fuel current input)
+  | .update input => (none, eventStep fuel current input)
 
 theorem execute_eq (names : Renaming) (fuel : Nat) (current : Online) (input : Action) :
     execute fuel (online names current) (action names input) =

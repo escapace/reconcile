@@ -160,6 +160,92 @@ theorem run_drains (successors : Nat → List Nat) (initial vertices : Finset Na
         dsimp at enough
         omega
 
+theorem run_invariant (successors : Nat → List Nat) (initial : Finset Nat) (fuel : Nat)
+    (state : State) (h : Invariant initial state) :
+    Invariant initial (run successors fuel state) := by
+  induction fuel generalizing state with
+  | zero => exact h
+  | succ fuel ih =>
+    rcases state with ⟨processed, pending, admitted⟩
+    cases pending with
+    | nil => exact h
+    | cons head rest =>
+      exact ih _ (step_invariant successors initial processed head rest admitted h)
+
+/-- `run` only adds admitted facts. -/
+theorem run_admitted_mono (successors : Nat → List Nat) (fuel : Nat) (state : State) :
+    state.admitted ⊆ (run successors fuel state).admitted := by
+  induction fuel generalizing state with
+  | zero => exact Finset.Subset.refl _
+  | succ fuel ih =>
+    rcases state with ⟨processed, pending, admitted⟩
+    cases pending with
+    | nil => exact Finset.Subset.refl _
+    | cons head rest =>
+      exact Finset.subset_union_left.trans (ih (step successors processed head rest admitted))
+
+/-- Every processed fact has its successors admitted. -/
+theorem run_expanded (successors : Nat → List Nat) (fuel : Nat) (state : State)
+    (h : ∀ fact ∈ state.processed, ∀ next ∈ successors fact, next ∈ state.admitted) :
+    ∀ fact ∈ (run successors fuel state).processed, ∀ next ∈ successors fact,
+      next ∈ (run successors fuel state).admitted := by
+  induction fuel generalizing state with
+  | zero => exact h
+  | succ fuel ih =>
+    rcases state with ⟨processed, pending, admitted⟩
+    cases pending with
+    | nil => exact h
+    | cons head rest =>
+      apply ih
+      intro fact hf next hn
+      simp only [step, List.mem_append, List.mem_singleton] at hf ⊢
+      rcases hf with hf | rfl
+      · exact Finset.mem_union_left _ (h fact hf next hn)
+      · exact Finset.mem_union_right _ (List.mem_toFinset.mpr hn)
+
+/-- A property of the pending and admitted facts that passes from each fact to its successors
+holds for every fact `run` admits. -/
+theorem run_admitted_closed (successors : Nat → List Nat) (holds : Nat → Prop)
+    (closed : ∀ fact, holds fact → ∀ next ∈ successors fact, holds next)
+    (fuel : Nat) (state : State) (pending : ∀ fact ∈ state.pending, holds fact)
+    (admitted : ∀ fact ∈ state.admitted, holds fact) :
+    ∀ fact ∈ (run successors fuel state).admitted, holds fact := by
+  induction fuel generalizing state with
+  | zero => exact admitted
+  | succ fuel ih =>
+    rcases state with ⟨processed, pending', admitted'⟩
+    cases pending' with
+    | nil => exact admitted
+    | cons head rest =>
+      have hh : holds head := pending head List.mem_cons_self
+      apply ih
+      · intro fact hf
+        rcases List.mem_append.mp hf with hf | hf
+        · exact pending fact (List.mem_cons_of_mem head hf)
+        · exact closed head hh fact ((admit_mem _ _ _).mp hf).1
+      · intro fact hf
+        rcases Finset.mem_union.mp hf with hf | hf
+        · exact admitted fact hf
+        · exact closed head hh fact (List.mem_toFinset.mp hf)
+
+/-- A drained run from `start initial seeds` admits a set closed under `successors` when every
+initial fact's successors are initial facts or seeds. -/
+theorem run_closed (successors : Nat → List Nat) (initial : Finset Nat) (seeds : List Nat)
+    (fuel : Nat)
+    (base : ∀ fact ∈ initial, ∀ next ∈ successors fact, next ∈ initial ∨ next ∈ seeds)
+    (drained : (run successors fuel (start initial seeds)).pending = []) :
+    ∀ fact ∈ (run successors fuel (start initial seeds)).admitted, ∀ next ∈ successors fact,
+      next ∈ (run successors fuel (start initial seeds)).admitted := by
+  intro fact hf next hn
+  have sets := (run_invariant successors initial fuel _ (start_invariant initial seeds)).2
+  rw [sets, drained, List.append_nil] at hf
+  rcases Finset.mem_union.mp hf with hi | hp
+  · apply run_admitted_mono successors fuel (start initial seeds)
+    simp only [start, Finset.mem_union, List.mem_toFinset]
+    exact base fact hi next hn
+  · exact run_expanded successors fuel (start initial seeds) (by simp [start]) fact
+      (List.mem_toFinset.mp hp) next hn
+
 /-- New Set insertions during expansion; seed insertions happen before this log. -/
 def insertionTrace (successors : Nat → List Nat) : Nat → Finset Nat → List Nat → List Nat
   | 0, _, _ => []

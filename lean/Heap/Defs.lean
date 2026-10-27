@@ -6,8 +6,9 @@ import Mathlib.Data.List.Pairwise
 /-!
 # Heap model
 
-Proof-facing definitions of the finite heaps that publication (`Heap.Publication`), reuse
-selection (`Heap.ReuseClosure`, `Produce.Immutable`) and the Contract oracle are stated over.
+Proof-facing definitions of the finite heaps that publication (`Heap.Publication`), immutable
+reuse (`Produce.Immutable`) and the Contract oracle are stated over. The graphs of the public
+functions are modeled separately, by `Spec.Graph`.
 
 Node kinds: plain objects, arrays, dates, maps, sets, array buffers, data views and typed arrays.
 The modeled surface:
@@ -33,14 +34,15 @@ The heap model leaves out:
 
 Representation:
 
+- a heap is a `Finmap` from identities to nodes
 - arrays are index-only with holes (`List (Option (Value A ι))`)
-- plain objects are ordered exact-key records (`AList`)
+- plain-object fields are an ordered list of key-value pairs (`ObjFields`), not required to have
+  distinct keys; the publication theorems do not need them to
 - maps and sets are ordinal sequences (`List`-based)
 - buffers and views are separate node kinds
-- `Finmap` for heaps
-- `AList` for ordered plain-object fields
-- `Relation.ReflTransGen` for reachability
-- subtypes used sparingly, with separate well-formedness predicates preferred
+- a typed array's `elements` may hold references, which JavaScript does not allow; the theorems
+  hold for any elements
+- well-formedness (`NodeWF`, `HeapWF`, `RootWF`) is a separate predicate, not a subtype
 -/
 
 namespace Reconcile
@@ -73,11 +75,10 @@ structure CtorTag where
   val : Nat
 deriving DecidableEq, Repr
 
-/-! ## Object fields (ordered, duplicate-free) -/
+/-! ## Object fields -/
 
-/-- Plain-object fields as an ordered sigma list keyed by PropertyKey.
-    NodupKeys is enforced by a separate WF predicate, not a subtype,
-    following the plan's guidance to use subtypes sparingly. -/
+/-- Plain-object fields as an ordered sigma list keyed by `PropertyKey`. The keys need not be
+    distinct. -/
 abbrev ObjFields (A : Type) (ι : Type) :=
   List (Sigma (fun _ : PropertyKey => Value A ι))
 
@@ -86,8 +87,7 @@ abbrev ObjFields (A : Type) (ι : Type) :=
 /-- A node in the semantic heap graph. Each constructor corresponds to one
     supported kind from the specification. -/
 inductive Node (A : Type) (ι : Type) where
-  /-- Plain object: prototype label, ordered fields (raw list;
-      NodupKeys is a separate WF condition). -/
+  /-- Plain object: prototype label and ordered fields. -/
   | plainObject (proto : ProtoLabel) (fields : ObjFields A ι)
   /-- Array with holes. Index i holds `entries[i]`; `none` = hole. -/
   | array (entries : List (Option (Value A ι)))
@@ -101,55 +101,10 @@ inductive Node (A : Type) (ι : Type) where
   | arrayBuffer (bytes : List UInt8)
   /-- DataView over a buffer. -/
   | dataView (bufferRef : ι) (byteOffset : Nat) (byteLength : Nat)
-  /-- TypedArray over a buffer. -/
+  /-- TypedArray over a buffer. Its `elements` may hold references, unlike JavaScript's. -/
   | typedArray (ctorTag : CtorTag) (bufferRef : ι) (byteOffset : Nat)
       (length : Nat) (elements : List (Value A ι))
 deriving DecidableEq
-
-/-! ## Node kind -/
-
-/-- The kind tag for a node, used for kind-compatibility checks. -/
-inductive NodeKind where
-  | plainObject
-  | array
-  | date
-  | map
-  | set
-  | arrayBuffer
-  | dataView
-  | typedArray
-deriving DecidableEq, Repr
-
-/-- Extract the kind tag from a node. -/
-def Node.kind {A : Type} {ι : Type} : Node A ι → NodeKind
-  | .plainObject .. => .plainObject
-  | .array ..       => .array
-  | .date ..        => .date
-  | .map ..         => .map
-  | .set ..         => .set
-  | .arrayBuffer .. => .arrayBuffer
-  | .dataView ..    => .dataView
-  | .typedArray ..  => .typedArray
-
-variable {A : Type} {ι : Type}
-
-@[simp] theorem Node.kind_plainObject {p : ProtoLabel} {f : ObjFields A ι} :
-    (Node.plainObject p f).kind = .plainObject := rfl
-@[simp] theorem Node.kind_array {e : List (Option (Value A ι))} :
-    (Node.array e).kind = .array := rfl
-@[simp] theorem Node.kind_date {m : Int} :
-    (Node.date m : Node A ι).kind = .date := rfl
-@[simp] theorem Node.kind_map {e : List (Value A ι × Value A ι)} :
-    (Node.map e).kind = .map := rfl
-@[simp] theorem Node.kind_set {v : List (Value A ι)} :
-    (Node.set v).kind = .set := rfl
-@[simp] theorem Node.kind_arrayBuffer {b : List UInt8} :
-    (Node.arrayBuffer b : Node A ι).kind = .arrayBuffer := rfl
-@[simp] theorem Node.kind_dataView {r : ι} {o l : Nat} :
-    (Node.dataView r o l : Node A ι).kind = .dataView := rfl
-@[simp] theorem Node.kind_typedArray {t : CtorTag} {r : ι} {o l : Nat}
-    {e : List (Value A ι)} :
-    (Node.typedArray t r o l e).kind = .typedArray := rfl
 
 /-! ## Heap -/
 
