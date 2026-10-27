@@ -67,15 +67,18 @@ import { publicationTypes } from './types/builtins'
  * An object in `next` that is already the object at the same property or index of the matched
  * current object stays in place: `reconcile` reads its contents as part of `next` and does not
  * change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects
- * inside it stay where they are unless `next` places them elsewhere, and the final state is the
- * same as if it had been updated. This does not apply to an object that refers to `current` or
- * `next` at any depth, to an object that `next` holds first, in the order `reconcile` reads `next`,
- * at a position where it is not already in place, or to a key, value or member of a `Map` or `Set`
- * that is not itself already in place, or anything inside one; such an object is updated like any
- * other. `reconcile` can still run the getters of an object already in place more than once, as
- * part of `next` or of `current`. It does so when `current` or `next` also holds the object, or an
- * object that contains it, at another position, including in a `Map` or `Set`, or when the object
- * is inside an object of `next` that refers to `current` or `next`.
+ * inside an object already in place stay too. Wherever else `next` places an object that stays,
+ * `current` holds that object itself, ahead of the rules above for one object at two positions;
+ * `current` ends with the same contents either way. An object does not stay when it refers to
+ * `current` or `next` at any depth, or when `next` holds it first, in the order `reconcile` reads
+ * `next`, at a position where it is not already in place, such as a key, value or member of a
+ * `Map` or `Set` that is not itself already in place, unless it is also inside another object that
+ * stays. Such an object is updated like any other.
+ *
+ * `reconcile` usually runs each getter of an object already in place once, as part of `next`. It
+ * can run a getter more than once, as part of `next` or of `current`, when `current` or `next`
+ * also holds the object, or an object that contains it, at another position, including in a `Map`
+ * or `Set`, or when the object is inside an object of `next` that refers to `current` or `next`.
  *
  * @example
  * ```ts
