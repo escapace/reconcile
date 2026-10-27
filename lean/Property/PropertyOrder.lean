@@ -12,7 +12,20 @@ inductive Key where
   | index : Nat → Key
   | name : Nat → Key
   | symbol : Nat → Key
-  deriving DecidableEq, BEq, Repr
+  deriving DecidableEq, Repr
+
+/-- The three sectors of own keys: integer keys, names and symbols. -/
+def isIndex : Key → Bool
+  | .index _ => true
+  | _ => false
+
+def isName : Key → Bool
+  | .name _ => true
+  | _ => false
+
+def isSymbol : Key → Bool
+  | .symbol _ => true
+  | _ => false
 
 structure Cursor where
   names : List Key

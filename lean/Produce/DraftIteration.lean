@@ -1,4 +1,5 @@
 import Mathlib.Data.List.Nodup
+import Types.MapEntries
 
 /-!
 # Draft iteration
@@ -10,12 +11,15 @@ the iteration sees exactly the draft's contents. Making the copy is not a change
 that changes nothing leaves the result the original, which `produce` keeps whenever the entries
 end up equal to the original's.
 
-Entries are an insertion-ordered list of key and value pairs. A `Set` is the case where each
-value is its key. A `Set` method that returns a set, such as `union`, gives each object member of
-the draft as its draft (`DraftSetMethods`).
+Entries are an insertion-ordered list of key and value pairs, which the built-in `set` and
+`delete` change (`Types.MapEntries`). A `Set` is the case where each value is its key. A `Set`
+method that returns a set, such as `union`, gives each object member of the draft as its draft
+(`DraftSetMethods`).
 -/
 
 namespace Reconcile.DraftIteration
+
+open Reconcile.Types
 
 /-- A draft: the original entries, the working copy once made, and whether a write changed it. -/
 structure Draft where
@@ -30,23 +34,14 @@ def source (d : Draft) : List (Nat × Nat) := d.copy.getD d.base
 /-- Makes the working copy if there is none. -/
 def prepare (d : Draft) : Draft := { d with copy := some (source d) }
 
-/-- Native `Map.prototype.set`: replaces the value in place or appends a new entry. -/
-def setEntry (k v : Nat) (entries : List (Nat × Nat)) : List (Nat × Nat) :=
-  if entries.any (·.1 == k) then entries.map fun e => if e.1 == k then (k, v) else e
-  else entries ++ [(k, v)]
-
-/-- Native `Map.prototype.delete`. -/
-def deleteEntry (k : Nat) (entries : List (Nat × Nat)) : List (Nat × Nat) :=
-  entries.filter (·.1 != k)
-
 /-- A draft write: an equal value or a missing key changes nothing; otherwise the copy changes. -/
 def set (k v : Nat) (d : Draft) : Draft :=
   if (k, v) ∈ source d then d
-  else let p := prepare d; { p with copy := some (setEntry k v (source p)), modified := true }
+  else let p := prepare d; { p with copy := some (MapEntries.put k v (source p)), modified := true }
 
 def delete (k : Nat) (d : Draft) : Draft :=
   if (source d).any (·.1 == k) then
-    let p := prepare d; { p with copy := some (deleteEntry k (source p)), modified := true }
+    let p := prepare d; { p with copy := some (MapEntries.remove k (source p)), modified := true }
   else d
 
 /-- Starting an iteration makes the working copy and walks it. -/
@@ -76,7 +71,7 @@ the write replaces it in place, as a native `Map` would change during its own it
 theorem write_after_iterate (d : Draft) (k v : Nat) :
     ((iterate d).1.copy).isSome ∧
       (set k v (iterate d).1).copy =
-        if (k, v) ∈ source d then some (source d) else some (setEntry k v (source d)) := by
+        if (k, v) ∈ source d then some (source d) else some (MapEntries.put k v (source d)) := by
   constructor
   · simp [iterate, prepare]
   · change (set k v (prepare d)).copy = _

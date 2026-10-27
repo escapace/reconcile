@@ -256,19 +256,22 @@ theorem acceptsRetry_readsAs (env : Env V) (keys : List (SeenKey V))
 
 /-! ## Native contents
 
-A `Map`'s or `Set`'s entries are published by `CollectionPlan`. A `Date`'s time, a buffer's bytes,
-a Temporal value and a `URL`'s or `URLSearchParams`'s text are compared whole, with the same
-built-in reads at publication and at readback; that both compare alike is a runtime obligation, not
-modelled here. -/
+A `Map`'s or `Set`'s entries are published by `CollectionPlan.publish`, the runtime's walk, whose
+`unchanged` flag the engine reads. A `Date`'s time, a buffer's bytes, a Temporal value and a
+`URL`'s or `URLSearchParams`'s text are compared whole, with the same built-in reads at publication
+and at readback; that both compare alike is a runtime obligation, not modelled here. -/
 
-/-- A collection publication that left the entries as they were reached the next entries
-(`CollectionPlan.plan_eq`), so readback, which compares them with the next entries, accepts. -/
-theorem collection_writeFree_matches {α β : Type} [DecidableEq α] (cur next : List (α × β))
-    (p : Nat) (hc : (CollectionPlan.keys cur).Nodup) (hn : (CollectionPlan.keys next).Nodup)
-    (hp : CollectionPlan.keys (cur.take p) = CollectionPlan.keys (next.take p))
-    (h : CollectionPlan.plan cur next p = cur) : cur = next := by
-  rw [← h]
-  exact CollectionPlan.plan_eq cur next p hc hn hp
+/-- A collection publication that reports `unchanged` wrote nothing, and the entries readback
+would read are the next ones (`CollectionPlan.unchanged_iff_writes`,
+`CollectionPlan.unchanged_iff`): readback, which compares them with the next entries, accepts. -/
+theorem collection_writeFree_matches {α β : Type} [DecidableEq α] [DecidableEq β]
+    (cur next : List (α × β)) (h : (CollectionPlan.publish cur next).unchanged = true) :
+    (CollectionPlan.publish cur next).writes = [] ∧
+      CollectionPlan.applyAll cur (CollectionPlan.publish cur next).writes = next := by
+  have hw := (CollectionPlan.unchanged_iff_writes cur next).mp h
+  refine ⟨hw, ?_⟩
+  rw [hw]
+  exact (CollectionPlan.unchanged_iff cur next).mp h
 
 /-! ## Examples and counterexamples -/
 

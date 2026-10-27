@@ -8,11 +8,13 @@ import { publicationTypes } from '../src/types/builtins'
 import { OBJECT_KIND } from '../src/types/object'
 import {
   attempt,
+  branded,
   level,
   ranked,
   tails as recognitionTails,
   thrown,
   type Reads,
+  type View,
 } from './check-recognition-plain-runtime'
 
 /** The real chains of `IngressOracle.tails`, from the first prototype to `null`, in its order:
@@ -38,11 +40,16 @@ function custom(depth: number, tail: number, reads: Reads): object | null {
   return prototype
 }
 
+/** The typed array an object is, if any: a `Uint8Array` over a buffer whose prototype is `null`
+ * when `foreign` and whose prototype's prototype read throws when `raises`. */
+type Brand = Omit<View, 'typed'>
+
 /** An object behind `depth` custom prototypes; with none, its own read throws on the throwing
  * tail. A branded object is a `Uint8Array`, which a proxy would lose. */
-function build(depth: number, tail: number, brand: boolean, reads: Reads): object {
+function build(depth: number, tail: number, view: Brand, reads: Reads): object {
   const prototype = custom(depth, tail, reads)
-  if (brand) return Object.setPrototypeOf(new Uint8Array(1), prototype) as object
+  if (view.brand)
+    return Object.setPrototypeOf(branded({ ...view, typed: true }), prototype) as object
   return level(prototype, () => (reads.own += 1), depth === 0 && tail === RAISING_TAIL)
 }
 
@@ -51,11 +58,11 @@ function build(depth: number, tail: number, brand: boolean, reads: Reads): objec
 function ingress(
   depth: number,
   tail: number,
-  brand: boolean,
+  view: Brand,
   read: PrototypeRead | undefined,
 ): { kind: unknown; reads: Reads } {
   const reads = { count: 0, own: 0 }
-  const value = build(depth, tail, brand, reads)
+  const value = build(depth, tail, view, reads)
   return { kind: attempt(() => recognize(publicationTypes, value, read)), reads }
 }
 
@@ -72,14 +79,17 @@ function expectedKind(row: Record<string, unknown>): unknown {
 function checkRow(row: Record<string, unknown>): boolean {
   const depth = integerIn(row.depth, 0, 2)
   const tail = integerIn(row.tail, 0, tails.length - 1)
-  assert.ok(typeof row.brand === 'boolean')
-  const shared = ingress(depth, tail, row.brand, { known: false, prototype: null })
-  const separate = ingress(depth, tail, row.brand, undefined)
+  const { brand, bufferRaises: raises, foreign } = row
+  assert.ok(typeof brand === 'boolean' && typeof foreign === 'boolean')
+  assert.ok(typeof raises === 'boolean' && (brand || (!foreign && !raises)))
+  const view = { brand, foreign, raises }
+  const shared = ingress(depth, tail, view, { known: false, prototype: null })
+  const separate = ingress(depth, tail, view, undefined)
   const kind = expectedKind(row)
   assert.equal(shared.kind, kind, 'kind with the prototype read shared')
   assert.equal(separate.kind, kind, 'kind with a separate atom split')
   // A branded object cannot be proxied, so only a proxied object reports its own reads.
-  if (!row.brand) {
+  if (!brand) {
     assert.equal(shared.reads.own, integerIn(row.shared, 0, 2), 'own reads, shared')
     assert.equal(separate.reads.own, integerIn(row.separate, 0, 2), 'own reads, separate')
   }
@@ -91,9 +101,9 @@ function checkRow(row: Record<string, unknown>): boolean {
 /** Compares shared-read ingress with Lean's `Types.Ingress.ingress`. */
 export async function checkIngressRuntime(oracle: Oracle): Promise<void> {
   checkRealChains(tails)
-  // 16 tails behind zero to two custom prototypes, with and without a view brand; a branded
-  // object cannot throw on its own read.
-  const rows = await oracleCorpus(oracle, 'Ingress', 95, 64 * 1024)
+  // 16 tails behind zero to two custom prototypes, without a view brand and as a typed array over
+  // a recognized, a foreign and a raising buffer; a branded object cannot throw on its own read.
+  const rows = await oracleCorpus(oracle, 'Ingress', 189, 128 * 1024)
   let saved = 0
   for (const line of rows) if (checkRow(jsonObject(JSON.parse(line)))) saved += 1
   console.log(

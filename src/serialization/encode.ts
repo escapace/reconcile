@@ -55,7 +55,7 @@ function enter(value: unknown, context: EncodeContext): unknown[] | undefined {
   return undefined
 }
 // Positional.lean renumber_first_use: interning the provisional ids in node order yields the
-// first-use layout table.
+// first-use layout table; ShapeRadix.lean radix_renumber: the trie's ids meet its premise.
 function renumber(context: EncodeContext): number[][] {
   const { descriptors, layouts: provisional } = context
   const order = filledArray(provisional.length, -1)

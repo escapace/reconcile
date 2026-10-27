@@ -116,8 +116,9 @@ export function collectionSurface(
       // The current entries that form, in order, the longest prefix of next's entries keep their
       // place, a Map entry among them taking its next value; every other current entry is
       // deleted, and the next entries past that prefix are added in order. Deleting and adding
-      // an entry appends it, so this reaches next's order with the fewest moves
-      // (Spec.Reconcile.collectionWrites, retainPrefix_longest).
+      // an entry appends it, so this reaches next's order with the fewest moves, writing what
+      // the reference writes (CollectionPlan.publish_result, publish_retained,
+      // publish_entryWrites; Spec.Reconcile.retainPrefix_longest).
       let unchanged = true
       let position = 0
       for (let index = 0; index < count; index += 1) {
@@ -142,8 +143,8 @@ export function collectionSurface(
         )
         unchanged = false
       }
-      // Every entry in place with its value: readback would accept
-      // (WriteFreeReadback.collection_writeFree_matches).
+      // Unchanged exactly when every entry was in place with its value: readback would accept
+      // (CollectionPlan.unchanged_iff, WriteFreeReadback.collection_writeFree_matches).
       if (note !== undefined) note.unchanged = unchanged
       return true
     },

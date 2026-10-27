@@ -100,7 +100,7 @@ recipe's assignments and deletions are `KeyOrder`'s operations on it. -/
 
 section SymbolKeys
 
-open Reconcile.PropertyOrder Reconcile.PropertyPlacement Reconcile.KeyOrder
+open Reconcile.PropertyOrder Reconcile.KeyOrder
 
 /-- Whether a key list ends in a symbol. -/
 def lastSymbol (keys : List Key) : Bool := (keys.getLast?.map isSymbol).getD false

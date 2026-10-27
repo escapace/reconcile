@@ -3,9 +3,11 @@ import Oracle.RecognitionPlainOracle
 import Lean
 
 /-! Oracle for the `Ingress` family: recognizes every built-in and listed prototype tail behind up
-to two custom prototypes, with and without a typed-array brand, and behind a custom prototype whose
-prototype read throws, with `Types.Ingress.ingress`. Each row reports the outcome and the reads of
-the object itself with the prototype read shared and with a separate atom split. -/
+to two custom prototypes, without a typed-array brand and as a typed array over a recognized
+buffer, over one whose prototype was replaced and over one whose prototype's read throws, and
+behind a custom prototype whose prototype read throws, with `Types.Ingress.ingress`. Each row
+reports the outcome and the reads of the object itself with the prototype read shared and with a
+separate atom split. -/
 
 namespace Reconcile.IngressOracle
 
@@ -37,6 +39,8 @@ private structure Observation where
   depth : Nat
   tail : Nat
   brand : Bool
+  foreign : Bool
+  bufferRaises : Bool
   outcome : String
   rank : Nat
   shared : Nat
@@ -50,20 +54,25 @@ private def describe : Option Atoms.Ingress → String × Nat
   | none => ("raised", 0)
 
 def run : IO Unit := do
+  -- The typed-array brand, whether the buffer is foreign and whether its chain raises: no view,
+  -- then a typed array over a recognized, a foreign and a raising buffer.
+  let views := [(false, false, false), (true, false, false), (true, true, false),
+    (true, false, true)]
   let cases := (List.range 3).flatMap fun depth => (List.range tails.length).flatMap fun tail =>
-    ([false, true].filter fun brand => !(brand && depth = 0 && tail = raisingTail)).map
-      (depth, tail, ·)
+    (views.filter fun (brand, _, _) => !(brand && depth = 0 && tail = raisingTail)).map
+      fun (brand, foreign, bufferRaises) => (depth, tail, brand, foreign, bufferRaises)
   IO.println cases.length
-  for (depth, tail, brand) in cases do
+  for (depth, tail, brand, foreign, bufferRaises) in cases do
     let chain : Chain := {
       protos := (List.range depth).map (fun l => ⟨.data (100 + l), .other (100 + l)⟩) ++
         tails.getD tail []
       raises := tail = raisingTail }
     let targets := RecognitionPlainOracle.targets
-    let (outcome, rank) := describe (ingress .miss chain brand targets)
+    let b := RecognitionPlainOracle.buffer foreign bufferRaises
+    let (outcome, rank) := describe (ingress .miss chain brand b targets)
     IO.println (toJson ({
-      depth, tail, brand, outcome, rank
-      shared := ownReads true .miss chain brand targets
-      separate := ownReads false .miss chain brand targets } : Observation)).compress
+      depth, tail, brand, foreign, bufferRaises, outcome, rank
+      shared := ownReads true .miss chain brand b targets
+      separate := ownReads false .miss chain brand b targets } : Observation)).compress
 
 end Reconcile.IngressOracle

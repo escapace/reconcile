@@ -7,8 +7,9 @@ publication does: it keeps a current key when it is the next desired key not yet
 is a prefix of the desired order (`matched_prefix`), a subsequence of the current order
 (`matched_sublist`), and the longest such prefix (`matched_maximal`).
 
-`PropertyPlacement` places own keys with it, and `Spec.Reconcile.retainPrefix` is it, for keys and
-for entries. This module uses only core lemmas, so the reference models the oracle runs can import
+`PropertyPlacement` places own keys with it, `CollectionPlan.publish` keeps a `Map`'s or `Set`'s
+entries by it (`publish_retained`), and `Spec.Reconcile.retainPrefix` is it, for keys and for
+entries. This module uses only core lemmas, so the reference models the oracle runs can import
 it. -/
 namespace Reconcile.PropertyPlacement
 

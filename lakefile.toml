@@ -68,6 +68,7 @@ roots = [
   "Types.CopyPrototype",
   "Oracle.CopyPrototypeOracle",
   "Graph.GraphPolicy",
+  "Types.MapEntries",
   "Graph.CollectionPlan",
   "Graph.Construction",
   "Types.NativeWrites",

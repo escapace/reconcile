@@ -37,21 +37,21 @@ def recognition (c : Chain) : RecognitionPlain.Chain := ⟨c.protos.map (·.reco
 /-- Recognition, then the atom split of the fallback rank 10 (`Atoms.ingress`): a structural
 rank, the plain-object kind or an atom, or `none` when a prototype read raised. The split takes
 the chain as input, so it decides the same whether it reads the prototype again or not. A branded
-object is a typed array over a buffer the environment recognizes. -/
+object is a typed array over a buffer whose chain is `b`, which recognition walks
+(`RecognitionPlain.bufferOutcome`) and which can raise. -/
 def ingress (isArray : RecognitionPlain.ProbeOutcome) (c : Chain) (brand : Bool)
-    (ts : RecognitionPlain.Targets) : Option Atoms.Ingress :=
+    (b : RecognitionPlain.Chain) (ts : RecognitionPlain.Targets) : Option Atoms.Ingress :=
   match RecognitionPlain.outcome
-      (RecognitionPlain.recognize 10 isArray (recognition c) brand brand
-        RecognitionPlain.localBuffer ts) with
+      (RecognitionPlain.recognize 10 isArray (recognition c) brand brand b ts) with
   | (some rank, _) => some (Atoms.ingress 10 rank (atoms c))
   | (none, _) => none
 
 /-- Reads of the object itself: recognition's one read, and for the plain-object fallback of an
 object that is not an array, the atom split's own read unless it is shared. -/
 def ownReads (shared : Bool) (isArray : RecognitionPlain.ProbeOutcome) (c : Chain) (brand : Bool)
-    (ts : RecognitionPlain.Targets) : Nat :=
+    (b : RecognitionPlain.Chain) (ts : RecognitionPlain.Targets) : Nat :=
   if isArray = .hit then 0
-  else 1 + (if !shared && ingress isArray c brand ts ∈ [some .object, some .atom] then 1 else 0)
+  else 1 + (if !shared && ingress isArray c brand b ts ∈ [some .object, some .atom] then 1 else 0)
 
 /-- The atom split's reads of prototypes after the object's own: the walk `Atoms.classify`
 makes past its first read. -/
@@ -61,10 +61,10 @@ def walkReads (c : Chain) : Nat := (Atoms.classify (atoms c)).2 - 1
 fallback. The walk over its prototypes is the same either way. This restates `ownReads`, which
 counts the reads by definition; the Ingress bridge counts the runtime's. -/
 theorem ownReads_shared (isArray : RecognitionPlain.ProbeOutcome) (c : Chain) (brand : Bool)
-    (ts : RecognitionPlain.Targets) (h : isArray ≠ .hit) :
-    ownReads true isArray c brand ts = 1 ∧
-      ownReads false isArray c brand ts =
-        1 + (if ingress isArray c brand ts ∈ [some .object, some .atom] then 1 else 0) := by
+    (b : RecognitionPlain.Chain) (ts : RecognitionPlain.Targets) (h : isArray ≠ .hit) :
+    ownReads true isArray c brand b ts = 1 ∧
+      ownReads false isArray c brand b ts =
+        1 + (if ingress isArray c brand b ts ∈ [some .object, some .atom] then 1 else 0) := by
   simp [ownReads, h]
 
 /-- The atom split's walk past the first read is one read per prototype it passes. -/
@@ -75,16 +75,27 @@ theorem walkReads_eq (c : Chain) (h : (atoms c).head? ≠ some .array) :
   omega
 
 /-- A plain object: one shared read decides it, and it is not an atom. -/
-example : ingress .miss ⟨[⟨.object, .object⟩], false⟩ false RecognitionPlain.absent =
-    some .object := by decide
+example : ingress .miss ⟨[⟨.object, .object⟩], false⟩ false RecognitionPlain.localBuffer
+    RecognitionPlain.absent = some .object := by decide
 
 /-- A `RegExp`: recognition falls back, and the atom split finds its listed prototype. -/
 example : ingress .miss ⟨[⟨.listed 0, .other 7⟩, ⟨.object, .object⟩], false⟩ false
-    RecognitionPlain.absent = some .atom := by decide
+    RecognitionPlain.localBuffer RecognitionPlain.absent = some .atom := by decide
 
 /-- A `Map`: recognition selects rank 2 and the atom split keeps it. -/
 example : ingress .miss ⟨[⟨.data 3, .builtin 2⟩, ⟨.object, .object⟩], false⟩ false
-    RecognitionPlain.absent = some (.structural 2) := by decide
+    RecognitionPlain.localBuffer RecognitionPlain.absent = some (.structural 2) := by decide
+
+/-- A typed array over a buffer of this environment is one; over a buffer the environment does not
+recognize it takes the fallback, and the atom split finds no listed prototype; over a buffer whose
+chain raises, ingress raises. -/
+example :
+    ingress .miss ⟨[⟨.data 6, .builtin 6⟩, ⟨.object, .object⟩], false⟩ true
+        RecognitionPlain.localBuffer RecognitionPlain.absent = some (.structural 6) ∧
+      ingress .miss ⟨[⟨.data 6, .builtin 6⟩, ⟨.object, .object⟩], false⟩ true
+        RecognitionPlain.foreignBuffer RecognitionPlain.absent = some .object ∧
+      ingress .miss ⟨[⟨.data 6, .builtin 6⟩, ⟨.object, .object⟩], false⟩ true
+        RecognitionPlain.raisingBuffer RecognitionPlain.absent = none := by decide
 
 /-! ## One read of a view's element type and of a copied buffer's prototype
 

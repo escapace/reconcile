@@ -1,6 +1,6 @@
 import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Nodup
-import Property.PropertyPlacement
+import Property.PropertyOrder
 
 /-! The own-key order of an ordinary object, and why `produce` keeps it.
 
@@ -20,7 +20,7 @@ correspondence requires the engine to implement `ownKeys` and the draft store to
 assignment and deletion, which the KeyOrder bridge checks against both. -/
 namespace Reconcile.KeyOrder
 
-open Reconcile.PropertyOrder Reconcile.PropertyPlacement
+open Reconcile.PropertyOrder
 
 def label : Key → Nat
   | .index n => n

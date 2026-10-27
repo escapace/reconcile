@@ -10,13 +10,18 @@ diverges or ends inside an edge splits that edge. Lookups that succeed change no
 
 This file proves the trie denotes exactly the finite map from key sequences to ids that
 first-use interning maintains (`SerializationPositional.internAll`), so the trie assigns
-`internAll`'s ids (`radix_eq_internAll`), which `renumber_first_use` and the decoder's
-first-use check take as given. Keys have any type with decidable equality (JavaScript property
-names are UTF-16 code-unit sequences).
+`internAll`'s ids (`radix_eq_internAll`), which the decoder's first-use check takes as given. Those
+ids name shapes (`radix_ids_inj`), so the trie's numbering of the layouts is injective on the
+layouts it numbered (`trieId_injOn`), the premise under which the encoder's renumbering yields the
+first-use layout ids (`renumber_first_use`, applied in `radix_renumber`). Keys have any type with
+decidable equality (JavaScript property names are UTF-16 code-unit sequences).
 
 Runtime premises, not proved here: trie nodes are fresh per call and reachable by one path,
 so the in-place `Map.set` and edge split agree with the functional `setR` below; label slices
-(`from`/`to` over a shared keys array) are never mutated; the next id is `shapes.length`.
+(`from`/`to` over a shared keys array) are never mutated; the next id is `shapes.length`. A layout
+without runs takes its id from a separate first-use table into the same list as the trie's
+layouts, and never equals a layout with runs, so the encoder's provisional numbering of all
+layouts stays injective.
 -/
 
 namespace SerializationShapeRadix
@@ -358,6 +363,85 @@ open SerializationPositional in
 theorem radix_eq_internAll (shapes : List (List κ)) :
     runRadix (empty : Radix κ) 0 shapes = (internAll [] shapes).1 :=
   radix_matches_table shapes empty [] (by simp [getR_empty])
+
+open SerializationPositional in
+/-- The trie's ids name shapes: two positions get the same id exactly when they hold the same
+shape. By `radix_eq_internAll` the ids are first-use interning's, whose table is duplicate-free and
+maps each id back to its shape (`intern_canonical`). -/
+theorem radix_ids_inj (shapes : List (List κ)) (i j : Nat) :
+    (runRadix (empty : Radix κ) 0 shapes)[i]? = (runRadix (empty : Radix κ) 0 shapes)[j]? ↔
+      shapes[i]? = shapes[j]? := by
+  rw [radix_eq_internAll]
+  obtain ⟨hnodup, -, hmap, -⟩ := intern_canonical shapes [] List.nodup_nil
+  have hget : ∀ n : Nat,
+      ((internAll [] shapes).1[n]?).map (fun i : Nat => (internAll [] shapes).2[i]?) =
+        shapes[n]?.map some := by
+    intro n
+    rw [← List.getElem?_map, hmap, List.getElem?_map]
+  constructor
+  · intro h
+    apply Option.map_injective (fun _ _ e => Option.some.inj e)
+    rw [← hget i, ← hget j, h]
+  · intro h
+    have hi := hget i
+    have hj := hget j
+    rw [h] at hi
+    cases ha : (internAll [] shapes).1[i]? <;> cases hb : (internAll [] shapes).1[j]? <;>
+      simp only [ha, hb, Option.map_none, Option.map_some] at hi hj
+    · rfl
+    · rw [← hi] at hj; cases hj
+    · rw [← hj] at hi; cases hi
+    · rename_i a b
+      have hab : (internAll [] shapes).2[a]? = (internAll [] shapes).2[b]? :=
+        Option.some.inj (hi.trans hj.symm)
+      obtain ⟨s, hs⟩ : ∃ s, (internAll [] shapes).2[a]? = some s := by
+        cases hsj : shapes[j]? with
+        | none => simp [hsj] at hi
+        | some s => exact ⟨s, by simpa [hsj] using hi⟩
+      rw [List.getElem?_inj (List.getElem?_eq_some_iff.mp hs).1 hnodup hab]
+
+/-- The id the trie gives shape `l` while numbering `order`: the id at `l`'s first position. -/
+def trieId (order : List (List κ)) (l : List κ) : Nat :=
+  (runRadix (empty : Radix κ) 0 order).getD (order.idxOf l) 0
+
+open SerializationPositional in
+/-- The trie's numbering is injective on the shapes it numbered. -/
+theorem trieId_injOn (order : List (List κ)) {a b : List κ} (ha : a ∈ order) (hb : b ∈ order)
+    (h : trieId order a = trieId order b) : a = b := by
+  have hlen : (runRadix (empty : Radix κ) 0 order).length = order.length := by
+    rw [radix_eq_internAll]
+    simpa using congrArg List.length (intern_canonical order [] List.nodup_nil).2.2.1
+  have hia : order.idxOf a < (runRadix (empty : Radix κ) 0 order).length :=
+    hlen ▸ List.idxOf_lt_length_of_mem ha
+  have hib : order.idxOf b < (runRadix (empty : Radix κ) 0 order).length :=
+    hlen ▸ List.idxOf_lt_length_of_mem hb
+  have h' : (runRadix (empty : Radix κ) 0 order)[order.idxOf a]? =
+      (runRadix (empty : Radix κ) 0 order)[order.idxOf b]? := by
+    simp only [trieId, List.getD_eq_getElem?_getD, List.getElem?_eq_getElem hia,
+      List.getElem?_eq_getElem hib, Option.getD_some] at h ⊢
+    rw [h]
+  have := (radix_ids_inj order _ _).mp h'
+  rwa [List.getElem?_idxOf ha, List.getElem?_idxOf hb, Option.some.injEq] at this
+
+open SerializationPositional in
+/-- The encoder numbers layouts provisionally in completion order `order` and then interns the
+provisional ids in node order (`renumber` in `src/serialization/encode.ts`). Numbered by the trie,
+the ids are injective on the layouts it numbered (`trieId_injOn`), which is `renumber_first_use`'s
+premise, so for node-order `layouts` the trie numbered the renumbering is first-use interning of
+the layouts themselves, and its table is the first-use layout table under the trie's ids. -/
+theorem radix_renumber (order layouts : List (List κ)) (h : ∀ l ∈ layouts, l ∈ order) :
+    internAll [] (layouts.map (trieId order)) =
+      ((internAll [] layouts).1, (internAll [] layouts).2.map (trieId order)) := by
+  let f : {l // l ∈ order} → Nat := fun t => trieId order t.1
+  have hf : Function.Injective f := fun a b e => Subtype.ext (trieId_injOn order a.2 b.2 e)
+  let sub : List {l // l ∈ order} := layouts.pmap Subtype.mk h
+  have hval : sub.map Subtype.val = layouts := by simp [sub, List.map_pmap]
+  have hsub := internAll_map Subtype.val Subtype.val_injective sub []
+  simp only [List.map_nil, hval] at hsub
+  have hmapf : sub.map f = layouts.map (trieId order) := by
+    rw [← hval, List.map_map]; rfl
+  rw [← hmapf, renumber_first_use f hf sub, hsub, List.map_map]
+  rfl
 
 unseal getR setR in
 example : runRadix (empty : Radix String) 0

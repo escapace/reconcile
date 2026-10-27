@@ -1,4 +1,5 @@
 import Mathlib.Data.List.Nodup
+import Types.MapEntries
 
 /-! Finite ordered collection reconstruction. Keys here are already canonical resolved
 identities: native SameValueZero and fresh object handles are correspondence premises.
@@ -19,10 +20,8 @@ def remember (key : K) : List K → List K
   | [] => [key]
   | first :: rest => if key = first then first :: rest else first :: remember key rest
 
-def put (key : K) (value : V) : List (K × V) → List (K × V)
-  | [] => [(key, value)]
-  | (first, old) :: rest =>
-    if key = first then (first, value) :: rest else (first, old) :: put key value rest
+-- Inserting a pair is the built-in `Map.prototype.set`, `Types.MapEntries.put`.
+export Reconcile.Types.MapEntries (put)
 
 theorem keys_put (key : K) (value : V) (rows : List (K × V)) :
     (put key value rows).map Prod.fst = remember key (rows.map Prod.fst) := by

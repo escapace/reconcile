@@ -111,29 +111,6 @@ section Sectors
 
 open Reconcile.PropertyOrder
 
-/-- The derived `==` on keys is equality. -/
-theorem key_beq (a b : Key) : (a == b) = decide (a = b) := by
-  cases a <;> cases b <;> rename_i x y <;>
-    first
-    | exact (show (_ == _) = (x == y) from rfl).trans (by by_cases h : x = y <;> simp [h])
-    | exact rfl
-
-instance : LawfulBEq Key where
-  eq_of_beq h := by simpa [key_beq] using h
-  rfl := by simp [key_beq]
-
-def isIndex : Key → Bool
-  | .index _ => true
-  | _ => false
-
-def isName : Key → Bool
-  | .name _ => true
-  | _ => false
-
-def isSymbol : Key → Bool
-  | .symbol _ => true
-  | _ => false
-
 /-- The current keys a run keeps, in order. -/
 def keptOf : List Key → List Bool → List Key
   | k :: ks, b :: bs => (if b then [k] else []) ++ keptOf ks bs
@@ -231,9 +208,9 @@ theorem reference_sectors (desired : List Key) :
           · rw [filter_keptOf_cons, h3]; simp [isIndex]
         · have hne : Key.symbol label ≠ d := fun e => hd e.symm
           have hkept : (referenceStep desired (.symbol label) cursor).kept = false := by
-            simp [referenceStep, hs, hd, key_beq]
+            simp [referenceStep, hs, hd]
           obtain ⟨h1, h2, h3⟩ := ih (referenceStep desired (.symbol label) cursor).cursor names (d :: ds) desiredSymbols
-            ⟨hinv.names_eq, by simp [referenceStep, hs, hd, key_beq], hinv.names_named,
+            ⟨hinv.names_eq, by simp [referenceStep, hs, hd], hinv.names_named,
               hinv.desired_symbolic⟩
           refine ⟨?_, ?_, ?_⟩
           · rw [filter_keptOf_cons, h1]; simp [isName]
@@ -280,12 +257,13 @@ theorem reference_sectors (desired : List Key) :
           · rw [filter_keptOf_cons, h3]; simp [isIndex]
         · have hne : Key.name label ≠ d := fun e => hd e.symm
           have hkept : (referenceStep desired (.name label) cursor).kept = false := by
-            simp [referenceStep, finishName, hn, hd, key_beq]
+            simp [referenceStep, finishName, hn, hd]
           have hstable := normalize_identity (d :: ds ++ desiredSymbols)
             (stable_of_head (d :: ds) desiredSymbols hinv.names_named hinv.desired_symbolic)
           obtain ⟨h1, h2, h3⟩ := ih (referenceStep desired (.name label) cursor).cursor (d :: ds) symbols desiredSymbols
-            ⟨by simp [referenceStep, finishName, hn, hd, key_beq]; simpa using hstable, by simp [referenceStep,
-              finishName, hinv.symbols_eq], hinv.names_named, hinv.desired_symbolic⟩
+            ⟨by simp [referenceStep, finishName, hn, hd]; simpa using hstable,
+              by simp [referenceStep, finishName, hinv.symbols_eq], hinv.names_named,
+              hinv.desired_symbolic⟩
           refine ⟨?_, ?_, ?_⟩
           · rw [filter_keptOf_cons, h1, hkept]; simp [isName, matched, hne]
           · rw [filter_keptOf_cons, h2]; simp [isSymbol]

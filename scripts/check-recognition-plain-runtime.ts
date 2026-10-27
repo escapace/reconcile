@@ -48,7 +48,7 @@ const first = (tail: readonly object[]): object | null => tail[0] ?? null
 
 /** The view an object is, if any: a `Uint8Array` or a `DataView`, over a buffer whose prototype is
  * `null` when `foreign` and whose prototype's prototype read throws when `raises`. */
-interface View {
+export interface View {
   brand: boolean
   foreign: boolean
   raises: boolean
@@ -72,7 +72,7 @@ function build(depth: number, tail: number, view: View, reads: Reads): object {
 
 /** A `Uint8Array` or a `DataView` over a buffer whose prototype is `null` when `foreign`, and a
  * prototype whose own prototype read throws when `raises`. */
-function branded(view: View): ArrayBufferView {
+export function branded(view: View): ArrayBufferView {
   const buffer = new ArrayBuffer(1)
   if (view.foreign) Object.setPrototypeOf(buffer, null)
   if (view.raises)
