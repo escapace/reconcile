@@ -5,8 +5,8 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 
 - Preserve the observation boundaries and the read discipline in
   [What must not change](docs/development.md#what-must-not-change): before `reconcile`'s first
-  write, read each value of `current` once, and let library reads run any other getter once per
-  call. Getters, proxies and iterators make an added or reordered read visible; within that
+  write, read each value of `current` once, reads of `next` aside, and let library reads run any
+  other getter once per call. Getters, proxies and iterators make an added or reordered read visible; within that
   discipline the trace may change but must stay deterministic.
 - Prove a changed finite algorithm in Lean before its runtime. Keep theorem statements, bridges
   and counterexamples, and state the runtime's obligations; an axiom audit alone proves nothing.

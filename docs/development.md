@@ -21,6 +21,8 @@ its trace keeps the _read discipline_:
   recipe's reads through a draft are the recipe's.
 - In `reconcile`, a value of `current` read before the first write is read once and serves every
   phase up to readback; a kind, prototype, key list or descriptor read then may serve them too.
+  Reading `next` is not counted: it can read an object that `current` and `next` share again, as
+  the README states for objects already in place.
 - After any write, readback reads every unpinned node again, once per pass, so an own getter of
   `current` runs at most once without writes, twice with them and once more per _demotion pass_ (a
   pass that decides again without a blocked object), not counting reads of `next` or proxy traps.
