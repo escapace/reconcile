@@ -8,7 +8,7 @@
 /* --------------------------------------------------------------------------- random source */
 
 /** mulberry32: small, deterministic per seed, and good in its low bits. */
-class Random {
+export class Random {
   private state: number
   constructor(seed: number) {
     this.state = seed >>> 0

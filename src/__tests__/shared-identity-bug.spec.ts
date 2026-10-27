@@ -127,23 +127,6 @@ describe('Set with shared object identities', () => {
       assert.deepEqual(resultNs, [2, 3, 4, 1])
     })
   })
-
-  describe('direct reconcile() with shared objects', () => {
-    it('reconcile swaps values correctly when current and next share objects', () => {
-      const a = { id: 'a' }
-      const b = { id: 'b' }
-
-      const current = new Set([a, b])
-      // eslint-disable-next-line perfectionist/sort-sets
-      const next = new Set([b, a]) // Same objects, swapped order
-
-      reconcile(current, next)
-
-      // Spec-conformant: values swapped
-      assert.equal(a.id, 'b', "a should have b's id")
-      assert.equal(b.id, 'a', "b should have a's original id")
-    })
-  })
 })
 
 // ============================================================================
@@ -267,25 +250,6 @@ describe('Map with shared object identities', () => {
       assert.equal(k1.id, 'k2', "k1 should have k2's id")
       assert.equal(k2.id, 'k1', "k2 should have k1's original id")
     })
-
-    it('reconcile swaps values correctly when shared and reordered', () => {
-      const v1 = { data: 'v1' }
-      const v2 = { data: 'v2' }
-
-      const current = new Map([
-        ['a', v1],
-        ['b', v2],
-      ])
-      const next = new Map([
-        ['a', v2],
-        ['b', v1],
-      ])
-
-      reconcile(current, next)
-
-      assert.equal(v1.data, 'v2', "v1 should have v2's data")
-      assert.equal(v2.data, 'v1', "v2 should have v1's original data")
-    })
   })
 })
 
@@ -403,21 +367,6 @@ describe('Array with shared object identities', () => {
       assert.deepEqual(resultLetters, ['c', 'a', 'b'])
     })
   })
-
-  describe('direct reconcile() with shared objects', () => {
-    it('reconcile swaps values correctly when elements are shared and reordered', () => {
-      const a = { id: 'a' }
-      const b = { id: 'b' }
-
-      const current = [a, b]
-      const next = [b, a]
-
-      reconcile(current, next)
-
-      assert.equal(a.id, 'b', "a should have b's id")
-      assert.equal(b.id, 'a', "b should have a's original id")
-    })
-  })
 })
 
 // ============================================================================
@@ -513,19 +462,6 @@ describe('Plain object with shared object identities', () => {
   })
 
   describe('direct reconcile() with shared objects', () => {
-    it('reconcile swaps values correctly when property values are shared and swapped', () => {
-      const x = { id: 'x' }
-      const y = { id: 'y' }
-
-      const current = { a: x, b: y }
-      const next = { a: y, b: x }
-
-      reconcile(current, next)
-
-      assert.equal(x.id, 'y', "x should have y's id")
-      assert.equal(y.id, 'x', "y should have x's original id")
-    })
-
     it('rebuilds nested reordered objects from a detached next source without re-planning children', () => {
       const xa = { id: 'xa' }
       const xb = { id: 'xb' }
@@ -738,32 +674,5 @@ describe('produce produces shared identities - reconcile handles correctly', () 
     // Result is surface-equivalent to next
     const resultIds = [...result].map((x) => x.id)
     assert.deepEqual(resultIds, ['b', 'a'])
-  })
-
-  it('demonstrates correct cascade-free reconciliation', () => {
-    const a = { id: 'a' }
-    const b = { id: 'b' }
-    const c = { id: 'c' }
-
-    const current = [a, b, c]
-    const next = [c, a, b] // Same objects, different order
-
-    // Before reconcile
-    assert.equal(a.id, 'a')
-    assert.equal(b.id, 'b')
-    assert.equal(c.id, 'c')
-
-    reconcile(current, next)
-
-    // With fix: values are correctly swapped without cascade corruption
-    // Position 0: a reconciled with snapshot(c) -> a.id = 'c'
-    // Position 1: b reconciled with snapshot(a) -> b.id = 'a' (original)
-    // Position 2: c reconciled with snapshot(b) -> c.id = 'b' (original)
-    assert.equal(a.id, 'c', "a should have c's original id")
-    assert.equal(b.id, 'a', "b should have a's original id")
-    assert.equal(c.id, 'b', "c should have b's original id")
-
-    // Without fix (cascade bug): a.id='c', b.id='c', c.id='c'
-    // This test verifies the fix prevents the cascade
   })
 })

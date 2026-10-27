@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { capture } from '../publication/capture'
 import { snapshot } from '../snapshot'
 import { publicationTypes } from '../types/builtins'
+import { randomSource } from './fixtures/public-api-fuzz'
 
 describe('shared native graph capture', () => {
   it('registers every supported node once, including view construction edges', () => {
@@ -151,11 +152,7 @@ describe('shared native graph capture', () => {
   })
 
   it('preserves generated mixed graph identities and detaches their backing stores', () => {
-    let seed = 1931
-    const random = (size: number): number => {
-      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
-      return (seed >>> 8) % size
-    }
+    const random = randomSource(1931, 8).next
     for (let fixture = 0; fixture < 200; fixture += 1) {
       const plain: Record<PropertyKey, unknown> = Object.create(null) as Record<
         PropertyKey,

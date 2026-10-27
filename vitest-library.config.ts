@@ -1,7 +1,7 @@
 import path from 'node:path'
-import { defineConfig, mergeConfig } from 'vitest/config'
+import { configDefaults, defineConfig, mergeConfig } from 'vitest/config'
 import type { ViteUserConfig } from 'vitest/config'
-import configNeutral from './vitest.config.neutral.ts'
+import configNeutral, { scriptSpecs } from './vitest.config.neutral.ts'
 
 // Runs the complete suite with the public modules resolved to the built package instead of
 // the sources, so the published bundle (including its renamed internal member names) is
@@ -20,7 +20,17 @@ const config = mergeConfig(
         },
       ],
     },
-    test: { coverage: { enabled: false }, name: 'library' },
+    test: {
+      coverage: { enabled: false },
+      // Besides the script specs, these import the sources on purpose.
+      exclude: [
+        ...configDefaults.exclude,
+        ...scriptSpecs,
+        'src/__tests__/classification-work.spec.ts',
+        'src/__tests__/produce-publication-boundary.spec.ts',
+      ],
+      name: 'library',
+    },
   }),
 ) as ViteUserConfig
 

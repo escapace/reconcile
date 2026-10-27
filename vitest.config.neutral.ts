@@ -4,6 +4,16 @@ import { version } from './package.json' with { type: 'json' }
 import { builds } from './scripts/constants.json' with { type: 'json' }
 import configShared from './vitest.config.ts'
 
+/** Specs that run no library code in their own process: they test scripts or drive a child
+ * process, so the poisoned and library projects would repeat the neutral run. */
+export const scriptSpecs = [
+  'src/__tests__/ab-time.spec.ts',
+  'src/__tests__/bounded-check.spec.ts',
+  'src/__tests__/profile-attribution.spec.ts',
+  'src/__tests__/profile-counts.spec.ts',
+  'src/__tests__/standard-prototypes.spec.ts',
+]
+
 const config = mergeConfig(
   configShared,
   defineConfig({

@@ -4,6 +4,7 @@ import * as fc from 'fast-check'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
+import { bytesOf, bytesOfView } from './fixtures/contents'
 
 type Jsonish =
   | boolean
@@ -15,11 +16,6 @@ type Jsonish =
   | null
 
 const sharedFunction = () => 'stable'
-
-const bytesOf = (buffer: ArrayBuffer): number[] => Array.from(new Uint8Array(buffer))
-
-const bytesOfView = (view: ArrayBufferView): number[] =>
-  Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
 
 const cloneBufferFrom = (bytes: Uint8Array): ArrayBuffer => {
   const replacement = new Uint8Array(bytes.length)

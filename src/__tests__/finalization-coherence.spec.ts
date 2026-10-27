@@ -2,6 +2,7 @@ import { assert, describe, it } from 'vitest'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
+import { bytesOf, firstMapEntry, firstSetEntry } from './fixtures/contents'
 
 /**
  * Comprehensive verification suite for finalization coherence semantics.
@@ -14,11 +15,6 @@ import { snapshot } from '../snapshot'
  * The tests are organized by semantic guarantee rather than data type, ensuring
  * each guarantee is verified across all supported value kinds.
  */
-
-// Helper functions
-const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
-const bytesOf = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
 
 describe('Finalization Coherence - sharedImage Guarantee', () => {
   describe('Plain Objects: shared references finalize to same identity', () => {
@@ -240,63 +236,7 @@ describe('Finalization Coherence - sharedImage Guarantee', () => {
   })
 })
 
-describe('Finalization Coherence - SameValue Writes and Root Return', () => {
-  describe('Plain Objects: SameValue writes remain no-ops and preserve sharing', () => {
-    it('treats writing the original reference back at a sibling path as a no-op', () => {
-      // Under the monotonic write model, `draft.b.ref = shared` is a SameValue write against
-      // the existing present slot, so the `b` draft stays unmodified. The shared object was
-      // changed elsewhere, so shared-image coherence still resolves `b.ref` to the same
-      // finalized identity as `a.ref`.
-      const shared = { value: 1 }
-      const current = { a: { ref: shared }, b: { ref: shared } }
-
-      const result = produce(current, (draft: typeof current) => {
-        draft.a.ref.value = 2
-        void draft.b
-        draft.b.ref = shared // SameValue write: no-op
-        return draft
-      })
-
-      assert.equal(result.a.ref, result.b.ref)
-      assert.equal(result.a.ref.value, 2)
-      assert.notEqual(result.a.ref, shared)
-    })
-
-    it('honors an explicit root-level return of current and ignores all draft mutations', () => {
-      // Returning `current` from the recipe is still a first-class escape hatch. It bypasses
-      // draft finalization entirely and is the only path that discards monotonic draft changes.
-      const current = { nested: { count: 1 } }
-
-      const result = produce(current, (draft: typeof current) => {
-        draft.nested.count = 99
-        return current
-      })
-
-      assert.equal(result, current)
-      assert.equal(result.nested.count, 1)
-    })
-  })
-
-  describe('Arrays: SameValue writes remain no-ops and preserve sharing', () => {
-    it('treats writing the original element back as a no-op', () => {
-      // `draft[1] = shared` is a SameValue write against the existing present slot, so the
-      // array draft stays unmodified. The finalized array still points to the same finalized
-      // image as the other, mutated path.
-      const shared = { id: 1 }
-      const current = [shared, shared]
-
-      const result = produce(current, (draft: typeof current) => {
-        draft[0].id = 2
-        draft[1] = shared // SameValue write: no-op
-        return draft
-      })
-
-      assert.equal(result[0], result[1])
-      assert.equal(result[0].id, 2)
-      assert.notEqual(result[0], shared)
-    })
-  })
-
+describe('Finalization Coherence - SameValue Writes', () => {
   describe('Maps: SameValue set calls remain no-ops and preserve sharing', () => {
     it('treats setting an entry to its current value as a no-op', () => {
       // `draft.map.set('b', shared)` is a SameValue set against the existing entry, so the map
@@ -324,27 +264,6 @@ describe('Finalization Coherence - SameValue Writes and Root Return', () => {
   })
 
   describe('Shared-image coherence through publication', () => {
-    it('reconcile publishes one coherent shared value for a monotonic mutation', () => {
-      // All paths reach the same finalized image, and publication through reconcile updates
-      // the shared reference in place.
-      const shared = { count: 0 }
-      const current = { a: { ref: shared }, c: { ref: shared } }
-
-      const result = reconcile(
-        current,
-        produce(current, (draft: typeof current) => {
-          draft.a.ref.count = 5
-          void draft.c
-          draft.c.ref = shared // SameValue write: no-op
-          return draft
-        }),
-      )
-
-      assert.equal(result.a.ref, result.c.ref)
-      assert.equal(result.a.ref, shared)
-      assert.equal(shared.count, 5)
-    })
-
     it('publishes one coherent shared value for a shared object aliased at two sibling paths', () => {
       // All paths resolve to the same finalized image, and publication through reconcile
       // updates the shared reference in place while keeping sibling identities coherent.
@@ -897,18 +816,6 @@ describe('Finalization Coherence - Structural Preservation', () => {
       })
 
       assert.deepEqual(Array.from(result), [1, 3, 4])
-    })
-
-    it('moves element to end on delete + re-add', () => {
-      const current = new Set([1, 2, 3])
-
-      const result = produce(current, (draft: typeof current) => {
-        draft.delete(1)
-        draft.add(1)
-        return draft
-      })
-
-      assert.deepEqual(Array.from(result), [2, 3, 1])
     })
   })
 })

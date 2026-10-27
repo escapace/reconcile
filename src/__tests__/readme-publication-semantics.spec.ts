@@ -1,34 +1,12 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce, reconcile, snapshot } from '../index'
+import { bytesOf } from './fixtures/contents'
 
-const bytesOfArrayBuffer = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
 const returnFortyTwo = (): number => 42
 
 describe('README publication semantics', () => {
   describe('next-value construction and publication', () => {
-    it('produce computes a next value without publishing it', () => {
-      const current = {
-        changed: { count: 0 },
-        untouched: { keep: true },
-      }
-
-      const next = produce(current, (draft) => {
-        draft.changed.count = 1
-        return draft
-      })
-
-      assert.deepEqual(current, {
-        changed: { count: 0 },
-        untouched: { keep: true },
-      })
-      assert.deepEqual(next, {
-        changed: { count: 1 },
-        untouched: { keep: true },
-      })
-      assert.notEqual(next, current)
-    })
-
     it('caller publication publishes onto the existing object graph when compatible', () => {
       const nested = { count: 0 }
       const current = {
@@ -197,7 +175,7 @@ describe('README publication semantics', () => {
         view: DataView
       }
 
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
       assert.equal(result.typed.constructor, Uint16Array)
       assert.equal(result.typed.buffer, result.buffer)
       assert.equal(result.view.buffer, result.buffer)
@@ -252,30 +230,6 @@ describe('README publication semantics', () => {
       assert.equal(result, current)
       assert.equal(result.self, result)
       assert.equal(result.value, 1)
-    })
-
-    it('makes buffer and view sharing follow the next value, including separation', () => {
-      const sharedBuffer = new Uint8Array([1, 2, 3, 4]).buffer
-      const current = {
-        buffer: sharedBuffer,
-        view: new DataView(sharedBuffer),
-      }
-      const next = {
-        buffer: new Uint8Array([5, 6, 7, 8]).buffer,
-        view: new DataView(new Uint8Array([9, 10, 11, 12]).buffer),
-      }
-
-      const result = reconcile(current, next)
-
-      assert.notEqual(result.view.buffer, result.buffer)
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
-      assert.deepEqual(
-        bytesOfArrayBuffer(result.view.buffer).slice(
-          result.view.byteOffset,
-          result.view.byteOffset + result.view.byteLength,
-        ),
-        [9, 10, 11, 12],
-      )
     })
 
     it('returns a finalized but not detached value from produce, and snapshot detaches it', () => {

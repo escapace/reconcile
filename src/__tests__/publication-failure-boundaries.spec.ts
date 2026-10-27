@@ -1,6 +1,7 @@
 import { assert, it } from 'vitest'
 
 import { isReconcileError, produce, reconcile, ReconcileError } from '../index'
+import { thrown } from './fixtures/thrown'
 
 it('retains a child reached through repeated fixed references and a fixed root cycle', () => {
   const child = { n: 0 }
@@ -240,12 +241,7 @@ const ghost = (): Record<string, unknown> =>
   new Proxy({}, { getOwnPropertyDescriptor: () => undefined, ownKeys: () => ['ghost'] })
 
 it('treats a key a proxy lists without a descriptor as absent', () => {
-  let caught: unknown
-  try {
-    reconcile(ghost(), { a: 1 })
-  } catch (error) {
-    caught = error
-  }
+  const caught = thrown(() => reconcile(ghost(), { a: 1 }))
   assert.ok(isReconcileError(caught) && caught.cause.type === 'PublicationRejected')
   // Inside current, the proxy is replaced by a new object, as any object that cannot hold next is.
   const current = { x: ghost() }

@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
 import { isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
+import { thrown } from './fixtures/thrown'
 
 // Values whose state lives in internal slots are atoms, like functions: every function keeps
 // them by reference and never drafts or copies them. lean/Types/Atoms.lean proves the
@@ -14,13 +15,9 @@ class HttpError extends Error {
   }
 }
 
-const serializeError = (value: unknown): string | undefined => {
-  try {
-    serialize(value)
-    return undefined
-  } catch (error) {
-    return isReconcileError(error) ? error.cause.type : String(error)
-  }
+const serializeError = (value: unknown): string => {
+  const error = thrown(() => serialize(value))
+  return isReconcileError(error) ? error.cause.type : String(error)
 }
 
 const atoms = (): Array<[string, object]> => [

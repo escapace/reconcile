@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { deserialize, type DeserializeOptions, isReconcileError, serialize } from '../index'
 import { decodeText, encodeText } from './fixtures/text-codec'
+import { thrown } from './fixtures/thrown'
 
 const copy = <T>(value: T): T => decodeText(encodeText(value)) as T
 
@@ -43,12 +44,8 @@ describe('serialization', () => {
     expect(copied.a).toBe(copied.b)
     expect(copied.a).not.toBe(shared)
     const limitCause = (options: unknown) => {
-      try {
-        deserialize(serialize(1), options as DeserializeOptions)
-      } catch (error) {
-        return isReconcileError(error) ? error.cause : error
-      }
-      return undefined
+      const error = thrown(() => deserialize(serialize(1), options as DeserializeOptions))
+      return isReconcileError(error) ? error.cause : error
     }
     for (const maxBytes of [undefined, -1, 1.5, NaN, -Infinity, '10', 2 ** 53, null])
       expect(limitCause({ maxBytes })).toEqual({ maxBytes, type: 'DeserializeLimitInvalid' })

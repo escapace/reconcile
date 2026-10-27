@@ -1,15 +1,12 @@
 import { afterEach, assert, describe, it, vi } from 'vitest'
 import { isReconcileError } from '../index'
 import { decodeText, encodeText } from './fixtures/text-codec'
+import { thrown } from './fixtures/thrown'
 
 function failure(run: () => unknown): { reason: string; type: string } {
-  try {
-    run()
-  } catch (error) {
-    assert.ok(isReconcileError(error))
-    return error.cause as { reason: string; type: string }
-  }
-  assert.fail('expected a ReconcileError')
+  const error = thrown(run)
+  assert.ok(isReconcileError(error))
+  return error.cause as { reason: string; type: string }
 }
 
 // Stand-ins with the native contract the codec relies on: whitespace is skipped, other
@@ -125,21 +122,17 @@ describe('base64 payloads', () => {
           ['AQ D', 'base64 size'],
           ['AQI*', 'base64'],
         ]) {
-          let caught: unknown
-          try {
-            api.deserialize(JSON.parse(wire.replace('AQID', tampered)), { maxBytes: Infinity })
-          } catch (error) {
-            caught = error
-          }
+          const caught = thrown(() =>
+            api.deserialize(JSON.parse(wire.replace('AQID', tampered)), { maxBytes: Infinity }),
+          )
           // The native SyntaxError must not escape: the public error carries the reason.
           assert.ok(api.isReconcileError(caught))
           assert.deepEqual(caught.cause, { reason, type: 'DeserializeInputInvalid' })
-          let measured: unknown
-          try {
-            api.requiredMaxBytes(JSON.parse(wire.replace('AQID', tampered)), { maxBytes: Infinity })
-          } catch (error) {
-            measured = error
-          }
+          const measured = thrown(() =>
+            api.requiredMaxBytes(JSON.parse(wire.replace('AQID', tampered)), {
+              maxBytes: Infinity,
+            }),
+          )
           assert.ok(api.isReconcileError(measured))
           assert.deepEqual(measured.cause, caught.cause)
         }

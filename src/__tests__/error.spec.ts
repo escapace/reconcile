@@ -8,15 +8,7 @@ import {
   ReconcileError,
 } from '../index'
 import type { ReconcileErrorMetadata, ReconcileErrorType } from '../index'
-
-function thrown(run: () => unknown): unknown {
-  try {
-    run()
-  } catch (error) {
-    return error
-  }
-  assert.fail('expected a throw')
-}
+import { thrown } from './fixtures/thrown'
 
 describe('ReconcileError', () => {
   it('lists every type exactly once, sorted, and matches the metadata keys', () => {

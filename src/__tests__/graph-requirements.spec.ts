@@ -1,5 +1,6 @@
 import { assert, it } from 'vitest'
 import { closeRequirements, RequirementClosure } from '../graph/requirements'
+import { randomSource } from './fixtures/public-api-fuzz'
 
 it('keeps object facts distinct while advancing a live activation iterator', () => {
   const left = { value: 0 }
@@ -26,11 +27,7 @@ it('computes the least closed fact set across cycles and repeated seeds', () => 
     [0, 1, 2, 3],
   )
   assert.deepEqual([...closeRequirements([], [[1], [0]])], [])
-  let seed = 31_981
-  const random = (n: number): number => {
-    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
-    return (seed >>> 8) % n
-  }
+  const random = randomSource(31_981, 8).next
   for (let test = 0; test < 200; test += 1) {
     const size = 1 + random(7)
     const seeds = [random(size), random(size)]

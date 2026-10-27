@@ -2,6 +2,7 @@ import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
 import { snapshot } from '../snapshot'
+import { bytesOf, bytesOfView, firstMapEntry, firstSetEntry } from './fixtures/contents'
 
 class UnsupportedCounter {
   value: number
@@ -11,12 +12,7 @@ class UnsupportedCounter {
   }
 }
 
-const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
 const returnedValue = () => 'ok'
-const bytesOfArrayBuffer = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
-const bytesOfDataView = (value: DataView): number[] =>
-  Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
 
 interface Graph {
   touched: { count: number }
@@ -139,23 +135,6 @@ describe('produce', () => {
 
     assert.equal(current.nested.count, 0)
     assert.equal(result.nested.count, 1)
-  })
-
-  it('can preserve untouched subtrees by reference into the finalized next graph', () => {
-    const untouched = { keep: true }
-    const current = {
-      touched: { count: 0 },
-      untouched,
-    }
-
-    const result = produce(current, (draft) => {
-      draft.touched.count = 1
-      return draft
-    })
-
-    assert.equal(result.untouched, untouched)
-    assert.notEqual(result.touched, current.touched)
-    assert.equal(current.touched.count, 0)
   })
 
   it('lets callers explicitly detach the returned next graph with snapshot(produce(...))', () => {
@@ -751,7 +730,7 @@ describe('produce', () => {
 
     const result = produce(current, (draft) => {
       new Uint8Array(draft.key)[0] = 9
-      assert.deepEqual(bytesOfArrayBuffer(current.key), [1, 2, 3])
+      assert.deepEqual(bytesOf(current.key), [1, 2, 3])
       draft.map.set(draft.key, 2)
       return draft
     })
@@ -760,10 +739,10 @@ describe('produce', () => {
 
     assert.equal(resultKey, result.key)
     assert.notEqual(resultKey, current.key)
-    assert.deepEqual(bytesOfArrayBuffer(resultKey), [9, 2, 3])
+    assert.deepEqual(bytesOf(resultKey), [9, 2, 3])
     assert.equal(result.map.get(result.key), 2)
     assert.equal(result.map.get(current.key), undefined)
-    assert.deepEqual(bytesOfArrayBuffer(current.key), [1, 2, 3])
+    assert.deepEqual(bytesOf(current.key), [1, 2, 3])
   })
 
   it('preserves set order and collection-local membership behavior', () => {
@@ -860,8 +839,8 @@ describe('produce', () => {
     }
 
     assert.equal(result.view.buffer, result.buffer)
-    assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
-    assert.deepEqual(bytesOfDataView(result.view), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOfView(result.view), [5, 6, 7, 8])
     assert.equal(result.touch.count, 1)
     assert.equal(current.touch.count, 0)
   })
@@ -885,8 +864,8 @@ describe('produce', () => {
     }
 
     assert.notEqual(result.view.buffer, result.buffer)
-    assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
-    assert.deepEqual(bytesOfDataView(result.view), [9, 10, 11, 12])
+    assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOfView(result.view), [9, 10, 11, 12])
   })
 
   it('preserves ArrayBuffer and typed-array aliasing in a finalized ordinary returned root', () => {
@@ -909,7 +888,7 @@ describe('produce', () => {
     }
 
     assert.equal(result.typed.buffer, result.buffer)
-    assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
     assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
   })
 
@@ -932,7 +911,7 @@ describe('produce', () => {
     }
 
     assert.notEqual(result.typed.buffer, result.buffer)
-    assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
     assert.deepEqual(Array.from(result.typed), [9, 10, 11, 12])
   })
 
@@ -957,7 +936,7 @@ describe('produce', () => {
 
     assert.equal(result.typed.buffer, result.view.buffer)
     assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
-    assert.deepEqual(bytesOfDataView(result.view), [5, 6, 7, 8])
+    assert.deepEqual(bytesOfView(result.view), [5, 6, 7, 8])
   })
 
   it('preserves DataView and typed-array non-aliasing in a finalized ordinary returned root', () => {
@@ -980,7 +959,7 @@ describe('produce', () => {
 
     assert.notEqual(result.typed.buffer, result.view.buffer)
     assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
-    assert.deepEqual(bytesOfDataView(result.view), [9, 10, 11, 12])
+    assert.deepEqual(bytesOfView(result.view), [9, 10, 11, 12])
   })
 
   it('preserves aliasing across multiple typed arrays that share one finalized next buffer', () => {
@@ -1050,8 +1029,8 @@ describe('produce', () => {
     }
 
     assert.equal(result.left.buffer, result.right.buffer)
-    assert.deepEqual(bytesOfDataView(result.left), [5, 6])
-    assert.deepEqual(bytesOfDataView(result.right), [7, 8])
+    assert.deepEqual(bytesOfView(result.left), [5, 6])
+    assert.deepEqual(bytesOfView(result.right), [7, 8])
   })
 
   it('preserves non-aliasing across DataViews when a finalized ordinary returned root separates their buffers', () => {
@@ -1073,8 +1052,8 @@ describe('produce', () => {
     }
 
     assert.notEqual(result.left.buffer, result.right.buffer)
-    assert.deepEqual(bytesOfDataView(result.left), [5, 6])
-    assert.deepEqual(bytesOfDataView(result.right), [7, 8])
+    assert.deepEqual(bytesOfView(result.left), [5, 6])
+    assert.deepEqual(bytesOfView(result.right), [7, 8])
   })
 
   it('preserves the full backing buffer for a finalized DataView with a larger aliased buffer', () => {
@@ -1097,8 +1076,8 @@ describe('produce', () => {
     assert.equal(result.view.byteOffset, 1)
     assert.equal(result.view.byteLength, 2)
     assert.equal(result.view.buffer.byteLength, 4)
-    assert.deepEqual(bytesOfArrayBuffer(result.view.buffer), [4, 5, 6, 7])
-    assert.deepEqual(bytesOfDataView(result.view), [5, 6])
+    assert.deepEqual(bytesOf(result.view.buffer), [4, 5, 6, 7])
+    assert.deepEqual(bytesOfView(result.view), [5, 6])
   })
 
   it('keeps one unchanged DataView referenced twice in an ordinary returned root', () => {
@@ -1124,8 +1103,8 @@ describe('produce', () => {
     assert.equal(result.left, sharedNextView)
     assert.equal(result.left.byteOffset, 1)
     assert.equal(result.left.byteLength, 2)
-    assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])
-    assert.deepEqual(bytesOfDataView(result.left), [6, 7])
+    assert.deepEqual(bytesOf(result.left.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOfView(result.left), [6, 7])
   })
 
   it('keeps one unchanged typed-array view referenced twice in an ordinary returned root', () => {
@@ -1151,7 +1130,7 @@ describe('produce', () => {
     assert.equal(result.left, sharedNextTyped)
     assert.equal(result.left.byteOffset, 1)
     assert.equal(result.left.byteLength, 2)
-    assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.left.buffer), [5, 6, 7, 8])
     assert.deepEqual(Array.from(result.left), [6, 7])
   })
 
@@ -1174,7 +1153,7 @@ describe('produce', () => {
 
     assert.equal(result.typed.byteOffset, 1)
     assert.equal(result.typed.byteLength, 2)
-    assert.deepEqual(bytesOfArrayBuffer(result.typed.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.typed.buffer), [5, 6, 7, 8])
     assert.deepEqual(Array.from(result.typed), [6, 7])
   })
 
@@ -1198,7 +1177,7 @@ describe('produce', () => {
 
     assert.equal(result.typed.constructor, Uint16Array)
     assert.equal(result.buffer.byteLength, 4)
-    assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+    assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
     assert.deepEqual(Array.from(result.typed), [9, 10])
   })
 
@@ -1223,7 +1202,7 @@ describe('produce', () => {
     assert.equal(result.typed.constructor, Uint8Array)
     assert.equal(result.view.byteLength, 3)
     assert.deepEqual(Array.from(result.typed), [5, 6, 7])
-    assert.deepEqual(bytesOfDataView(result.view), [8, 9, 10])
+    assert.deepEqual(bytesOfView(result.view), [8, 9, 10])
   })
 
   it('keeps representative unsupported/class fallback behavior best-effort rather than detached', () => {

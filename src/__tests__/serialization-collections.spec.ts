@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { serialize } from '../index'
 import { decodeText, encodeText } from './fixtures/text-codec'
+import { thrown } from './fixtures/thrown'
 
 describe('serialization collection iteration', () => {
   it('keeps first insertion order and the last value after a native Map revisit', () => {
@@ -123,13 +124,7 @@ describe('serialization collection iteration', () => {
         },
       ],
     ])
-    let thrown: unknown
-    try {
-      encodeText(source)
-    } catch (error) {
-      thrown = error
-    }
-    expect(thrown).toBe(failure)
+    expect(thrown(() => encodeText(source))).toBe(failure)
     expect(trace).toEqual(['value'])
   })
 

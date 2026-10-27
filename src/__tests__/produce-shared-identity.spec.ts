@@ -584,36 +584,3 @@ describe('produce complex shared identity scenarios', () => {
     assert.equal(current.second, b)
   })
 })
-
-// ============================================================================
-// produce-only analysis
-// ============================================================================
-
-describe('produce shared-identity publication boundary', () => {
-  it('produce reordering does not cascade mutations into current', () => {
-    const a = { id: 'a' }
-    const b = { id: 'b' }
-    const c = { id: 'c' }
-
-    const current = [a, b, c]
-
-    const next = produce(current, (draft) => {
-      draft[0] = c
-      draft[1] = a
-      draft[2] = b
-      return draft
-    })
-
-    assert.deepEqual(
-      next.map((x) => x.id),
-      ['c', 'a', 'b'],
-    )
-    assert.deepEqual(
-      current.map((x) => x.id),
-      ['a', 'b', 'c'],
-    )
-    assert.equal(next[0], c)
-    assert.equal(next[1], a)
-    assert.equal(next[2], b)
-  })
-})

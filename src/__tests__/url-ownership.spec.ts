@@ -5,6 +5,7 @@ import { produce } from '../produce'
 import { isReconcileError, ReconcileError } from '../index'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
+import { thrown } from './fixtures/thrown'
 
 function graph(parametersFirst: boolean) {
   const url = new URL('https://example.test/?b=two%20words&a=1&a=2')
@@ -191,12 +192,7 @@ describe('URL owned search parameters', () => {
     const source = graph(true)
     for (const replacement of [new URLSearchParams(source.params), new URL(source.url.href)]) {
       const memo = new WeakMap<object, object>([[source.params, replacement]])
-      let caught: unknown
-      try {
-        snapshot(source, memo)
-      } catch (error) {
-        caught = error
-      }
+      const caught = thrown(() => snapshot(source, memo))
       assert.instanceOf(caught, ReconcileError)
       assert.strictEqual(caught.cause.type, 'SnapshotURLSearchParamsMemoIncompatible')
     }
@@ -365,13 +361,8 @@ describe('URL owned search parameters', () => {
       const next = parametersFirst
         ? { params: url.searchParams, url }
         : { url, params: url.searchParams }
-      let thrown: unknown
-      try {
-        reconcile({}, next)
-      } catch (error) {
-        thrown = error
-      }
-      assert.ok(isReconcileError(thrown) && thrown.cause.type === 'PublicationRejected')
+      const error = thrown(() => reconcile({}, next))
+      assert.ok(isReconcileError(error) && error.cause.type === 'PublicationRejected')
     }
   })
 
@@ -392,13 +383,8 @@ describe('URL owned search parameters', () => {
     )
     const current = { a: 1, b: new URL('https://other.test/') }
     const before = current.b.href
-    let thrown: unknown
-    try {
-      reconcile(current, next)
-    } catch (error) {
-      thrown = error
-    }
-    assert.ok(isReconcileError(thrown) && thrown.cause.type === 'PublicationRejected')
+    const error = thrown(() => reconcile(current, next))
+    assert.ok(isReconcileError(error) && error.cause.type === 'PublicationRejected')
     assert.strictEqual(current.a, 1)
     assert.strictEqual(current.b.href, before)
   })

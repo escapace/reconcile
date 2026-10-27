@@ -4,6 +4,7 @@ import { produce } from '../produce'
 import type { ImmutableProblem } from '../types'
 import { compactFixture, immutableDomains, rankedSelections } from './fixtures/compact-immutable'
 import type { CompactImmutableInput } from './fixtures/compact-immutable'
+import { randomSource } from './fixtures/public-api-fuzz'
 
 function fixture(rows: Array<Partial<CompactImmutableInput['rows'][number]>>): ImmutableProblem {
   return compactFixture({
@@ -92,11 +93,7 @@ describe('compact immutable selection', () => {
   // stream's first mask. Records have distinct storages and eligibility closed over parents, as
   // compileImmutable builds them, so the head needs only every fixed record to be eligible.
   it('streams the eligibility mask first when every fixed record is eligible', () => {
-    let seed = 91_357
-    const random = (size: number): number => {
-      seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0
-      return (seed >>> 8) % size
-    }
+    const random = randomSource(91_357, 8).next
     let heads = 0
     let declined = 0
     for (let test = 0; test < 3000; test += 1) {

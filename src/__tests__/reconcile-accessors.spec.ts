@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
 import { deserialize, isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
+import { thrown } from './fixtures/thrown'
 
 // reconcile writes a changed own property by assignment, so own setters run and own accessors
 // are kept; it never writes or overrides accessors on the prototype. lean/Property/PropertyWrite.lean
@@ -31,12 +32,8 @@ class Temperature {
 }
 
 const rejected = (run: () => unknown): boolean => {
-  try {
-    run()
-    return false
-  } catch (error) {
-    return isReconcileError(error) && error.cause.type === 'PublicationRejected'
-  }
+  const error = thrown(run)
+  return isReconcileError(error) && error.cause.type === 'PublicationRejected'
 }
 
 describe('reconcile and accessors', () => {

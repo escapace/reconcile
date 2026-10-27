@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
 import { isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
+import { thrown } from './fixtures/thrown'
 
 // Copies keep the source's prototype, so an instance of a built-in subclass stays one in every
 // function, as class instances and typed arrays already did. lean/Types/CopyPrototype.lean states the
@@ -64,13 +65,8 @@ describe('copies keep built-in subclasses', () => {
       Object.setPrototypeOf([1], null) as object,
     ]
     for (const value of rejected) {
-      let cause: unknown
-      try {
-        serialize({ value })
-      } catch (error) {
-        cause = isReconcileError(error) ? error.cause : error
-      }
-      assert.deepEqual(cause, {
+      const error = thrown(() => serialize({ value }))
+      assert.deepEqual(isReconcileError(error) ? error.cause : error, {
         reason: 'unsupported prototype',
         type: 'SerializeValueUnsupported',
       })

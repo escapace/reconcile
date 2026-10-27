@@ -1,10 +1,7 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-
-const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
-const bytesOf = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
+import { bytesOf, firstMapEntry, firstSetEntry } from './fixtures/contents'
 
 describe('nested authoritative finalization coverage', () => {
   describe('nested returned draft roots propagate externally changed shared objects', () => {

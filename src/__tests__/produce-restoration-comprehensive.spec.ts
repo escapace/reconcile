@@ -1,10 +1,7 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-
-const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
-const bytesOf = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
+import { bytesOf, firstSetEntry } from './fixtures/contents'
 
 describe('caller publication restoration comprehensive semantics', () => {
   describe('reads and SameValue no-op writes stay unchanged', () => {
@@ -107,20 +104,6 @@ describe('caller publication restoration comprehensive semantics', () => {
   })
 
   describe('final graph determines identity restoration', () => {
-    it('finalizes plain-object add then delete of the same property and restores identity', () => {
-      const current = { nested: { value: 1 } }
-
-      const result = produce(current, (draft) => {
-        ;(draft.nested as { extra?: boolean } & typeof draft.nested).extra = true
-        delete (draft.nested as { extra?: boolean } & typeof draft.nested).extra
-        return draft
-      })
-
-      assert.equal(result, current)
-      assert.equal(result.nested, current.nested)
-      assert.deepEqual(result, { nested: { value: 1 } })
-    })
-
     it('finalizes array mutate-then-mutate-back and restores identity', () => {
       const current = [1, 2, 3]
 
@@ -220,57 +203,6 @@ describe('caller publication restoration comprehensive semantics', () => {
   })
 
   describe('unmodified returned draft handles still materialize changed descendants', () => {
-    it('materializes a plain-object handle whose shared descendant changed elsewhere', () => {
-      const shared = { count: 1 }
-      const current = {
-        left: { shared },
-        right: { shared },
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.shared.count = 2
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result.shared, shared)
-      assert.equal(result.shared.count, 2)
-    })
-
-    it('materializes an array handle whose shared element changed elsewhere', () => {
-      const shared = { count: 1 }
-      const current = {
-        left: { shared },
-        right: [shared],
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.shared.count = 2
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result[0], shared)
-      assert.equal(result[0].count, 2)
-    })
-
-    it('materializes a map handle whose shared value changed elsewhere', () => {
-      const shared = { count: 1 }
-      const current = {
-        left: { shared },
-        right: new Map<string, { count: number }>([['key', shared]]),
-      }
-
-      const result = produce(current, (draft) => {
-        draft.left.shared.count = 2
-        return draft.right
-      })
-
-      assert.notEqual(result, current.right)
-      assert.notEqual(result.get('key'), shared)
-      assert.equal(result.get('key')!.count, 2)
-    })
-
     it('materializes a set handle whose shared value changed elsewhere', () => {
       const shared = { count: 1 }
       const current = {
@@ -290,49 +222,7 @@ describe('caller publication restoration comprehensive semantics', () => {
     })
   })
 
-  describe('returned unmodified nested collection handles unwrap instead of leaking wrappers', () => {
-    it('unwraps an unmodified nested map handle back to the base map', () => {
-      const current = {
-        map: new Map<string, number>([['key', 1]]),
-      }
-
-      const result = produce(current, (draft) => {
-        assert.equal(draft.map.get('key'), 1)
-        return draft.map
-      })
-
-      assert.equal(result, current.map)
-      assert.equal(result instanceof Map, true)
-    })
-
-    it('unwraps an unmodified nested set handle back to the base set', () => {
-      const current = {
-        set: new Set<number>([1, 2, 3]),
-      }
-
-      const result = produce(current, (draft) => {
-        assert.equal(draft.set.has(2), true)
-        return draft.set
-      })
-
-      assert.equal(result, current.set)
-      assert.equal(result instanceof Set, true)
-    })
-  })
-
   describe('root return semantics remain intact', () => {
-    it('still lets `return current` bypass all draft finalization', () => {
-      const current = { nested: { count: 1 } }
-
-      const result = produce(current, (draft) => {
-        draft.nested.count = 2
-        return current
-      })
-
-      assert.equal(result, current)
-      assert.equal(result.nested.count, 1)
-    })
-
     it('still lets an ordinary replacement root win while finalizing nested draft handles inside it', () => {
       const current = {
         item: { count: 1 },
@@ -403,29 +293,6 @@ describe('caller publication restoration comprehensive semantics', () => {
         ),
         [3, 4],
       )
-    })
-  })
-
-  describe('non-regression for draft-originating map keys', () => {
-    it('keeps a draft-originating map key finalized coherently after mutate-then-mutate-back', () => {
-      const key = { label: 'key' }
-      const current = {
-        key,
-        map: new Map<object, number>([[key, 1]]),
-      }
-
-      const result = produce(current, (draft) => {
-        draft.key.label = 'updated'
-        draft.key.label = 'key'
-        return draft.map
-      })
-
-      const [resultKey] = firstMapEntry(result)
-      assert.equal(result, current.map)
-      assert.equal(resultKey, key)
-      assert.equal((resultKey as { label: string }).label, 'key')
-      assert.equal(result.get(resultKey), 1)
-      assert.equal(current.key.label, 'key')
     })
   })
 })

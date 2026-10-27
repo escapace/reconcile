@@ -1,8 +1,8 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
+import { bytesOf } from './fixtures/contents'
 
-const bytesOf = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
 const viewBytesOf = (value: ArrayBufferView): number[] =>
   Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
 

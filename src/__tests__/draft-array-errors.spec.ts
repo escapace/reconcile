@@ -1,6 +1,7 @@
 import { assert, it } from 'vitest'
 
 import { isReconcileError, produce } from '../index'
+import { thrown } from './fixtures/thrown'
 
 // An array proxy whose own keys and descriptors no real array could have: each documented draft
 // array error names the impossible fact. The proxy must respect its target's invariants, so the
@@ -10,15 +11,13 @@ const extra = { configurable: true, enumerable: true, value: 'x', writable: true
 
 /** The `cause` of the error that a write into a draft of `{ array }` throws. */
 function causeOf(array: unknown[]): unknown {
-  try {
+  const error = thrown(() =>
     produce({ array }, (draft) => {
       draft.array[0] = 'written'
-    })
-  } catch (error) {
-    if (isReconcileError(error)) return error.cause
-    throw error
-  }
-  return undefined
+    }),
+  )
+  if (isReconcileError(error)) return error.cause
+  throw error
 }
 
 it('rejects an index at or beyond a non-writable length', () => {

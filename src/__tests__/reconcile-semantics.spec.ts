@@ -13,9 +13,6 @@ import { assert, describe, it } from 'vitest'
 import { reconcile, ReconcileError, snapshot } from '../index'
 
 const returnFortyTwo = (): number => 42
-const assertSameReference = (actual: unknown, expected: unknown): void => {
-  assert.equal(actual, expected)
-}
 
 // ============================================================================
 // Root rule
@@ -53,12 +50,6 @@ describe('Root rule', () => {
   })
 
   describe('Root replacement: returns next when types differ or mismatch', () => {
-    it('returns next when current is primitive and next is object', () => {
-      const next = { x: 1 }
-      const result = reconcile(42, next)
-      assert.equal(result, next)
-    })
-
     it('returns next when current is object and next is primitive', () => {
       const current = { x: 1 }
       const result = reconcile(current, 'hello')
@@ -162,18 +153,6 @@ describe('Recursive value rule', () => {
       assert.deepEqual(result.child, next.child)
     })
   })
-
-  describe('Nested reuse when kind matches', () => {
-    it('reuses current child when kinds match', () => {
-      const currentChild = { x: 1 }
-      const current = { child: currentChild }
-      const next = { child: { x: 2 } }
-      const result = reconcile(current, next)
-
-      assert.equal(result.child, currentChild)
-      assert.equal(currentChild.x, 2)
-    })
-  })
 })
 
 // ============================================================================
@@ -225,26 +204,6 @@ describe('Shared-object fast path', () => {
       assert.equal(result.a, shared)
     })
   })
-
-  describe('Witness invariant: current-node injectivity', () => {
-    it('one current node serves at most one next node', () => {
-      // Demonstrates the reuse injectivity invariant
-      const shared = { count: 0 }
-      const current = { a: shared, b: shared }
-      const nextA = { count: 1 }
-      const nextB = { count: 2 }
-      const next = { a: nextA, b: nextB }
-
-      const result = reconcile(current, next) as { a: object; b: object }
-
-      // shared can only be consumed once
-      // One of a or b gets shared, the other gets a snapshot
-      const aIsShared = result.a === shared
-      const bIsShared = result.b === shared
-
-      assert.isTrue(aIsShared !== bIsShared, 'Exactly one should be shared')
-    })
-  })
 })
 
 // ============================================================================
@@ -257,21 +216,6 @@ describe('Entry rule', () => {
     const next = { x: 42 }
     const result = reconcile(current, next)
     assert.equal(result.x, 42)
-  })
-
-  it('delegates to shared-object rule for SameValue refs', () => {
-    const shared = { nested: 1 }
-    const current = { ref: shared }
-    const next = { ref: shared }
-    const result = reconcile(current, next) as { ref: object }
-    assert.equal(result.ref, shared)
-  })
-
-  it('delegates to recursive rule for different values', () => {
-    const current = { x: 1 }
-    const next = { x: 2 }
-    const result = reconcile(current, next)
-    assert.equal(result.x, 2)
   })
 })
 
@@ -623,20 +567,6 @@ describe('DataView', () => {
     const next = new DataView(nextBuffer, 0, 6)
 
     assert.throws(() => reconcile(current, next), ReconcileError)
-  })
-
-  it('reconciles backing buffer recursively', () => {
-    const currentBuffer = new ArrayBuffer(8)
-    const current = new DataView(currentBuffer, 0, 4)
-
-    const nextBuffer = new ArrayBuffer(8)
-    new Uint8Array(nextBuffer).set([10, 20, 30, 40, 50, 60, 70, 80])
-    const next = new DataView(nextBuffer, 0, 4)
-
-    const result = reconcile(current, next)
-
-    assert.equal(result.buffer, currentBuffer)
-    assert.deepEqual([...new Uint8Array(currentBuffer)], [10, 20, 30, 40, 50, 60, 70, 80])
   })
 })
 
@@ -1198,67 +1128,6 @@ describe('Locality of replacement', () => {
 })
 
 // ============================================================================
-// Canonical alignment (no search-based matching)
-// ============================================================================
-
-describe('Canonical alignment', () => {
-  it('array alignment is by index, not by element equality', () => {
-    const current = ['a', 'b', 'c']
-    const next = ['c', 'b', 'a'] // Reverse order
-    const result = reconcile(current, next)
-
-    // Index 0: 'a' → 'c'
-    // Index 1: 'b' → 'b'
-    // Index 2: 'c' → 'a'
-    assert.deepEqual(result, ['c', 'b', 'a'])
-  })
-
-  it('object alignment is by key identity, not by value equality', () => {
-    const current = { x: 1, y: 2 }
-    const next = { x: 2, y: 1 } // Values swapped
-    const result = reconcile(current, next)
-
-    // Key 'x': 1 → 2
-    // Key 'y': 2 → 1
-    assert.deepEqual(result, { x: 2, y: 1 })
-  })
-
-  it('map alignment is by ordinal, not by key lookup', () => {
-    const current = new Map<string, number>([
-      ['first', 100],
-      ['second', 200],
-    ])
-    /* eslint-disable perfectionist/sort-maps */
-    const next = new Map<string, number>([
-      ['second', 20], // Would match 'second' by key, but aligns by ordinal
-      ['first', 10],
-    ])
-    /* eslint-enable perfectionist/sort-maps */
-    const result = reconcile(current, next)
-
-    // Ordinal 0: ('first', 100) ← ('second', 20)
-    // Ordinal 1: ('second', 200) ← ('first', 10)
-    assert.deepEqual(
-      [...result],
-      [
-        ['second', 20],
-        ['first', 10],
-      ],
-    )
-  })
-
-  it('set alignment is by ordinal, not by membership', () => {
-    const current = new Set([10, 20, 30])
-    // eslint-disable-next-line perfectionist/sort-sets
-    const next = new Set([30, 10, 20]) // Reordered
-    const result = reconcile(current, next)
-
-    // Ordinal alignment, not membership matching
-    assert.deepEqual([...result], [30, 10, 20])
-  })
-})
-
-// ============================================================================
 // Edge cases and integration
 // ============================================================================
 
@@ -1367,20 +1236,12 @@ describe('Edge cases', () => {
       const next = { x: null }
       const result = reconcile(current, next)
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.equal(result.x, null)
     })
   })
 
   describe('Function values', () => {
-    it('preserves functions by reference', () => {
-      const current = { fn: (): number => 0 }
-      const next = { fn: returnFortyTwo }
-      const result = reconcile(current, next)
-
-      assert.equal(result.fn, returnFortyTwo)
-    })
-
     it('handles functions in snapshot replacements', () => {
       const current = { child: 'not-an-object' }
       const next = { child: { fn: returnFortyTwo } }

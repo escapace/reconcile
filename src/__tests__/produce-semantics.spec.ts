@@ -1,8 +1,7 @@
 import { assert, describe, it } from 'vitest'
 
 import { produce } from '../produce'
-
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
+import { firstMapEntry } from './fixtures/contents'
 
 describe('produce semantics', () => {
   it('returns the original current value when no changes are made', () => {

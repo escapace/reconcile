@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
 import { isReconcileError, produce, reconcile, serialize, snapshot } from '../index'
+import { thrown } from './fixtures/thrown'
 
 // Enumerability is content: key listing, spread and JSON observe it, so a new object keeps its
 // source's. Writability and configurability protect the source and are not copied into a
@@ -122,13 +123,8 @@ describe('new objects keep their source enumerability', () => {
   })
 
   it('serialize rejects a hidden property instead of revealing it', () => {
-    let cause: unknown
-    try {
-      serialize({ value: source() })
-    } catch (error) {
-      cause = isReconcileError(error) ? error.cause : error
-    }
-    assert.deepEqual(cause, {
+    const error = thrown(() => serialize({ value: source() }))
+    assert.deepEqual(isReconcileError(error) ? error.cause : error, {
       reason: 'non-enumerable property',
       type: 'SerializeValueUnsupported',
     })

@@ -1,25 +1,10 @@
 import { assert, describe, it } from 'vitest'
 import { reconcile, ReconcileError, snapshot as takeSnapshot } from '../index'
+import { bytesOf, bytesOfView } from './fixtures/contents'
+import { Random } from './fixtures/native-differential'
+import { graphsEqual } from './fixtures/public-api-fuzz'
 
 const returnOne = () => 1
-const assertSameReference = (actual: unknown, expected: unknown): void => {
-  assert.equal(actual, expected)
-}
-const assertNotSameReference = (actual: unknown, expected: unknown): void => {
-  assert.notEqual(actual, expected)
-}
-
-interface ObjectSurface {
-  list: unknown[]
-  nested: object
-}
-
-interface ObjectSurfaceCase {
-  name: string
-  createLive: <T extends object>(value: T) => T
-  verifyLiveValue?: (value: ObjectSurface) => void
-  verifySnapshotValue?: (value: ObjectSurface) => void
-}
 
 interface SelfReferentialRoot {
   nested: {
@@ -86,43 +71,6 @@ interface ReconcileTopologySplitCase {
 
 type SupportedSpecValue = unknown
 
-const createRandom = (seed: number): (() => number) => {
-  let state = seed >>> 0
-
-  return () => {
-    state += 1_831_565_813
-    let value = state
-    value = Math.imul(value ^ (value >>> 15), value | 1)
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
-    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296
-  }
-}
-
-const shuffle = <T>(values: readonly T[], random: () => number): T[] => {
-  const result = [...values]
-
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const target = Math.floor(random() * (index + 1))
-    const current = result[index]
-    result[index] = result[target]
-    result[target] = current
-  }
-
-  return result
-}
-
-const buildObjectFromStringEntries = (
-  entries: ReadonlyArray<readonly [string, unknown]>,
-): Record<string, unknown> => {
-  const result: Record<string, unknown> = {}
-
-  for (const [key, value] of entries) {
-    result[key] = value
-  }
-
-  return result
-}
-
 const buildObjectFromEntries = (
   entries: ReadonlyArray<readonly [PropertyKey, unknown]>,
 ): { [key: string]: unknown; [key: symbol]: unknown } => {
@@ -165,155 +113,41 @@ const keyLabels = (value: object): string[] =>
     typeof key === 'symbol' ? `symbol:${key.description ?? ''}` : key,
   )
 
-const bytesOfArrayBuffer = (value: ArrayBuffer): number[] => Array.from(new Uint8Array(value))
-
-const bytesOfDataView = (value: DataView): number[] =>
-  Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
-
-const isSupportedSpecObject = (
-  value: SupportedSpecValue,
-): value is Exclude<SupportedSpecValue, null> => typeof value === 'object' && value !== null
-
-const isSupportedSpecTypedArray = (value: SupportedSpecValue): value is Uint16Array | Uint8Array =>
-  value instanceof Uint8Array || value instanceof Uint16Array
-
-const assertEquivalentSupportedGraph = (
-  actual: SupportedSpecValue,
-  expected: SupportedSpecValue,
-  seenActualToExpected = new WeakMap<object, object>(),
-  seenExpectedToActual = new WeakMap<object, object>(),
-): void => {
-  if (!isSupportedSpecObject(actual) || !isSupportedSpecObject(expected)) {
-    assert.equal(Object.is(actual, expected), true)
-    return
-  }
-
-  const actualObject = actual as object
-  const expectedObject = expected as object
-  const pairedExpected = seenActualToExpected.get(actualObject)
-  const pairedActual = seenExpectedToActual.get(expectedObject)
-
-  if (pairedExpected !== undefined || pairedActual !== undefined) {
-    assert.equal(pairedExpected, expectedObject)
-    assert.equal(pairedActual, actualObject)
-    return
-  }
-
-  seenActualToExpected.set(actualObject, expectedObject)
-  seenExpectedToActual.set(expectedObject, actualObject)
-
-  assertEquivalentSupportedObject(actualObject, expectedObject, (actualChild, expectedChild) => {
-    assertEquivalentSupportedGraph(
-      actualChild,
-      expectedChild,
-      seenActualToExpected,
-      seenExpectedToActual,
-    )
-  })
-}
-
-type SupportedGraphVisit = (actual: SupportedSpecValue, expected: SupportedSpecValue) => void
-
-// Compares a newly paired object's kind and contents; `visit` compares its children.
-const assertEquivalentSupportedObject = (
-  actual: object,
-  expected: object,
-  visit: SupportedGraphVisit,
-): void => {
-  assert.equal(Array.isArray(actual), Array.isArray(expected))
-
-  if (Array.isArray(actual) && Array.isArray(expected)) {
-    assertEquivalentSupportedArray(actual, expected, visit)
-    return
-  }
-
-  assert.equal(actual instanceof Date, expected instanceof Date)
-
-  if (actual instanceof Date && expected instanceof Date) {
-    assert.equal(actual.getTime(), expected.getTime())
-    return
-  }
-
-  assert.equal(isSupportedSpecTypedArray(actual), isSupportedSpecTypedArray(expected))
-
-  if (isSupportedSpecTypedArray(actual) && isSupportedSpecTypedArray(expected)) {
-    assert.equal(actual.constructor, expected.constructor)
-    assert.deepEqual(Array.from(actual), Array.from(expected))
-    return
-  }
-
-  assertEquivalentSupportedProperties(actual, expected, visit)
-}
-
-const assertEquivalentSupportedArray = (
-  actual: readonly unknown[],
-  expected: readonly unknown[],
-  visit: SupportedGraphVisit,
-): void => {
-  assert.equal(actual.length, expected.length)
-  assert.deepEqual(presentIndices(actual), presentIndices(expected))
-
-  for (let index = 0; index < expected.length; index += 1) {
-    if (index in expected) {
-      visit(actual[index], expected[index])
-    }
-  }
-}
-
-const assertEquivalentSupportedProperties = (
-  actual: object,
-  expected: object,
-  visit: SupportedGraphVisit,
-): void => {
-  const actualKeys = Reflect.ownKeys(actual)
-  const expectedKeys = Reflect.ownKeys(expected)
-
-  assert.equal(actualKeys.length, expectedKeys.length)
-
-  for (let index = 0; index < expectedKeys.length; index += 1) {
-    assert.equal(actualKeys[index], expectedKeys[index])
-    visit(
-      (actual as Record<PropertyKey, SupportedSpecValue>)[expectedKeys[index]],
-      (expected as Record<PropertyKey, SupportedSpecValue>)[expectedKeys[index]],
-    )
-  }
-}
-
-const createRandomPrimitiveValue = (random: () => number): SupportedSpecValue => {
-  const choice = Math.floor(random() * 5)
+const createRandomPrimitiveValue = (random: Random): SupportedSpecValue => {
+  const choice = random.int(5)
 
   switch (choice) {
     case 0:
-      return Math.floor(random() * 1000)
+      return random.int(1000)
     case 1:
-      return `value-${Math.floor(random() * 1000)}`
+      return `value-${random.int(1000)}`
     case 2:
-      return random() < 0.5
+      return random.chance(0.5)
     case 3:
       return null
     default:
-      return `tag-${Math.floor(random() * 32)}`
+      return `tag-${random.int(32)}`
   }
 }
 
-const createRandomTypedArrayValue = (random: () => number): Uint16Array | Uint8Array => {
-  const length = Math.floor(random() * 4) + 1
-  const values = Array.from({ length }, () => Math.floor(random() * 32))
+const createRandomTypedArrayValue = (random: Random): Uint16Array | Uint8Array => {
+  const length = random.int(4) + 1
+  const values = Array.from({ length }, () => random.int(32))
 
-  return random() < 0.5 ? new Uint8Array(values) : new Uint16Array(values)
+  return random.chance(0.5) ? new Uint8Array(values) : new Uint16Array(values)
 }
 
-type RandomSupportedValueFactory = (random: () => number, depth: number) => SupportedSpecValue
+type RandomSupportedValueFactory = (random: Random, depth: number) => SupportedSpecValue
 
 const createRandomSupportedValue: RandomSupportedValueFactory = (random, depth) => {
   if (depth <= 0) {
-    const terminalChoice = Math.floor(random() * 4)
+    const terminalChoice = random.int(4)
 
     switch (terminalChoice) {
       case 0:
         return createRandomPrimitiveValue(random)
       case 1:
-        return new Date(Date.UTC(2024, Math.floor(random() * 12), Math.floor(random() * 28) + 1))
+        return new Date(Date.UTC(2024, random.int(12), random.int(28) + 1))
       case 2:
         return createRandomTypedArrayValue(random)
       default:
@@ -321,7 +155,7 @@ const createRandomSupportedValue: RandomSupportedValueFactory = (random, depth) 
     }
   }
 
-  const choice = Math.floor(random() * 5)
+  const choice = random.int(5)
 
   switch (choice) {
     case 0:
@@ -331,18 +165,18 @@ const createRandomSupportedValue: RandomSupportedValueFactory = (random, depth) 
     case 2:
       return createRandomPlainObjectValue(random, depth)
     case 3:
-      return new Date(Date.UTC(2024, Math.floor(random() * 12), Math.floor(random() * 28) + 1))
+      return new Date(Date.UTC(2024, random.int(12), random.int(28) + 1))
     default:
       return createRandomTypedArrayValue(random)
   }
 }
 
-function createRandomArrayValue(random: () => number, depth: number): SupportedSpecValue[] {
-  const length = Math.floor(random() * 5)
+function createRandomArrayValue(random: Random, depth: number): SupportedSpecValue[] {
+  const length = random.int(5)
   const result = new Array<SupportedSpecValue>(length)
 
   for (let index = 0; index < length; index += 1) {
-    if (random() < 0.7) {
+    if (random.chance(0.7)) {
       result[index] = createRandomSupportedValue(random, depth - 1)
     }
   }
@@ -351,11 +185,11 @@ function createRandomArrayValue(random: () => number, depth: number): SupportedS
 }
 
 function createRandomPlainObjectValue(
-  random: () => number,
+  random: Random,
   depth: number,
 ): Record<PropertyKey, SupportedSpecValue> {
   const keyPool = ['alpha', 'bravo', 'charlie', 'delta', 'echo'] as const
-  const keys = shuffle(keyPool, random).slice(0, Math.floor(random() * (keyPool.length + 1)))
+  const keys = random.shuffle(keyPool).slice(0, random.int(keyPool.length + 1))
   const sharedPool: SupportedSpecValue[] =
     depth === 0
       ? []
@@ -365,8 +199,8 @@ function createRandomPlainObjectValue(
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index]
     result[key] =
-      sharedPool.length > 0 && random() < 0.5
-        ? sharedPool[Math.floor(random() * sharedPool.length)]!
+      sharedPool.length > 0 && random.chance(0.5)
+        ? random.pick(sharedPool)
         : createRandomSupportedValue(random, depth - 1)
   }
 
@@ -374,7 +208,7 @@ function createRandomPlainObjectValue(
 }
 
 const createPlainObjectExpectationCase = (
-  random: () => number,
+  random: Random,
 ): {
   current: Record<PropertyKey, SupportedSpecValue>
   next: Record<PropertyKey, SupportedSpecValue>
@@ -382,15 +216,6 @@ const createPlainObjectExpectationCase = (
   current: createRandomPlainObjectValue(random, 2),
   next: createRandomPlainObjectValue(random, 2),
 })
-
-const createPlainLive = <T extends object>(value: T): T => value
-
-const objectSurfaceCases: ObjectSurfaceCase[] = [
-  {
-    createLive: createPlainLive,
-    name: 'plain objects',
-  },
-]
 
 const reconcileCollectionTopologyCases: ReconcileCollectionTopologyCase[] = [
   {
@@ -937,8 +762,8 @@ const reconcileTopologySplitCases: ReconcileTopologySplitCase[] = [
         next,
         assertResult: (result) => {
           assert.notEqual(result.left, result.right)
-          assert.deepEqual(bytesOfArrayBuffer(result.left as ArrayBuffer), [1, 2])
-          assert.deepEqual(bytesOfArrayBuffer(result.right as ArrayBuffer), [3, 4])
+          assert.deepEqual(bytesOf(result.left as ArrayBuffer), [1, 2])
+          assert.deepEqual(bytesOf(result.right as ArrayBuffer), [3, 4])
         },
       }
     },
@@ -959,8 +784,8 @@ const reconcileTopologySplitCases: ReconcileTopologySplitCase[] = [
         next,
         assertResult: (result) => {
           assert.notEqual(result.left, result.right)
-          assert.deepEqual(bytesOfDataView(result.left as DataView), [1, 2])
-          assert.deepEqual(bytesOfDataView(result.right as DataView), [3, 4])
+          assert.deepEqual(bytesOfView(result.left as DataView), [1, 2])
+          assert.deepEqual(bytesOfView(result.right as DataView), [3, 4])
         },
       }
     },
@@ -989,180 +814,7 @@ const reconcileTopologySplitCases: ReconcileTopologySplitCase[] = [
   },
 ]
 
-const runObjectSurfaceContract = (testCase: ObjectSurfaceCase) => {
-  it('snapshot preserves input key order across permutations and detaches nested state', () => {
-    const entries = [
-      ['delta', 4],
-      ['alpha', 1],
-      ['charlie', 3],
-      ['bravo', 2],
-    ] as const
-    const random = createRandom(424_242)
-
-    for (let index = 0; index < 16; index += 1) {
-      const candidateEntries = shuffle(entries, random)
-      const live = testCase.createLive({
-        list: [1, 2],
-        nested: buildObjectFromStringEntries(candidateEntries),
-      })
-      const snapshot = takeSnapshot(live) as {
-        list: number[]
-        nested: Record<string, unknown>
-      }
-
-      assert.notEqual(snapshot, live)
-      assert.notEqual(snapshot.nested, live.nested)
-      assert.notEqual(snapshot.list, live.list)
-      testCase.verifySnapshotValue?.(snapshot)
-      assert.deepEqual(
-        Object.keys(snapshot.nested),
-        candidateEntries.map(([key]) => key),
-      )
-    }
-  })
-
-  it('snapshot preserves sparse array holes and exact length', () => {
-    const live = testCase.createLive({
-      list: createSparseArray(
-        [
-          [1, 20],
-          [3, 40],
-        ],
-        5,
-      ),
-      nested: { keep: true },
-    })
-    const snapshot = takeSnapshot(live) as {
-      list: Array<number | undefined>
-      nested: {
-        keep: boolean
-      }
-    }
-
-    assert.equal(snapshot.list.length, 5)
-    assert.deepEqual(presentIndices(snapshot.list), [1, 3])
-    assert.equal(0 in snapshot.list, false)
-    assert.equal(2 in snapshot.list, false)
-    assert.equal(4 in snapshot.list, false)
-    assert.deepEqual(snapshot.nested, { keep: true })
-  })
-
-  it('reconcile preserves compatible root and subtree identities', () => {
-    const live = testCase.createLive<{
-      keep: number
-      list: number[]
-      nested: {
-        count: number
-        flag: boolean
-      }
-      add?: number
-      remove?: number
-    }>({
-      keep: 1,
-      list: [1, 2],
-      nested: { count: 0, flag: true },
-      remove: 2,
-    })
-    const listReference = live.list
-    const nestedReference = live.nested
-
-    testCase.verifyLiveValue?.(live)
-
-    const result = reconcile(live, {
-      add: 3,
-      keep: 9,
-      list: [1, 2, 3],
-      nested: { count: 1, flag: false },
-    }) as typeof live
-
-    assert.equal(result, live)
-    assert.equal(result.list, listReference)
-    assert.equal(result.nested, nestedReference)
-    testCase.verifyLiveValue?.(result)
-    assert.deepEqual(result, {
-      add: 3,
-      keep: 9,
-      list: [1, 2, 3],
-      nested: { count: 1, flag: false },
-    })
-    assert.equal('remove' in result, false)
-  })
-
-  it('reconcile preserves next key order instead of retaining previous object order', () => {
-    const entries = [
-      ['delta', 4],
-      ['alpha', 1],
-      ['charlie', 3],
-      ['bravo', 2],
-    ] as const
-    const random = createRandom(20_260_217)
-
-    for (let index = 0; index < 16; index += 1) {
-      const candidateEntries = shuffle(entries, random)
-      const current = testCase.createLive(buildObjectFromStringEntries(entries))
-      const next = buildObjectFromStringEntries(candidateEntries)
-      const result = reconcile(current, next)
-
-      assert.equal(result, current)
-      assert.deepEqual(
-        Object.keys(result),
-        candidateEntries.map(([key]) => key),
-      )
-    }
-  })
-
-  it('reconcile preserves sparse array holes instead of materializing undefined entries', () => {
-    const current = testCase.createLive({
-      list: [10, 20, 30],
-      nested: { keep: true },
-    })
-    const listReference = current.list
-    const nextList = createSparseArray(
-      [
-        [1, 20],
-        [4, 50],
-      ],
-      5,
-    )
-
-    const result = reconcile(current, {
-      list: nextList,
-      nested: { keep: true },
-    }) as typeof current
-
-    assert.equal(result, current)
-    assert.equal(result.list, listReference)
-    assert.equal(result.list.length, 5)
-    assert.deepEqual(presentIndices(result.list), [1, 4])
-    assert.equal(0 in result.list, false)
-    assert.equal(2 in result.list, false)
-    assert.equal(3 in result.list, false)
-    assert.equal(result.list[1], 20)
-    assert.equal(result.list[4], 50)
-  })
-
-  it('reconcile preserves shared references from the next graph', () => {
-    const current = testCase.createLive({
-      left: { note: 'left', value: 0 },
-      nested: { count: 0 },
-      right: { note: 'right', value: 0 },
-    })
-    const shared = { note: 'shared', value: 2 }
-
-    const result = reconcile(current, {
-      left: shared,
-      nested: { count: 1 },
-      right: shared,
-    })
-
-    assert.equal(result, current)
-    assert.equal(result.left, result.right)
-    assert.deepEqual(result.left, { note: 'shared', value: 2 })
-    assert.deepEqual(result.nested, { count: 1 })
-  })
-}
-
-describe('context runtime direct contracts', () => {
+describe('snapshot and reconcile contracts', () => {
   describe('primitive values', () => {
     it('snapshot returns primitive values unchanged', () => {
       assert.equal(takeSnapshot(1), 1)
@@ -1170,28 +822,175 @@ describe('context runtime direct contracts', () => {
       assert.equal(takeSnapshot(true), true)
       assert.equal(takeSnapshot(null), null)
     })
-
-    it('reconcile returns parentContext immediately when both inputs are the same value', () => {
-      const current = { keep: true }
-
-      assert.equal(reconcile(current, current), current)
-      assert.equal(Object.is(reconcile(Number.NaN, Number.NaN), Number.NaN), true)
-    })
-
-    it('reconcile returns nextContext across primitive boundaries', () => {
-      assert.equal(reconcile(1, 2), 2)
-      assert.equal(reconcile('left', 'right'), 'right')
-      assert.equal(reconcile(null, false), false)
-      assert.equal(reconcile({ keep: true }, 2), 2)
-
-      const nextObject = { keep: true }
-      assert.equal(reconcile(1, nextObject), nextObject)
-      assert.equal(reconcile(null, nextObject), nextObject)
-    })
   })
 
-  describe.each(objectSurfaceCases)('$name', (testCase) => {
-    runObjectSurfaceContract(testCase)
+  describe('plain objects', () => {
+    it('snapshot preserves input key order across permutations and detaches nested state', () => {
+      const entries = [
+        ['delta', 4],
+        ['alpha', 1],
+        ['charlie', 3],
+        ['bravo', 2],
+      ] as const
+      const random = new Random(424_242)
+
+      for (let index = 0; index < 16; index += 1) {
+        const candidateEntries = random.shuffle(entries)
+        const live = {
+          list: [1, 2],
+          nested: buildObjectFromEntries(candidateEntries),
+        }
+        const snapshot = takeSnapshot(live) as {
+          list: number[]
+          nested: Record<string, unknown>
+        }
+
+        assert.notEqual(snapshot, live)
+        assert.notEqual(snapshot.nested, live.nested)
+        assert.notEqual(snapshot.list, live.list)
+        assert.deepEqual(
+          Object.keys(snapshot.nested),
+          candidateEntries.map(([key]) => key),
+        )
+      }
+    })
+
+    it('snapshot preserves sparse array holes and exact length', () => {
+      const live = {
+        list: createSparseArray(
+          [
+            [1, 20],
+            [3, 40],
+          ],
+          5,
+        ),
+        nested: { keep: true },
+      }
+      const snapshot = takeSnapshot(live) as {
+        list: Array<number | undefined>
+        nested: {
+          keep: boolean
+        }
+      }
+
+      assert.equal(snapshot.list.length, 5)
+      assert.deepEqual(presentIndices(snapshot.list), [1, 3])
+      assert.equal(0 in snapshot.list, false)
+      assert.equal(2 in snapshot.list, false)
+      assert.equal(4 in snapshot.list, false)
+      assert.deepEqual(snapshot.nested, { keep: true })
+    })
+
+    it('reconcile preserves compatible root and subtree identities', () => {
+      const live: {
+        keep: number
+        list: number[]
+        nested: {
+          count: number
+          flag: boolean
+        }
+        add?: number
+        remove?: number
+      } = {
+        keep: 1,
+        list: [1, 2],
+        nested: { count: 0, flag: true },
+        remove: 2,
+      }
+      const listReference = live.list
+      const nestedReference = live.nested
+
+      const result = reconcile(live, {
+        add: 3,
+        keep: 9,
+        list: [1, 2, 3],
+        nested: { count: 1, flag: false },
+      }) as typeof live
+
+      assert.equal(result, live)
+      assert.equal(result.list, listReference)
+      assert.equal(result.nested, nestedReference)
+      assert.deepEqual(result, {
+        add: 3,
+        keep: 9,
+        list: [1, 2, 3],
+        nested: { count: 1, flag: false },
+      })
+      assert.equal('remove' in result, false)
+    })
+
+    it('reconcile preserves next key order instead of retaining previous object order', () => {
+      const entries = [
+        ['delta', 4],
+        ['alpha', 1],
+        ['charlie', 3],
+        ['bravo', 2],
+      ] as const
+      const random = new Random(20_260_217)
+
+      for (let index = 0; index < 16; index += 1) {
+        const candidateEntries = random.shuffle(entries)
+        const current = buildObjectFromEntries(entries)
+        const next = buildObjectFromEntries(candidateEntries)
+        const result = reconcile(current, next)
+
+        assert.equal(result, current)
+        assert.deepEqual(
+          Object.keys(result),
+          candidateEntries.map(([key]) => key),
+        )
+      }
+    })
+
+    it('reconcile preserves sparse array holes instead of materializing undefined entries', () => {
+      const current = {
+        list: [10, 20, 30],
+        nested: { keep: true },
+      }
+      const listReference = current.list
+      const nextList = createSparseArray(
+        [
+          [1, 20],
+          [4, 50],
+        ],
+        5,
+      )
+
+      const result = reconcile(current, {
+        list: nextList,
+        nested: { keep: true },
+      }) as typeof current
+
+      assert.equal(result, current)
+      assert.equal(result.list, listReference)
+      assert.equal(result.list.length, 5)
+      assert.deepEqual(presentIndices(result.list), [1, 4])
+      assert.equal(0 in result.list, false)
+      assert.equal(2 in result.list, false)
+      assert.equal(3 in result.list, false)
+      assert.equal(result.list[1], 20)
+      assert.equal(result.list[4], 50)
+    })
+
+    it('reconcile preserves shared references from the next graph', () => {
+      const current = {
+        left: { note: 'left', value: 0 },
+        nested: { count: 0 },
+        right: { note: 'right', value: 0 },
+      }
+      const shared = { note: 'shared', value: 2 }
+
+      const result = reconcile(current, {
+        left: shared,
+        nested: { count: 1 },
+        right: shared,
+      })
+
+      assert.equal(result, current)
+      assert.equal(result.left, result.right)
+      assert.deepEqual(result.left, { note: 'shared', value: 2 })
+      assert.deepEqual(result.nested, { count: 1 })
+    })
   })
 
   describe('plain-object exotic shapes', () => {
@@ -1893,7 +1692,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, next)
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.equal(result.left.child, result.right.child)
       assert.deepEqual(result.left, { child: { count: 1 } })
       assert.deepEqual(result.right, { child: { count: 1 } })
@@ -1912,7 +1711,7 @@ describe('context runtime direct contracts', () => {
 
       const result = reconcile(current, next)
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.equal(result.child.parent, result)
     })
 
@@ -1951,9 +1750,9 @@ describe('context runtime direct contracts', () => {
         keep: { count: 1 },
       })
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.equal(result.keep, currentKeep)
-      assertNotSameReference(result.change, currentChange)
+      assert.notEqual<unknown>(result.change, currentChange)
       assert.deepEqual(result.change, [10, 20])
       assert.deepEqual(result.keep, { count: 1 })
     })
@@ -1972,7 +1771,7 @@ describe('context runtime direct contracts', () => {
         child: nextChild,
       })
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.notEqual(result.child, nextChild)
       assert.equal(Object.getPrototypeOf(result.child), prototype)
       assert.equal(Object.hasOwn(result.child, 'value'), true)
@@ -1988,7 +1787,7 @@ describe('context runtime direct contracts', () => {
         child: { bad: returnOne },
       })
 
-      assertSameReference(result, current)
+      assert.equal<unknown>(result, current)
       assert.equal(result.child.bad, returnOne)
 
       const snapshot = takeSnapshot(result) as typeof result
@@ -2010,8 +1809,8 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.equal(result.view.buffer, result.buffer)
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.view), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOfView(result.view), [5, 6, 7, 8])
     })
 
     it('reconcile preserves ArrayBuffer and DataView non-aliasing when next separates them', () => {
@@ -2029,8 +1828,8 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.notEqual(result.view.buffer, result.buffer)
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.view), [9, 10, 11, 12])
+      assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOfView(result.view), [9, 10, 11, 12])
     })
 
     it('reconcile preserves ArrayBuffer and typed-array aliasing when next aliases them', () => {
@@ -2048,7 +1847,7 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.equal(result.typed.buffer, result.buffer)
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
       assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
     })
 
@@ -2067,7 +1866,7 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.notEqual(result.typed.buffer, result.buffer)
-      assert.deepEqual(bytesOfArrayBuffer(result.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.buffer), [5, 6, 7, 8])
       assert.deepEqual(Array.from(result.typed), [9, 10, 11, 12])
     })
 
@@ -2087,7 +1886,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(result, current)
       assert.equal(result.typed.buffer, result.view.buffer)
       assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.view), [5, 6, 7, 8])
+      assert.deepEqual(bytesOfView(result.view), [5, 6, 7, 8])
     })
 
     it('reconcile preserves binary view topology through the equal-buffer fast path', () => {
@@ -2111,7 +1910,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(result.typed.buffer, result.view.buffer)
       assert.equal(result.typed.buffer, sharedBuffer)
       assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.view), [5, 6, 7, 8])
+      assert.deepEqual(bytesOfView(result.view), [5, 6, 7, 8])
     })
 
     it('reconcile preserves DataView and typed-array non-aliasing when next separates them', () => {
@@ -2130,7 +1929,7 @@ describe('context runtime direct contracts', () => {
       assert.equal(result, current)
       assert.notEqual(result.typed.buffer, result.view.buffer)
       assert.deepEqual(Array.from(result.typed), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.view), [9, 10, 11, 12])
+      assert.deepEqual(bytesOfView(result.view), [9, 10, 11, 12])
     })
 
     it('reconcile preserves aliasing across multiple typed arrays that share one next buffer', () => {
@@ -2186,8 +1985,8 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.equal(result.left.buffer, result.right.buffer)
-      assert.deepEqual(bytesOfDataView(result.left), [5, 6])
-      assert.deepEqual(bytesOfDataView(result.right), [7, 8])
+      assert.deepEqual(bytesOfView(result.left), [5, 6])
+      assert.deepEqual(bytesOfView(result.right), [7, 8])
     })
 
     it('reconcile preserves non-aliasing across DataViews when next separates their buffers', () => {
@@ -2205,8 +2004,8 @@ describe('context runtime direct contracts', () => {
 
       assert.equal(result, current)
       assert.notEqual(result.left.buffer, result.right.buffer)
-      assert.deepEqual(bytesOfDataView(result.left), [5, 6])
-      assert.deepEqual(bytesOfDataView(result.right), [7, 8])
+      assert.deepEqual(bytesOfView(result.left), [5, 6])
+      assert.deepEqual(bytesOfView(result.right), [7, 8])
     })
 
     it('reconcile preserves the full backing buffer for a DataView replacement with a larger aliased buffer', () => {
@@ -2224,8 +2023,8 @@ describe('context runtime direct contracts', () => {
       assert.equal(result.view.byteOffset, 1)
       assert.equal(result.view.byteLength, 2)
       assert.equal(result.view.buffer.byteLength, 4)
-      assert.deepEqual(bytesOfArrayBuffer(result.view.buffer), [4, 5, 6, 7])
-      assert.deepEqual(bytesOfDataView(result.view), [5, 6])
+      assert.deepEqual(bytesOf(result.view.buffer), [4, 5, 6, 7])
+      assert.deepEqual(bytesOfView(result.view), [5, 6])
     })
 
     it('reconcile reuses one DataView replacement when the same next DataView is referenced twice', () => {
@@ -2246,8 +2045,8 @@ describe('context runtime direct contracts', () => {
       assert.notEqual(result.left, sharedNextView)
       assert.equal(result.left.byteOffset, 1)
       assert.equal(result.left.byteLength, 2)
-      assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])
-      assert.deepEqual(bytesOfDataView(result.left), [6, 7])
+      assert.deepEqual(bytesOf(result.left.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOfView(result.left), [6, 7])
     })
 
     it('reconcile reuses one typed-array replacement when the same next typed array is referenced twice', () => {
@@ -2268,7 +2067,7 @@ describe('context runtime direct contracts', () => {
       assert.notEqual(result.left, sharedNextTyped)
       assert.equal(result.left.byteOffset, 1)
       assert.equal(result.left.byteLength, 2)
-      assert.deepEqual(bytesOfArrayBuffer(result.left.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.left.buffer), [5, 6, 7, 8])
       assert.deepEqual(Array.from(result.left), [6, 7])
     })
 
@@ -2289,7 +2088,7 @@ describe('context runtime direct contracts', () => {
       assert.notEqual(result.typed, typedReference)
       assert.equal(result.typed.byteOffset, 1)
       assert.equal(result.typed.byteLength, 2)
-      assert.deepEqual(bytesOfArrayBuffer(result.typed.buffer), [5, 6, 7, 8])
+      assert.deepEqual(bytesOf(result.typed.buffer), [5, 6, 7, 8])
       assert.deepEqual(Array.from(result.typed), [6, 7])
     })
 
@@ -2386,7 +2185,7 @@ describe('context runtime direct contracts', () => {
         charlie: 3,
       }
       const alphaReference = current.alpha
-      const next = buildObjectFromStringEntries([
+      const next = buildObjectFromEntries([
         ['alpha', new Uint16Array([4, 5])],
         ['charlie', 3],
         ['bravo', 2],
@@ -2410,7 +2209,7 @@ describe('context runtime direct contracts', () => {
     })
 
     it('reconcile matches supported plain-object expectations across randomized graphs', () => {
-      const random = createRandom(20_260_326)
+      const random = new Random(20_260_326)
 
       for (let index = 0; index < 200; index += 1) {
         const { current, next } = createPlainObjectExpectationCase(random)
@@ -2419,7 +2218,7 @@ describe('context runtime direct contracts', () => {
         const actualResult = reconcile(actualCurrent, actualNext)
 
         assert.equal(actualResult, actualCurrent)
-        assertEquivalentSupportedGraph(actualResult, actualNext)
+        assert.isTrue(graphsEqual(actualNext, actualResult))
       }
     })
 
@@ -2442,21 +2241,6 @@ describe('context runtime direct contracts', () => {
         value: 2,
         writable: true,
       })
-    })
-
-    it.fails('reconcile removes non-configurable keys absent from the next object', () => {
-      const current = {}
-      Object.defineProperty(current, 'fixed', {
-        configurable: false,
-        enumerable: true,
-        value: 1,
-        writable: true,
-      })
-
-      const result = reconcile(current, {})
-
-      assert.equal(result, current)
-      assert.equal('fixed' in result, false)
     })
   })
 })

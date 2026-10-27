@@ -10,6 +10,7 @@ import {
   serialize,
   snapshot,
 } from '../index'
+import { thrown } from './fixtures/thrown'
 
 /** A view over a buffer whose prototype was replaced, and one from another environment. */
 const views = (): Uint8Array[] => {
@@ -52,13 +53,8 @@ it('rejects in serialize a view over a buffer without the standard prototype', (
     const view = new Uint8Array(2)
     Object.setPrototypeOf(view.buffer, prototype)
     for (const value of [view, [view.buffer, view]]) {
-      let thrown: unknown
-      try {
-        serialize(value)
-      } catch (error) {
-        thrown = error
-      }
-      expect(isReconcileErrorOfType(thrown as never, 'SerializeValueUnsupported')).toBe(true)
+      const error = thrown(() => serialize(value))
+      expect(isReconcileErrorOfType(error as never, 'SerializeValueUnsupported')).toBe(true)
     }
   }
 })
@@ -129,13 +125,7 @@ it("rejects in serialize a typed array given another element type's prototype", 
     Object.setPrototypeOf(new Uint16Array([1, 2]), Uint8Array.prototype) as object,
     Object.setPrototypeOf(new Uint8Array([1, 2, 3, 4]), Uint16Array.prototype) as object,
   ]) {
-    let thrown: unknown
-    try {
-      serialize(view)
-    } catch (error) {
-      thrown = error
-    }
-    expect(thrown).toBeDefined()
-    expect(isReconcileErrorOfType(thrown as never, 'SerializeValueUnsupported')).toBe(true)
+    const error = thrown(() => serialize(view))
+    expect(isReconcileErrorOfType(error as never, 'SerializeValueUnsupported')).toBe(true)
   }
 })

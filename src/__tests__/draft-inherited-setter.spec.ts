@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isReconcileError } from '../index'
 import { produce } from '../produce'
+import { thrown } from './fixtures/thrown'
 
 /** A prototype whose setter for `key` defines it on the receiver with `descriptor`, as the
  * setters of `node --frozen-intrinsics` and SES do with a data descriptor assignment would make. */
@@ -14,17 +15,15 @@ function definingPrototype(descriptor: (value: unknown) => PropertyDescriptor): 
   })
 }
 
-/** The error type a recipe makes `produce` throw, if any. */
+/** The error type a recipe makes `produce` throw. */
 function thrownType(recipe: (draft: Record<string, unknown>) => void, base: object): unknown {
-  try {
+  const error = thrown(() =>
     produce(base as Record<string, unknown>, (draft) => {
       recipe(draft)
       return draft
-    })
-  } catch (error) {
-    return isReconcileError(error) ? error.cause.type : error
-  }
-  return undefined
+    }),
+  )
+  return isReconcileError(error) ? error.cause.type : error
 }
 
 const assigned = (value: unknown): PropertyDescriptor => ({

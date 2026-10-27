@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
 import { isReconcileError, reconcile } from '../index'
+import { thrown } from './fixtures/thrown'
 
 /** A proxy over `target` that records `ownKeys` and write traps. */
 function counted(target: object, log: string[]): object {
@@ -49,19 +50,16 @@ it('reads back after a setter changes a key that publication already compared', 
       this.b = 99
     },
   }
-  let failure: unknown
-  try {
-    // `b` comes first, as in `current`, so `a`'s setter runs after `b` was compared.
+  // `b` comes first, as in `current`, so `a`'s setter runs after `b` was compared.
+  const failure = thrown(() =>
     reconcile(
       current,
       Object.fromEntries([
         ['b', 1],
         ['a', 2],
       ]),
-    )
-  } catch (error) {
-    failure = error
-  }
+    ),
+  )
   assert.ok(isReconcileError(failure) && failure.cause.type === 'PublicationRejected')
   assert.strictEqual(current.b, 99)
 })
@@ -84,14 +82,9 @@ it('decides a later object key from its read before the first write, so a setter
     }
   }
   const current = make()
-  let failure: unknown
-  try {
-    // Capture read `b` as `child`, which `next` keeps there, so it is not written after `a`'s
-    // setter changes it; the readback rejects the result (WriteFreeReadback.publishPre).
-    reconcile(current, { a: 2, b: child })
-  } catch (error) {
-    failure = error
-  }
+  // Capture read `b` as `child`, which `next` keeps there, so it is not written after `a`'s
+  // setter changes it; the readback rejects the result (WriteFreeReadback.publishPre).
+  const failure = thrown(() => reconcile(current, { a: 2, b: child }))
   assert.ok(isReconcileError(failure) && failure.cause.type === 'PublicationRejected')
   assert.strictEqual(current.b, other)
   // Inside `current`, the object that blocks the change is replaced instead.

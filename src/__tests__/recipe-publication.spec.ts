@@ -2,6 +2,7 @@ import { assert, describe, it } from 'vitest'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { ReconcileError } from '../index'
+import { bytesOf, firstMapEntry, firstSetEntry } from './fixtures/contents'
 
 class UnsupportedCounter {
   value: number
@@ -11,16 +12,7 @@ class UnsupportedCounter {
   }
 }
 
-const firstSetEntry = <T>(value: Set<T>): T => value.values().next().value!
-const firstMapEntry = <K, V>(value: Map<K, V>): readonly [K, V] => value.entries().next().value!
 const returnedValue = () => 'ok'
-const bytesOfArrayBuffer = (value: ArrayBufferLike): number[] => Array.from(new Uint8Array(value))
-const assertSameReference = (actual: unknown, expected: unknown): void => {
-  assert.equal(actual, expected)
-}
-const assertNotSameReference = (actual: unknown, expected: unknown): void => {
-  assert.notEqual(actual, expected)
-}
 
 interface PublicationCyclic {
   nested: { count: number }
@@ -146,7 +138,7 @@ describe('caller publication', () => {
       }),
     )
 
-    assertSameReference(result, current)
+    assert.equal<unknown>(result, current)
     assert.deepEqual(result, { count: 3 })
   })
 
@@ -163,7 +155,7 @@ describe('caller publication', () => {
       }),
     )
 
-    assertSameReference(result, current)
+    assert.equal<unknown>(result, current)
     assert.deepEqual(result, { replace: true })
   })
 
@@ -1217,7 +1209,7 @@ describe('caller publication', () => {
       current,
       produce(current, (draft) => {
         new Uint8Array(draft.key)[0] = 9
-        assert.deepEqual(bytesOfArrayBuffer(current.key), [1, 2, 3])
+        assert.deepEqual(bytesOf(current.key), [1, 2, 3])
         draft.map.set(draft.key, 2)
         return draft
       }),
@@ -1228,7 +1220,7 @@ describe('caller publication', () => {
     assert.equal(result, current)
     assert.equal(resultKey, result.key)
     assert.equal(resultKey, current.key)
-    assert.deepEqual(bytesOfArrayBuffer(resultKey), [9, 2, 3])
+    assert.deepEqual(bytesOf(resultKey), [9, 2, 3])
     assert.equal(result.map.get(current.key), 2)
   })
 
@@ -1505,8 +1497,8 @@ describe('caller publication', () => {
       view: DataView
     }
 
-    assertSameReference(result, current)
-    assertNotSameReference(result.typed, typedReference)
+    assert.equal<unknown>(result, current)
+    assert.notEqual<unknown>(result.typed, typedReference)
     assert.notEqual(result.view, viewReference)
     assert.equal(result.typed.buffer, result.view.buffer)
     assert.equal(result.typed.constructor, Uint16Array)
@@ -1532,7 +1524,7 @@ describe('caller publication', () => {
       }),
     )
 
-    assertSameReference(result, current)
+    assert.equal<unknown>(result, current)
     assert.deepEqual(result, { wrapped: { count: 6 } })
   })
 })
