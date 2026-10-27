@@ -7,15 +7,18 @@ import Types.Recognition
 probe. When that prototype is `Object.prototype` or `null`, it selects the plain-object fallback
 without running the remaining probes; any other object takes the ordered scan of
 `Types.Recognition`, each `instanceof` probe deciding membership in the chain from the prototype
-already read (`inChain` in `src/object-property.ts`). This module proves that the result is the
-scan's: on such a chain every later probe fails, provided each `instanceof` probe uses the default
-`Symbol.hasInstance`. A typed array is a value with the typed-array brand whose chain holds
+already read (`inChain` in `src/object-property.ts`). This module proves that the result, and the
+probe that raises an error, are the scan's: on such a chain every later probe fails, a view's
+included, provided each `instanceof` probe uses the default `Symbol.hasInstance` and no live
+Temporal, `URL` or `URLSearchParams` constructor's prototype is `Object.prototype`
+(`Targets.Unknown`). A typed array is a value with the typed-array brand whose chain holds
 `%TypedArray%.prototype`, so a view whose prototype was replaced, or a `DataView` that inherits a
 typed array's prototype, is not one. A view counts only over a buffer the environment recognizes
-(`recognizedBuffer`); reading a view's brands and own buffer observes nothing, so the model takes
-the answers as given. The reads differ: the object itself is read once,
-where the scan read it once per probe, and the walks over its prototypes are the scan's, except
-that the typed-array probe does not walk again for `DataView`, which its own probe decided.
+(`recognizedBuffer`: one whose chain holds `ArrayBuffer.prototype` or
+`SharedArrayBuffer.prototype`); reading a view's brands and own buffer observes nothing, so the
+model takes the answers as given. The reads differ: the object itself is read once, where the scan
+reads it once per probe, and the walks over its prototypes are the scan's, except that the
+typed-array probe does not walk again for `DataView`, which its own probe decided.
 
 Ranks follow the declared order: 0 array, 1 `Date`, 2 `Map`, 3 `Set`, 4 `ArrayBuffer`,
 5 `DataView`, 6 typed array, 7 Temporal, 8 `URL`, 9 `URLSearchParams` and 10 the plain-object
@@ -207,7 +210,7 @@ example : outcome (recognize 10 .miss { protos := [], raises := true } false fal
     (none, some 1) := rfl
 
 /-- Counterexample for `Targets.Unknown`: were `URL` replaced by `Object`, `instanceof URL` would
-hold for a plain object, which the runtime no longer asks. -/
+hold for a plain object, which the runtime decides without asking. -/
 example : outcome (recognize 10 .miss { protos := [.object], raises := false } false false false
       { absent with url := .object }) ≠
     outcome (scanTrace 10 0 (probes .miss { protos := [.object], raises := false } false false

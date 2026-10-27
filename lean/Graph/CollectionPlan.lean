@@ -3,13 +3,17 @@ import Mathlib.Data.List.Nodup
 /-!
 # Collection publication plan
 
-`reconcile` matches `Map` and `Set` entries by position (`publish` in
-`src/types/shared/collection.ts`). Up to the first position whose key differs, each entry stays in
-place and takes its next value; from there on the current entries are deleted and the next ones
-appended. A `Map` is modelled as its entries in insertion order, with the built-in `set`
-(`put`: an existing key keeps its position) and `delete` (`remove`); a `Set` is the same with a
-unit value. With duplicate-free keys and an equal key prefix, the plan reaches exactly the next
-entries in order (`plan_eq`).
+`reconcile` publishes `Map` and `Set` entries with the built-in methods (`publish` in
+`src/types/shared/collection.ts`). The current entries that form, in order, the longest prefix of
+the next entries (`Spec.Reconcile.retainPrefix`, the fewest moves by `retainPrefix_longest`) stay in
+place, a `Map` entry taking its next value; every other current entry is deleted, and the next
+entries past that prefix are appended. A `Map` is modelled as its entries in insertion order, with
+the built-in `set` (`put`: an existing key keeps its position) and `delete` (`remove`); a `Set` is
+the same with a unit value. `plan` keeps the first `p` current entries in place, so it models
+publication only when the retained entries are a prefix of the current ones, as they are when
+publication writes nothing (the case `WriteFreeReadback.collection_writeFree_matches` needs). With
+duplicate-free keys and an equal key prefix, the plan reaches exactly the next entries in order
+(`plan_eq`). A put of an entry's own value changes nothing (`put_same`), so the runtime skips it.
 -/
 
 namespace Reconcile.CollectionPlan

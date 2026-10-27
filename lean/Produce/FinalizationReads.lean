@@ -1,7 +1,7 @@
 /-!
 # Finalization reads
 
-`produce` answers three questions with fewer reads than it once made. Each answer is exact:
+`produce` answers three questions, and each answer is exact:
 
 - **Provenance.** A slot's provenance, whether its value is backed by the current object, matters
   only for a value that has a special copy: the special-value decision reads it for no other

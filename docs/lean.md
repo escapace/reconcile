@@ -32,12 +32,14 @@ about which `Spec.Promises` proves the documented promises.
 ## The heap model
 
 `Heap/Defs.lean` defines finite heaps of atoms and references: plain objects with ordered fields,
-arrays with holes, ordered maps and sets, dates, buffers and views. Functions are opaque atoms, and
-so are objects whose state the library cannot copy, such as a `RegExp`, `Error` or `WeakMap`;
-`Types.Atoms` proves how the runtime classifies them. `Heap/Defs.lean` also defines `HeapWF`, which
-guarantees that every reference points into the heap, not that the heap is natively valid.
-`Heap/WF.lean` defines edges, reachability and `SurfaceEq`, equality of two values at every finite
-depth, by which the specifications compare results.
+arrays with holes, ordered maps and sets, dates, buffers and views. `Heap.Publication`, reuse
+selection (`ReuseClosure`, `Immutable`) and the Contract oracle are stated over these heaps.
+Functions are opaque atoms, and so are objects whose state the library cannot copy, such as a
+`RegExp`, `Error` or `WeakMap`; `Types.Atoms` proves how the runtime classifies them.
+`Heap/Defs.lean` also defines `HeapWF`, which guarantees that every reference points into the heap,
+not that the heap is natively valid. `Heap/WF.lean` defines edges, reachability and `SurfaceEq`,
+equality of two values at every finite depth, by which `Publication` compares a published heap with
+its source.
 
 The model does not derive JavaScript semantics. Capture supplies key order and normalized atoms, so
 enumeration order, `SameValue`, `SameValueZero` and byte decoding are outside it.
@@ -79,9 +81,10 @@ and runs every bridge against one oracle process. Its budget and receipt are in
 Extra arguments go to Node. `pnpm check:lean --harmony-temporal` adds Node's native Temporal values
 to the `NativeValue` bridge, which otherwise skips them and says so. For the commands to use while
 editing, see [Checks and time budget](development.md#checks-and-time-budget). Only the `Spec`
-bridges have standalone entries: the outcome bridge, the phase bridge and the enumeration.
-[Runtime bridges](#runtime-bridges) describes them, the mutation audit that checks them and how to
-query one oracle by hand.
+bridges have standalone entries: the outcome bridge, the phase bridge and the enumeration. Each
+script's header lists its flags, _Spec agreement_, _Spec phases_ and _Spec enumeration_ say what
+they compare, and [Runtime bridges](#runtime-bridges) describes the mutation audit and how to query
+one oracle by hand.
 
 ## Checks and failures
 
@@ -105,10 +108,11 @@ When the gate fails:
 The tables below map every module in `lakefile.toml` to the runtime code it covers, grouped by
 operation. The oracle modules are the exception; [Runtime bridges](#runtime-bridges) names them.
 _Key theorems_ lists the statements a reader most needs; each module holds more. _Bridge_ names the
-oracle family that executes the module's definitions against the runtime, or says _proof-only_; a
-proof-only module is still built and audited. _Obligations_ names the
-[runtime obligations](#runtime-obligations) the correspondence relies on. The [Promises](#promises)
-table instead maps the main promises of the public functions to their theorems, bridges and tests.
+oracle family that executes the module's definitions against the runtime; _imported by_ names a
+family whose oracle runs them through another module, and _proof-only_ means no oracle runs them. A
+proof-only module is still built and audited. _Obligations_ names the [runtime
+obligations](#runtime-obligations) the correspondence relies on. The [Promises](#promises) table
+instead maps the main promises of the public functions to their theorems, bridges and tests.
 
 ### Heap model and public contracts
 
@@ -127,81 +131,9 @@ table instead maps the main promises of the public functions to their theorems, 
 | `Spec.Promises`  | most theorems in [Promises](#promises)                              | the documented promises of `reconcile`, `produce` and `snapshot`                               | Spec              | Spec agreement              |
 | `Spec.Discovery` | `candidates_eq_aligned`, `offersAligned_needed`                     | `candidates` in `src/publication/candidates.ts`, `offersOther` in `src/publication/capture.ts` | Spec phases       | Ordinal candidates          |
 
-`Spec.Graph` is a heap of plain objects with ordered fields, each a data property with its
-attributes or an accessor with the value its getter returns and whether its setter stores,
-extensibility, and a prototype label; arrays with holes and an integrity level; maps, sets and
-dates; buffers with their bytes and, when resizable, their maximum length; typed arrays and
-`DataView`s with their constructor, buffer, byte offset and byte length; primitives and atoms. A
-`reconcile` input also gives each class label its own slots, data or accessor, which every object
-with that label inherits. `Graph.normalize` reads an empty non-extensible array as sealed, as the
-integrity test does.
-
-`Spec.Reconcile.run` is the deterministic reference: a read phase that aligns `next` with `current`
-and pins objects already in place, a decision in visit order that keeps an aligned object when it
-admits `next`'s contents statically, and a write phase that demotes a kept object whose write
-reaches a fixed slot or a setter that drops its value and decides again, never keeping a demoted
-object and keeping each object a pass wrote at its node. An object cannot be kept when `next` has a
-key that the object lacks and its class holds as an accessor. A buffer is kept only when its length
-and maximum length equal `next`'s, and a view only when its constructor, byte offset and byte length
-do; a view's buffer counts as a fixed slot. The reference returns the result graph with the object
-kept at each node, the writes, the number of passes and the getter counts. `retainPrefix`, the
-longest prefix of `next`'s key or entry order that is a subsequence of `current`'s, decides which
-keys and entries keep their place. `Spec.Produce.run` applies a recipe of draft operations to a
-draft heap and keeps the greatest set of unchanged subtrees (`kept`). A draft reads a `Date`, buffer
-or view as a copy. When the copy differs from the original, the result holds the copy in the
-original's place, possibly inside a new object. `Spec.Produce.snapshot` copies every node.
-
-`Spec.Promises` proves, about these definitions:
-
-- The retained prefix is a prefix of `next`'s order, a subsequence of `current`'s and the longest
-  such prefix (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`).
-- A getter of `current` runs at most once when its object is read and once per decision pass, and
-  at most once when no pass writes (`get_bound`, `read_once_before_write`).
-- The decision passes are bounded by the number of node pairs, so no plan is searched
-  (`passes_le`).
-- A retained key is written exactly when its value differs, and a moved or added key is always
-  written (`objectWrites_set_iff`, `objectWrites_delete_iff`). Array elements and lengths, `Map`
-  and `Set` entries, a date's time and a buffer's bytes follow the same rule, and a view takes no
-  write (`arraySlotWrites_set_iff`, `arraySlotWrites_delete_iff`, `arraySlotWrites_length_iff`,
-  `entryWrites_set_iff`, `entryWrites_delete_iff`, `entryWrites_fresh_iff`, `writesOf_date`,
-  `writesOf_buffer`, `writesOf_view`). No write reaches a slot that already holds `next`'s value
-  (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`). A kept node
-  takes no write exactly when its object already holds `next`'s contents under the decision's
-  identities, given distinct keys and identities that keep each object at one node
-  (`writesOf_nil_iff`). Every decision of the passes keeps each current object at one node, given
-  that `same` maps distinct pinned nodes to distinct objects (`decide_injective`,
-  `demote_injective`), so the identity premise holds for every node a pass keeps
-  (`demote_writesOf_nil_iff`). The theorems name array slots and `Map` and `Set` keys structurally
-  (`ArraySlot`, `EntryKey`), because a `Map` or `Set` write reports its key as text, which two
-  distinct keys can share.
-- A kept object keeps the attributes of every property it had and adds each other property
-  writable and configurable, with `next`'s enumerability (`keptObject_attrs`).
-- A pass demotes only a blocked object: one with a write that reaches a fixed slot or a setter
-  that drops its value (`mem_blockedObjects`). It never demotes an object an earlier pass demoted,
-  so every pass that continues demotes a current object for the first time (`blocked_fresh`).
-- A candidate whose fixed slot requires another object at the candidate's own node can never be kept
-  with that object. The candidate order ignores such a requirement, so it does not reorder that
-  node's candidates (`demands_satisfiable`). A candidate whose fixed slots require two objects at
-  one node, or another object at a pinned node, is not admitted, so it reorders no node
-  (`admitted_pins`, `demands_pinned`).
-- A node's origin is the current object it keeps; a node that keeps none holds a fresh copy of
-  `next`'s node and has no origin (`publish_origins`, `publish_fresh`).
-- `produce` keeps a current object exactly when its subtree is unchanged; `kept` is the greatest set
-  closed under the keep conditions (`kept_closed`, `kept_greatest`).
-- `snapshot` makes one copy per source node and shares no object with the source (`snapshot_size`,
-  `snapshot_copy`, `snapshot_fresh`).
-
-Four counterexamples each show, on one input, a wrong definition that a theorem rules out:
-retaining only the common prefix, reading back after a write-free pass, writing every key and
-re-adding a moved key as plain data. The runtime meets these promises exactly as far as the bridge
-shows it agrees with the reference.
-
-`Spec.Discovery` proves that when no reference of an aligned node offers, at its position, a
-current object of the child's kind other than the one the child is aligned with
-(`OffersAligned`), each node's candidates are its pinning alignment and nothing else
-(`candidates_eq_aligned`). The proof follows `candidateStep` pair by pair alongside `visitStep`,
-whose fuel suffices because each step consumes a pending pair or a node's references.
-`offersAligned_needed` shows a graph where one `next` object at two keys has two candidates.
+The docstrings of `Spec.Graph`, `Spec.Reconcile`, `Spec.Produce` and `Spec.Discovery` state their
+models and what each theorem proves. `Spec.Promises` proves most of the [promises](#promises) about
+these models; its docstring names the theorem for each promise.
 
 ### Promises
 
@@ -232,10 +164,9 @@ runtime directly. A row whose _Theorems_ cell reads _tested only_ has no proof.
 ### `snapshot`
 
 `snapshot` is `Spec.Produce.snapshot` in [Reference models](#reference-models), a new object per
-source object with atoms shared; the Spec bridge checks the runtime against it on random graphs. The
-walk in `src/snapshot.ts` copies most kinds inline and repeats the reads that each kind's capture
-facet makes in `observe`; this is the _Snapshot walk_ coupling that [the development
-guide](development.md#couplings-that-fail-silently) lists. Its runtime obligations are _Snapshot
+source object with atoms shared; the Spec bridge checks the runtime against it on random graphs.
+[The development guide](development.md#couplings-that-fail-silently) lists the walk in
+`src/snapshot.ts` as the _Snapshot walk_ coupling. `snapshot`'s runtime obligations are _Snapshot
 memo_ and _Built-in snapshot writer_.
 
 ### `reconcile`
@@ -243,11 +174,11 @@ memo_ and _Built-in snapshot writer_.
 | Module(s)           | Key theorems                                                                                                                                                                                                                                                                                                                                                                             | Runtime                                                                                                                                                                                                                                                                                                 | Bridge                                                    | Obligations                                       |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------- |
 | `PropertyOrder`     | `step_equivalence`, `stream_equivalence`, `aligned_mem`                                                                                                                                                                                                                                                                                                                                  | `src/types/shared/property-publication.ts` `PropertyOrder`; aligned publication in `src/types/object.ts`                                                                                                                                                                                                | PropertyOrder                                             | Capture                                           |
-| `DeferredOrder`     | `catchUp_eq`, `execute_eq`                                                                                                                                                                                                                                                                                                                                                               | `src/types/shared/property-publication.ts`                                                                                                                                                                                                                                                              | DeferredOrder (instrumented copy)                         | Property order                                    |
+| `DeferredOrder`     | `catchUp_eq`, `execute_eq`                                                                                                                                                                                                                                                                                                                                                               | `src/types/shared/property-publication.ts`                                                                                                                                                                                                                                                              | DeferredOrder (instrumented bundle)                       | Property order                                    |
 | `PropertyWrite`     | `reconcileKey_no_inherited_setter`, `publish_missing`, `construct_data`, `constructFrom_data`, `constructOn_fresh`, `constructOn_eq_construct`, `constructFromOn_fresh`, `draftSet_eq`, `assignStrict_eq`, `draftThroughSetter_eq`, `draftThroughSetter_refused`, `draftThroughSetter_tamed`, `publish_accessor`, `reconcileKey_rejected`, `reconcileKey_sound`, `reconcileKey_complete` | `src/types/shared/property-publication.ts` `canPublishProperties`, `publishProperty`; `src/types/shared/draft-properties.ts` `set`, `defineProperty`; `setOwnProperty` (`src/set-own-property.ts`); `define` in `src/serialization/common.ts`; the fresh-shell write in `src/types/object.ts`           | PropertyWrite, PropertyConstructOn, PropertyThroughSetter | Property writes                                   |
 | `PropertyPlacement` | `matched_maximal`, `place_matched`, `feasible_iff`, `reference_sectors`, `reference_keeps_fixed_iff`                                                                                                                                                                                                                                                                                     | `src/types/shared/property-publication.ts` `canPublishProperties` with `PropertyOrder`                                                                                                                                                                                                                  | PropertyPlacement                                         | Key order                                         |
 | `WriteFreeReadback` | `object_writeFree_matches`, `array_writeFree_matches`, `collection_writeFree_matches`, `publishKnown_eq`, `publishPre_eq`, `publishSeen_eq`, `accepts_readsAs`, `acceptsRetry_readsAs`                                                                                                                                                                                                   | readback elision, the preflight facts (`PreflightFacts`, `src/types.ts`) and retried publications in `src/publication/publication-engine.ts`; `occupants` in `src/publication/capture.ts`; `publish` in `src/types/object.ts`, `src/types/array.ts` and the other kinds in `src/types/`; `publishKnown` | WriteFreeReadback                                         | Write-free readback, Reads before the first write |
-| `CollectionPlan`    | `plan_eq`, `put_same`                                                                                                                                                                                                                                                                                                                                                                    | `publish` in `src/types/shared/collection.ts`                                                                                                                                                                                                                                                           | proof-only                                                | Ordinal candidates                                |
+| `CollectionPlan`    | `plan_eq`, `put_same`                                                                                                                                                                                                                                                                                                                                                                    | `publish` in `src/types/shared/collection.ts`                                                                                                                                                                                                                                                           | proof-only                                                | Built-in contents, Ordinal candidates             |
 
 `src/__tests__/reconcile-semantics.spec.ts` tests the contract case by case: a successful call
 keeps the current root, preserves sharing and cycles and never merges distinct nodes, and a kept
@@ -266,39 +197,19 @@ duplicate-free current keys start with the requested order, a current key is req
 its position is below the requested count. `DeferredOrder` lets private cursor work wait until
 needed, without sharing observations across phases.
 
-`PropertyWrite` models one key of an existing object: its own descriptor, the first descriptor
-assignment would reach on the prototype chain, and extensibility, with setters as arbitrary
-application code. `reconcile` writes a changed own property by assignment, so an own setter runs
-(`publish_accessor`). It never runs a setter on the prototype (`reconcileKey_no_inherited_setter`):
-a key whose assignment would reach one fails the check before any write (`reconcileKey_rejected`),
-except `__proto__`, which is defined. With setters that store their value, that check decides the
-outcome exactly (`reconcileKey_sound`, `reconcileKey_complete`). An assignment to a `produce`
-draft, decided in the trap's own order, has the outcome assignment has on the object
-(`draftSet_eq`), so a draft of a frozen, sealed or non-extensible object refuses a new key.
-`reconcile` follows a refused assignment with a definition only for a key the object holds
-read-only; on an ordinary object that is the modelled assignment (`assignStrict_eq`), and a
-proxy whose `set` trap refuses a write is not overridden.
+The docstrings of `PropertyWrite`, `CollectionPlan` and `PropertyPlacement` state their models and
+what each theorem proves.
 
-`CollectionPlan` models a `Map` or `Set` as its entries in insertion order, with the built-in
-`set` keeping an existing key in place; `reconcile` uses the built-in methods (see _Built-in
-contents_ below). Publication keeps the current entries that form, in order, the longest prefix of
-the next entries (`Spec.Reconcile.retainPrefix`, the fewest moves by `retainPrefix_longest`),
-setting only changed values, deletes every other current entry and appends the next entries past
-that prefix. A put of an entry's own value changes nothing (`put_same`), so the runtime skips it.
-
-`PropertyPlacement` shows that publication's key order is best effort and never rejects early: a
-placement keeping every fixed key exists exactly when greedy matching keeps them (`feasible_iff`),
-and `PropertyOrder`'s reference cursor is that matching (`reference_keeps_fixed_iff`).
-
-A new object holds its values as data properties, and building one runs no setter. `construct_data`
-covers the property writes of `snapshot`, and `constructFrom_data` adds the source's enumerability:
-a non-enumerable property is defined non-enumerable, and every new property is writable and
-configurable. Both assume an unmodified `Object.prototype`. `setOwnProperty`, `define` in
-`src/serialization/common.ts` and the fresh-shell write assign only a key `Object.prototype` lacks
-and define any other; `constructOn_fresh` and `constructFromOn_fresh` prove it without the
-unmodified-prototype premise, and `constructOn_eq_construct` shows it matches `construct` where that
-premise holds. `publish_missing` covers a key an object lacks, which is how `reconcile` fills an
-object it adds: a key whose assignment would reach an accessor is defined.
+`PropertyWrite` also covers new objects: a new object holds its values as data properties, and
+building one runs no setter. `construct_data` covers the property writes of `snapshot`, and
+`constructFrom_data` adds the source's enumerability: a non-enumerable property is defined
+non-enumerable, and every new property is writable and configurable. Both assume an unmodified
+`Object.prototype`. `setOwnProperty`, `define` in `src/serialization/common.ts` and the fresh-shell
+write assign only a key `Object.prototype` lacks and define any other; `constructOn_fresh` and
+`constructFromOn_fresh` prove it without the unmodified-prototype premise, and
+`constructOn_eq_construct` shows it matches `construct` where that premise holds. `publish_missing`
+covers a key an object lacks, which is how `reconcile` fills an object it adds: a key whose
+assignment would reach an accessor is defined.
 
 A `produce` recipe's assignment of a key its object lacks may reach a setter on the prototype,
 which receives the draft. A hardened environment's setter, such as those `node --frozen-intrinsics`
@@ -337,25 +248,8 @@ separated (`separated_of_injective`) and the runtime search tracks no owners; th
 records are closed over parents, so the eligibility mask is closed, and `immutableHead` checks only
 that every fixed record is eligible.
 
-`SettledChildren` models finalization's question whether an object needs a copy: a walk of its
-children that stops at the first changed one and settles the objects it found unchanged. The walk
-keeps an object's child list only when it visited every child, so each kept list is complete
-(`recorded_getD`). A negative answer settles its object as soon as its walk ends, unless the walk
-met an object its question visited but has not settled, which only a cycle back into the walk
-produces; such a pending answer waits for the question's. Every check keeps the invariant that each
-settled object has its list kept and settled children (`check_step`, `needs_settled`), so identity
-restoration's walk of an unchanged subtree the result keeps reads no list again
-(`settled_reach_recorded`), and with the changed objects fixed a settled object reaches none of them
-(`needs_unchanged`).
-
-`FinalizationReads` proves three reads exact. A slot's provenance matters only for a value with a
-special copy, so the observation records it only while the call holds one; the last observation
-sees every copy the decision sees, so the decisions agree (`decisions_gated`). A working copy lists
-strings before symbols, so its last key is a symbol exactly when it holds one (`lastSymbol_iff`), and
-a copy that never held one lists all its keys as its string keys (`keys_exact`). Drafts are only
-added and counted, so after a walk a draft found before is unchanged and a missing one can appear
-only if the count moved (`reread_exact`). These came after the runtime change they justify, in the
-same round.
+The docstrings of `SettledChildren` and `FinalizationReads` state their models and what each theorem
+proves.
 
 `Requirements` specifies the least closure. `SeededRequirements` proves that dropping implications
 into seed facts keeps the closure and its trace, which `compileImmutable` relies on. `FactRenaming`
@@ -377,61 +271,19 @@ that order, then fills each.
 
 | Module(s)                | Key theorems                                                                                        | Runtime                                                                                                                                                                                                                                   | Bridge                                      | Obligations                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------- |
-| `Types.Recognition`      | `builtinTrace_eq_scanTrace`, `temporalTrace_eq_scanTrace`, `builtinDispatch_eq_scanTrace`           | `src/types/builtins.ts`, `src/types/temporal.ts`                                                                                                                                                                                          | proof-only                                  | Recognition                 |
+| `Types.Recognition`      | `builtinTrace_eq_scanTrace`, `temporalTrace_eq_scanTrace`, `builtinDispatch_eq_scanTrace`           | `src/types/builtins.ts`, `src/types/temporal.ts`                                                                                                                                                                                          | imported by RecognitionPlain, Ingress       | Recognition                 |
 | `Types.RecognitionPlain` | `recognize_eq_scan`, `plain_probes`                                                                 | `builtinFirstMatch` in `src/types/builtins.ts`, `inChain`                                                                                                                                                                                 | RecognitionPlain                            | Recognition                 |
 | `Types.Atoms`            | `classify_atomic`, `classify_reads`, `ingress_atom_iff`, `ingress_structural`                       | `isAtomObject` in `src/object-property.ts`, `recognize` in `src/adapters/recognition.ts`                                                                                                                                                  | Atoms                                       | Recognition, Atoms          |
 | `Types.Ingress`          | `ownReads_shared`, `walkReads_eq`, `viewCopy_once`, `bufferCopy_once`, `typedFirst_once`            | `recognize` with a `PrototypeRead` in `src/adapters/recognition.ts`; capture's `prototypes`, `createDraft`, the snapshot walk, binary-native copies                                                                                       | Ingress                                     | Recognition, Atoms, Ingress |
 | `Types.NativeValue`      | `published_payload`, `temporal_compatible_iff`, `clear_append_exact`                                | `src/types/temporal.ts`, `src/types/url.ts`, `src/types/url-search-parameters.ts`                                                                                                                                                         | NativeValue                                 | Native values               |
 | `Types.NativeWrites`     | `publish_nil_iff`, `publish_url`, `publish_parameters`, `publish_temporal`, `result_eq`             | `publish` in `src/types/url.ts`, `src/types/url-search-parameters.ts` and `src/types/temporal.ts`; `replaceNativeParameters`                                                                                                              | proof-only                                  | Native writes               |
-| `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                                   | ownership tables in `src/snapshot.ts` and finalization                                                                                                                                                                                    | imported by OwnedNativeChild                | Lazy ownership metadata     |
+| `Types.LazyOwnership`    | `lazy_eager_equivalent`, `omit_identity_response`                                                   | ownership tables in `src/snapshot.ts` and finalization                                                                                                                                                                                    | proof-only                                  | Lazy ownership metadata     |
 | `Types.OwnedPublication` | `bulk_equivalent`, `bulk_identity`, `sealed_owner_sound`                                            | `src/types/shared/url-carrier.ts`                                                                                                                                                                                                         | OwnedNativeChild; native differential check | URL ownership               |
 | `Types.OwnedNativeChild` | `adopt_consistent`, `admitted_iff`, `first_prepared_ranked`, `replay_owned_valid`                   | `src/types/url.ts`, `src/types/url-search-parameters.ts`, `src/types/shared/url-carrier.ts`                                                                                                                                               | OwnedNativeChild                            | URL ownership               |
 | `Types.CallTables`       | `lazy_run_eq`, `pending_run_eq`, `filled_run_eq`, `interleave_length`, `interleave_get`, `fill_row` | `memoized`, `memo`, `targetOf` and `typedCopy` in `src/snapshot.ts`; `copyTypedFirst` in `src/types/shared/binary-native.ts`; `scalar`, `layout` and `push` in `src/serialization/emit.ts`; `checkShape` in `src/serialization/decode.ts` | proof-only                                  | Per-call tables             |
 
-`Types.CallTables` covers per-call tables kept in a cheaper form than a map, one list per field, a
-growing list or an eager copy. The snapshot walk's reference memo holds the first object's reference
-in two fields, which the root fills without a lookup, and makes its map, holding that reference, at
-the first lookup (`lazy_run_eq`), and holds, for a buffer first met through a typed array that
-covers it, that array's copy made from the array itself, reading the copy's buffer at the first
-lookup that needs it (`pending_run_eq`); serialize's scalar and plain-layout tables hold -1 at an
-index without an id (`filled_run_eq`); deserialize keeps each shape's offset, inheritance flag and
-key words as three consecutive entries (`interleave_length`, `interleave_get`); and serialize writes
-each payload value at its row's count, a short record's row being made at its key count (`fill_row`,
-`fill_empty`). Each returns, over any sequence of the runtime's operations, what the earlier form
-returned.
-
-`Types.Recognition` refines first-match recognition by traces of a fixed prefix of predicate calls.
-The traces keep the ranks of the predicates visited, the selected rank and the position of an early
-exception.
-
-`Types.RecognitionPlain` proves that the built-in registries may decide an object after one
-prototype read: when the prototype is `Object.prototype` or `null`, every later probe fails, a
-view's included, so the plain-object fallback is the scan's result (`plain_probes`,
-`recognize_eq_scan`). Any other object takes the scan, each `instanceof` probe deciding membership
-from the prototype already read, so the result and a raised error are the scan's while the object
-itself is read once. A typed array holds the typed-array brand and inherits
-`%TypedArray%.prototype`, so a `DataView` that inherits a typed array's prototype is not one. A
-typed array whose prototype was set to `DataView.prototype` is a `DataView` by its chain, and its
-copy reads it through the getters its element type selects. A view counts only over a buffer whose
-chain holds `ArrayBuffer.prototype` or `SharedArrayBuffer.prototype`; the model takes the brands
-and that answer as given, since reading them observes nothing.
-
-`Types.Atoms` proves that one walk of the prototype chain decides `instanceof` for every listed
-constructor, with one `[[GetPrototypeOf]]` read per prototype it passes. It also proves that
-ingress recognition splits only the plain-object fallback into atoms; known-kind checks keep the
-structural scan. An atom is a `Defs.Value.atom`, so the snapshot, reconcile and produce theorems
-about atoms apply to it.
-
-`Types.Ingress` composes the two: one shared prototype read decides both the kind and the atom
-split, as the two classifiers would separately, and reads the object once where a separate split
-read it twice (`ownReads_shared`); the walk past that read is unchanged (`walkReads_eq`). In the
-same way, recognition reads a view's element type once, for its buffer's getter and the typed-array
-brand (`recognition_once`); a view's copy reads the element type and the prototype once
-(`viewCopy_once`), and the snapshot walk's copy takes the prototype recognition read
-(`snapshotView_once`); a buffer's copy reads its prototype once (`bufferCopy_once`); and a typed
-array met before its buffer makes the buffer copy's reads and then its own offset and length,
-whichever copy they decide (`typedFirst_once`). Each calls every built-in getter the earlier code
-called, once.
+The docstrings of `Types.CallTables`, `Types.Recognition`, `Types.RecognitionPlain`, `Types.Atoms`
+and `Types.Ingress` state their models and what each theorem proves.
 
 `Types.NativeValue` proves the payload policy: mutable publication returns the desired payload,
 immutable Temporal compatibility requires equal class, constructor label and exact observation, and
@@ -530,31 +382,29 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Spec agreement.** The runtime's result, read back as a graph, equals the reference's on
   identities, values, descriptors, prototypes and extensibility, rejections agree, nothing is
   written before a rejection the reference decides before any write, and `produce` and `snapshot`
-  leave `current` unchanged. The bridge checks this on seeded random graphs, so its evidence is for
-  the generated cases. The models cover objects, arrays, maps, sets, dates, buffers, views and, for
-  `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`, views that
-  track their buffer's length, buffer and view subclasses, URLs, Temporal values or proxies. The
-  gate allows no difference: results, rejections, writes before a rejection and the getter counts of
-  the current objects `next` does not hold must agree; the getters of an object `next` holds run
-  while `next` is read, which the promise leaves out. The gate also runs the `--writes`, `--hazards`
-  and `--binary` batches. The `--writes` batch wraps every current object and array in a recording
-  proxy and compares the writes and deletions each one receives, over every decision pass, with the
-  reference's writes. The `--hazards` batch, also through the proxies, generates more accessors and
-  more setters that drop their value than the default batch, so that about one call in nine needs
-  more than one decision pass. The `--binary` batches, one per operation, add buffers, some of them
-  resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs through the
-  recording proxies.
+  leave `current` unchanged. The bridge checks this on seeded random graphs, a `current` of up to
+  seven nodes with cycles, sharing, attributes, accessors, prototypes and integrity levels, where
+  `next` reuses, reorders and moves current objects and `produce` recipes write drafts, create
+  objects and return values, so its evidence is for the generated cases. The models cover objects,
+  arrays, maps, sets, dates, buffers, views and, for `reconcile`, the slots of class prototypes;
+  they do not cover `SharedArrayBuffer`, views that track their buffer's length, buffer and view
+  subclasses, URLs, Temporal values or proxies. The gate allows no difference: results, rejections,
+  writes before a rejection and the getter counts of the current objects `next` does not hold must
+  agree; the getters of an object `next` holds run while `next` is read, which the promise leaves
+  out. The gate also runs the `--writes`, `--hazards` and `--binary` batches. The `--writes` batch
+  wraps every current object and array in a recording proxy and compares the writes and deletions
+  each one receives, over every decision pass, with the reference's writes. The `--hazards` batch,
+  also through the proxies, generates more accessors and more setters that drop their value than the
+  default batch, so that about one call in nine needs more than one decision pass. The `--binary`
+  batches, one per operation, add buffers, some of them resizable, with typed arrays and `DataView`s
+  over them; the `reconcile` batch runs through the recording proxies.
 - **Spec phases.** On the `reconcile` cases, plain, hazard-rich and with buffers and views, the
   runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
   order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
   candidates in decision order with the requirements of their fixed slots, and the decision of
   every pass up to the first that keeps no root. The phase bridge reads them from a bundle of the
   sources that records `publishGraph`'s candidates and each `decide`, so the library carries no
-  hook. Capture keeps an object already in place as an atom edge, which has no node, so the bridge
-  compares order and alignment over the nodes that are not pinned and checks that every pinned
-  node keeps the object it is. The runtime also leaves out a candidate that is an object inside a
-  pinned subtree, which the reference keeps in the list but never decides for, since every such
-  object is reserved; the bridge's reference list leaves it out too.
+  hook.
 - **Spec enumeration.** Every case within the bounds of `scripts/lean-spec-enumerate.ts` agrees with
   the reference, as the outcome bridge compares it, plain and through recording proxies, and, for
   `reconcile`, as the phase bridge compares it. Its universes are objects and arrays of up to two
@@ -594,22 +444,17 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   objects from other candidates, and pins to itself any captured node the walk met. Each pinned
   slot's edge holds that slot's occupant (`Spec.Reconcile.pinned`). Only plain-object and array slots
   pin, and captured views never pin their buffers.
-- **Buffer shape.** An `arrayBuffer` node holds bytes only, and `compatibleShape` compares their
-  count. The runtime also keeps a buffer only when it has next's resizability and maximum length,
-  which a copy would carry, so a kept buffer differs from next in no property a copy has. `binary-built-ins.spec.ts` covers resizable buffers and views.
 - **Property order.** `DeferredOrder` applies only while key storage is private, stable and
   non-escaping, and desired keys are buffered eagerly. A key moved into the requested order is
   deleted, assigned again so that a proxy's `set` trap observes it, and given back its own attributes,
   as `PropertyWrite` keeps them for a key written in place. `property-order.spec.ts` and `reconcile-property-order.spec.ts` cover the cursor and the moved keys.
 - **Property writes.** `PropertyWrite` covers one key of an ordinary object, or of a proxy whose
-  traps forward to one. The prototype walk in `canPublishProperties`
-  must find the descriptor assignment would reach. It reads a descriptor of `Object.prototype` or
-  `Array.prototype` only for a key that `in` reports there, and goes past either one only when it
-  does not own that key; for any other key it stops there, since `in` has already searched the rest
-  of the chain (`src/__tests__/prototype-boundaries.spec.ts`). `deserialize` asks whether
-  `Object.prototype` holds a key once per shape, since only built-in code and the global `Temporal`
-  run before records are filled. Multi-key order is `PropertyOrder`'s; an own accessor is treated as
-  a slot that keeps its place.
+  traps forward to one. The prototype walk in `canPublishProperties` must find the descriptor
+  assignment would reach, reading the standard prototypes as `PropertyWrite`'s docstring states;
+  `prototype-boundaries.spec.ts` covers the walk. `deserialize` asks whether `Object.prototype`
+  holds a key once per shape, since only built-in code and the global `Temporal` run before records
+  are filled. Multi-key order is `PropertyOrder`'s; an own accessor is treated as a slot that keeps
+  its place.
 - **Write-free readback.** When the first pass wrote nothing to any node, `publishGraph` reads
   nothing back. `WriteFreeReadback` proves that a plain
   object or an array whose publication wrote nothing would read back as accepted, given the same
@@ -638,10 +483,7 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   Readback reads every unpinned node again after any write, so a decision that a write in between
   made stale can only block the object (`accepts_readsAs`, `acceptsRetry_readsAs`). The runtime
   supplies only the premise of _Write-free readback_: a repeated read with no write in between
-  answers as the first did. An own getter of `current` therefore runs at most once when the call
-  writes nothing, twice when it writes, and once more for each demotion pass, apart from reads of
-  `next` and of proxy traps (`write-free-readback.spec.ts`); the Spec bridge checks the counts
-  against `Spec.Reconcile.run`.
+  answers as the first did.
 - **Ordinal candidates.** The runtime offers each captured node other than the root the current
   objects aligned with it, at the same key of an object, the same index of an array and the same
   insertion position among `Map` entries (key and value) and `Set` members, inside any candidate of
@@ -657,9 +499,6 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   not walk, so `candidates` gives each node its aligned current object alone without walking
   (`Spec.Discovery.candidates_eq_aligned`). The `alias-offer-ignored` and `entry-offer-ignored`
   mutants drop each case.
-- **Exposed handles.** Readback compares each read with the handle a node is bound to, so a value
-  written must read back as that handle; a trap that returns another object for a stored one makes
-  readback reject.
 
 ### `produce`
 
@@ -670,8 +509,6 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   instead go back to the original it was made from. Tests include
   `finalization-propagation-regressions.spec.ts`, `url-ownership.spec.ts` and the
   `hardened-kinds.ts` driver that `standard-prototypes.spec.ts` runs.
-- **Drafts.** The recipe is isolated from the input, returning the original `current` cancels draft
-  changes, and getters are sealed during finalization.
 - **Finalization reads.** Reading an object again lists the same children, as `SettledChildren`
   assumes; identity restoration takes an object's children from a finalization walk that visited all
   of them. A draft write keeps the descriptor and value it read for its
@@ -733,21 +570,12 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   frozen built-in's properties, keeps it and updates its contents in place, and a `produce` draft
   changes them in its copy; `standard-prototypes.spec.ts` checks both in each hardened runtime.
 - **Intrinsic independence.** The models have no prototypes, so the runtime's own records, tables,
-  descriptors, errors and loops must not reach `Object.prototype` or `Array.prototype`; see
-  [AGENTS.md](../AGENTS.md) and `src/standard-prototypes.ts`. The `Uint8Array` base64 methods and
-  the global `Temporal` are read as own properties. Built-in methods captured when the module
-  loads are read through `builtinValue`, which calls the getter a hardened runtime puts in place
-  of a method, and are called with an explicit receiver; `standard-prototypes.spec.ts` runs every
-  function on every value kind under `node --frozen-intrinsics` and under SES `lockdown()` with
-  default and severe override taming, importing the library before and after it, and requires the
-  outcomes of an ordinary runtime. A `Set` method operand's keys are stepped as the specification
-  steps them and closed in the same way (`closeIterator`), except that a `return`
-  only `Object.prototype` holds is neither read nor called. A user array's hole is
-  asked of the array itself (`hasElement`) when a standard prototype holds that index; otherwise
-  `in` is the only observation. `standard-prototypes.spec.ts` plants each internal and protocol
-  name on both prototypes in a child process. An index accessor or read-only index on a standard
-  prototype, a built-in method replaced before the module loads, and a replacement, at any time,
-  of a built-in method the runtime calls on its own tables are outside this obligation.
+  descriptors, errors and loops must not reach `Object.prototype` or `Array.prototype`.
+  [AGENTS.md](../AGENTS.md) states the rule, `src/standard-prototypes.ts` documents the helpers
+  that keep it, and `standard-prototypes.spec.ts` checks it under `node --frozen-intrinsics`, under
+  SES `lockdown()` and with names planted on both prototypes. An index accessor or read-only index
+  on a standard prototype, a built-in method replaced before the module loads, and a replacement,
+  at any time, of a built-in method the runtime calls on its own tables are outside this obligation.
 - **Built-in contents.** The runtime reads and writes the contents of a `Map`, `Set`, `Date`,
   buffer, view, `URL` or `URLSearchParams` only with the functions captured when the module loads,
   which are assumed to be the built-ins (see _Intrinsic independence_ for one replaced earlier);
@@ -871,39 +699,41 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 per line, dispatches it by family to the entry function of that family's oracle module, and ends
 each response with a record-separator line. A family's oracle module is `Oracle.<Family>Oracle`, and
 its entry function is `run`; `PropertyConstructOn` and `PropertyThroughSetter` instead go to
-`PropertyWriteOracle` (`runConstructOn`, `runThroughSetter`).
+`PropertyWriteOracle` (`runConstructOn`, `runThroughSetter`). Each oracle module's docstring says
+what its family runs, and which cases when the oracle generates them; the _Runtime comparison_
+column says what the bridge compares.
 
-| Oracle family             | Bridge in `scripts/`                        | Runtime comparison                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Contract`                | `lean-captured-bridge.ts`                   | graphs from `reuse-fixtures.json`: values, aliases, cycles, identity restoration                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `PropertyOrder`           | `check-property-order-runtime.ts`           | cursor traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `PropertyWrite`           | `check-property-write-runtime.ts`           | single-key outcomes, run through `reconcile` on ordinary objects and forwarding proxies: status, final descriptor, own and inherited setter calls, and no write before a rejection                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `PropertyPlacement`       | `check-property-placement-runtime.ts`       | pairs of own-key orders with an integer key, names and symbols, and every set of accessors they share: `reconcile` succeeds with the desired order exactly where Lean keeps every accessor, and otherwise writes nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `WriteFreeReadback`       | `check-write-free-readback-runtime.ts`      | `reconcile` of every ordered subset of three keys onto two, and of every array of length up to three onto two requested arrays, through a counting proxy: the readback is elided and nothing is written exactly where Lean finds publication write-free, and every result equals `next`; where the values are objects, each requested key that `current` holds is read once when nothing is written and twice otherwise                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `PropertyConstructOn`     | `check-property-construct-runtime.ts`       | new objects built by `snapshot`, a `produce` rebuild, an object `reconcile` adds and `deserialize`, on a custom prototype or `Object.prototype` holding each kind of descriptor for the key, or on a null prototype, from enumerable and non-enumerable source properties: each holds the own data property with its source's enumerability, no setter on its prototype runs, and `serialize` rejects a non-enumerable one                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `PropertyThroughSetter`   | `check-property-through-setter-runtime.ts`  | assignments of a key the object lacks through a setter on its prototype that defines nothing or the key with each set of attributes, on ordinary objects and `produce` drafts: the draft accepts exactly the definition assignment would make and refuses the others; `standard-prototypes.spec.ts` runs `produce` under `node --frozen-intrinsics`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `KeyOrder`                | `check-key-order-runtime.ts`                | sequences of assignments and deletions on objects with integer keys, names and a symbol: the engine's own keys and `produce`'s result both equal Lean's `ownKeys`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `Atoms`                   | `check-atoms-runtime.ts`                    | real built-in prototype chains behind custom prototypes, with proxies counting reads: the runtime walk matches Lean's answer and read count, and each atom is kept by `snapshot`, `reconcile` and `produce` and rejected by `serialize`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `Ingress`                 | `check-ingress-runtime.ts`                  | real built-in and listed prototype chains behind custom prototypes, with and without a typed-array brand and with a throwing prototype read: recognition with the prototype read shared and with a separate atom split both match Lean's outcome; the object is read once when shared and as often as Lean counts when not, and its custom prototypes the same number of times either way                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `RecognitionPlain`        | `check-recognition-plain-runtime.ts`        | real built-in prototype chains behind custom prototypes, without a view brand and as a typed array and a `DataView`, each over a recognized buffer and over one whose prototype is `null`, and with a throwing prototype read: built-in recognition and every known-kind check match Lean's result and thrown error; the object is read once, and its custom prototypes as the ordered scan of `recognition-scan.ts` reads them, less the typed-array probe's repeated `DataView` walk                                                                                                                                                                                                                                                                                                                                                                              |
-| `DraftSurface`            | `check-draft-surface-runtime.ts`            | draft writes on objects, arrays, maps, typed arrays and dates admitted exactly where the result carries them, and objects and arrays with getters, changed or not, kept exactly where Lean keeps them; a rebuilt object or array holds each returned value as data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `DraftClass`              | `check-draft-class-runtime.ts`              | names on `Map` and `Set` drafts, built-in and subclass instances, owned by the prototype Lean names, and `instanceof` checks that agree; a subclass method runs on a draft and the result keeps the subclass                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `DraftIteration`          | `check-draft-iteration-runtime.ts`          | scripts of iterations and writes on a `Map` draft: each walk, the result's entries and whether the result keeps the original agree with Lean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `SettledChildren`         | `check-settled-children-runtime.ts`         | every graph of three objects with child lists of at most two entries, with no object or one object changed through its draft, asked whether object 0 and then object 1 need a copy: each answer, the settled answers, including those settled before their question ended, and the kept child lists equal Lean's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `DraftMembers`            | `check-draft-members-runtime.ts`            | `includes`, `indexOf` and `lastIndexOf` on an array draft of `[a, b, a, 7]`, for each object as itself and as its draft, another object and numbers, with every element read before the search and with the array searched first: results agree with Lean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `DraftSetMethods`         | `check-draft-set-methods-runtime.ts`        | the `Set` methods on `Set` drafts, unwritten and with a working copy, over enumerated member and key lists, with each operand form (a `Set` from `current`, a `Set` of drafts, a `Set` draft and a set-like object): the members of each result agree with Lean                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `CopyPrototype`           | `check-copy-prototype-runtime.ts`           | copies by `snapshot`, an object `reconcile` adds and a changed `produce` result, of arrays, maps, sets, dates, data views, typed arrays, URLs and parameters, each as its own instance and as a subclass instance, and a typed array given another element type's prototype: every copy keeps its source's prototype, and `serialize` accepts only the standard prototype of the value's own kind, which `deserialize` restores, a typed array given `DataView.prototype` as a `DataView`                                                                                                                                                                                                                                                                                                                                                                           |
-| `SeededRequirements`      | `check-seeded-requirements-runtime.ts`      | closure traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `DeferredOrder`           | `check-deferred-order-runtime.ts`           | preflights, demanded checkpoints and original error identities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `FactRenaming`            | `check-fact-renaming-runtime.ts`            | histories with queries and live cursor reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `CompactImmutable`        | `check-compact-immutable-runtime.ts`        | cases and ranked plans, with the construction order of each plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `NativeValue`             | `check-native-value-runtime.ts`             | fixtures from `native-value-fixtures.json`: facet compatibility, immutable reuse, publication and readback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `OwnedNativeChild`        | `check-owned-native-child-runtime.ts`       | production carrier adoption projections: raw and canonical query, ordered entries, owner and child identities; then bulk-versus-sequential parameter publications compared natively, without the oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `Serialization`           | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `SerializationCollection` | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `Spec`                    | `lean-spec-bridge.ts`                       | seeded random graphs of up to seven objects, arrays, maps, sets, dates, and buffers with views over them, with cycles and sharing, attributes, accessors, non-extensible, sealed and frozen values and prototypes, with data and accessor slots on the class prototypes for `reconcile`: `reconcile` of a mutated `next` that reuses, reorders and moves current objects, `produce` recipes of draft writes, created objects and returned values, and `snapshot`; the results read back as graphs equal the reference's on identities, values, descriptors, prototypes and extensibility, except as _Spec agreement_ allows. Standalone: `pnpm exec tsx scripts/lean-spec-bridge.ts --op produce --seeds 2000`, with `--dump SEED` for one case, `--features` for what the `reconcile` cases exercise, and the flags of the batches that _Spec agreement_ describes |
-| `Spec` (phases)           | `lean-spec-phases.ts`                       | the `Spec` bridge's `reconcile` cases, plain, hazard-rich and with buffers and views, on a bundle of the sources that records discovery and each decision pass: visit order, pinning alignment, pinned nodes, candidates in decision order with their fixed-slot requirements, and every pass's decision equal the reference's, as _Spec phases_ describes. Standalone: `pnpm exec tsx scripts/lean-spec-phases.ts --seeds 2000`, with `--hazards`, `--binary`, `--nodes N` and `--dump SEED`                                                                                                                                                                                                                                                                                                                                                                       |
-| `Spec` (enumeration)      | `lean-spec-enumerate.ts`                    | every case of the universes _Spec enumeration_ lists, about 52,000 `reconcile` cases, 46,000 `produce` recipes and 800 `snapshot` graphs, compared as the outcome and phase bridges compare them. Standalone: `pnpm exec tsx scripts/lean-spec-enumerate.ts`, with `--only NAME` for one universe and `--count` for the size of each                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Oracle family             | Bridge in `scripts/`                        | Runtime comparison                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Contract`                | `lean-captured-bridge.ts`                   | graphs from `reuse-fixtures.json`: values, aliases, cycles, identity restoration                                                                                                                                                                                                                                                                                                                                           |
+| `PropertyOrder`           | `check-property-order-runtime.ts`           | cursor traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                     |
+| `PropertyWrite`           | `check-property-write-runtime.ts`           | single-key outcomes, run through `reconcile` on ordinary objects and forwarding proxies: status, final descriptor, own and inherited setter calls, and no write before a rejection                                                                                                                                                                                                                                         |
+| `PropertyPlacement`       | `check-property-placement-runtime.ts`       | pairs of own-key orders with an integer key, names and symbols, and every set of accessors they share: `reconcile` succeeds with the desired order exactly where Lean keeps every accessor, and otherwise writes nothing                                                                                                                                                                                                   |
+| `WriteFreeReadback`       | `check-write-free-readback-runtime.ts`      | `reconcile` of objects and arrays through a counting proxy: the readback is elided and nothing is written exactly where Lean finds publication write-free, and every result equals `next`; where the values are objects, each requested key that `current` holds is read once when nothing is written and twice otherwise                                                                                                  |
+| `PropertyConstructOn`     | `check-property-construct-runtime.ts`       | new objects built by `snapshot`, a `produce` rebuild, an object `reconcile` adds and `deserialize`, on a custom prototype or `Object.prototype` holding each kind of descriptor for the key, or on a null prototype, from enumerable and non-enumerable source properties: each holds the own data property with its source's enumerability, no setter on its prototype runs, and `serialize` rejects a non-enumerable one |
+| `PropertyThroughSetter`   | `check-property-through-setter-runtime.ts`  | assignments of a key the object lacks through a setter on its prototype that defines nothing or the key with each set of attributes, on ordinary objects and `produce` drafts: the draft accepts exactly the definition assignment would make and refuses the others; `standard-prototypes.spec.ts` runs `produce` under `node --frozen-intrinsics`                                                                        |
+| `KeyOrder`                | `check-key-order-runtime.ts`                | sequences of assignments and deletions on objects with integer keys, names and a symbol: the engine's own keys and `produce`'s result both equal Lean's `ownKeys`                                                                                                                                                                                                                                                          |
+| `Atoms`                   | `check-atoms-runtime.ts`                    | real built-in prototype chains behind custom prototypes, with proxies counting reads: the runtime walk matches Lean's answer and read count, and each atom is kept by `snapshot`, `reconcile` and `produce` and rejected by `serialize`                                                                                                                                                                                    |
+| `Ingress`                 | `check-ingress-runtime.ts`                  | recognition with the prototype read shared and with a separate atom split both match Lean's outcome on real prototype chains; the object is read once when shared and as often as Lean counts when not, and its custom prototypes the same number of times either way                                                                                                                                                      |
+| `RecognitionPlain`        | `check-recognition-plain-runtime.ts`        | built-in recognition and every known-kind check match Lean's result and thrown error on real prototype chains; the object is read once, and its custom prototypes as the ordered scan of `recognition-scan.ts` reads them, less the typed-array probe's repeated `DataView` walk                                                                                                                                           |
+| `DraftSurface`            | `check-draft-surface-runtime.ts`            | draft writes on objects, arrays, maps, typed arrays and dates admitted exactly where the result carries them, and objects and arrays with getters, changed or not, kept exactly where Lean keeps them; a rebuilt object or array holds each returned value as data                                                                                                                                                         |
+| `DraftClass`              | `check-draft-class-runtime.ts`              | names on `Map` and `Set` drafts, built-in and subclass instances, owned by the prototype Lean names, and `instanceof` checks that agree; a subclass method runs on a draft and the result keeps the subclass                                                                                                                                                                                                               |
+| `DraftIteration`          | `check-draft-iteration-runtime.ts`          | scripts of iterations and writes on a `Map` draft: each walk, the result's entries and whether the result keeps the original agree with Lean                                                                                                                                                                                                                                                                               |
+| `SettledChildren`         | `check-settled-children-runtime.ts`         | finalization asked whether two objects need a copy, one after the other: each answer, the settled answers, including those settled before their question ended, and the kept child lists equal Lean's                                                                                                                                                                                                                      |
+| `DraftMembers`            | `check-draft-members-runtime.ts`            | results of `includes`, `indexOf` and `lastIndexOf` on an array draft agree with Lean                                                                                                                                                                                                                                                                                                                                       |
+| `DraftSetMethods`         | `check-draft-set-methods-runtime.ts`        | the `Set` methods on `Set` drafts, unwritten and with a working copy, over enumerated member and key lists, with each operand form (a `Set` from `current`, a `Set` of drafts, a `Set` draft and a set-like object): the members of each result agree with Lean                                                                                                                                                            |
+| `CopyPrototype`           | `check-copy-prototype-runtime.ts`           | copies by `snapshot`, an object `reconcile` adds and a changed `produce` result: every copy keeps its source's prototype, and `serialize` accepts only the standard prototype of the value's own kind, which `deserialize` restores, a typed array given `DataView.prototype` as a `DataView`                                                                                                                              |
+| `SeededRequirements`      | `check-seeded-requirements-runtime.ts`      | closure traces, including cases with strictly less work                                                                                                                                                                                                                                                                                                                                                                    |
+| `DeferredOrder`           | `check-deferred-order-runtime.ts`           | preflights, demanded checkpoints and original error identities                                                                                                                                                                                                                                                                                                                                                             |
+| `FactRenaming`            | `check-fact-renaming-runtime.ts`            | histories with queries and live cursor reads                                                                                                                                                                                                                                                                                                                                                                               |
+| `CompactImmutable`        | `check-compact-immutable-runtime.ts`        | cases and ranked plans, with the construction order of each plan                                                                                                                                                                                                                                                                                                                                                           |
+| `NativeValue`             | `check-native-value-runtime.ts`             | fixtures from `native-value-fixtures.json`: facet compatibility, immutable reuse, publication and readback                                                                                                                                                                                                                                                                                                                 |
+| `OwnedNativeChild`        | `check-owned-native-child-runtime.ts`       | production carrier adoption projections: query, ordered entries, owner and child identities; then bulk-versus-sequential parameter publications compared natively, without the oracle                                                                                                                                                                                                                                      |
+| `Serialization`           | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below                                                                                                                          |
+| `SerializationCollection` | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                             |
+| `Spec`                    | `lean-spec-bridge.ts`                       | results, rejections and getter counts on seeded random graphs, as _Spec agreement_ describes                                                                                                                                                                                                                                                                                                                               |
+| `Spec` (phases)           | `lean-spec-phases.ts`                       | discovery and every pass's decision on the `Spec` bridge's `reconcile` cases, as _Spec phases_ describes                                                                                                                                                                                                                                                                                                                   |
+| `Spec` (enumeration)      | `lean-spec-enumerate.ts`                    | every case of the universes _Spec enumeration_ lists, about 52,000 `reconcile` cases, 46,000 `produce` recipes and 800 `snapshot` graphs, compared as the outcome and phase bridges compare them                                                                                                                                                                                                                           |
 
 Read the table with these limits:
 
@@ -929,11 +759,10 @@ each with the gap it stands for. Run the audit after changing the `Spec` bridge,
 the code its mutants patch, and with nothing else running, since it rewrites the sources. With its
 default 1500 seeds it fits the [time budget](development.md#time-budget).
 
-After `pnpm check:lean` has built the oracle, you can run one family by hand. The request needs all
-three fields; the reply is the oracle's JSON between record-separator lines, the last carrying
-`null` or the error.
+After `pnpm check:lean` has built the oracle, you can run one family by hand. The request needs both
+fields, `input` empty for a family that reads none; the reply is the oracle's JSON between
+record-separator lines, the last carrying `null` or the error.
 
 ```sh
-echo '{"family":"Contract","args":["lean/fixtures/reuse-fixtures.json"],"input":""}' \
-  | .lake/build/bin/reconcile-oracle
+echo '{"family":"Contract","input":""}' | .lake/build/bin/reconcile-oracle
 ```

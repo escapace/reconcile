@@ -13,7 +13,9 @@ An object is an atom when its prototype chain reaches one of those prototypes, w
 `instanceof` against each of their constructors at once. The runtime reads the chain once:
 `Object.prototype`, `Array.prototype` and `null` end it immediately, because their chains hold
 no such prototype. This module proves that the walk decides the specification and counts its
-`[[GetPrototypeOf]]` calls, which a proxy can observe.
+`[[GetPrototypeOf]]` calls, which a proxy can observe, and that ingress recognition splits only
+the plain-object fallback into atoms, keeping every kind the structural scan selects
+(`ingress_atom_iff`, `ingress_structural`).
 -/
 
 namespace Reconcile.Types.Atoms

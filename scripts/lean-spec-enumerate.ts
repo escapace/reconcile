@@ -6,6 +6,8 @@
 // the Spec bridge, plain and through recording proxies, and through the phase bridge.
 //
 // Standalone: pnpm exec tsx scripts/lean-spec-enumerate.ts [--only NAME] [--count]
+// --only NAME runs one universe; --count prints each universe's number of cases without running
+// them.
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
 import type { Oracle } from './lean-oracle'

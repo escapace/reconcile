@@ -664,14 +664,14 @@ theorem draftSet_eq (env : Env V) (s : Slot V) (v : V) : draftSet env s v = set 
     · simp [draftSet, set, hw]
   · cases setter <;> rfl
 
-/-- The previous draft rule added a lacking key whatever the object's extensibility. -/
+/-- A draft rule that adds a lacking key whatever the object's extensibility. -/
 def draftSetOld (env : Env V) (s : Slot V) (v : V) : Outcome V :=
   match s.own, s.inherited with
   | none, .data true | none, .none => ⟨true, { s with own := some (.data v plain) }, []⟩
   | _, _ => draftSet env s v
 
-/-- On a frozen, sealed or otherwise non-extensible object, the previous rule accepted a new key
-that assignment on the object refuses. -/
+/-- On a frozen, sealed or otherwise non-extensible object, that rule accepts a new key that
+assignment on the object refuses. -/
 example (env : Env Nat) :
     (draftSetOld env ⟨none, .none, false⟩ 1).ok = true ∧
       (set env ⟨none, .none, false⟩ 1).ok = false :=

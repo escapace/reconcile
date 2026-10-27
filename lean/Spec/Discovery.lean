@@ -8,7 +8,10 @@ first visit, and `candidateStep` gathers every candidate through every position.
 reference of an aligned node offers, at its position, a current object of the child's kind other
 than the one the child is aligned with (`OffersAligned`), each node's candidates are its alignment
 and nothing else (`candidates_eq_aligned`). `candidates` in `src/publication/candidates.ts` then
-takes capture's alignment without walking. `offersAligned_needed` shows the premise is needed.
+takes capture's alignment without walking. The proof follows `candidateStep` pair by pair
+alongside `visitStep`, whose fuel suffices because each step consumes a pending pair or a node's
+references. `offersAligned_needed` shows the premise is needed: one `next` object at two keys has
+two candidates.
 -/
 
 namespace Reconcile.Spec.Reconcile

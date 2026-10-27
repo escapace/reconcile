@@ -15,6 +15,8 @@ sets carry their entries in insertion order; a date its time. An `ArrayBuffer` c
 and, when it is resizable, its maximum length; a typed array or `DataView` carries its constructor
 name, a reference to its buffer and its byte offset and byte length. Primitives include an
 `atom`, an object kept by reference, such as a function, identified by a label.
+`Graph.normalize` reads a non-extensible array with no element (holes only) as sealed, as the
+integrity test does.
 
 The own slots of class prototypes are part of a `reconcile` input (`Reconcile.Input.classes`),
 not of a graph. Outside the model: slots on `Object.prototype`, symbol keys, array index keys on

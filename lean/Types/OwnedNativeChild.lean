@@ -1,4 +1,3 @@
-import Types.LazyOwnership
 import Types.OwnedPublication
 
 /-! A feasibility witness for lazy ownership discovery, not a JavaScript specification. A native

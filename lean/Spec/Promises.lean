@@ -19,18 +19,24 @@ theorem shows the reference keeps it on every input, not only the generated ones
   entry, a date's time and a buffer's bytes likewise, and a view takes none
   (`arraySlotWrites_set_iff`, `arraySlotWrites_delete_iff`, `arraySlotWrites_length_iff`,
   `entryWrites_set_iff`, `entryWrites_delete_iff`, `entryWrites_fresh_iff`, `writesOf_date`,
-  `writesOf_buffer`, `writesOf_view`); no write reaches a slot that already holds `next`'s value
+  `writesOf_buffer`, `writesOf_view`). The write theorems name array slots and map and set keys
+  structurally (`ArraySlot`, `EntryKey`), because a map or set write reports its key as text,
+  which two distinct keys can share. No write reaches a slot that already holds `next`'s value
   (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`), and a kept
   node takes no write exactly when its object already holds `next`'s contents
-  (`writesOf_nil_iff`); every decision of the passes keeps each current object at one node at most
-  (`decide_injective`, `demote_injective`), so this holds for the object every unpinned node keeps
+  (`writesOf_nil_iff`); every decision of the passes keeps each current object at one node at
+  most, given that `same` maps distinct pinned nodes to distinct objects (`decide_injective`,
+  `demote_injective`), so write minimality holds for the object every unpinned node keeps
   (`demote_writesOf_nil_iff`); a kept object keeps the attributes of every property it had and
   adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
-  demotion forbids only an object whose writes block (`mem_blockedObjects`) and never one an
-  earlier pass forbade, so every pass that continues forbids a new current object
-  (`blocked_fresh`); no demand asks a candidate's own node for another object, so a candidate
-  that can never be kept reorders nothing (`demands_satisfiable`); a node that keeps nothing holds
-  a fresh copy and its origin is none (`publish_origins`, `publish_fresh`).
+  demotion forbids only an object whose writes block, reaching a fixed slot or a setter that drops
+  its value (`mem_blockedObjects`), and never one an earlier pass forbade, so every pass that
+  continues forbids a new current object (`blocked_fresh`); no demand asks a candidate's own node
+  for another object, so a requirement the candidate could never meet does not reorder that
+  node's candidates (`demands_satisfiable`); a candidate whose fixed slots require two objects at
+  one node, or another object at a pinned node, is not admitted, so it reorders no node
+  (`admitted_pins`, `demands_pinned`); a node that keeps nothing holds a fresh copy and its origin
+  is none (`publish_origins`, `publish_fresh`).
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`kept_closed`, `kept_greatest`).
 - `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,

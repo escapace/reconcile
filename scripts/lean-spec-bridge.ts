@@ -6,6 +6,8 @@
 // Standalone: pnpm exec tsx scripts/lean-spec-bridge.ts [--op reconcile|produce|snapshot]
 //   [--seeds N] [--from S] [--dump SEED] [--writes] [--hazards] [--binary] [--features]
 //   [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited] [--nodes N]
+// --dump SEED shows that case, the reference's outcome and each difference; --features prints how
+// often each feature occurs among the `reconcile` cases instead of comparing them.
 import assert from 'node:assert/strict'
 import { parseArgs } from 'node:util'
 import { isReconcileError, produce, reconcile, snapshot } from '../src/index'

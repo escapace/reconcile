@@ -1,10 +1,10 @@
 /-!
 # Per-call tables
 
-Per-call tables hold their entries in a cheaper form than a map, one list per field or an eager
-copy. Each section models the earlier form as the reference and proves that the new one answers
-every lookup the runtime makes as the reference does, over any sequence of the operations the
-runtime performs.
+Per-call tables hold their entries in a cheaper form than the direct one: a map, a sparse table,
+an eager copy, one list per field or `push`. Each section models the direct form as a reference
+model and proves that the runtime's form answers every lookup the runtime makes as the reference
+does, over any sequence of the operations the runtime performs.
 
 - The snapshot walk's reference memo (`SnapshotWalk.memoized` in `src/snapshot.ts`) holds the
   first observed object's reference in two fields, which the root's visit fills without a lookup,
@@ -53,7 +53,7 @@ def Lazy.visit (m : Lazy K) (count : Nat) (k : K) : Nat × Lazy K × Nat :=
     | some v => (v, { m with rest := some m.table }, count)
     | none => (count, { m with rest := some ((k, count) :: m.table) }, count + 1)
 
-/-- The same visit with the earlier memo, one map for every object. -/
+/-- The same visit with the reference model, a plain memo of one map for every object. -/
 def plainVisit (m : List (K × Nat)) (count : Nat) (k : K) : Nat × List (K × Nat) × Nat :=
   match m.lookup k with
   | some v => (v, m, count)
@@ -70,7 +70,7 @@ def plainRun : List (K × Nat) → Nat → List K → List Nat
   | m, count, k :: ks =>
     (plainVisit m count k).1 :: plainRun (plainVisit m count k).2.1 (plainVisit m count k).2.2 ks
 
-/-- Before the root both memos are empty; after it, every lookup reads the earlier memo's map. -/
+/-- Before the root both memos are empty; after it, every lookup reads the plain memo's map. -/
 def MemoAgree (m : Lazy K) (p : List (K × Nat)) (count : Nat) : Prop :=
   (count = 0 → m = Lazy.empty ∧ p = []) ∧ (count ≠ 0 → m.table = p)
 
@@ -99,7 +99,7 @@ theorem memoAgree_run : ∀ (ks : List K) (m : Lazy K) (p : List (K × Nat)) (co
     simp only [Lazy.run, plainRun]
     rw [hv, memoAgree_run ks _ _ _ hagree, hc]
 
-/-- The walk's memo returns the reference the earlier memo returned at every visit. -/
+/-- The walk's memo returns the reference the plain memo returns at every visit. -/
 theorem lazy_run_eq (ks : List K) : Lazy.run Lazy.empty 0 ks = plainRun [] 0 ks :=
   memoAgree_run ks _ _ _ ⟨fun _ => ⟨rfl, rfl⟩, fun h => absurd rfl h⟩
 
@@ -133,7 +133,8 @@ inductive Op (K T V : Type) where
   | storeView (k : K) (v : V)
   | lookup (k : K)
 
-/-- The memo now: a lookup that finds a view's copy reads its buffer and keeps it as the copy. -/
+/-- The runtime's memo: a lookup that finds a view's copy reads its buffer and keeps it as the
+copy. -/
 def lazyStep (m : List (K × Entry T V)) : Op K T V → Option T × List (K × Entry T V)
   | .store k t => (none, (k, .ready t) :: m)
   | .storeView k v => (none, (k, .pending v) :: m)
@@ -142,7 +143,7 @@ def lazyStep (m : List (K × Entry T V)) : Op K T V → Option T × List (K × E
     | none => (none, m)
     | some e => (some (e.value bufferOf), (k, .ready (e.value bufferOf)) :: m)
 
-/-- The memo before: the buffer is copied when its entry is stored. -/
+/-- The reference model, an eager memo: the buffer is copied when its entry is stored. -/
 def eagerStep (m : List (K × T)) : Op K T V → Option T × List (K × T)
   | .store k t => (none, (k, t) :: m)
   | .storeView k v => (none, (k, bufferOf v) :: m)
@@ -218,7 +219,7 @@ end Pending
 
 section Filled
 
-/-- The table before: the id at each index, if one was assigned. -/
+/-- The reference model, a sparse table: the id at each index, if one was assigned. -/
 abbrev Sparse := Nat → Option Nat
 
 /-- `table[k] ??= fresh`: the id at `k`, assigning `fresh` when there is none. -/
@@ -236,7 +237,7 @@ def decode (t : List Int) (i : Nat) : Option Nat :=
 /-- The table grown with -1 up to index `k`. -/
 def pad (t : List Int) (k : Nat) : List Int := t ++ List.replicate (k + 1 - t.length) (-1)
 
-/-- The table now: grown to `k`, then the id at `k`, assigning `fresh` where it holds -1. -/
+/-- The runtime's table: grown to `k`, then the id at `k`, assigning `fresh` where it holds -1. -/
 def filledIntern (t : List Int) (k fresh : Nat) : Nat × List Int :=
   let t' := pad t k
   match t'[k]? with

@@ -14,9 +14,9 @@ remembers each object it settles as unchanged. Two repeated walks are avoided he
   complete (`recorded_getD`).
 - **Early settling.** A negative answer settles its object at once, unless it leaned on a visited
   object not yet settled, which only a cycle back into the current walk produces. Such a
-  *pending* answer stays unsettled until the question's answer is known, as every answer did
-  before; settling the others at once spares a later question from walking them again when the
-  question itself turns out positive.
+  *pending* answer stays unsettled until the question's answer is known; settling the others at
+  once spares a later question from walking them again when the question itself turns out
+  positive.
 
 Every check keeps the invariant that each settled object has its list kept and settled children
 (`check_step`, `needs_settled`), so a walk from an unchanged object meets only kept lists

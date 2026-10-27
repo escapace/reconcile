@@ -20,12 +20,13 @@ graphs, in three phases that mirror the runtime's design:
    like a fixed slot. Nothing is written before this phase ends; a root that cannot be kept
    rejects the call.
 3. **Write.** Kept nodes take `next`'s contents, writing only what differs; fresh nodes are
-   copies. A kept object whose write reaches a setter that drops its value is *blocked*: it is
-   demoted to a fresh copy, and the pass repeats for the nodes that change as a consequence,
-   until no node is blocked. A blocked root rejects the call.
+   copies. A kept object whose write reaches a fixed slot or a setter that drops its value is
+   *blocked*: it is demoted to a fresh copy and never kept again, and the decision runs again,
+   never moving an object a pass wrote to another node, until no node is blocked. A blocked root
+   rejects the call.
 
-The result is one node per `next` node, with the `current` object it keeps, if any, and the
-observation counts of the trace model.
+The result is one node per `next` node, with the `current` object it keeps, if any, the number
+of passes, and the trace model's observations: the getter counts and the writes of every pass.
 -/
 
 namespace Reconcile.Spec

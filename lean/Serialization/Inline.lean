@@ -6,10 +6,10 @@ import Serialization.DFS
 The active encoder keeps one cursor frame per entered non-leaf node. Instead of returning
 to the driver loop for every child, a container tokenizes consecutive children in place and
 yields only after a child was entered (its frame pushed). This file models that machine and
-proves it refines the existing stack machine `SerializationDFS.step`, hence the recursive
+proves it refines the stack machine `SerializationDFS.step`, hence the recursive
 specification `Recursive`, with an identical event trace.
 
-Events are the existing `enter`/`edge` observations: `edge` stands for reading the child
+Events are `SerializationDFS`'s `enter`/`edge` observations: `edge` stands for reading the child
 slot and tokenizing it, `enter` for reserving the child's identity. A child that is already
 in `seen` produces only its edge.
 -/

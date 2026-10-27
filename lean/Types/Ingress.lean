@@ -101,9 +101,10 @@ A view's element type (`viewElement` in `src/types/shared/binary-native.ts`, abs
 `DataView`) selects the getters that read its buffer, offset and length; a buffer's copy
 (`copyBuffer`) reads the buffer's prototype to decide whether it is shared and to give the copy
 that prototype. Recognition and the copies read each once and pass the answer on. The traces below
-list the built-in reads before and after: every getter the earlier code called is still called,
-each once. That a repeated read answers as the first, so the answer stands for the reads it
-replaces, is the stability obligation above; no application code runs during these reads. -/
+list the built-in reads of a reference model that reads each answer where it is used (`…Each`)
+and of the runtime (`…Once`): the runtime calls every getter the reference calls, each once.
+That a repeated read answers as the first, so the answer stands for the reads it replaces, is the
+stability obligation above; no application code runs during these reads. -/
 
 /-- A built-in read of a view or a buffer: a view's element type; its buffer, offset or length
 through the typed-array getters (`true`) or the `DataView` ones; an object's prototype; a buffer's
@@ -119,8 +120,8 @@ inductive Read where
   | maximum
   deriving DecidableEq, Repr
 
-/-- Recognition's reads of a view (`builtinRemainingMatch`): before, the buffer's getter and the
-typed-array brand test each read the element type, which answers `typed`. -/
+/-- Recognition's reads of a view (`builtinRemainingMatch`) in the reference model: the buffer's
+getter and the typed-array brand test each read the element type, which answers `typed`. -/
 def recognitionEach (typed : Bool) : List Read :=
   [.element, .buffer typed] ++ (if typed then [.element] else [])
 
@@ -130,15 +131,16 @@ theorem recognition_once (typed : Bool) :
     recognitionOnce typed = (recognitionEach typed).eraseDups := by
   cases typed <;> decide
 
-/-- A view's copy (`copyTypedArray`, `copyDataView`): before, the element type was read again for
-each of the offset and length of a `DataView`-kind copy, then the prototype. A typed-array-kind
-copy (`dataView` false) is of a value with the typed-array brand, so `typed` holds for it. -/
+/-- A view's copy (`copyTypedArray`, `copyDataView`) in the reference model: the element type is
+read again for each of the offset and length of a `DataView`-kind copy, then the prototype. A
+typed-array-kind copy (`dataView` false) is of a value with the typed-array brand, so `typed`
+holds for it. -/
 def viewCopyEach (typed dataView : Bool) : List Read :=
   if dataView then [.element, .offset typed, .element, .length typed, .prototype]
   else [.element, .offset typed, .length typed, .prototype]
 
-/-- The copy now reads the prototype and the element type once, as default arguments, and both
-getters on that answer. -/
+/-- The runtime's copy reads the prototype and the element type once, as default arguments, and
+both getters on that answer. -/
 def viewCopyOnce (typed : Bool) : List Read :=
   [.prototype, .element, .offset typed, .length typed]
 
@@ -146,13 +148,13 @@ theorem viewCopy_once (typed dataView : Bool) :
     (viewCopyOnce typed).Perm (viewCopyEach typed dataView).eraseDups := by
   cases typed <;> cases dataView <;> decide
 
-/-- The snapshot walk's view copy, after recognition: before, it read the buffer through a fresh
-element read, then copied as `viewCopyEach`. -/
+/-- The snapshot walk's view copy, after recognition, in the reference model: it reads the buffer
+through a fresh element read, then copies as `viewCopyEach`. -/
 def snapshotViewEach (typed dataView : Bool) : List Read :=
   [.element, .buffer typed] ++ viewCopyEach typed dataView
 
-/-- Now it reads the element type once, for the buffer and both getters, and takes the prototype
-recognition read (Ingress). -/
+/-- The runtime reads the element type once, for the buffer and both getters, and takes the
+prototype recognition read (Ingress). -/
 def snapshotViewOnce (typed : Bool) : List Read :=
   [.element, .buffer typed, .offset typed, .length typed]
 
@@ -160,15 +162,16 @@ theorem snapshotView_once (typed dataView : Bool) :
     snapshotViewOnce typed = ((snapshotViewEach typed dataView).eraseDups).erase .prototype := by
   cases typed <;> cases dataView <;> decide
 
-/-- A buffer's copy: before, `isShared` read the prototype, `bufferByteLength` read it again
-through `isShared`, and the copy's prototype was a third read. A shared buffer is its own copy. -/
+/-- A buffer's copy in the reference model: `isShared` reads the prototype, `bufferByteLength`
+reads it again through `isShared`, and the copy's prototype is a third read. A shared buffer is
+its own copy. -/
 def bufferCopyEach (shared resizable : Bool) : List Read :=
   if shared then [.prototype]
   else
     [.prototype, .prototype, .byteLength, .resizable] ++ (if resizable then [.maximum] else []) ++
       [.prototype]
 
-/-- Now the prototype is read once, or taken from the snapshot walk's recognition read. -/
+/-- The runtime reads the prototype once, or takes it from the snapshot walk's recognition read. -/
 def bufferCopyOnce (shared resizable : Bool) : List Read :=
   if shared then [.prototype]
   else [.prototype, .byteLength, .resizable] ++ (if resizable then [.maximum] else [])
@@ -177,14 +180,14 @@ theorem bufferCopy_once (shared resizable : Bool) :
     bufferCopyOnce shared resizable = (bufferCopyEach shared resizable).eraseDups := by
   cases shared <;> cases resizable <;> decide
 
-/-- A typed array met before its buffer, before: the buffer's copy (`bufferCopyOnce`), then the
-view's offset and length as `copyTypedArray` reads them. -/
+/-- A typed array met before its buffer, in the reference model: the buffer's copy
+(`bufferCopyOnce`), then the view's offset and length as `copyTypedArray` reads them. -/
 def typedFirstEach (shared resizable : Bool) : List Read :=
   bufferCopyOnce shared resizable ++ [.offset true, .length true]
 
-/-- Now (`copyTypedFirst` in `src/types/shared/binary-native.ts`) the same reads in the same order
-decide whether the array is copied from itself, its buffer then copied at the first lookup that
-needs it, or the buffer is copied first: the choice reads nothing more. -/
+/-- In the runtime (`copyTypedFirst` in `src/types/shared/binary-native.ts`) the same reads in
+the same order decide whether the array is copied from itself, its buffer then copied at the
+first lookup that needs it, or the buffer is copied first: the choice reads nothing more. -/
 def typedFirstOnce (shared resizable : Bool) : List Read :=
   if shared then [.prototype, .offset true, .length true]
   else [.prototype, .byteLength, .resizable] ++ (if resizable then [.maximum] else []) ++
