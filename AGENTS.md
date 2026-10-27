@@ -18,6 +18,11 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
 - Treat a semantic rule or fix as library-wide: check every function and value kind, including
   subclasses and linked URL and buffer pairs. Decide from what each function's
   users need; fix all consistently or none.
+- Order is the user's information, never the library's choice. Every result keeps the order the
+  user gave: object keys, array elements and holes, and `Map` and `Set` entries. `reconcile`
+  matches by position (key, index, insertion order), not by identity or identifier, and replaces
+  an object or throws rather than end with another order. Keeping an object already in place may
+  change which objects hold the values, never their order or contents.
 - Keep the frozen workloads unchanged: those in `perf/` and the small ones in
   `scripts/bench-workloads.ts`. Freeze a control and the counted-work hypothesis before optimizing.
   Never overlap a benchmark or profiler with any other work. Report each workload against the
