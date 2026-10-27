@@ -1,10 +1,10 @@
-// Sensitivity audit of the Spec bridges: applies one deliberate defect at a time to the runtime
-// sources, runs the reconcile bridge, or the phase bridge where a mutant names it, in a
-// child process and expects it to fail. A mutant
-// that survives names a case the generator does not produce or a difference the comparison does
-// not see; a mutant expected to survive names the gap it stands for, and a verdict that differs
-// from the expectation, in either direction, fails the audit. The sources are restored after every
-// mutant, whatever happens.
+// Sensitivity audit of the Spec bridges and the collection-writes bridge: applies one deliberate
+// defect at a time to the runtime sources, runs the reconcile bridge, or the phase or
+// collection-writes bridge where a mutant names it, in a child process and expects it to fail. A
+// mutant that survives names a case the generator does not produce or a difference the comparison
+// does not see; a mutant expected to survive names the gap it stands for, and a verdict that
+// differs from the expectation, in either direction, fails the audit. The sources are restored
+// after every mutant, whatever happens.
 //
 //   pnpm exec tsx scripts/spec-mutants.ts [--seeds N] [--only NAME]
 import assert from 'node:assert/strict'
@@ -14,8 +14,9 @@ import { parseArgs } from 'node:util'
 
 interface Mutant {
   /** The bridge that must see the defect: the outcome bridge unless it names the phase bridge,
-   * for a defect only the runtime's discovery or decisions show. */
-  readonly bridge?: 'phases'
+   * for a defect only the runtime's discovery or decisions show, or the collection-writes bridge,
+   * for one only the writes to a kept `Map` or `Set` show. */
+  readonly bridge?: 'collections' | 'phases'
   /** The exact source text, present once, that the defect replaces. */
   readonly file: string
   readonly find: string
@@ -130,35 +131,47 @@ const MUTANTS: readonly Mutant[] = [
     survives: 'only a trap can reorder keys between capture and readback; proxies are not modelled',
   },
   {
+    bridge: 'collections',
     file: 'src/types/shared/collection.ts',
     find: '        if (position < wanted && sameKey(key, resolve(edges[position * width]))) {',
     name: 'retain-prefix-by-index',
     replace:
       '        if (position < wanted && index === position && sameKey(key, resolve(edges[position * width]))) {',
-    survives:
-      'an entry moved inside a Map or Set is deleted and re-added with the built-in methods, which the result does not show',
   },
 ]
 
 type Verdict = 'hung' | 'killed' | 'survived'
 
-/** Each bridge's command, the text its output holds when it saw nothing, and its runs: the
- * outcome bridge plain, through recording proxies and on hazard-rich cases; the phase bridge
- * with buffers and views beside the other kinds, plain and on hazard-rich cases. */
+/** Each bridge's command, the text its output holds when it saw nothing, whether it takes the
+ * seed count, and its runs: the outcome bridge plain, through recording proxies and on
+ * hazard-rich cases; the phase bridge with buffers and views beside the other kinds, plain and on
+ * hazard-rich cases; the collection-writes bridge once, over its fixed corpus. */
 const BRIDGES = {
+  collections: {
+    agreed: 'Collection-writes Lean/native bridge:',
+    command: ['scripts/check-collection-writes-runtime.ts'],
+    runs: [[]],
+    seeded: false,
+  },
   outcome: {
     agreed: 'reports 0;',
     command: ['scripts/lean-spec-bridge.ts', '--op', 'reconcile'],
     runs: [[], ['--writes'], ['--writes', '--hazards']],
+    seeded: true,
   },
   phases: {
     agreed: 'differences 0',
     command: ['scripts/lean-spec-phases.ts'],
     runs: [['--binary'], [], ['--hazards']],
+    seeded: true,
   },
 } as const
 
 type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
+
+/** The seed count for a bridge that takes one. */
+const seedArguments = (bridge: Bridge, seeds: number): string[] =>
+  bridge.seeded ? ['--seeds', String(seeds)] : []
 
 /** One bridge run in its own process group. It saw nothing when it finished with the bridge's
  * report of no difference; a mutant that throws inside the runtime is caught as well, since the
@@ -172,7 +185,7 @@ async function runBridge(
   return await new Promise((resolve) => {
     const child = spawn(
       'pnpm',
-      ['exec', 'tsx', ...bridge.command, '--seeds', String(seeds), ...flags],
+      ['exec', 'tsx', ...bridge.command, ...seedArguments(bridge, seeds), ...flags],
       {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],

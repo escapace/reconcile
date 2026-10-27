@@ -15,6 +15,7 @@ import { checkRecognitionPlainRuntime } from './check-recognition-plain-runtime'
 import { checkSettledChildrenRuntime } from './check-settled-children-runtime'
 import { checkSpecialValuesRuntime } from './check-special-values-runtime'
 import { checkWriteFreeReadbackRuntime } from './check-write-free-readback-runtime'
+import { checkCollectionWritesRuntime } from './check-collection-writes-runtime'
 import { checkCopyPrototypeRuntime } from './check-copy-prototype-runtime'
 import { checkDraftSurfaceRuntime } from './check-draft-surface-runtime'
 import { checkDraftClassRuntime } from './check-draft-class-runtime'
@@ -54,6 +55,7 @@ try {
   await checkSettledChildrenRuntime(oracle.run)
   await checkSpecialValuesRuntime(oracle.run)
   await checkWriteFreeReadbackRuntime(oracle.run)
+  await checkCollectionWritesRuntime(oracle.run)
   await checkDraftSurfaceRuntime(oracle.run)
   await checkDraftClassRuntime(oracle.run)
   await checkDraftIterationRuntime(oracle.run)

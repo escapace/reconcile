@@ -13,6 +13,7 @@ import Oracle.IngressOracle
 import Oracle.SettledChildrenOracle
 import Oracle.SpecialValuesOracle
 import Oracle.WriteFreeReadbackOracle
+import Oracle.CollectionWritesOracle
 import Oracle.DraftSurfaceOracle
 import Oracle.DraftClassOracle
 import Oracle.DraftIterationOracle
@@ -53,6 +54,7 @@ private def dispatch (request : Request) : IO Unit := do
   | "RecognitionPlain" => RecognitionPlainOracle.run
   | "Ingress" => IngressOracle.run
   | "WriteFreeReadback" => WriteFreeReadbackOracle.run
+  | "CollectionWrites" => CollectionWritesOracle.run
   | "DraftSurface" => DraftSurfaceOracle.run
   | "DraftClass" => DraftClassOracle.run
   | "DraftIteration" => DraftIterationOracle.run

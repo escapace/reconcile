@@ -224,12 +224,13 @@ sides together.
 - **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports
   `src/__tests__/fixtures/compact-immutable.ts`, so changing that fixture for a test also changes
   a `pnpm check:lean` corpus.
-- **Hooked bridges.** The DeferredOrder, phase and SpecialValues bridges bundle the sources with
-  recorder calls after exact statements: three in the preflight of
+- **Hooked bridges.** The DeferredOrder, phase, SpecialValues and CollectionWrites bridges bundle
+  the sources with recorder calls after exact statements: three in the preflight of
   `types/shared/property-publication.ts`, two in `publishGraph`
-  (`publication/publication-engine.ts`) and one after the first line of `chooseSpecial`
-  (`graph/provenance.ts`). Editing, moving or duplicating one of those statements, or renaming one
-  of those files, breaks `pnpm check:lean`.
+  (`publication/publication-engine.ts`), one after the first line of `chooseSpecial`
+  (`graph/provenance.ts`), and two in `types/shared/collection.ts`, one after the signature of
+  `collectionSurface` and one after the statement that sets `note.unchanged`. Editing, moving or
+  duplicating one of those statements, or renaming one of those files, breaks `pnpm check:lean`.
 - **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
 - **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until

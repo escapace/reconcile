@@ -76,6 +76,7 @@ roots = [
   "Graph.GraphPolicy",
   "Types.MapEntries",
   "Graph.CollectionPlan",
+  "Oracle.CollectionWritesOracle",
   "Graph.Construction",
   "Types.NativeWrites",
   "Types.OwnedPublication",
