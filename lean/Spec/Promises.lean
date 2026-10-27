@@ -1,3 +1,5 @@
+import Mathlib.Data.List.Perm.Subperm
+import Property.PropertyPlacement
 import Spec.Reconcile
 import Spec.Produce
 
@@ -8,12 +10,14 @@ Each theorem states a promise the documentation makes, about the executable refe
 differential bridge compares with the runtime. The bridge carries the promise to the runtime; the
 theorem shows the reference keeps it on every input, not only the generated ones.
 
-- `retainPrefix`: the retained prefix is a prefix of `next`'s order, a subsequence of `cur`'s, and
-  the longest such prefix (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`).
-  The keys or entries outside it are the moves.
+- `retainPrefix`, which is greedy matching (`PropertyPlacement.matched`): the retained prefix is a
+  prefix of `next`'s order, a subsequence of `cur`'s, and the longest such prefix
+  (`retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`). The keys or entries
+  outside it are the moves. The keys that cannot move lie in it exactly when some in-place
+  placement keeps them, so the admission rule rejects only when no placement exists
+  (`retainPrefix_feasible_iff`).
 - `reconcile`: a getter of `current` runs at most once per decision pass beyond its first read,
-  and at most once when no pass writes (`get_bound`, `read_once_before_write`); the number of
-  decision passes is bounded by the number of node pairs (`passes_le`): no plan search.
+  and at most once when no pass writes (`get_bound`, `read_once_before_write`).
 - `reconcile` writes: a retained key is written exactly when its value differs, a moved or added
   key always (`objectWrites_set_iff`, `objectWrites_delete_iff`); an array index, a map or set
   entry, a date's time and a buffer's bytes likewise, and a view takes none
@@ -24,19 +28,31 @@ theorem shows the reference keeps it on every input, not only the generated ones
   which two distinct keys can share. No write reaches a slot that already holds `next`'s value
   (`objectWrites_unchanged`, `arraySlotWrites_unchanged`, `entryWrites_unchanged`), and a kept
   node takes no write exactly when its object already holds `next`'s contents
-  (`writesOf_nil_iff`); every decision of the passes keeps each current object at one node at
-  most, given that `same` maps distinct pinned nodes to distinct objects (`decide_injective`,
-  `demote_injective`), so write minimality holds for the object every unpinned node keeps
-  (`demote_writesOf_nil_iff`); a kept object keeps the attributes of every property it had and
-  adds the rest writable and configurable with `next`'s enumerability (`keptObject_attrs`);
-  demotion forbids only an object whose writes block, reaching a fixed slot or a setter that drops
-  its value (`mem_blockedObjects`), and never one an earlier pass forbade, so every pass that
-  continues forbids a new current object (`blocked_fresh`); no demand asks a candidate's own node
-  for another object, so a requirement the candidate could never meet does not reorder that
-  node's candidates (`demands_satisfiable`); a candidate whose fixed slots require two objects at
-  one node, or another object at a pinned node, is not admitted, so it reorders no node
-  (`admitted_pins`, `demands_pinned`); a node that keeps nothing holds a fresh copy and its origin
-  is none (`publish_origins`, `publish_fresh`).
+  (`writesOf_nil_iff`).
+- `reconcile` descriptors: a kept object keeps the slot of every retained key, an accessor with
+  its setter included, and the attributes of every moved key, and adds the rest writable and
+  configurable with `next`'s enumerability (`keptObject_attrs`); under the static checks an own
+  getter or setter is never moved, so it stays an accessor (`keptObject_accessor`).
+- `reconcile` decisions: a decision keeps at an unpinned node only a candidate of it, the object
+  at its position (`decide_candidate`), never a forbidden one, and only one that passes the
+  static checks (`decide_checked`). Every decision of the passes keeps each current object at one
+  node at most, given that `same` maps distinct pinned nodes to distinct objects
+  (`decide_injective`, `demote_injective`), keeps a pinned node's object nowhere else
+  (`demote_pinned`) and keeps candidates only (`demote_candidate`); so write minimality holds for
+  the object every unpinned node keeps (`demote_writesOf_nil_iff`).
+- `reconcile` passes: demotion forbids only an object whose writes block, reaching a fixed slot
+  or a setter that drops its value (`mem_blockedObjects`), and never one an earlier pass forbade,
+  so every pass that continues forbids a new current object (`blocked_fresh`). The passes number
+  at most one more than the current objects, whatever the budget (`demote_length_le`,
+  `passes_le_cur`, and `passes_le` per pair of nodes): no plan is searched. The budget never cuts
+  them short, so a call that succeeds keeps no object whose writes block: such an object is
+  replaced (`demote_last_unblocked`, `run_last_unblocked`).
+- `reconcile` demands: no demand asks a candidate's own node for another object, so a requirement
+  the candidate could never meet does not reorder that node's candidates (`demands_satisfiable`);
+  a candidate whose fixed slots require two objects at one node, or another object at a pinned
+  node, is not admitted, so it reorders no node (`admitted_pins`, `demands_pinned`).
+- `reconcile` copies: a node that keeps nothing holds a copy (`Obj.copy`, as `snapshot` makes it)
+  and its origin is none (`publish_origins`, `publish_fresh`).
 - `produce`: a current object is kept exactly when its subtree is unchanged, and the kept set is
   the greatest such set (`kept_closed`, `kept_greatest`).
 - `snapshot`: one copy per source node, every origin fresh (`snapshot_size`, `snapshot_copy`,
@@ -59,131 +75,43 @@ section Retention
 
 variable {K : Type} [DecidableEq K]
 
-theorem isSubseq_iff (l m : List K) : isSubseq l m = true ↔ l.Sublist m := by
-  induction m generalizing l with
-  | nil =>
-    cases l with
-    | nil => simp [isSubseq]
-    | cons a as => simp [isSubseq]
-  | cons b bs ih =>
-    cases l with
-    | nil => simp [isSubseq]
-    | cons a as =>
-      by_cases h : a = b
-      · subst h
-        simp [isSubseq, ih]
-      · simp only [isSubseq, h, if_false, ih]
-        constructor
-        · intro hs
-          exact hs.cons b
-        · intro hs
-          rcases List.sublist_cons_iff.mp hs with hs | ⟨r, hr, _⟩
-          · exact hs
-          · cases hr
-            exact absurd rfl h
-
-theorem retainLength_le (cur next : List K) (k : Nat) : retainLength cur next k ≤ k := by
-  induction k with
-  | zero => simp [retainLength]
-  | succ k ih =>
-    simp only [retainLength]
-    split
-    · exact Nat.le_refl _
-    · exact Nat.le_succ_of_le ih
-
-theorem retainLength_subseq (cur next : List K) (k : Nat) :
-    isSubseq (next.take (retainLength cur next k)) cur = true := by
-  induction k with
-  | zero => simp [retainLength, isSubseq]
-  | succ k ih =>
-    simp only [retainLength]
-    split
-    · assumption
-    · exact ih
-
-theorem retainLength_maximal (cur next : List K) (k j : Nat) (hj : j ≤ k)
-    (h : isSubseq (next.take j) cur = true) : j ≤ retainLength cur next k := by
-  induction k with
-  | zero => exact hj
-  | succ k ih =>
-    simp only [retainLength]
-    split
-    · exact hj
-    · rename_i hk
-      apply ih
-      rcases Nat.lt_or_eq_of_le hj with hlt | heq
-      · exact Nat.le_of_lt_succ hlt
-      · subst heq
-        exact absurd h hk
-
 /-- The retained prefix is a prefix of `next`'s order. -/
 theorem retainPrefix_prefix (cur next : List K) : (retainPrefix cur next).IsPrefix next :=
-  List.take_prefix _ _
+  PropertyPlacement.matched_prefix next cur
 
 /-- The retained prefix is a subsequence of `cur`'s order: nothing in it moves. -/
 theorem retainPrefix_sublist (cur next : List K) : (retainPrefix cur next).Sublist cur :=
-  (isSubseq_iff _ _).mp (retainLength_subseq cur next next.length)
+  PropertyPlacement.matched_sublist next cur
 
 /-- No longer prefix of `next` is a subsequence of `cur`: every key or entry outside the retained
 prefix must move, so the retained prefix rule makes the fewest moves among prefix rules. -/
 theorem retainPrefix_longest (cur next : List K) (p : List K) (hp : p.IsPrefix next)
-    (hs : p.Sublist cur) : p.length ≤ (retainPrefix cur next).length := by
-  have hp' : p = next.take p.length := by
-    rw [List.prefix_iff_eq_take.mp hp]
-    simp
-  have hk : p.length ≤ next.length := hp.length_le
-  have := retainLength_maximal cur next next.length p.length hk (by
-    rw [← hp']
-    exact (isSubseq_iff _ _).mpr hs)
-  simp only [retainPrefix, List.length_take]
-  exact Nat.le_min.mpr ⟨this, hk⟩
+    (hs : p.Sublist cur) : p.length ≤ (retainPrefix cur next).length :=
+  PropertyPlacement.matched_maximal next cur p hp hs
+
+/-- Given keys that neither order repeats, the keys of `cur` that cannot move all lie in the
+retained prefix exactly when some in-place placement, which keeps them in `cur`'s order and
+appends every other key, reaches `next`'s order: the admission rule (`objectAdmits`) rejects an
+object only when no placement exists. -/
+theorem retainPrefix_feasible_iff (cur next fixed : List K) (hc : cur.Nodup) (hn : next.Nodup)
+    (hf : ∀ k ∈ fixed, k ∈ cur) :
+    PropertyPlacement.Feasible cur next fixed ↔ ∀ k ∈ fixed, k ∈ retainPrefix cur next :=
+  PropertyPlacement.feasible_iff cur next fixed hn hc hf
 
 /-- An order retains all of itself. -/
-theorem retainPrefix_self (l : List K) : retainPrefix l l = l := by
-  have h1 := retainLength_le l l l.length
-  have h2 := retainLength_maximal l l l.length l.length (Nat.le_refl _) (by
-    rw [List.take_length]
-    exact (isSubseq_iff _ _).mpr (List.Sublist.refl _))
-  simp only [retainPrefix]
-  rw [show retainLength l l l.length = l.length by omega, List.take_length]
-
-omit [DecidableEq K] in
-/-- A sublist of a duplicate-free list that holds each of its elements is the list. -/
-theorem sublist_eq_of_subset {l m : List K} (h : l.Sublist m) (hm : m.Nodup)
-    (hs : ∀ x ∈ m, x ∈ l) : l = m := by
-  induction h with
-  | slnil => rfl
-  | cons a h ih =>
-    have hn := List.nodup_cons.mp hm
-    exact absurd (h.subset (hs a List.mem_cons_self)) hn.1
-  | cons₂ a h ih =>
-    have hn := List.nodup_cons.mp hm
-    rw [ih hn.2 (fun x hx => ?_)]
-    rcases List.mem_cons.mp (hs x (List.mem_cons_of_mem _ hx)) with rfl | h'
-    · exact absurd hx hn.1
-    · exact h'
-
-omit [DecidableEq K] in
-/-- A prefix of a duplicate-free list that holds each of its elements is the list. -/
-theorem prefix_eq_of_subset {l m : List K} (h : l.IsPrefix m) (hm : m.Nodup)
-    (hs : ∀ x ∈ m, x ∈ l) : l = m := by
-  obtain ⟨t, rfl⟩ := h
-  cases t with
-  | nil => simp
-  | cons x t =>
-    have hx := hs x (by simp)
-    have := List.nodup_append.mp hm
-    exact absurd rfl (this.2.2 x hx x (by simp))
+theorem retainPrefix_self (l : List K) : retainPrefix l l = l :=
+  (retainPrefix_prefix l l).eq_of_length_le
+    (retainPrefix_longest l l l (List.prefix_refl l) (List.Sublist.refl l))
 
 /-- When neither order repeats a key and the retained prefix holds every key of both, the orders
 are equal. -/
 theorem retainPrefix_all {cur next : List K} (hc : cur.Nodup) (hn : next.Nodup)
     (h1 : ∀ k ∈ cur, k ∈ retainPrefix cur next) (h2 : ∀ k ∈ next, k ∈ retainPrefix cur next) :
     cur = next := by
-  have hp := prefix_eq_of_subset (retainPrefix_prefix cur next) hn h2
+  have hp := retainPrefix_prefix cur next
   have hs := retainPrefix_sublist cur next
-  rw [hp] at hs h1
-  exact (sublist_eq_of_subset hs hc h1).symm
+  rw [← hp.eq_of_length_le (hn.subperm h2).length_le,
+    hs.eq_of_length_le (hc.subperm h1).length_le]
 
 /-- A rule that retains only the common prefix of the two orders. -/
 def commonPrefix (cur next : List K) : List K :=
@@ -225,14 +153,12 @@ theorem run_gets (input : Input) : (run input).gets = [] ∨
   split
   · split
     · exact Or.inl rfl
-    · split
-      · exact Or.inl rfl
-      · simp only [publish]
-        refine Or.inr ⟨_, _, ?_, ?_, rfl⟩
-        · split <;> simp
-        · intro hw
-          rw [hw]
-          rfl
+    · simp only [publish]
+      refine Or.inr ⟨_, _, ?_, ?_, rfl⟩
+      · split <;> simp
+      · intro hw
+        rw [hw]
+        rfl
   · exact Or.inl rfl
 
 /-- A getter of `current` runs at most once when its object is read, and once per pass that reads
@@ -244,7 +170,8 @@ theorem get_bound (input : Input) : ∀ e ∈ (run input).gets, e.2.2 ≤ 1 + (r
     have := getCounts_le captured readbacks e he
     omega
 
-/-- When no pass writes, a getter of `current` runs at most once. -/
+/-- A call that writes nothing runs each getter of `current` at most once: it reads nothing back.
+The name refers to that readback; `get_bound` bounds the getters of a call that writes. -/
 theorem read_once_before_write (input : Input) (hw : (run input).allWrites = []) :
     ∀ e ∈ (run input).gets, e.2.2 ≤ 1 := by
   rcases run_gets input with h | ⟨captured, readbacks, _, hnil, h⟩ <;> rw [h]
@@ -261,52 +188,6 @@ would run twice although nothing was written. -/
 example : (getCountsAlwaysReadback [(0, "a")]).contains (0, "a", 2) = true ∧
     (getCounts [(0, "a")] []).contains (0, "a", 1) = true := by
   decide
-
-/-! ## Passes -/
-
-theorem demote_length_le (input : Input) (al : Discovery) (pin : Array Bool) :
-    ∀ fuel forbidden written, (demote input al pin fuel forbidden written).length ≤ fuel + 1 := by
-  intro fuel
-  induction fuel with
-  | zero => intro forbidden written; simp [demote]
-  | succ fuel ih =>
-    intro forbidden written
-    simp only [demote]
-    split
-    · simp
-    · simp only [List.length_cons]
-      exact Nat.succ_le_succ (ih _ _)
-
-/-- The number of decision passes is at most one per pair of a next node and a current object,
-plus two: a decision is final after as many demotions as there are pairs to forbid, and no plan is
-searched. -/
-theorem fuelOf_normalized (input : Input) :
-    fuelOf (normalized input) = input.next.nodes.size * (input.cur.nodes.size + 1) + 1 := by
-  simp [fuelOf, normalized, Graph.normalize]
-
-/-- The passes of a run: none when the call is rejected statically or has nothing to do, else the
-decision passes of the budget. -/
-theorem run_passes (input : Input) : (run input).passes = 0 ∨
-    (run input).passes = (demote (normalized input) (discover (normalized input))
-      (discover (normalized input)).pinned (fuelOf (normalized input))
-      [] []).length := by
-  simp only [run]
-  split
-  · split
-    · exact Or.inl rfl
-    · split
-      · exact Or.inr rfl
-      · exact Or.inr rfl
-  · exact Or.inl rfl
-
-theorem passes_le (input : Input) :
-    (run input).passes ≤ input.next.nodes.size * (input.cur.nodes.size + 1) + 2 := by
-  rcases run_passes input with h | h <;> rw [h]
-  · exact Nat.zero_le _
-  · have := demote_length_le (normalized input) (discover (normalized input))
-      (discover (normalized input)).pinned (fuelOf (normalized input)) [] []
-    have hf := fuelOf_normalized input
-    omega
 
 /-! ## Writes -/
 
@@ -379,12 +260,8 @@ theorem objectWrites_set_iff (identity : Nat → Option Nat)
 
 theorem exists_lookup_of_mem {k : String} {fields : List (String × Slot)}
     (h : k ∈ fields.map Prod.fst) : ∃ cs, fields.lookup k = some cs := by
-  cases hl : fields.lookup k with
-  | some cs => exact ⟨cs, rfl⟩
-  | none =>
-    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp h
-    have := List.lookup_eq_none_iff.mp hl p hp
-    simp at this
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp h
+  exact Option.isSome_iff_exists.mp (List.lookup_isSome_iff.mpr ⟨p, hp, by simp⟩)
 
 /-- A key of a kept object is deleted exactly when the object has it and it is not both a key of
 `next` and retained: a moved key is deleted and set again. -/
@@ -432,7 +309,8 @@ theorem objectWrites_unchanged (identity : Nat → Option Nat)
   · intro h
     obtain ⟨ns, hmem, hw⟩ := (objectWrites_set_iff identity cFields nFields k).mp h
     obtain ⟨cs, hcs⟩ := exists_lookup_of_mem ((retainPrefix_sublist _ _).subset hr)
-    simp [written, hcs, hv ns hmem cs hcs] at hw
+    simp only [written, hcs, List.contains_eq_mem, hv ns hmem cs hcs, Bool.or_false,
+      Bool.not_eq_eq_eq_not, Bool.not_true, decide_eq_false_iff_not] at hw
     exact hw hr
   · intro h
     have := (objectWrites_delete_iff identity cFields nFields k).mp h
@@ -1040,38 +918,61 @@ example :
 
 end WriteExamples
 
-/-! ## Descriptors -/
 
-def fieldsOf : Obj → List (String × Slot)
-  | .object _ fields _ => fields
-  | _ => []
+/-! ## Descriptors -/
 
 theorem attrsOf_slotWith (cs : Slot) (v : Val) : attrsOf (slotWith cs v) = attrsOf cs := by
   cases cs <;> rfl
 
-/-- A kept object keeps the attributes of every property it had, retained or moved, and an added
-property is writable and configurable with `next`'s enumerability. -/
+/-- A kept object holds `next`'s values under `next`'s keys. A retained key keeps its own slot
+(`slotWith`): a data property its attributes, an accessor its kind, its setter, its enumerability
+and its configurability. A moved key, deleted and added again, keeps its attributes (`attrsOf`). An
+added key is a data property, writable and configurable with `next`'s enumerability. -/
 theorem keptObject_attrs (proto : Proto) (cFields : List (String × Slot)) (extensible : Bool)
     (nFields : List (String × Slot)) :
     ∀ p ∈ fieldsOf (keptObject proto cFields extensible nFields),
-      ∃ ns, (p.1, ns) ∈ nFields ∧ attrsOf p.2 =
-        (match cFields.lookup p.1 with
-          | some cs => attrsOf cs
-          | none => ⟨true, ns.enumerable, true⟩) := by
+      ∃ ns, (p.1, ns) ∈ nFields ∧ p.2.value = ns.value ∧
+        match cFields.lookup p.1 with
+        | some cs => attrsOf p.2 = attrsOf cs ∧
+            (p.1 ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) →
+              p.2 = slotWith cs ns.value)
+        | none => p.2 = .data ns.value (.copied ns.enumerable) := by
   intro p hp
   simp only [keptObject, fieldsOf, List.mem_map] at hp
   obtain ⟨⟨k, ns⟩, hmem, rfl⟩ := hp
   refine ⟨ns, hmem, ?_⟩
-  simp only
-  split
-  · rename_i cs heq
-    rw [heq]
-    split
-    · exact attrsOf_slotWith cs _
-    · rfl
-  · rename_i heq
-    rw [heq]
-    simp [attrsOf]
+  dsimp only
+  cases cFields.lookup k with
+  | none => exact ⟨rfl, rfl⟩
+  | some cs =>
+    dsimp only
+    by_cases hr : k ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst)
+    · rw [if_pos (List.contains_iff_mem.mpr hr)]
+      exact ⟨by cases cs <;> rfl, attrsOf_slotWith cs _, fun _ => rfl⟩
+    · rw [if_neg (by simpa using hr)]
+      exact ⟨rfl, rfl, fun h => absurd h hr⟩
+
+/-- Under the static checks, a kept object keeps each own getter or setter that `next` keeps as
+an accessor with its setter, enumerability and configurability, holding `next`'s value: an
+accessor cannot move, so `objectAdmits` keeps it in the retained prefix. -/
+theorem keptObject_accessor (proto : Proto) (cFields : List (String × Slot)) (extensible : Bool)
+    (nFields inherited : List (String × Slot))
+    (hadm : objectAdmits cFields extensible nFields inherited = true) :
+    ∀ p ∈ fieldsOf (keptObject proto cFields extensible nFields), ∀ v setter e c,
+      cFields.lookup p.1 = some (.accessor v setter e c) →
+        ∃ ns, (p.1, ns) ∈ nFields ∧ p.2 = .accessor ns.value setter e c := by
+  intro p hp v setter e c hc
+  obtain ⟨ns, hmem, -, h⟩ := keptObject_attrs proto cFields extensible nFields p hp
+  rw [hc] at h
+  refine ⟨ns, hmem, h.2 ?_⟩
+  obtain ⟨l₁, l₂, hl, -⟩ := List.lookup_eq_some_iff.mp hc
+  have hcm : (p.1, Slot.accessor v setter e c) ∈ cFields := by simp [hl]
+  simp only [objectAdmits, Bool.and_eq_true, List.all_eq_true] at hadm
+  have hk : (nFields.map Prod.fst).contains p.1 = true :=
+    List.contains_iff_mem.mpr (List.mem_map.mpr ⟨_, hmem, rfl⟩)
+  have := hadm.2 _ hcm
+  simp only [hk, Bool.not_true, Bool.false_or, List.contains_iff_mem] at this
+  exact this
 
 /-! ## Blockers -/
 
@@ -1099,79 +1000,19 @@ theorem mem_blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Opt
       · simp at hf
     · simp at hf
 
+/-- An object a pass finds blocked is a current object: past `current`'s nodes lies the default
+empty object, whose writes never block. -/
+theorem blocked_lt (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) (i : Nat)
+    (h : i ∈ blockedObjects input pin kept) : i < input.cur.nodes.size := by
+  obtain ⟨j, _, _, _, hw⟩ := mem_blockedObjects input pin kept i h
+  refine Nat.lt_of_not_le fun hge => ?_
+  have hd : input.cur.node i = .object .object [] false := by
+    simp only [Graph.node, Array.getElem?_eq_none hge, Option.getD_none]
+    rfl
+  rw [hd] at hw
+  cases hn : input.next.node j <;> rw [hn] at hw <;> simp [writesOf, objectWrites] at hw
 
-/-- A left fold keeps a property that its start has and that every step keeps. -/
-theorem foldl_inv {α γ : Type} (P : γ → Prop) (f : γ → α → γ) :
-    ∀ (l : List α) (init : γ), P init → (∀ acc a, a ∈ l → P acc → P (f acc a)) →
-      P (l.foldl f init)
-  | [], _, h, _ => h
-  | a :: l, init, h, hs =>
-    foldl_inv P f l (f init a) (hs init a (List.mem_cons_self ..) h)
-      (fun acc b hb => hs acc b (List.mem_cons_of_mem _ hb))
-
-/-- Every pair `establish` reserves passed its checks, so none reserves a forbidden object. -/
-theorem establish_fresh (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
-    (written : List Requirement) (kept : Array (Option Nat)) (decided : Array Bool)
-    (required : Array (Option Nat)) (used : List Nat) :
-    ∀ fuel chain c x r,
-      establish input candidatesOf forbidden written kept decided required used fuel chain c x =
-        some r →
-      (∀ p ∈ chain, forbidden.contains p.2 = false) → ∀ p ∈ r, forbidden.contains p.2 = false := by
-  intro fuel
-  induction fuel with
-  | zero => intro chain c x r h; simp [establish] at h
-  | succ fuel ih =>
-    intro chain c x r h hchain
-    simp only [establish] at h
-    split at h
-    · cases h; exact hchain
-    split at h
-    · simp at h
-    split at h
-    · split at h
-      · cases h; exact hchain
-      · simp at h
-    split at h
-    · split at h
-      · cases h; exact hchain
-      · simp at h
-    split at h
-    · simp at h
-    rename_i hcond
-    split at h
-    · simp at h
-    have hx : forbidden.contains x = false := by
-      simp only [Bool.or_eq_true, not_or] at hcond
-      exact Bool.eq_false_iff.mpr hcond.1.1
-    revert r
-    refine foldl_inv
-      (fun (o : Option (List Requirement)) => ∀ r, o = some r →
-        ∀ p ∈ r, forbidden.contains p.2 = false) _ _ _ ?_ ?_
-    · intro r hr p hp
-      cases hr
-      simp only [List.mem_cons] at hp
-      rcases hp with rfl | hp
-      · exact hx
-      · exact hchain p hp
-    · intro acc ⟨cv, nv⟩ _ hacc r hr
-      cases acc with
-      | none => simp at hr
-      | some ch =>
-        simp only [Option.bind_some] at hr
-        cases cv <;> cases nv <;> simp only at hr
-        · split at hr
-          · obtain rfl := Option.some.inj hr; exact hacc _ rfl
-          · simp at hr
-        · simp at hr
-        · simp at hr
-        · exact ih _ _ _ r hr (hacc ch rfl)
-
-/-- What a decision state never holds: a forbidden object kept at an unpinned node, or required
-at any node. -/
-abbrev freshDecision (pin : Array Bool) (forbidden : List Nat) (d : Decision) : Prop :=
-  (∀ j x : Nat, pin[j]?.getD false = false → d.kept[j]?.bind id = some x →
-    forbidden.contains x = false) ∧
-  (∀ c x : Nat, d.required[c]?.bind id = some x → forbidden.contains x = false)
+/-! ## Decisions -/
 
 theorem setIfInBounds_bind {xs : Array (Option Nat)} {i j x y : Nat}
     (h : (xs.setIfInBounds i (some x))[j]?.bind id = some y) :
@@ -1184,95 +1025,52 @@ theorem setIfInBounds_bind {xs : Array (Option Nat)} {i j x y : Nat}
     · simp at h
   · exact Or.inr h
 
-/-- A decision never keeps a forbidden object at a node that is not pinned. -/
-theorem decide_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
-    (written : List Requirement) (j x : Nat) (hpin : pin[j]?.getD false = false)
-    (h : (decide input al pin forbidden written)[j]?.bind id = some x) :
-    forbidden.contains x = false := by
-  unfold decide at h
-  revert h
-  apply (show ∀ d : Decision, freshDecision pin forbidden d →
-      d.kept[j]?.bind id = some x → forbidden.contains x = false from
-    fun d hd => hd.1 j x hpin)
-  apply foldl_inv
-  · constructor
-    · intro k y hk hy
-      simp only [Array.getElem?_map, Array.getElem?_range] at hy
-      split at hy
-      · simp only [Option.map_some, Option.bind_some, id] at hy
-        rw [hk] at hy
-        simp at hy
-      · simp at hy
-    · intro c y hy
-      simp only [Array.getElem?_replicate] at hy
-      split at hy <;> simp at hy
-  · intro d k _ hd
-    dsimp only
-    split
-    · exact hd
-    split
-    · rename_i x0 hreq
-      refine ⟨fun k' y hk' hy => ?_, hd.2⟩
-      rcases setIfInBounds_bind hy with ⟨rfl, rfl⟩ | hy
-      · exact hd.2 _ _ hreq
-      · exact hd.1 k' y hk' hy
-    split
-    · exact ⟨hd.1, hd.2⟩
-    rename_i pairs hfind
-    obtain ⟨x0, _, hest⟩ := List.exists_of_findSome?_eq_some hfind
-    have hpairs := establish_fresh _ _ _ _ _ _ _ _ _ _ _ _ _ hest (by simp)
-    refine foldl_inv (freshDecision pin forbidden) _ pairs _ ⟨hd.1, hd.2⟩ ?_
-    intro d' p hp hd'
-    obtain ⟨c, y⟩ := p
-    have hy : forbidden.contains y = false := hpairs (c, y) hp
-    dsimp only
-    split
-    · refine ⟨fun k' z hk' hz => ?_, hd'.2⟩
-      rcases setIfInBounds_bind hz with ⟨rfl, rfl⟩ | hz
-      · exact hy
-      · exact hd'.1 k' z hk' hz
-    · refine ⟨hd'.1, fun c' z hz => ?_⟩
-      rcases setIfInBounds_bind hz with ⟨rfl, rfl⟩ | hz
-      · exact hy
-      · exact hd'.2 c' z hz
+/-- A node's candidates in a pass's order are `current` itself at the root, and otherwise its
+candidates from discovery. -/
+theorem mem_passCandidates (input : Input) (al : Discovery) (written : List Requirement)
+    (j x : Nat) (h : x ∈ passCandidates input al written j) :
+    (input.next.root.refId = some j ∧ input.cur.root.refId = some x) ∨
+      x ∈ al.candidates[j]?.getD [] := by
+  have hfound : ∀ y ∈ orderedCandidates input al j, y ∈ al.candidates[j]?.getD [] := by
+    intro y hy
+    simp only [orderedCandidates, List.mem_append, List.mem_filter] at hy
+    rcases hy with ⟨hy, _⟩ | ⟨hy, _⟩ <;> exact hy
+  unfold passCandidates at h
+  split at h
+  · rename_i hj
+    refine Or.inl ⟨hj, ?_⟩
+    cases hc : input.cur.root.refId <;> simp_all
+  · right
+    dsimp only at h
+    split at h
+    · split at h
+      · rename_i y _ hy
+        rcases List.mem_cons.mp h with rfl | h
+        · exact hfound _ (by simpa using hy)
+        · exact hfound _ (List.mem_filter.mp h).1
+      · exact hfound _ h
+    · exact hfound _ h
 
-/-- A pass never finds blocked an object an earlier pass forbade: every blocked object is kept at
-an unpinned node (`mem_blockedObjects`), and the decision keeps no forbidden object there. So each
-pass that does not end the run forbids a current object no earlier pass forbade, and the passes
-end within one more than the number of current objects, whatever the budget. -/
-theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
-    (written : List Requirement) (i : Nat)
-    (h : i ∈ blockedObjects input pin (decide input al pin forbidden written)) :
-    forbidden.contains i = false := by
-  obtain ⟨j, _, hpin, hkept, _⟩ := mem_blockedObjects input pin _ i h
-  exact decide_fresh input al pin forbidden written j i hpin hkept
-
-/-! ## Injective decisions -/
-
-/-- Whether a decision state assigns object `x` to node `a`: keeps it there, or a decided parent
-requires it there. -/
-def assigned (d : Decision) (a x : Nat) : Prop :=
-  d.kept[a]?.bind id = some x ∨ d.required[a]?.bind id = some x
-
-/-- Whether object `x` is reserved for node `c` before a pass decides: pinned there, or written
-there by an earlier pass. -/
-def startReserved (input : Input) (pin : Array Bool) (written : List Requirement) (c x : Nat) :
-    Prop :=
-  (c, x) ∈ written ∨
-    (c < input.next.nodes.size ∧ pin[c]?.getD false = true ∧ input.same[c]?.bind id = some x)
-
-/-- What `establish` checks of each pair it reserves: the object is not reserved yet, or an
-earlier pass wrote it at that node, and the static checks pass. -/
-def goodPair (input : Input) (written : List Requirement) (used : List Nat) (p : Requirement) :
-    Prop :=
-  (p.2 ∉ used ∨ p ∈ written) ∧
+/-- What `establish` checks of each pair it reserves, apart from reservations: the object is a
+candidate of the node in the pass's order, no earlier pass forbade it, and it passes the static
+checks. -/
+def checked (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (p : Requirement) : Prop :=
+  p.2 ∈ candidatesOf p.1 ∧ forbidden.contains p.2 = false ∧
     admitsStatic input.classes (input.cur.node p.2) (input.next.node p.1) = true
+
+/-- What `establish` checks of each pair it reserves: `checked`, and the object is not reserved
+yet, or an earlier pass wrote it at that node. -/
+def goodPair (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (written : List Requirement) (used : List Nat) (p : Requirement) : Prop :=
+  checked input candidatesOf forbidden p ∧ (p.2 ∉ used ∨ p ∈ written)
 
 /-- A chain of reserved pairs: each passed `establish`'s checks, and no two share a node or an
 object. -/
-def chainOK (input : Input) (written : List Requirement) (used : List Nat)
-    (l : List Requirement) : Prop :=
-  (∀ p ∈ l, goodPair input written used p) ∧ ∀ p ∈ l, ∀ q ∈ l, (p.1 = q.1 ∨ p.2 = q.2) → p = q
+def chainOK (input : Input) (candidatesOf : Nat → List Nat) (forbidden : List Nat)
+    (written : List Requirement) (used : List Nat) (l : List Requirement) : Prop :=
+  (∀ p ∈ l, goodPair input candidatesOf forbidden written used p) ∧
+    ∀ p ∈ l, ∀ q ∈ l, (p.1 = q.1 ∨ p.2 = q.2) → p = q
 
 /-- `establish` extends a chain only with pairs that pass its checks and share neither node nor
 object with the chain. -/
@@ -1282,7 +1080,8 @@ theorem establish_chainOK (input : Input) (candidatesOf : Nat → List Nat) (for
     ∀ fuel chain c x r,
       establish input candidatesOf forbidden written kept decided required used fuel chain c x =
         some r →
-      chainOK input written used chain → chainOK input written used r := by
+      chainOK input candidatesOf forbidden written used chain →
+        chainOK input candidatesOf forbidden written used r := by
   intro fuel
   induction fuel with
   | zero => intro chain c x r h; simp [establish] at h
@@ -1308,11 +1107,11 @@ theorem establish_chainOK (input : Input) (candidatesOf : Nat → List Nat) (for
     split at h
     · simp at h
     rename_i hadm
-    have hstart : chainOK input written used ((c, x) :: chain) := by
+    have hstart : chainOK input candidatesOf forbidden written used ((c, x) :: chain) := by
       simp only [Bool.or_eq_true, Bool.and_eq_true, Bool.not_eq_true', not_or, not_and,
         Bool.not_eq_false] at hcond
-      have hgood : goodPair input written used (c, x) := by
-        refine ⟨?_, by simpa using hadm⟩
+      have hgood : goodPair input candidatesOf forbidden written used (c, x) := by
+        refine ⟨⟨by simpa using hcond.2, by simpa using hcond.1.1, by simpa using hadm⟩, ?_⟩
         by_cases hu : x ∈ used
         · right
           have := hcond.1.2 (List.contains_iff_mem.mpr hu)
@@ -1342,13 +1141,12 @@ theorem establish_chainOK (input : Input) (candidatesOf : Nat → List Nat) (for
           · exact absurd h1 this.2
         · exact hchain.2 p hp q hq hpq
     revert r
-    refine foldl_inv
-      (fun (o : Option (List Requirement)) => ∀ r, o = some r → chainOK input written used r)
-      _ _ _ ?_ ?_
+    refine List.foldlRecOn (motive := fun (o : Option (List Requirement)) =>
+      ∀ r, o = some r → chainOK input candidatesOf forbidden written used r) _ _ ?_ ?_
     · intro r hr
       cases hr
       exact hstart
-    · intro acc ⟨cv, nv⟩ _ hacc r hr
+    · intro acc hacc ⟨cv, nv⟩ _ r hr
       cases acc with
       | none => simp at hr
       | some ch =>
@@ -1361,28 +1159,47 @@ theorem establish_chainOK (input : Input) (candidatesOf : Nat → List Nat) (for
         · simp at hr
         · exact ih _ _ _ r hr (hacc ch rfl)
 
-/-- The invariant of a decision state: every assigned or start-reserved object is in `used`, each
-object is assigned to one node at most and only to the node it was reserved for, and an
-object kept at an unpinned node, or required anywhere, passed the static checks. -/
-structure DecisionInv (input : Input) (pin : Array Bool) (written : List Requirement)
-    (d : Decision) : Prop where
+/-- Whether a decision state assigns object `x` to node `a`: keeps it there, or a decided parent
+requires it there. -/
+def assigned (d : Decision) (a x : Nat) : Prop :=
+  d.kept[a]?.bind id = some x ∨ d.required[a]?.bind id = some x
+
+/-- Whether object `x` is reserved for node `c` before a pass decides: pinned there, or written
+there by an earlier pass. -/
+def startReserved (input : Input) (pin : Array Bool) (written : List Requirement) (c x : Nat) :
+    Prop :=
+  (c, x) ∈ written ∨
+    (c < input.next.nodes.size ∧ pin[c]?.getD false = true ∧ input.same[c]?.bind id = some x)
+
+/-- Whether no object is reserved for two nodes before a pass. -/
+def StartUnique (input : Input) (pin : Array Bool) (written : List Requirement) : Prop :=
+  ∀ c c' x, startReserved input pin written c x → startReserved input pin written c' x → c = c'
+
+/-- The invariant of a decision state: every assigned or start-reserved object is in `used`; an
+object kept at an unpinned node, or required anywhere, passed `establish`'s checks there; and when
+no object is reserved for two nodes before the pass, each object is assigned to one node at most
+and only to the node it was reserved for. -/
+structure DecisionInv (input : Input) (pin : Array Bool) (candidatesOf : Nat → List Nat)
+    (forbidden : List Nat) (written : List Requirement) (d : Decision) : Prop where
   assigned_used : ∀ a x, assigned d a x → x ∈ d.used
   reserved_used : ∀ c x, startReserved input pin written c x → x ∈ d.used
-  inj : ∀ a b x, assigned d a x → assigned d b x → a = b
-  reserved_at : ∀ b c x, assigned d b x → startReserved input pin written c x → b = c
-  kept_static : ∀ a x, d.kept[a]?.bind id = some x → pin[a]?.getD false = true ∨
-    admitsStatic input.classes (input.cur.node x) (input.next.node a) = true
-  required_static : ∀ c x, d.required[c]?.bind id = some x →
-    admitsStatic input.classes (input.cur.node x) (input.next.node c) = true
+  kept_checked : ∀ a x, d.kept[a]?.bind id = some x →
+    pin[a]?.getD false = true ∨ checked input candidatesOf forbidden (a, x)
+  required_checked : ∀ c x, d.required[c]?.bind id = some x →
+    checked input candidatesOf forbidden (c, x)
+  inj : StartUnique input pin written → ∀ a b x, assigned d a x → assigned d b x → a = b
+  reserved_at : StartUnique input pin written →
+    ∀ b c x, assigned d b x → startReserved input pin written c x → b = c
 
 /-- A state with the same `used` that assigns only what another state assigned, keeping only what
 it kept or required, keeps the invariant. -/
-theorem DecisionInv.of_sub {input : Input} {pin : Array Bool} {written : List Requirement}
-    {d d' : Decision} (hd : DecisionInv input pin written d) (hu : d'.used = d.used)
+theorem DecisionInv.of_sub {input : Input} {pin : Array Bool} {candidatesOf : Nat → List Nat}
+    {forbidden : List Nat} {written : List Requirement} {d d' : Decision}
+    (hd : DecisionInv input pin candidatesOf forbidden written d) (hu : d'.used = d.used)
     (hk : ∀ a y : Nat, d'.kept[a]?.bind id = some y →
       d.kept[a]?.bind id = some y ∨ d.required[a]?.bind id = some y)
     (hr : ∀ c y : Nat, d'.required[c]?.bind id = some y → d.required[c]?.bind id = some y) :
-    DecisionInv input pin written d' := by
+    DecisionInv input pin candidatesOf forbidden written d' := by
   have ha : ∀ a y, assigned d' a y → assigned d a y := by
     intro a y h
     rcases h with h | h
@@ -1395,31 +1212,31 @@ theorem DecisionInv.of_sub {input : Input} {pin : Array Bool} {written : List Re
   · intro c y h
     rw [hu]
     exact hd.reserved_used c y h
-  · intro a b y h1 h2
-    exact hd.inj a b y (ha a y h1) (ha b y h2)
-  · intro b c y h1 h2
-    exact hd.reserved_at b c y (ha b y h1) h2
   · intro a y h
     rcases hk a y h with h | h
-    · exact hd.kept_static a y h
-    · exact Or.inr (hd.required_static a y h)
+    · exact hd.kept_checked a y h
+    · exact Or.inr (hd.required_checked a y h)
   · intro c y h
-    exact hd.required_static c y (hr c y h)
+    exact hd.required_checked c y (hr c y h)
+  · intro hs a b y h1 h2
+    exact hd.inj hs a b y (ha a y h1) (ha b y h2)
+  · intro hs b c y h1 h2
+    exact hd.reserved_at hs b c y (ha b y h1) h2
 
 /-- Reserving one more pair of a chain `establish` returned for state `d` keeps the invariant. -/
-theorem DecisionInv.add {input : Input} {pin : Array Bool} {written : List Requirement}
-    (hstart : ∀ c c' x, startReserved input pin written c x →
-      startReserved input pin written c' x → c = c')
+theorem DecisionInv.add {input : Input} {pin : Array Bool} {candidatesOf : Nat → List Nat}
+    {forbidden : List Nat} {written : List Requirement}
     {d d' d'' : Decision} {pairs : List Requirement} (c y : Nat)
-    (hd : DecisionInv input pin written d) (hd' : DecisionInv input pin written d')
+    (hd : DecisionInv input pin candidatesOf forbidden written d)
+    (hd' : DecisionInv input pin candidatesOf forbidden written d')
     (hsub : ∀ a z, assigned d' a z → assigned d a z ∨ (a, z) ∈ pairs)
     (hused : ∀ z ∈ d.used, z ∈ d'.used)
-    (hpairs : chainOK input written d.used pairs) (hcy : (c, y) ∈ pairs)
+    (hpairs : chainOK input candidatesOf forbidden written d.used pairs) (hcy : (c, y) ∈ pairs)
     (hu : d''.used = y :: d'.used)
     (hk : ∀ a z, d''.kept[a]?.bind id = some z → d'.kept[a]?.bind id = some z ∨ (a = c ∧ z = y))
     (hr : ∀ a z, d''.required[a]?.bind id = some z →
       d'.required[a]?.bind id = some z ∨ (a = c ∧ z = y)) :
-    DecisionInv input pin written d'' ∧
+    DecisionInv input pin candidatesOf forbidden written d'' ∧
       (∀ a z, assigned d'' a z → assigned d a z ∨ (a, z) ∈ pairs) ∧
       (∀ z ∈ d.used, z ∈ d''.used) := by
   have ha : ∀ a z, assigned d'' a z → assigned d' a z ∨ (a = c ∧ z = y) := by
@@ -1432,12 +1249,12 @@ theorem DecisionInv.add {input : Input} {pin : Array Bool} {written : List Requi
       · exact Or.inl (Or.inr h)
       · exact Or.inr h
   have hgood := hpairs.1 (c, y) hcy
-  have hnew : ∀ b, assigned d' b y → b = c := by
-    intro b hb
+  have hnew : StartUnique input pin written → ∀ b, assigned d' b y → b = c := by
+    intro hs b hb
     rcases hsub b y hb with hb | hb
-    · rcases hgood.1 with hu' | hw
+    · rcases hgood.2 with hu' | hw
       · exact absurd (hd.assigned_used b y hb) hu'
-      · exact hd.reserved_at b c y hb (Or.inl hw)
+      · exact hd.reserved_at hs b c y hb (Or.inl hw)
     · have := hpairs.2 (b, y) hb (c, y) hcy (Or.inr rfl)
       simp only [Prod.mk.injEq] at this
       exact this.1
@@ -1450,28 +1267,28 @@ theorem DecisionInv.add {input : Input} {pin : Array Bool} {written : List Requi
   · intro c' z h
     rw [hu]
     exact List.mem_cons_of_mem _ (hd'.reserved_used c' z h)
-  · intro a b z h1 h2
-    rcases ha a z h1 with h1 | ⟨rfl, rfl⟩
-    · rcases ha b z h2 with h2 | ⟨rfl, rfl⟩
-      · exact hd'.inj a b z h1 h2
-      · exact hnew a h1
-    · rcases ha b z h2 with h2 | ⟨rfl, -⟩
-      · exact (hnew b h2).symm
-      · rfl
-  · intro b c' z h1 h2
-    rcases ha b z h1 with h1 | ⟨rfl, rfl⟩
-    · exact hd'.reserved_at b c' z h1 h2
-    · rcases hgood.1 with hu' | hw
-      · exact absurd (hd.reserved_used c' z h2) hu'
-      · exact hstart b c' z (Or.inl hw) h2
   · intro a z h
     rcases hk a z h with h | ⟨rfl, rfl⟩
-    · exact hd'.kept_static a z h
-    · exact Or.inr hgood.2
+    · exact hd'.kept_checked a z h
+    · exact Or.inr hgood.1
   · intro a z h
     rcases hr a z h with h | ⟨rfl, rfl⟩
-    · exact hd'.required_static a z h
-    · exact hgood.2
+    · exact hd'.required_checked a z h
+    · exact hgood.1
+  · intro hs a b z h1 h2
+    rcases ha a z h1 with h1 | ⟨rfl, rfl⟩
+    · rcases ha b z h2 with h2 | ⟨rfl, rfl⟩
+      · exact hd'.inj hs a b z h1 h2
+      · exact hnew hs a h1
+    · rcases ha b z h2 with h2 | ⟨rfl, -⟩
+      · exact (hnew hs b h2).symm
+      · rfl
+  · intro hs b c' z h1 h2
+    rcases ha b z h1 with h1 | ⟨rfl, rfl⟩
+    · exact hd'.reserved_at hs b c' z h1 h2
+    · rcases hgood.2 with hu' | hw
+      · exact absurd (hd.reserved_used c' z h2) hu'
+      · exact hs b c' z (Or.inl hw) h2
   · intro a z h
     rcases ha a z h with h | ⟨rfl, rfl⟩
     · exact hsub a z h
@@ -1480,27 +1297,25 @@ theorem DecisionInv.add {input : Input} {pin : Array Bool} {written : List Requi
     rw [hu]
     exact List.mem_cons_of_mem _ (hused z hz)
 
-/-- Every decision state of a pass keeps `DecisionInv`, given that no object is reserved for two
-nodes before the pass. -/
+/-- Every decision state of a pass keeps `DecisionInv`. -/
 theorem decide_inv (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
-    (written : List Requirement)
-    (hstart : ∀ c c' x, startReserved input pin written c x →
-      startReserved input pin written c' x → c = c') :
+    (written : List Requirement) :
     ∃ d : Decision, decide input al pin forbidden written = d.kept ∧
-      DecisionInv input pin written d := by
+      DecisionInv input pin (passCandidates input al written) forbidden written d := by
   unfold decide
   refine ⟨_, rfl, ?_⟩
-  apply foldl_inv
+  apply List.foldlRecOn
   · -- The start state: the pinned objects, each reserved at its own node.
-    have hk : ∀ a x : Nat, ((Array.range input.next.nodes.size).map (fun j =>
-        if pin[j]?.getD false then input.same[j]?.bind id else none))[a]?.bind id = some x →
+    have hk : ∀ a x : Nat,
+        ((Array.range input.next.nodes.size).map (pinnedObject input pin))[a]?.bind id =
+          some x →
         a < input.next.nodes.size ∧ pin[a]?.getD false = true ∧
           input.same[a]?.bind id = some x := by
       intro a x h
       simp only [Array.getElem?_map, Array.getElem?_range] at h
       split at h
       · rename_i ha
-        simp only [Option.map_some, Option.bind_some, id] at h
+        simp only [Option.map_some, Option.bind_some, id, pinnedObject] at h
         split at h
         · exact ⟨ha, by assumption, h⟩
         · simp at h
@@ -1510,8 +1325,9 @@ theorem decide_inv (input : Input) (al : Discovery) (pin : Array Bool) (forbidde
       intro c x h
       simp only [Array.getElem?_replicate] at h
       split at h <;> simp at h
-    have ha : ∀ a x : Nat, (((Array.range input.next.nodes.size).map (fun j =>
-        if pin[j]?.getD false then input.same[j]?.bind id else none))[a]?.bind id = some x ∨
+    have ha : ∀ a x : Nat,
+        (((Array.range input.next.nodes.size).map (pinnedObject input pin))[a]?.bind id =
+          some x ∨
         (Array.replicate input.next.nodes.size (none : Option Nat))[a]?.bind id = some x) →
         a < input.next.nodes.size ∧ pin[a]?.getD false = true ∧
           input.same[a]?.bind id = some x := by
@@ -1523,21 +1339,21 @@ theorem decide_inv (input : Input) (al : Discovery) (pin : Array Bool) (forbidde
     · intro a x h
       obtain ⟨ha, hp, hs⟩ := ha a x h
       simp only [List.mem_append, List.mem_filterMap, List.mem_range]
-      exact Or.inl ⟨a, ha, by simp [hp, hs]⟩
+      exact Or.inl ⟨a, ha, by simp [pinnedObject, hp, hs]⟩
     · intro c x h
       simp only [List.mem_append, List.mem_filterMap, List.mem_range, List.mem_map]
       rcases h with h | ⟨hc, hp, hs⟩
       · exact Or.inr ⟨(c, x), h, rfl⟩
-      · exact Or.inl ⟨c, hc, by simp [hp, hs]⟩
-    · intro a b x h1 h2
-      exact hstart a b x (Or.inr (ha a x h1)) (Or.inr (ha b x h2))
-    · intro b c x h1 h2
-      exact hstart b c x (Or.inr (ha b x h1)) h2
+      · exact Or.inl ⟨c, hc, by simp [pinnedObject, hp, hs]⟩
     · intro a x h
       exact Or.inl (hk a x h).2.1
     · intro c x h
       exact absurd h (hr c x)
-  · intro d j _ hd
+    · intro hs a b x h1 h2
+      exact hs a b x (Or.inr (ha a x h1)) (Or.inr (ha b x h2))
+    · intro hs b c x h1 h2
+      exact hs b c x (Or.inr (ha b x h1)) h2
+  · intro d hd j _
     dsimp only
     split
     · exact hd
@@ -1554,28 +1370,69 @@ theorem decide_inv (input : Input) (al : Discovery) (pin : Array Bool) (forbidde
     obtain ⟨x0, _, hest⟩ := List.exists_of_findSome?_eq_some hfind
     have hpairs := establish_chainOK _ _ _ _ _ _ _ _ _ _ _ _ _ hest
       ⟨by simp, by simp⟩
-    refine (foldl_inv (fun d' : Decision => DecisionInv input pin written d' ∧
+    refine (List.foldlRecOn (motive := fun d' : Decision =>
+        DecisionInv input pin (passCandidates input al written) forbidden written d' ∧
         (∀ a z, assigned d' a z → assigned d a z ∨ (a, z) ∈ pairs) ∧
-        (∀ z ∈ d.used, z ∈ d'.used)) _ pairs _ ?_ ?_).1
+        (∀ z ∈ d.used, z ∈ d'.used)) pairs _ ?_ ?_).1
     · exact ⟨DecisionInv.of_sub hd rfl (fun a y h => Or.inl h) (fun c y h => h),
         fun a z h => Or.inl h, fun z hz => hz⟩
-    intro d' ⟨c, y⟩ hcy ⟨hinv, hsub, hused⟩
+    intro d' ⟨hinv, hsub, hused⟩ ⟨c, y⟩ hcy
     dsimp only
     split
     · rename_i hc
       subst hc
-      refine DecisionInv.add hstart c y hd hinv hsub hused hpairs hcy rfl ?_
+      refine DecisionInv.add c y hd hinv hsub hused hpairs hcy rfl ?_
         (fun a z h => Or.inl h)
       intro a z h
       rcases setIfInBounds_bind h with ⟨rfl, rfl⟩ | h
       · exact Or.inr ⟨rfl, rfl⟩
       · exact Or.inl h
-    · refine DecisionInv.add hstart c y hd hinv hsub hused hpairs hcy rfl
+    · refine DecisionInv.add c y hd hinv hsub hused hpairs hcy rfl
         (fun a z h => Or.inl h) ?_
       intro a z h
       rcases setIfInBounds_bind h with ⟨rfl, rfl⟩ | h
       · exact Or.inr ⟨rfl, rfl⟩
       · exact Or.inl h
+
+/-- An object a decision keeps at an unpinned node passed `establish`'s checks there: it is a
+candidate of the node, no earlier pass forbade it, and it passes the static checks. -/
+theorem decide_checked (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement) (j x : Nat)
+    (hpin : pin[j]?.getD false = false)
+    (h : (decide input al pin forbidden written)[j]?.bind id = some x) :
+    checked input (passCandidates input al written) forbidden (j, x) := by
+  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written
+  rw [hd] at h
+  rcases hinv.kept_checked j x h with hp | hc
+  · rw [hpin] at hp
+    cases hp
+  · exact hc
+
+/-- A decision keeps at an unpinned node only a candidate of it: `current` at the root, and
+otherwise the object at the node's position inside a candidate of a parent. Values are matched by
+position. -/
+theorem decide_candidate (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement) (j x : Nat)
+    (hpin : pin[j]?.getD false = false)
+    (h : (decide input al pin forbidden written)[j]?.bind id = some x) :
+    (input.next.root.refId = some j ∧ input.cur.root.refId = some x) ∨
+      x ∈ al.candidates[j]?.getD [] :=
+  mem_passCandidates input al written j x
+    (decide_checked input al pin forbidden written j x hpin h).1
+
+/-- A pass never finds blocked an object an earlier pass forbade: every blocked object is kept at
+an unpinned node (`mem_blockedObjects`), and the decision keeps no forbidden object there
+(`decide_checked`). So each pass that does not end the run forbids a current object no earlier
+pass forbade, and the passes end within one more than the number of current objects, whatever
+the budget (`demote_length_le`). -/
+theorem blocked_fresh (input : Input) (al : Discovery) (pin : Array Bool) (forbidden : List Nat)
+    (written : List Requirement) (i : Nat)
+    (h : i ∈ blockedObjects input pin (decide input al pin forbidden written)) :
+    forbidden.contains i = false := by
+  obtain ⟨j, _, hpin, hkept, _⟩ := mem_blockedObjects input pin _ i h
+  exact (decide_checked input al pin forbidden written j i hpin hkept).2.1
+
+/-! ## Injective decisions -/
 
 /-- No object is reserved for two nodes before a pass when `written` names each object at one
 node, distinct pinned nodes are distinct objects, and no pinned object is written at another
@@ -1587,8 +1444,7 @@ theorem startReserved_unique (input : Input) (pin : Array Bool) (written : List 
       input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
     (hpw : ∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
       input.same[b]?.bind id = some x → (c, x) ∈ written → b = c) :
-    ∀ c c' x, startReserved input pin written c x → startReserved input pin written c' x →
-      c = c' := by
+    StartUnique input pin written := by
   intro c c' x h1 h2
   rcases h1 with h1 | ⟨hc, hp, hs⟩ <;> rcases h2 with h2 | ⟨hc', hp', hs'⟩
   · exact hw c c' x h1 h2
@@ -1609,9 +1465,9 @@ theorem decide_injective (input : Input) (al : Discovery) (pin : Array Bool)
     (a b x : Nat) (ha : (decide input al pin forbidden written)[a]?.bind id = some x)
     (hb : (decide input al pin forbidden written)[b]?.bind id = some x) : a = b := by
   obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written
-    (startReserved_unique input pin written hw hsame hpw)
   rw [hd] at ha hb
-  exact hinv.inj a b x (Or.inl ha) (Or.inl hb)
+  exact hinv.inj (startReserved_unique input pin written hw hsame hpw) a b x (Or.inl ha)
+    (Or.inl hb)
 
 /-- A decision keeps an object reserved before the pass only at the node it was reserved for. -/
 theorem decide_reserved (input : Input) (al : Discovery) (pin : Array Bool)
@@ -1620,24 +1476,9 @@ theorem decide_reserved (input : Input) (al : Discovery) (pin : Array Bool)
       startReserved input pin written c' x → c = c')
     (b c x : Nat) (hb : (decide input al pin forbidden written)[b]?.bind id = some x)
     (hc : startReserved input pin written c x) : b = c := by
-  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written hstart
+  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written
   rw [hd] at hb
-  exact hinv.reserved_at b c x (Or.inl hb) hc
-
-/-- An object a decision keeps at an unpinned node passes the static checks there. -/
-theorem decide_static (input : Input) (al : Discovery) (pin : Array Bool)
-    (forbidden : List Nat) (written : List Requirement)
-    (hstart : ∀ c c' x, startReserved input pin written c x →
-      startReserved input pin written c' x → c = c')
-    (a x : Nat) (ha : (decide input al pin forbidden written)[a]?.bind id = some x)
-    (hpin : pin[a]?.getD false = false) :
-    admitsStatic input.classes (input.cur.node x) (input.next.node a) = true := by
-  obtain ⟨d, hd, hinv⟩ := decide_inv input al pin forbidden written hstart
-  rw [hd] at ha
-  rcases hinv.kept_static a x ha with h | h
-  · rw [hpin] at h
-    cases h
-  · exact h
+  exact hinv.reserved_at hstart b c x (Or.inl hb) hc
 
 theorem mem_writtenPairs (input : Input) (pin : Array Bool) (kept : Array (Option Nat))
     (j i : Nat) :
@@ -1656,10 +1497,10 @@ theorem mem_writtenPairs (input : Input) (pin : Array Bool) (kept : Array (Optio
     refine ⟨j, hj, ?_⟩
     simp [hp, hi]
 
-/-- Every decision of the passes is injective and keeps unpinned nodes only with objects that
-pass the static checks: each pass writes objects its decision kept at one node, so the written
-pairs keep naming each object at one node and no pinned object. -/
-theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool)
+/-- Every decision of the passes is a decision whose written pairs name each object at one node
+and no pinned object: each pass writes objects its decision kept at one node at most
+(`decide_injective`) and never a pinned object elsewhere (`decide_reserved`). -/
+theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat)
     (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
       pin[a]?.getD false = true → pin[b]?.getD false = true →
       input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b) :
@@ -1667,32 +1508,26 @@ theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool)
       (∀ c c' x, (c, x) ∈ written → (c', x) ∈ written → c = c') →
       (∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
         input.same[b]?.bind id = some x → (c, x) ∈ written → b = c) →
-      ∀ kept ∈ demote input al pin fuel forbidden written,
-        (∀ a b x : Nat, kept[a]?.bind id = some x → kept[b]?.bind id = some x → a = b) ∧
-        (∀ a x : Nat, kept[a]?.bind id = some x → pin[a]?.getD false = false →
-          admitsStatic input.classes (input.cur.node x) (input.next.node a) = true) := by
+      ∀ kept ∈ demote input al pin r fuel forbidden written,
+        ∃ forbidden' written', kept = decide input al pin forbidden' written' ∧
+          (∀ c c' x, (c, x) ∈ written' → (c', x) ∈ written' → c = c') ∧
+          (∀ b c x, b < input.next.nodes.size → pin[b]?.getD false = true →
+            input.same[b]?.bind id = some x → (c, x) ∈ written' → b = c) := by
   intro fuel
   induction fuel with
   | zero =>
     intro forbidden written hw hpw kept hk
     simp only [demote, List.mem_singleton] at hk
-    subst hk
-    exact ⟨decide_injective input al pin forbidden written hw hsame hpw,
-      decide_static input al pin forbidden written
-        (startReserved_unique input pin written hw hsame hpw)⟩
+    exact ⟨forbidden, written, hk, hw, hpw⟩
   | succ fuel ih =>
     intro forbidden written hw hpw kept hk
     have hstart := startReserved_unique input pin written hw hsame hpw
-    have hhead : ∀ a b x, (decide input al pin forbidden written)[a]?.bind id = some x →
-        (decide input al pin forbidden written)[b]?.bind id = some x → a = b :=
-      decide_injective input al pin forbidden written hw hsame hpw
     simp only [demote] at hk
     split at hk
     · simp only [List.mem_singleton] at hk
-      subst hk
-      exact ⟨hhead, decide_static input al pin forbidden written hstart⟩
+      exact ⟨forbidden, written, hk, hw, hpw⟩
     · rcases List.mem_cons.mp hk with rfl | hk
-      · exact ⟨hhead, decide_static input al pin forbidden written hstart⟩
+      · exact ⟨forbidden, written, rfl, hw, hpw⟩
       · refine ih _ _ ?_ ?_ kept hk
         · intro c c' x h1 h2
           simp only [List.mem_append] at h1 h2
@@ -1704,7 +1539,8 @@ theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool)
           · have := (mem_writtenPairs input pin _ c x).mp h1
             exact decide_reserved input al pin forbidden written hstart c c' x this.2.2
               (Or.inl h2)
-          · exact hhead c c' x ((mem_writtenPairs input pin _ c x).mp h1).2.2
+          · exact decide_injective input al pin forbidden written hw hsame hpw c c' x
+              ((mem_writtenPairs input pin _ c x).mp h1).2.2
               ((mem_writtenPairs input pin _ c' x).mp h2).2.2
         · intro b c x hb hp hs h
           simp only [List.mem_append] at h
@@ -1716,29 +1552,79 @@ theorem demote_inv (input : Input) (al : Discovery) (pin : Array Bool)
 
 /-- Every decision of a call's passes keeps each current object at one node at most, given that
 distinct pinned nodes are distinct objects, as distinct next nodes are. -/
-theorem demote_injective (input : Input) (al : Discovery) (pin : Array Bool)
+theorem demote_injective (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat)
     (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
       pin[a]?.getD false = true → pin[b]?.getD false = true →
       input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
-    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin fuel [] [])
-    (a b x : Nat) (ha : kept[a]?.bind id = some x) (hb : kept[b]?.bind id = some x) : a = b :=
-  (demote_inv input al pin hsame fuel [] [] (by simp) (by simp) kept hk).1 a b x ha hb
+    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin r fuel [] [])
+    (a b x : Nat) (ha : kept[a]?.bind id = some x) (hb : kept[b]?.bind id = some x) : a = b := by
+  obtain ⟨forbidden, written, rfl, hw, hpw⟩ :=
+    demote_inv input al pin r hsame fuel [] [] (by simp) (by simp) kept hk
+  exact decide_injective input al pin forbidden written hw hsame hpw a b x ha hb
+
+/-- In every decision of a call's passes, a pinned node's object is kept at no other node: an
+object already in place stays at its own position, given that distinct pinned nodes are distinct
+objects. -/
+theorem demote_pinned (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat)
+    (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
+      pin[a]?.getD false = true → pin[b]?.getD false = true →
+      input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
+    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin r fuel [] [])
+    (b c x : Nat) (hc : c < input.next.nodes.size) (hpin : pin[c]?.getD false = true)
+    (hs : input.same[c]?.bind id = some x) (hb : kept[b]?.bind id = some x) : b = c := by
+  obtain ⟨forbidden, written, rfl, hw, hpw⟩ :=
+    demote_inv input al pin r hsame fuel [] [] (by simp) (by simp) kept hk
+  exact decide_reserved input al pin forbidden written
+    (startReserved_unique input pin written hw hsame hpw) b c x hb (Or.inr ⟨hc, hpin, hs⟩)
+
+/-- Every decision of the passes is a decision of some forbidden objects and written pairs. -/
+theorem mem_demote (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat) :
+    ∀ (fuel : Nat) (forbidden : List Nat) (written : List Requirement),
+      ∀ kept ∈ demote input al pin r fuel forbidden written,
+        ∃ forbidden' written', kept = decide input al pin forbidden' written' := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro forbidden written kept hk
+    simp only [demote, List.mem_singleton] at hk
+    exact ⟨forbidden, written, hk⟩
+  | succ fuel ih =>
+    intro forbidden written kept hk
+    simp only [demote] at hk
+    split at hk
+    · simp only [List.mem_singleton] at hk
+      exact ⟨forbidden, written, hk⟩
+    · rcases List.mem_cons.mp hk with rfl | hk
+      · exact ⟨forbidden, written, rfl⟩
+      · exact ih _ _ kept hk
+
+/-- Every decision of the passes keeps at an unpinned node only a candidate of it
+(`decide_candidate`): values are matched by position. -/
+theorem demote_candidate (input : Input) (al : Discovery) (pin : Array Bool) (r fuel : Nat)
+    (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin r fuel [] []) (j x : Nat)
+    (hpin : pin[j]?.getD false = false) (h : kept[j]?.bind id = some x) :
+    (input.next.root.refId = some j ∧ input.cur.root.refId = some x) ∨
+      x ∈ al.candidates[j]?.getD [] := by
+  obtain ⟨forbidden, written, rfl⟩ := mem_demote input al pin r fuel [] [] kept hk
+  exact decide_candidate input al pin forbidden written j x hpin h
 
 /-- Write minimality by the object each node keeps: in every decision of the passes, an unpinned
 node takes no write exactly when the object it keeps already holds `next`'s contents, given
 distinct keys. -/
-theorem demote_writesOf_nil_iff (input : Input) (al : Discovery) (pin : Array Bool)
+theorem demote_writesOf_nil_iff (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat)
     (hsame : ∀ a b x, a < input.next.nodes.size → b < input.next.nodes.size →
       pin[a]?.getD false = true → pin[b]?.getD false = true →
       input.same[a]?.bind id = some x → input.same[b]?.bind id = some x → a = b)
-    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin fuel [] [])
+    (fuel : Nat) (kept : Array (Option Nat)) (hk : kept ∈ demote input al pin r fuel [] [])
     (j i : Nat) (hpin : pin[j]?.getD false = false) (hj : kept[j]?.bind id = some i)
     (hkeys : distinctKeys (input.cur.node i) (input.next.node j)) :
     (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).1 = [] ↔
       holds (identityOf kept) (input.cur.node i) (input.next.node j) := by
-  have hinv := demote_inv input al pin hsame fuel [] [] (by simp) (by simp) kept hk
-  exact writesOf_nil_iff input.classes _ _ _ (hinv.2 j i hj hpin) hkeys
-    (fun a b x ha hb => hinv.1 a b x ha hb)
+  obtain ⟨forbidden, written, rfl, hw, hpw⟩ :=
+    demote_inv input al pin r hsame fuel [] [] (by simp) (by simp) kept hk
+  exact writesOf_nil_iff input.classes _ _ _
+    (decide_checked input al pin forbidden written j i hpin hj).2.2 hkeys
+    (decide_injective input al pin forbidden written hw hsame hpw)
 
 private def emptyObject : Obj := .object .object [] true
 
@@ -1774,6 +1660,146 @@ example :
       #[true, false] [] [(1, 0)] = #[some 0, some 0] := by
   decide +kernel
 
+/-! ## Passes -/
+
+/-- The current objects no pass has forbidden. -/
+def unforbidden (input : Input) (forbidden : List Nat) : List Nat :=
+  (List.range input.cur.nodes.size).filter fun i => !forbidden.contains i
+
+/-- A pass that finds an object blocked leaves fewer current objects unforbidden: the object is a
+current object (`blocked_lt`) no earlier pass forbade (`blocked_fresh`). -/
+theorem unforbidden_lt (input : Input) (al : Discovery) (pin : Array Bool)
+    (forbidden : List Nat) (written : List Requirement)
+    (h : blockedObjects input pin (decide input al pin forbidden written) ≠ []) :
+    (unforbidden input
+        (forbidden ++ blockedObjects input pin (decide input al pin forbidden written))).length <
+      (unforbidden input forbidden).length := by
+  obtain ⟨b, hb⟩ := List.exists_mem_of_ne_nil _ h
+  have heq : unforbidden input
+      (forbidden ++ blockedObjects input pin (decide input al pin forbidden written)) =
+      (unforbidden input forbidden).filter fun i =>
+        !(blockedObjects input pin (decide input al pin forbidden written)).contains i := by
+    simp only [unforbidden, List.filter_filter, List.contains_append, Bool.not_or]
+    congr 1
+    funext i
+    exact Bool.and_comm _ _
+  rw [heq, List.length_filter_lt_length_iff_exists]
+  refine ⟨b, ?_, by simpa using hb⟩
+  simp only [unforbidden, List.mem_filter, List.mem_range]
+  exact ⟨blocked_lt input pin _ b hb,
+    by simpa using blocked_fresh input al pin forbidden written b hb⟩
+
+/-- The passes number at most one more than the current objects no earlier pass forbade,
+whatever the budget: each pass that continues forbids one of them (`unforbidden_lt`). -/
+theorem demote_length_le (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat) :
+    ∀ fuel forbidden written,
+      (demote input al pin r fuel forbidden written).length ≤
+        (unforbidden input forbidden).length + 1
+  | 0, _, _ => by simp [demote]
+  | fuel + 1, forbidden, written => by
+    simp only [demote]
+    split
+    · simp
+    · rename_i h
+      simp only [Bool.or_eq_true, not_or, List.isEmpty_iff] at h
+      have := unforbidden_lt input al pin forbidden written h.2
+      have := demote_length_le input al pin r fuel
+        (forbidden ++ blockedObjects input pin (decide input al pin forbidden written))
+        (written ++ writtenPairs input pin (decide input al pin forbidden written))
+      simp only [List.length_cons]
+      omega
+
+/-- Once the budget covers the current objects no earlier pass forbade, the passes end on their
+own: the last decision keeps no root, which rejects the call, or keeps no object whose writes
+block. -/
+theorem demote_last_unblocked (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat) :
+    ∀ fuel forbidden written d, (unforbidden input forbidden).length ≤ fuel →
+      ((demote input al pin r fuel forbidden written).getLastD d)[r]?.bind id = none ∨
+        blockedObjects input pin ((demote input al pin r fuel forbidden written).getLastD d) = []
+  | 0, forbidden, written, _, hm => by
+    simp only [demote, List.getLastD_cons, List.getLastD_nil]
+    refine Or.inr (List.eq_nil_iff_forall_not_mem.mpr fun i hi => ?_)
+    have : i ∈ unforbidden input forbidden := by
+      simp only [unforbidden, List.mem_filter, List.mem_range]
+      exact ⟨blocked_lt input pin _ i hi,
+        by simpa using blocked_fresh input al pin forbidden written i hi⟩
+    have := List.length_pos_of_mem this
+    omega
+  | fuel + 1, forbidden, written, _, hm => by
+    simp only [demote]
+    split
+    · rename_i h
+      simp only [List.getLastD_cons, List.getLastD_nil]
+      simp only [Bool.or_eq_true, List.isEmpty_iff, Option.isNone_iff_eq_none] at h
+      exact h
+    · rename_i h
+      simp only [Bool.or_eq_true, not_or, List.isEmpty_iff] at h
+      have := unforbidden_lt input al pin forbidden written h.2
+      rw [List.getLastD_cons]
+      exact demote_last_unblocked input al pin r fuel _ _ _ (by omega)
+
+/-- The passes of a run: none when it has nothing to do or its first decision keeps no root, else
+the decisions of its passes. -/
+theorem run_passes (input : Input) : (run input).passes = 0 ∨
+    ∃ r, (run input).passes =
+      (rounds (normalized input) (discover (normalized input)) r).length := by
+  simp only [run]
+  split
+  · split
+    · split
+      · exact Or.inl rfl
+      · exact Or.inr ⟨_, rfl⟩
+    · exact Or.inr ⟨_, rfl⟩
+  · exact Or.inl rfl
+
+/-- A call makes at most one decision pass per current object, plus one, whatever the budget: no
+plan is searched. -/
+theorem passes_le_cur (input : Input) : (run input).passes ≤ input.cur.nodes.size + 1 := by
+  rcases run_passes input with h | ⟨r, h⟩ <;> rw [h]
+  · exact Nat.zero_le _
+  · have := demote_length_le (normalized input) (discover (normalized input))
+      (discover (normalized input)).pinned r (normalized input).cur.nodes.size [] []
+    have hu : (unforbidden (normalized input) []).length ≤ input.cur.nodes.size := by
+      simp [unforbidden, normalized, Graph.normalize]
+    simp only [rounds]
+    omega
+
+/-- The passes number at most one per pair of a next node and a current object, plus two: with a
+node in `next`, `passes_le_cur`; with none, nothing blocks and a call makes one pass at most. -/
+theorem passes_le (input : Input) :
+    (run input).passes ≤ input.next.nodes.size * (input.cur.nodes.size + 1) + 2 := by
+  have hcur := passes_le_cur input
+  rcases Nat.eq_zero_or_pos input.next.nodes.size with hn | hn
+  · rcases run_passes input with h | ⟨r, h⟩ <;> rw [h]
+    · exact Nat.zero_le _
+    · have : (rounds (normalized input) (discover (normalized input)) r).length = 1 := by
+        simp only [rounds]
+        cases (normalized input).cur.nodes.size <;>
+          simp [demote, blockedObjects, normalized, Graph.normalize, hn]
+      omega
+  · have := Nat.le_mul_of_pos_left (input.cur.nodes.size + 1) hn
+    omega
+
+/-- A call that succeeds keeps no object whose writes block: its final decision, the result's
+origins, is the one its passes end on, which the budget never cuts short
+(`demote_last_unblocked`). So an object that blocks a change is replaced by a copy. -/
+theorem run_last_unblocked (input : Input) (c r : Nat) (hc : input.cur.root = .ref c)
+    (hr : input.next.root = .ref r) (hok : (run input).ok = true) :
+    blockedObjects (normalized input) (discover (normalized input)).pinned (run input).origins =
+      [] := by
+  have hc' : (normalized input).cur.root = .ref c := by simp [normalized, Graph.normalize, hc]
+  have hr' : (normalized input).next.root = .ref r := by simp [normalized, Graph.normalize, hr]
+  have hu : (unforbidden (normalized input) []).length ≤ (normalized input).cur.nodes.size := by
+    simp [unforbidden]
+  have hlast := demote_last_unblocked (normalized input) (discover (normalized input))
+    (discover (normalized input)).pinned r _ [] [] #[] hu
+  simp only [run, hc', hr'] at hok ⊢
+  split at hok
+  · simp at hok
+  · rename_i hroot
+    rw [if_neg hroot]
+    exact hlast.resolve_left fun h => hroot (by unfold rounds; rw [h]; rfl)
+
 /-! ## Demands -/
 
 /-- No demand asks a candidate's own node for another object: every demand comes from an admitted
@@ -1787,25 +1813,19 @@ theorem demands_satisfiable (input : Input) (al : Discovery) (c' x' : Nat)
   obtain ⟨c, _, x, hx, hmem⟩ := h
   split at hmem
   · rename_i hadm
-    simp only [List.mem_filterMap] at hmem
-    obtain ⟨⟨cv, nv⟩, hpair, hsome⟩ := hmem
+    simp only [List.mem_filter, fixedRequirements, List.mem_filterMap] at hmem
+    obtain ⟨⟨⟨cv, nv⟩, hpair, hsome⟩, hcond⟩ := hmem
     cases cv with
     | prim p => cases nv <;> simp at hsome
     | ref y =>
       cases nv with
       | prim q => simp at hsome
       | ref d =>
-        simp only at hsome
-        split at hsome
-        · simp at hsome
-        · rename_i hcond
-          simp only [Option.some.injEq, Prod.mk.injEq] at hsome
-          obtain ⟨rfl, rfl⟩ := hsome
-          refine ⟨c, x, hx, hadm, hpair, fun hc => ?_⟩
-          subst hc
-          simp only [Bool.and_eq_true, decide_eq_true_eq, bne_iff_ne, ne_eq, not_and,
-            Decidable.not_not] at hcond
-          exact hcond trivial
+        simp only [Option.some.injEq, Prod.mk.injEq] at hsome
+        obtain ⟨rfl, rfl⟩ := hsome
+        refine ⟨c, x, hx, hadm, hpair, fun hc => ?_⟩
+        subst hc
+        simpa using hcond
   · simp at hmem
 
 /-- The fixed slots of an admitted candidate that hold objects require each node to keep one
@@ -1846,11 +1866,12 @@ theorem publish_origins (input : Input) (al : Discovery) (pin : Array Bool)
     (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r : Nat) :
     (publish input al pin rounds kept r).origins = kept := rfl
 
-/-- A node the decision keeps nothing at holds a fresh copy of `next`'s node. -/
+/-- A node the decision keeps nothing at holds a copy of `next`'s node, made as `snapshot` makes
+it (`Obj.copy`). -/
 theorem publish_fresh (input : Input) (al : Discovery) (pin : Array Bool)
     (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r j : Nat)
     (hj : j < input.next.nodes.size) (h : kept[j]?.bind id = none) :
-    (publish input al pin rounds kept r).nodes[j]? = some (freshCopy (input.next.node j)) := by
+    (publish input al pin rounds kept r).nodes[j]? = some (input.next.node j).copy := by
   simp [publish, hj, h]
 
 /-! ## Counterexamples -/
@@ -1869,8 +1890,8 @@ def keptObjectNaive (proto : Proto) (cFields : List (String × Slot)) (extensibl
       | some cs =>
         if (retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst)).contains k then
           slotWith cs ns.value
-        else .data ns.value ⟨true, cs.enumerable, true⟩
-      | none => .data ns.value ⟨true, ns.enumerable, true⟩)) extensible
+        else .data ns.value (.copied cs.enumerable)
+      | none => .data ns.value (.copied ns.enumerable))) extensible
 
 private def one : List (String × Slot) := [("a", .data (.prim .null) ⟨true, true, true⟩)]
 
@@ -1903,8 +1924,8 @@ namespace Reconcile.Spec.Produce
 open Reconcile.Spec
 
 /-- The keep conditions on node `i` with respect to a set `set`: a current node equals its draft
-and refers only to nodes of the set; a created object refers only to kept created objects and
-changed `Date` copies. -/
+and refers only to nodes of the set; a created object refers only to kept created objects and to
+the changed copies of dates, buffers and views (`changedCopy`). -/
 def Keeps (cur : Graph) (heap : Array Obj) (set : List Nat) (i : Nat) : Prop :=
   i < heap.size ∧ (i < cur.nodes.size → heap[i]? = some (cur.node i)) ∧
     ((heap[i]?.getD default).refs.all fun r =>
@@ -2013,9 +2034,9 @@ theorem kept_closed (cur : Graph) (heap : Array Obj) :
 theorem snapshot_size (cur : Graph) : (snapshot cur).nodes.size = cur.nodes.size := by
   simp [snapshot]
 
-/-- Each copy is `copy` of its source node. -/
+/-- Each copy is `Obj.copy` of its source node, the copy `reconcile` adds (`publish_fresh`). -/
 theorem snapshot_copy (cur : Graph) (i : Nat) :
-    (snapshot cur).nodes[i]? = cur.nodes[i]?.map copy := by
+    (snapshot cur).nodes[i]? = cur.nodes[i]?.map Obj.copy := by
   simp [snapshot]
 
 /-- Every origin is fresh: the copy shares no object with the source. -/

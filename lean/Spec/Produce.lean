@@ -7,7 +7,9 @@ import Spec.Graph
 recipe left unchanged kept as the original. The reference takes the recipe as a list of
 operations on a *draft heap*: the current nodes, which the operations change in place as their
 drafts record them, and the objects the recipe creates, appended after them. An operation a draft
-refuses (a read-only or non-configurable property, a non-extensible object) is not generated.
+refuses (a read-only or non-configurable property, a non-extensible object) is not generated, nor
+is an assignment to an own accessor, which runs its setter on the draft and which the model leaves
+out.
 
 Finalization keeps a current node when its subtree is unchanged: its own contents equal the
 original's and every node it references is itself unchanged (the greatest such set). Every other
@@ -19,8 +21,9 @@ holds a draft, in which case it is copied. A draft reads a `Date`, buffer or vie
 is the result's value only when it differs from the original; a view's copy differs when its
 buffer's does.
 
-`snapshot(value)` copies every node: data properties writable and configurable with their
-enumerability, accessors as data, prototypes kept.
+`snapshot(value)` copies every node with `Obj.copy`, the rule by which `reconcile` adds a node:
+data properties writable and configurable with their enumerability, accessors as data, prototypes
+kept.
 -/
 
 namespace Reconcile.Spec.Produce
@@ -56,7 +59,8 @@ def resize (entries : List (Option Val)) (length : Nat) : List (Option Val) :=
   if length ≤ entries.length then entries.take length
   else entries ++ List.replicate (length - entries.length) none
 
-/-- Applies one operation to the draft heap; `none` when a draft refuses it. -/
+/-- Applies one operation to the draft heap; `none` when a draft refuses it, and for an
+assignment to an own accessor, which the model leaves out. -/
 def apply (heap : Array Obj) : Op → Option (Array Obj)
   | .setKey node key value =>
     match heap[node]? with
@@ -185,17 +189,9 @@ def rebuild : Obj → Obj
     .object proto (fields.map fun (k, s) =>
       match s with
       | .data v a => (k, .data v a)
-      | .accessor v _ e _ => (k, .data v ⟨true, e, true⟩)) extensible
+      | .accessor v _ e _ => (k, .data v (.copied e))) extensible
   | .array entries ext =>
     normalizeObj (.array entries (if ext = .extensible then .extensible else .nonExtensible))
-  | o => o
-
-/-- A copy as `snapshot` makes it: data properties writable and configurable with their
-enumerability, accessors as data, the prototype kept, extensible. -/
-def copy : Obj → Obj
-  | .object proto fields _ =>
-    .object proto (fields.map fun (k, s) => (k, .data s.value ⟨true, s.enumerable, true⟩)) true
-  | .array entries _ => .array entries .extensible
   | o => o
 
 /-- The origin of a result node: a kept current node, a kept object the recipe created, or none
@@ -240,7 +236,7 @@ def run (raw : Input) : Outcome :=
 
 /-- `snapshot`: every node copied. -/
 def snapshot (cur : Graph) : Outcome :=
-  { ok := true, origins := cur.nodes.map fun _ => .fresh, nodes := cur.nodes.map copy,
+  { ok := true, origins := cur.nodes.map fun _ => .fresh, nodes := cur.nodes.map Obj.copy,
     root := cur.root }
 
 /-! ## JSON for operations -/

@@ -48,6 +48,7 @@ roots = [
   "Oracle.PropertyOrderOracle",
   "Property.PropertyWrite",
   "Oracle.PropertyWriteOracle",
+  "Property.Retain",
   "Property.PropertyPlacement",
   "Oracle.PropertyPlacementOracle",
   "Property.KeyOrder",

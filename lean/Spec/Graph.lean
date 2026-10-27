@@ -20,8 +20,12 @@ integrity test does.
 
 The own slots of class prototypes are part of a `reconcile` input (`Reconcile.Input.classes`),
 not of a graph. Outside the model: slots on `Object.prototype`, symbol keys, array index keys on
-objects, `-0` and `NaN`, `SharedArrayBuffer`, views that track their buffer's length, buffer and
-view subclasses, URLs and Temporal values.
+objects, numbers that are not integers (`Prim.num` holds an integer), `-0` and `NaN`,
+`SharedArrayBuffer`, views that track their buffer's length, buffer and view subclasses, URLs and
+Temporal values.
+
+`Obj.copy` is the one copy rule: `snapshot` copies every node with it and `reconcile` adds every
+node it keeps nothing at with it.
 -/
 
 namespace Reconcile.Spec
@@ -53,6 +57,10 @@ structure Attrs where
 
 /-- The attributes an assignment gives a new property. -/
 def Attrs.plain : Attrs := ⟨true, true, true⟩
+
+/-- The attributes of a copied or added property: writable and configurable, with the source's
+enumerability. -/
+def Attrs.copied (enumerable : Bool) : Attrs := ⟨true, enumerable, true⟩
 
 /-- An own property: data with attributes, or an accessor whose getter returns `value` and whose
 setter is absent (`none`), stores what it receives (`some true`) or drops it (`some false`). -/
@@ -145,6 +153,15 @@ def Obj.refs : Obj → List Nat
     match storage with
     | .ref id => [id]
     | .prim _ => []
+
+/-- A copy of a node, as `snapshot` makes it and `reconcile` adds it: an object's properties
+become data properties holding the value a read returns, with `Attrs.copied`, under the source's
+prototype, and the object and an array are extensible; another node is copied as it is. -/
+def Obj.copy : Obj → Obj
+  | .object proto fields _ =>
+    .object proto (fields.map fun (k, s) => (k, .data s.value (.copied s.enumerable))) true
+  | .array entries _ => .array entries .extensible
+  | o => o
 
 /-- A graph: nodes by id and a root value. -/
 structure Graph where

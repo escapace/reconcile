@@ -2,6 +2,7 @@ import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Nodup
 import Mathlib.Data.List.Infix
 import Property.PropertyOrder
+import Property.Retain
 
 /-! In-place key order: the best a publication can do without moving a key it keeps.
 
@@ -11,22 +12,16 @@ and appends every other desired key in desired order (`place`). A key that canno
 defined again, such as a non-configurable property or an accessor written only through its
 setter, must be kept.
 
-`matched` is the greedy rule of `PropertyOrder`'s reference cursor: keep a current key when it is
-the next desired key not yet kept. It keeps the longest prefix of the desired order that occurs in
-the current order (`matched_maximal`), its placement is the desired order (`place_matched`), and
-so a placement that keeps every fixed key exists exactly when greedy matching keeps them
-(`feasible_iff`): rejecting is never premature. -/
+`matched` (`Property.Retain`) is the greedy rule of `PropertyOrder`'s reference cursor: keep a
+current key when it is the next desired key not yet kept. It keeps the longest prefix of the
+desired order that occurs in the current order (`matched_maximal`), its placement is the desired
+order (`place_matched`), and so a placement that keeps every fixed key exists exactly when greedy
+matching keeps them (`feasible_iff`): rejecting is never premature. -/
 namespace Reconcile.PropertyPlacement
 
 open List
 
 variable {α : Type} [DecidableEq α]
-
-/-- The current keys greedy matching keeps, in order. -/
-def matched : List α → List α → List α
-  | [], _ => []
-  | _, [] => []
-  | d :: ds, c :: cs => if c = d then d :: matched ds cs else matched (d :: ds) cs
 
 /-- In-place publication of one sector: kept current keys stay in their order, and every other
 desired key is appended in desired order. -/
@@ -37,61 +32,6 @@ def place (current desired kept : List α) : List α :=
 def Feasible (current desired fixed : List α) : Prop :=
   ∃ kept : List α, (∀ k ∈ fixed, k ∈ kept) ∧ (∀ k ∈ kept, k ∈ current ∧ k ∈ desired) ∧
     place current desired kept = desired
-
-theorem matched_prefix (ds cs : List α) : matched ds cs <+: ds := by
-  induction cs generalizing ds with
-  | nil => cases ds <;> simp [matched]
-  | cons c cs ih =>
-    cases ds with
-    | nil => simp [matched]
-    | cons d ds =>
-      unfold matched
-      split
-      · rename_i h
-        exact List.cons_prefix_cons.mpr ⟨rfl, ih ds⟩
-      · exact ih (d :: ds)
-
-theorem matched_sublist (ds cs : List α) : matched ds cs <+ cs := by
-  induction cs generalizing ds with
-  | nil => cases ds <;> simp [matched]
-  | cons c cs ih =>
-    cases ds with
-    | nil => simp [matched]
-    | cons d ds =>
-      unfold matched
-      split
-      · rename_i h
-        subst h
-        exact (ih ds).cons₂ c
-      · exact (ih (d :: ds)).cons c
-
-/-- Greedy matching keeps the longest desired prefix that occurs in the current order. -/
-theorem matched_maximal (ds cs p : List α) (hp : p <+: ds) (hs : p <+ cs) :
-    p.length ≤ (matched ds cs).length := by
-  induction cs generalizing ds p with
-  | nil =>
-    have : p = [] := List.eq_nil_of_sublist_nil hs
-    simp [this]
-  | cons c cs ih =>
-    cases p with
-    | nil => simp
-    | cons x p =>
-      cases ds with
-      | nil => simp at hp
-      | cons d ds =>
-        obtain ⟨hx, hp'⟩ := List.cons_prefix_cons.mp hp
-        subst hx
-        unfold matched
-        split
-        · rename_i h
-          subst h
-          simpa using ih ds p hp' (List.cons_sublist_cons.mp hs)
-        · rename_i h
-          have : x :: p <+ cs := by
-            rcases List.sublist_cons_iff.mp hs with hs | ⟨r, hr, _⟩
-            · exact hs
-            · cases hr; exact absurd rfl h
-          exact ih (x :: ds) (x :: p) (List.cons_prefix_cons.mpr ⟨rfl, hp'⟩) this
 
 /-- Filtering a duplicate-free list by membership in one of its sublists recovers the sublist. -/
 theorem filter_mem_sublist {l c : List α} (h : l <+ c) (hc : c.Nodup) :

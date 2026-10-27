@@ -26,21 +26,6 @@ def OffersAligned (cur next : Graph) (first : Array (Option Nat)) : Prop :=
         (fun q => (cur.node q).kind == (next.node c).kind) = some q →
       first[c]? = some (some q)
 
-/-- The pending pairs `visitStep` pushes for a node aligned with `aligned`. -/
-def visitChildren (cur : Graph) (node : Obj) (aligned : Option Nat) : List (Nat × Option Nat) :=
-  node.slots.filterMap fun (pos, v) =>
-    match v with
-    | .ref c => some (c, if pos.property then
-        aligned.bind fun p => ((cur.node p).occupant pos).bind Val.refId else none)
-    | .prim _ => none
-
-/-- The pending pairs `candidateStep` pushes for a node walked with candidate `p`. -/
-def candidateChildren (cur : Graph) (node : Obj) (p : Nat) : List (Nat × Option Nat) :=
-  node.slots.filterMap fun (pos, v) =>
-    match v with
-    | .ref c => some (c, ((cur.node p).occupant pos).bind Val.refId)
-    | .prim _ => none
-
 theorem visitStep_cons (cur next : Graph) (fuel j : Nat) (pinning : Option Nat)
     (rest : List (Nat × Option Nat)) (visited : Array Bool) (first : Array (Option Nat))
     (order : List Nat) :
@@ -159,20 +144,6 @@ theorem visitStep_keep (cur next : Graph) (k : Nat) : ∀ fuel wv (visited : Arr
 
 /-! ## Fuel -/
 
-theorem filterMap_zipIdx_fst {α β : Type} (f : α → Option β) :
-    ∀ (l : List α) (n : Nat), (l.zipIdx n).filterMap (fun x => f x.1) = l.filterMap f
-  | [], _ => rfl
-  | a :: l, n => by
-    simp only [List.zipIdx_cons, List.filterMap_cons]
-    cases f a <;> simp [filterMap_zipIdx_fst f l]
-
-theorem flatMap_zipIdx_fst {α β : Type} (f : α → List β) :
-    ∀ (l : List α) (n : Nat), (l.zipIdx n).flatMap (fun x => f x.1) = l.flatMap f
-  | [], _ => rfl
-  | a :: l, n => by
-    simp only [List.zipIdx_cons, List.flatMap_cons]
-    rw [flatMap_zipIdx_fst f l]
-
 /-- The references a node holds are its slots' references. -/
 theorem slots_refs (o : Obj) : o.slots.filterMap (fun s => s.2.refId) = o.refs := by
   cases o with
@@ -181,21 +152,21 @@ theorem slots_refs (o : Obj) : o.slots.filterMap (fun s => s.2.refId) = o.refs :
     rfl
   | array entries ext =>
     simp only [Obj.slots, Obj.refs, List.filterMap_filterMap]
-    rw [← filterMap_zipIdx_fst _ entries 0]
+    conv => rhs; rw [← List.zipIdx_map_fst 0 entries, List.filterMap_map]
     congr 1
     funext x
     obtain ⟨e, i⟩ := x
     rcases e with _ | _ | _ <;> rfl
   | map entries =>
     simp only [Obj.slots, Obj.refs, List.filterMap_flatMap]
-    rw [← flatMap_zipIdx_fst _ entries 0]
+    conv => rhs; rw [← List.zipIdx_map_fst 0 entries, List.flatMap_map]
     congr 1
     funext x
     obtain ⟨⟨k, v⟩, i⟩ := x
     cases k <;> cases v <;> rfl
   | set members =>
     simp only [Obj.slots, Obj.refs, List.filterMap_map]
-    rw [← filterMap_zipIdx_fst _ members 0]
+    conv => rhs; rw [← List.zipIdx_map_fst 0 members, List.filterMap_map]
     congr 1
   | date ms => rfl
   | buffer bytes max => rfl

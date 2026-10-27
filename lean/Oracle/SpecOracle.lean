@@ -58,29 +58,15 @@ def phases (raw : Reconcile.Input) : Phases :=
   let al := discover input
   let pin := al.pinned
   let n := input.next.nodes.size
-  let root := input.next.root.refId
-  let held := (List.range n).filterMap fun j =>
-    if pin[j]?.getD false then input.same[j]?.bind id else none
+  let held := (List.range n).filterMap (pinnedObject input pin)
   let candidatesAt (j : Nat) : List Nat :=
-    (if root = some j then input.cur.root.refId.toList else orderedCandidates input al j).filter
-      fun x => admitted input pin j x && !held.contains x
-  let requiredOf (j x : Nat) : List (Nat × Nat) :=
-    (fixedPairs (input.cur.node x) (input.next.node j)).filterMap fun
-      | (.ref x', .ref c') => some (c', x')
-      | _ => none
-  let rounds := match input.cur.root, root with
-    | .ref _, some r =>
-      let initial := decide input al pin [] []
-      if (initial[r]?.bind id).isNone then [initial]
-      else
-        let all := demote input al pin (fuelOf input) [] []
-        match all.findIdx? (fun kept => (kept[r]?.bind id).isNone) with
-        | some i => all.take (i + 1)
-        | none => all
-    | _, _ => []
+    (passCandidates input al [] j).filter fun x => admitted input pin j x && !held.contains x
   { order := al.order, first := al.first, pinned := pin,
     candidates := (Array.range n).map candidatesAt,
-    required := (Array.range n).map fun j => (candidatesAt j).map (requiredOf j), rounds }
+    required := (Array.range n).map fun j => (candidatesAt j).map (fixedRequirements input j),
+    rounds := match input.cur.root, input.next.root with
+      | .ref _, .ref r => rounds input al r
+      | _, _ => [] }
 
 def answer (request : Request) : Except String Json :=
   match request.op with
