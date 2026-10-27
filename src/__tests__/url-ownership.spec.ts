@@ -388,4 +388,27 @@ describe('URL owned search parameters', () => {
     assert.strictEqual(current.a, 1)
     assert.strictEqual(current.b.href, before)
   })
+
+  it('rejects in produce a change to search parameters with a replaced prototype', () => {
+    // Drafted as a plain object, the changed parameters must be a new object, which the URL, kept
+    // as itself, cannot hold.
+    for (const parametersFirst of [true, false]) {
+      const url = new URL('https://example.test/?q=1')
+      const parameters = url.searchParams as unknown as Record<string, number>
+      Object.setPrototypeOf(parameters, null)
+      const current = parametersFirst ? { params: parameters, url } : { url, params: parameters }
+      const error = thrown(() =>
+        produce(current, (draft) => {
+          draft.params.extra = 1
+          return draft
+        }),
+      )
+      assert.ok(isReconcileError(error))
+      assert.strictEqual(error.cause.type, 'FinalizationConstructionImpossible')
+      assert.strictEqual(current.params, parameters)
+      assert.strictEqual(current.url, url)
+      assert.deepEqual(Reflect.ownKeys(parameters), [])
+      assert.strictEqual(url.href, 'https://example.test/?q=1')
+    }
+  })
 })

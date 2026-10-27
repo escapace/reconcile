@@ -66,6 +66,31 @@ describe('ReconcileError', () => {
     assert.deepEqual(error.cause, { property: 'value', type: 'FinalizationAccessorUnstable' })
   })
 
+  it('reports a new Set or Map that would hold one new object twice', () => {
+    // The draft and the original both become the one new copy of `item`.
+    const item = { done: false }
+    const current = { item }
+    for (const collect of [
+      (draft: typeof item) => new Set([draft, item]),
+      (draft: typeof item) =>
+        new Map([
+          [draft, 1],
+          [item, 2],
+        ]),
+    ]) {
+      const error = thrown(() =>
+        produce(current, (draft) => {
+          draft.item.done = true
+          return collect(draft.item)
+        }),
+      )
+      assert.ok(isReconcileError(error))
+      assert.deepEqual(error.cause, { type: 'FinalizationConstructionImpossible' })
+    }
+    assert.strictEqual(current.item, item)
+    assert.deepEqual(current, { item: { done: false } })
+  })
+
   it('keeps native RangeError semantics for invalid array lengths', () => {
     const error = thrown(() =>
       produce([1, 2], (draft) => {

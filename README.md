@@ -948,7 +948,7 @@ FinalizationAccessorUnstable: {
 
 ### ReconcileErrorMetadata.FinalizationConstructionImpossible
 
-No consistent result exists: the new objects cannot be created in any order, or a `Map` or `Set` would hold one new object as two keys or members.
+No consistent result exists. For example, a new `Map` or `Set` would hold one object as two keys or members, as when the recipe adds both an object and its draft.
 
 ```typescript
 FinalizationConstructionImpossible: {

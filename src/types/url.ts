@@ -125,6 +125,9 @@ export const urlImmutable = /* @__PURE__ */ (() => ({
         const href = nativeURLHref(url)
         const parameters = resolve(nativeURLSearchParameters(url), URL_SEARCH_PARAMS_KIND)
         const carrier = owners.nativeOwners?.get(parameters) as URL | undefined
+        // A carrier is recorded before any copy looks it up: by `carriedParameters` during the
+        // recipe and by `forceOwnedChildren` before a fresh copy in finalization. The throw guards
+        // that invariant; no known input reaches it.
         if (carrier === undefined) throw finalizationConstructionImpossible()
         return ownedURL(carrier, href, Object.getPrototypeOf(url) as object | null)
       },
