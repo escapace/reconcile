@@ -64,6 +64,7 @@ export function compactFixture(input: CompactImmutableInput): ImmutableProblem {
             layout: { kind },
             observed: undefined,
             pinned: undefined,
+            source: undefined,
           },
       target: object(row.proposed),
     }

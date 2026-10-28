@@ -194,20 +194,26 @@ interface Run {
   readonly resolve: (edge: Edge) => unknown
 }
 
+/** What `publishGraph` returns when a decision would change `next`. */
+export const WOULD_CHANGE_NEXT = 'would-change-next'
+
 /**
  * Publishes a captured graph into `root`: decides which current object each node keeps, allocates
  * the fresh ones, writes every node and reads the written objects back, in passes. A kept object
  * whose write does not take effect is blocked: the next pass decides again without it, and the
- * passes end when none is blocked. Pinned nodes are kept as they are: no preflight, publication or
- * readback inside. Returns false when the root cannot be kept: before any write when the decision
- * finds so, else after the pass that found it blocked (Spec.Reconcile.run); also when a new object
- * cannot be allocated, refuses a write or does not hold its contents on readback.
+ * passes end when none is blocked. Pinned and untouched nodes, which keep the very object of
+ * `next` they are, are kept as they are: no preflight, publication or readback inside. Returns
+ * false when the root cannot be kept: before any write when the decision finds so, else after the
+ * pass that found it blocked (Spec.Reconcile.run); also when a new object cannot be allocated,
+ * refuses a write or does not hold its contents on readback. Returns `WOULD_CHANGE_NEXT` when a
+ * decision that keeps the root would change `next` (`keepsNextAt`), before its pass allocates or
+ * writes; the passes before it wrote into no object `next` holds (Spec.KeepsNext.run_changesNext).
  */
 export function publishGraph(
   types: PublicationRegistry,
   graph: CapturedGraph,
   root: object,
-): boolean {
+): boolean | typeof WOULD_CHANGE_NEXT {
   const records = graph.nodes
   const note: PublicationNote = {
     facts: undefined,
@@ -235,8 +241,9 @@ export function publishGraph(
   for (;;) {
     const kept = decide(records, domains, graph.reads, run.passes)
     if (kept[0] === undefined) return false
-    const targets = allocate(types, records, kept)
+    const targets = allocate(types, graph, kept)
     if (targets === undefined) return false
+    if (targets === WOULD_CHANGE_NEXT) return targets
     run.kept = kept
     run.targets = targets
     run.nativeOwners = undefined
@@ -259,19 +266,52 @@ function ownersIn(run: Run, kind: symbol): WeakMap<object, object> {
 }
 
 /**
+ * Whether node `index`, which keeps `target`, leaves `next` unchanged (Spec.Reconcile.keepsNextAt):
+ * a node that keeps an object `next` holds keeps the object it is, an _untouched_ node, and an
+ * untouched node refers only to untouched nodes, a view's buffer and a URL's `searchParams`
+ * included. A pinned node always does (Spec.KeepsNext.keepsNextAt_pinned). The objects `next`
+ * holds are those capture met; one inside a kept subtree is no node's candidate. Reads the
+ * decision, the records and capture's table, never an application object
+ * (Spec.KeepsNext.keepsNext_cur).
+ */
+function keepsNextAt(
+  graph: CapturedGraph,
+  kept: ReadonlyArray<object | undefined>,
+  index: number,
+  target: object,
+): boolean {
+  const records = graph.nodes
+  const node = records[index]
+  if (target !== node.source) return !graph.references.has(target)
+  if (node.pinned !== undefined) return true
+  const edges = node.edges
+  for (let at = 0; at < edges.length; at += 1) {
+    const edge = edges[at]
+    if (isNode(edge) && kept[edge.node] !== records[edge.node].source) return false
+  }
+  return true
+}
+
+/**
  * The target of each node: the object it keeps, or a new object allocated in construction order,
  * after the targets it is built from; the kept objects themselves when every node keeps one, whose
  * construction order is empty (Construction.schedule_all_retained). Undefined when an allocation
- * fails.
+ * fails; `WOULD_CHANGE_NEXT`, before any allocation, when the decision would change `next`
+ * (Spec.Reconcile.keepsNext).
  */
 function allocate(
   types: PublicationRegistry,
-  records: readonly CapturedNode[],
+  graph: CapturedGraph,
   kept: ReadonlyArray<object | undefined>,
-): readonly object[] | undefined {
+): readonly object[] | typeof WOULD_CHANGE_NEXT | undefined {
+  const records = graph.nodes
   const size = records.length
   let fresh = false
-  for (let index = 0; index < size; index += 1) if (kept[index] === undefined) fresh = true
+  for (let index = 0; index < size; index += 1) {
+    const target = kept[index]
+    if (target === undefined) fresh = true
+    else if (!keepsNextAt(graph, kept, index, target)) return WOULD_CHANGE_NEXT
+  }
   if (!fresh) return kept as readonly object[]
   const targets = denseArray<object>(size)
   const retained = denseArray<boolean>(size)
@@ -334,8 +374,8 @@ const REJECTED = 'rejected'
 const WRITE_FREE = 'write-free'
 
 /**
- * Writes one pass: publishes every unpinned node and reads the written objects back. Returns the
- * blocked objects, undefined when there are none, or `REJECTED`.
+ * Writes one pass: publishes every node that is neither pinned nor untouched and reads the written
+ * objects back. Returns the blocked objects, undefined when there are none, or `REJECTED`.
  */
 function write(run: Run): object[] | typeof REJECTED | undefined {
   const published = publishAll(run)
@@ -348,9 +388,11 @@ function write(run: Run): object[] | typeof REJECTED | undefined {
 }
 
 /**
- * Publishes every unpinned node of a pass, new objects first: code that a write into a kept object
- * runs, such as a setter, finds each new object complete. Returns the objects whose preflight or
- * write was refused, undefined when there are none, `REJECTED` or `WRITE_FREE`.
+ * Publishes every node of a pass that is neither pinned nor untouched, new objects first: code
+ * that a write into a kept object runs, such as a setter, finds each new object complete. An
+ * untouched node already holds its contents (Spec.KeepsNext.untouched_writesOf), so it counts as
+ * write-free. Returns the objects whose preflight or write was refused, undefined when there are
+ * none, `REJECTED` or `WRITE_FREE`.
  */
 function publishAll(run: Run): object[] | typeof REJECTED | typeof WRITE_FREE | undefined {
   run.unchanged = true
@@ -359,9 +401,14 @@ function publishAll(run: Run): object[] | typeof REJECTED | typeof WRITE_FREE | 
   return run.unchanged ? WRITE_FREE : blocked
 }
 
-// Publishes the new or the kept unpinned nodes of a pass. Returns the kept objects whose
-// preflight or write was refused, undefined when there are none, or `REJECTED` when a new object
-// refused a write.
+// Whether a pass leaves a node alone: its target is the very object of `next` the node is, pinned
+// or untouched, which already holds its contents, so it is neither published nor read back
+// (Spec.Reconcile.skipped).
+const skipped = (node: CapturedNode, target: object | undefined): boolean => target === node.source
+
+// Publishes the new or the kept nodes of a pass that are not `skipped`. Returns the kept objects
+// whose preflight or write was refused, undefined when there are none, or `REJECTED` when a new
+// object refused a write.
 function publishPhase(run: Run, fresh: boolean): object[] | typeof REJECTED | undefined {
   const records = run.graph.nodes
   const kept = run.kept
@@ -369,7 +416,7 @@ function publishPhase(run: Run, fresh: boolean): object[] | typeof REJECTED | un
   let blocked: object[] | undefined
   for (let index = 0; index < records.length; index += 1) {
     const target = kept[index]
-    if (records[index].pinned !== undefined || (target === undefined) !== fresh) continue
+    if (skipped(records[index], target) || (target === undefined) !== fresh) continue
     note.unchanged = false
     const accepted = publishNode(run, index, fresh)
     if (!note.unchanged) run.unchanged = false
@@ -428,10 +475,11 @@ function wantedReads(node: CapturedNode, targets: readonly object[]): unknown[] 
 }
 
 /**
- * Reads every unpinned node back after a pass's writes. A kept object that does not hold its
- * node's contents is blocked, added to `blocked` unless the pass already found it so. Returns the
- * blocked objects, undefined when there are none, or `REJECTED` when a new object does not hold
- * its contents, which no further pass can repair.
+ * Reads back every node after a pass's writes but those that keep the object they are, pinned or
+ * untouched, which the pass did not publish. A kept object that does not hold its node's contents
+ * is blocked, added to `blocked` unless the pass already found it so. Returns the blocked objects,
+ * undefined when there are none, or `REJECTED` when a new object does not hold its contents, which
+ * no further pass can repair.
  */
 function readback(run: Run, blocked: object[] | undefined): object[] | typeof REJECTED | undefined {
   const types = run.types
@@ -441,8 +489,8 @@ function readback(run: Run, blocked: object[] | undefined): object[] | typeof RE
   const found = blocked?.length ?? 0
   for (let index = 0; index < records.length; index += 1) {
     const node = records[index]
-    if (node.pinned !== undefined) continue
     const target = targets[index]
+    if (skipped(node, target)) continue
     const fresh = kept[index] === undefined
     if (
       matchesKind(types, target, node.layout.kind) &&
@@ -466,7 +514,8 @@ function blockedAlready(
 }
 
 // Records what a pass leaves for the next: the objects it found blocked are forbidden, and the
-// objects it wrote stay at their nodes.
+// objects it kept at unpinned nodes, untouched ones included, stay at their nodes
+// (Spec.Reconcile.writtenPairs).
 function remember(
   records: readonly CapturedNode[],
   kept: ReadonlyArray<object | undefined>,

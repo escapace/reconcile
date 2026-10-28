@@ -14,6 +14,7 @@ import {
   type TinyNode,
   type AttributeFlags,
 } from './fixtures/public-api-fuzz'
+import { reconcileKeepingNext, WOULD_CHANGE_NEXT } from './fixtures/graph-state'
 
 // Split from one file so both test workers share the fuzz corpus; every case, seed and
 // deadline is unchanged.
@@ -123,9 +124,13 @@ describe('deterministic public API fuzz regressions', () => {
           assert.throws(() => reconcile(current, next), ReconcileError)
           assert.isTrue(graphsEqual(before, current))
         } else {
-          const result = reconcile(current, next)
-          assert.equal(result, current)
-          assert.isTrue(graphsEqual(expected, result))
+          // `next` shares objects with `current`, so the call either reaches it or throws
+          // without changing either argument; `next` keeps its state both ways.
+          const result = reconcileKeepingNext(current, next)
+          if (result !== WOULD_CHANGE_NEXT) {
+            assert.equal(result, current)
+            assert.isTrue(graphsEqual(expected, result))
+          }
         }
       })
     }

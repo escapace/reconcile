@@ -206,12 +206,15 @@ function realize(c: Case): Realized {
   return { counters, current, held, next }
 }
 
-/** Runs `operation`; a `PublicationRejected` outcome returns undefined. */
+/** The errors that reject a publication. */
+const REJECTIONS: readonly string[] = ['PublicationRejected', 'PublicationWouldChangeNext']
+
+/** Runs `operation`; a rejected publication returns undefined. */
 function unlessRejected(operation: () => unknown): unknown {
   try {
     return operation()
   } catch (error) {
-    if (isReconcileError(error) && error.cause.type === 'PublicationRejected') return undefined
+    if (isReconcileError(error) && REJECTIONS.includes(error.cause.type)) return undefined
     throw error
   }
 }
@@ -276,18 +279,46 @@ function attributeFailures(
   return failures
 }
 
-interface Reconciled {
-  readonly expected: object
-  readonly result: object
+/** The failures of `next` not keeping, through a call, the identities it had at `before` and the
+ * contents of its snapshot `expected`. */
+function nextFailures(r: Realized, expected: object, before: Map<object, string>): string[] {
+  const failures: string[] = []
+  if (!samePositions(positions(r.next[0], new Set()), before))
+    failures.push('next holds other objects')
+  if (!isomorphic(r.next[0], expected)) failures.push('next changed its contents')
+  return failures
 }
 
-/** Reconciles a realized case; undefined when the call is rejected. */
-function reconcileCase(r: Realized): Reconciled | undefined {
+interface Reconciled {
+  readonly expected: object
+  /** The failures of `next` not keeping its identities and contents through the call. */
+  readonly next: string[]
+  /** The error type of a rejected call. */
+  readonly rejected: string | undefined
+  /** The result, undefined when the call is rejected. */
+  readonly result: object | undefined
+}
+
+/** Reconciles a realized case and checks that `next` keeps its identities and contents. */
+function reconcileCase(r: Realized): Reconciled {
   // `next` is read completely before `current` changes: the result has the shape `next` has now.
   const expected = snapshot(r.next[0]) as object
-  const result = unlessRejected(() => reconcile(r.current[0], r.next[0]))
-  return result === undefined ? undefined : { expected, result: result as object }
+  const before = positions(r.next[0], new Set())
+  let result: object | undefined
+  let rejected: string | undefined
+  try {
+    result = reconcile(r.current[0], r.next[0])
+  } catch (error) {
+    if (!isReconcileError(error) || !REJECTIONS.includes(error.cause.type)) throw error
+    rejected = error.cause.type
+  }
+  return { expected, next: nextFailures(r, expected, before), rejected, result }
 }
+
+/** The failures of a rejected call, which keeps `next`; undefined when there are none and the
+ * call is rejected because `current` cannot match `next`, which does not count as a case. */
+const rejectedFailures = (done: Reconciled): string[] | undefined =>
+  done.rejected === 'PublicationRejected' && done.next.length === 0 ? undefined : done.next
 
 /** Every current object in the result is kept at a position current held it, with its
  * attributes; `next` can share it into other positions, which the shape check covers. The own
@@ -296,7 +327,7 @@ function keptFailures(
   r: Realized,
   before: Map<object, string[]>,
   attributes: Attributes,
-  done: Reconciled,
+  done: { readonly result: object } & Reconciled,
 ): string[] {
   const currentSet = new Set(r.current)
   const images = structure(done.expected)
@@ -316,36 +347,38 @@ function keptFailures(
 }
 
 /** `reconcile` reaches the shape of `next`, returns `current` and keeps objects at their own
- * positions with their attributes; undefined when the call is rejected. */
+ * positions with their attributes, or throws because it would change `next`; `next` keeps its
+ * identities and contents either way. Undefined when `current` cannot match `next`. */
 export function reconcileInvariants(seed: number, options: Options): string[] | undefined {
   const r = realize(genCase(seed, options))
   const before = placements(r.current[0], r.held)
   const attributes = allAttributes(r.current)
   const done = reconcileCase(r)
-  if (done === undefined) return undefined
-  const failures: string[] = []
+  if (done.result === undefined) return rejectedFailures(done)
+  const failures: string[] = [...done.next]
   if (done.result !== r.current[0]) failures.push('reconcile did not return current')
   if (!isomorphic(done.result, done.expected, new Set(r.current)))
     failures.push("the result does not have next's shape")
-  return [...failures, ...keptFailures(r, before, attributes, done)]
+  return [...failures, ...keptFailures(r, before, attributes, { ...done, result: done.result })]
 }
 
-/** A `next` equal to `current` runs no setter and changes no identity or content. */
+/** A `next` equal to `current` runs no setter and changes no identity or content: after a call
+ * that reached `next`, or on `current` as a call that would change `next` left it. */
 export function writeFreeInvariants(seed: number, options: Options): string[] | undefined {
   const r = realize(genCase(seed, options))
   const done = reconcileCase(r)
-  if (done === undefined) return undefined
-  const copy = snapshot(done.result)
-  const before = positions(done.result, new Set())
+  if (done.rejected === 'PublicationRejected') return rejectedFailures(done)
+  const result = done.result ?? r.current[0]
+  const copy = snapshot(result)
+  const before = positions(result, new Set())
   resetSetters(r.counters)
-  const failures: string[] = []
-  if (reconcile(done.result, copy) !== done.result)
-    failures.push('reconcile did not return current')
+  const failures: string[] = [...done.next]
+  if (reconcile(result, copy) !== result) failures.push('reconcile did not return current')
   const sets = setterCalls(r.counters)
   if (sets !== 0) failures.push(`an equal next ran ${sets} setters`)
-  if (!samePositions(positions(done.result, new Set()), before))
+  if (!samePositions(positions(result, new Set()), before))
     failures.push('an equal next changed an identity')
-  if (!isomorphic(done.result, copy)) failures.push('an equal next changed the contents')
+  if (!isomorphic(result, copy)) failures.push('an equal next changed the contents')
   return failures
 }
 
@@ -510,7 +543,7 @@ export interface AdversarialOutcome {
 
 /** With accessors that change other objects during the call, `reconcile` still either rejects
  * the call or reaches the shape `next` had when the call began, replacing the objects whose
- * writes were disturbed, and throws nothing else. */
+ * writes were disturbed, and throws nothing else; `next` keeps its identities and contents. */
 export function adversarialInvariants(
   seed: number,
   options: Options,
@@ -519,9 +552,11 @@ export function adversarialInvariants(
   const r = realize(genCase(seed, options))
   const armed = armEffects(r, new Rng(seed * 7919), effects)
   const expected = snapshot(r.next[0]) as object
+  const before = positions(r.next[0], new Set())
   const result = unlessRejected(() => reconcile(r.current[0], r.next[0]))
-  if (result === undefined) return { armed, failures: [], rejected: true }
-  const failures: string[] = []
+  if (result === undefined)
+    return { armed, failures: nextFailures(r, expected, before), rejected: true }
+  const failures: string[] = nextFailures(r, expected, before)
   if (result !== r.current[0]) failures.push('reconcile did not return current')
   if (!isomorphic(result, expected, new Set(r.current)))
     failures.push("the result does not have next's shape")

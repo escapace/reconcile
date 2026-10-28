@@ -1,8 +1,9 @@
 import { assert, describe, it } from 'vitest'
 import { produce } from '../produce'
 import { reconcile } from '../reconcile'
-import { ReconcileError } from '../index'
+import { ReconcileError, snapshot } from '../index'
 import { bytesOf, firstMapEntry, firstSetEntry } from './fixtures/contents'
+import { assertWouldChangeNext } from './fixtures/graph-state'
 
 class UnsupportedCounter {
   value: number
@@ -624,16 +625,17 @@ describe('caller publication', () => {
       list: [{ count: 0 }, { keep: true }],
     }
 
-    const result = reconcile(
-      current,
-      produce(current, (draft) => {
-        const moved = draft.list[0] as { count: number }
-        draft.list.splice(0, 1)
-        draft.list.push(moved)
-        moved.count = 8
-        return draft
-      }),
-    ) as {
+    const next = produce(current, (draft) => {
+      const moved = draft.list[0] as { count: number }
+      draft.list.splice(0, 1)
+      draft.list.push(moved)
+      moved.count = 8
+      return draft
+    })
+    // The recipe left { keep: true } unchanged, so next holds it at index 0, where current holds
+    // the moved object: reconcile would write into it.
+    assertWouldChangeNext(current, next)
+    const result = reconcile(current, snapshot(next)) as {
       list: Array<{ count: number } | { keep: true }>
     }
 

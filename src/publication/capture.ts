@@ -75,12 +75,11 @@ class AlignedCapture extends Detached {
   // child's reservation.
   declare private count: number
   declare private currentReference: NodeEdge | undefined
-  declare private currentSource: object | undefined
   declare private readonly nextRoot: unknown
   declare private pending: object | undefined
-  declare private readonly references: Map<object, Edge>
+  // Every object of `next` met so far: its node's reference, or the object as an atom edge.
+  declare readonly references: Map<object, Edge>
   declare private readonly root: object | undefined
-  declare sources: object[]
   declare private readonly types: PublicationRegistry
 
   constructor(
@@ -119,8 +118,6 @@ class AlignedCapture extends Detached {
     this.references = new Map()
     this.root = current
     this.count = 0
-    this.currentSource = undefined
-    this.sources = []
     this.types = types
     this.nextRoot = value
   }
@@ -146,22 +143,19 @@ class AlignedCapture extends Detached {
   }
 
   private observe(source: object, kind: symbol, prototype?: object | null): Edge {
-    const reference = this.reserve(this.count++)
+    const reference = this.reserve(this.count++, source)
     this.references.set(source, reference)
     const policy = this.types.policies[kind]
-    const outerSource = this.currentSource
     const outerReference = this.currentReference
-    this.currentSource = source
     this.currentReference = reference
     policy.observe(source, this.beginCallback, this.edgeCallback, 'publication', prototype)
-    this.currentSource = outerSource
     this.currentReference = outerReference
     // Native policies supply begin before returning; all graph nodes are sealed.
     this.nodes[reference.node] = policy.seal(this.nodes[reference.node] as CapturedNode)
     return reference
   }
 
-  private reserve(index: number): NodeEdge {
+  private reserve(index: number, source: object): NodeEdge {
     const node: BuildingNode = {
       attributes: undefined,
       edges: [],
@@ -169,6 +163,7 @@ class AlignedCapture extends Detached {
       layout: undefined,
       observed: undefined,
       pinned: undefined,
+      source,
     }
     const aligned = this.pending
     // The first node's tables are exact literals; a later node grows them.
@@ -224,8 +219,6 @@ class AlignedCapture extends Detached {
   private begin(layout: Layout): void {
     const index = this.currentReference!.node
     ;(this.nodes[index] as BuildingNode).layout = layout
-    if (index === 0 && this.sources.length === 0) this.sources = [this.currentSource!]
-    else this.sources[index] = this.currentSource!
     const aligned = this.currents[index]
     if (aligned === undefined) return
     const read = this.share(this.prototypes[index])
@@ -438,7 +431,7 @@ export function capture(
     pinned: run.closure,
     prototypes: run.prototypes,
     reads: run.reads,
+    references: run.references,
     root,
-    sources: run.sources,
   }
 }

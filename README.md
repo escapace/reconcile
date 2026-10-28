@@ -494,7 +494,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as {
 // copy.owner === copy.members[0]; copy.owner !== user
 ```
 
-## function isReconcileError [↗](src/error.ts#L152-L153 'isReconcileError')
+## function isReconcileError [↗](src/error.ts#L161-L162 'isReconcileError')
 
 Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
 
@@ -508,7 +508,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L161-L164 'isReconcileErrorOfType')
+## function isReconcileErrorOfType [↗](src/error.ts#L170-L173 'isReconcileErrorOfType')
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
 
@@ -591,7 +591,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L118-L130 'reconcile')
+## function reconcile [↗](src/reconcile.ts#L122-L136 'reconcile')
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -601,10 +601,10 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Parameters
 
-| Parameter | Type               | Description                                                                                                                                                     |
-| --------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `current` | <pre>unknown</pre> | The value to update.                                                                                                                                            |
-| `next`    | <pre>T</pre>       | The value `current` should match. `reconcile` does not write to `next` itself, but an object that `next` shares with `current` can change as part of `current`. |
+| Parameter | Type               | Description                                                                               |
+| --------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| `current` | <pre>unknown</pre> | The value to update.                                                                      |
+| `next`    | <pre>T</pre>       | The value `current` should match. `reconcile` never changes `next` or an object it holds. |
 
 ### Returns
 
@@ -613,7 +613,8 @@ export declare function reconcile<T>(current: unknown, next: T): T
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. Writes made before the failure are not rolled back.
-2. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
+2. [ReconcileError](#class-reconcileerror-) with type `PublicationWouldChangeNext` when matching `next` would write into an object that `next` holds, such as an object of `current` that `next` holds at another position. Neither argument has changed, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
+3. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
 
 ### Remarks
 
@@ -773,7 +774,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L127-L145 'ReconcileError')
+## class ReconcileError [↗](src/error.ts#L136-L154 'ReconcileError')
 
 The error this library throws for every failure it detects.
 
@@ -830,7 +831,7 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L24 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L25 'RECONCILE_ERROR_TYPES')
 
 Every error type this library throws.
 
@@ -845,6 +846,7 @@ RECONCILE_ERROR_TYPES: readonly[
   'FinalizationAccessorUnstable',
   'FinalizationConstructionImpossible',
   'PublicationRejected',
+  'PublicationWouldChangeNext',
   'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible')
 ]
@@ -870,7 +872,7 @@ The largest size, in bytes, of the value `deserialize` may return: a non-negativ
 readonly maxBytes: number;
 ```
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L35-L98 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata [↗](src/error.ts#L36-L107 'ReconcileErrorMetadata')
 
 The properties of `cause` for each error type, in addition to `type`.
 
@@ -970,6 +972,15 @@ PublicationRejected: {
 }
 ```
 
+### ReconcileErrorMetadata.PublicationWouldChangeNext
+
+`reconcile` would have to write into an object that `next` holds, for example because `next` holds an object of `current` at another position, so it stopped before that write. `next` is unchanged. `current` is unchanged too, unless `reconcile` had already written and was trying again; those writes are not rolled back.
+
+```typescript
+PublicationWouldChangeNext: {
+}
+```
+
 ### ReconcileErrorMetadata.SerializeValueUnsupported
 
 `serialize` met a value it cannot encode, such as a symbol-keyed property, a function or an object of an unsupported class. `reason` names it for diagnostics; its values are not part of the API and can change.
@@ -989,7 +1000,7 @@ SnapshotURLSearchParamsMemoIncompatible: {
 }
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L101-L102 'ReconcileErrorCause')
+## type ReconcileErrorCause [↗](src/error.ts#L110-L111 'ReconcileErrorCause')
 
 The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` and that type's properties.
 
@@ -1000,7 +1011,7 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L27 'ReconcileErrorType')
+## type ReconcileErrorType [↗](src/error.ts#L28 'ReconcileErrorType')
 
 The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
 

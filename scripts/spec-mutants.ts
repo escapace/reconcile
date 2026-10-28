@@ -131,6 +131,24 @@ const MUTANTS: readonly Mutant[] = [
     survives: 'only a trap can reorder keys between capture and readback; proxies are not modelled',
   },
   {
+    file: ENGINE,
+    find: '  if (target !== node.source) return !graph.references.has(target)\n',
+    name: 'next-held-elsewhere-kept',
+    replace: '  if (target !== node.source) return true\n',
+  },
+  {
+    file: ENGINE,
+    find: '    if (isNode(edge) && kept[edge.node] !== records[edge.node].source) return false\n',
+    name: 'untouched-child-unchecked',
+    replace: '',
+  },
+  {
+    file: ENGINE,
+    find: '=> target === node.source\n',
+    name: 'untouched-published',
+    replace: '=> node.pinned !== undefined\n',
+  },
+  {
     bridge: 'collections',
     file: 'src/types/shared/collection.ts',
     find: '        if (position < wanted && sameKey(key, resolve(edges[position * width]))) {',

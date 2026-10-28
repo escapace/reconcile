@@ -5,6 +5,7 @@ import { produce } from '../produce'
 import { isReconcileError, ReconcileError } from '../index'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
+import { assertWouldChangeNext } from './fixtures/graph-state'
 import { thrown } from './fixtures/thrown'
 
 function graph(parametersFirst: boolean) {
@@ -388,9 +389,12 @@ describe('URL owned search parameters', () => {
       const placed = make('placed')
       const current = { a: placed, b: placed }
       const next = { a: make('next'), b: placed }
-      assert.strictEqual(reconcile(current, next), current)
-      // placed is kept at a, the first position read, and takes the text next holds there, so
-      // next, which holds it at b, changes too; b receives a new object with the old text.
+      // placed is kept at a, the first position read, and would take the text next holds there,
+      // which would change next, which holds it at b.
+      assertWouldChangeNext(current, next)
+      assert.strictEqual(reconcile(current, snapshot(next)), current)
+      // With a detached next, placed takes the text at a and b receives a new object with the
+      // old text.
       assert.strictEqual(current.a, placed)
       assert.strictEqual(String(placed), String(next.a))
       assert.notStrictEqual(current.b, placed)

@@ -2,7 +2,12 @@
 // runtime on real objects built from them, recaptures the result as a graph (identities, values,
 // descriptors, prototypes, extensibility) and compares it with the Lean reference model's result
 // on the same case, the getter counts of every current object and of every object only `next`
-// holds included. A standalone batch fails on any difference.
+// holds included. A rejection must have the reference's reason: `PublicationWouldChangeNext` exactly
+// when the reference's decision would change `next` (`changesNext`). Whatever the outcome, `next`
+// must read back after the call with the identities and contents it had before. Every `reconcile`
+// batch also checks fixed cases the random graphs need not produce: the examples of
+// `Spec.KeepsNext`, and a walk that reaches a root in a call that succeeds. A standalone batch fails
+// on any difference.
 //
 // The round trip runs `serialize`, JSON text and `deserialize` on the graphs restricted to what
 // `serialize` accepts and compares the restored value with the reference's `snapshot`.
@@ -250,6 +255,8 @@ export interface Outcome {
   freshGets?: Array<[number, [string, number]]>
   /** 0 when the call is rejected before any write; `reconcile` only. */
   passes?: number
+  /** Whether the call is rejected because its decision would change `next`; `reconcile` only. */
+  changesNext?: boolean
   /** The writes of every decision pass, as `[current index, [key, 'set' | 'delete']]`. */
   allWrites?: Array<[number, [string, string]]>
 }
@@ -281,6 +288,7 @@ export interface Report {
     | 'current-changed'
     | 'error'
     | 'getters'
+    | 'next-changed'
     | 'prototype'
     | 'rejection'
     | 'result'
@@ -355,20 +363,34 @@ const errorReport = (seed: number, error: unknown): Report => ({
 })
 
 interface Attempt {
+  /** Whether the rejection is `PublicationWouldChangeNext`. */
+  changesNext: boolean
   rejected: boolean
   error?: unknown
   result?: unknown
 }
 
+/** The reconcile errors that reject a publication, with whether each is the `next` rule's. */
+const REJECTIONS = new Map([
+  ['PublicationRejected', false],
+  ['PublicationWouldChangeNext', true],
+])
+
 /** Runs `operation`; a rejected publication is a status, any other error is returned. */
 function attempt(operation: () => unknown): Attempt {
   try {
-    return { rejected: false, result: operation() }
+    return { changesNext: false, rejected: false, result: operation() }
   } catch (error) {
-    const rejected = isReconcileError(error) && error.cause.type === 'PublicationRejected'
-    return rejected ? { rejected } : { error, rejected }
+    const changesNext = isReconcileError(error) ? REJECTIONS.get(error.cause.type) : undefined
+    return changesNext === undefined
+      ? { changesNext: false, error, rejected: false }
+      : { changesNext, rejected: true }
   }
 }
+
+/** The reason a rejection names, as the reference reports it. */
+const reason = (changesNext: boolean | undefined): string =>
+  changesNext === true ? 'would change next' : 'rejected'
 
 /** The getter counts the runtime made so far, labelled `<prefix> <index>.<key>` by the object's
  * index in `objects`; then resets the counts. */
@@ -439,12 +461,27 @@ function reportGetters(
 const countOf = (counts: ReadonlyMap<string, number>, label: string): number =>
   counts.get(label) ?? 0
 
-/** Reports a runtime rejection against the reference: whether the reference succeeds, and whether
- * `current` changed before a rejection the reference decides before any write. */
-function reportRejection(seed: number, expected: Outcome, changed: boolean): Report[] {
+/** How a runtime rejection, `PublicationWouldChangeNext` when `changesNext`, differs from the
+ * reference's outcome: the reference succeeds or rejects for another reason. */
+function rejectionMismatch(expected: Outcome, changesNext: boolean): string | undefined {
+  if (expected.ok) return `runtime ${reason(changesNext)}; reference succeeds`
+  return changesNext === (expected.changesNext === true)
+    ? undefined
+    : `runtime ${reason(changesNext)}; reference ${reason(expected.changesNext)}`
+}
+
+/** Reports a runtime rejection against the reference: whether the reference succeeds or rejects
+ * for another reason, and whether `current` changed before a rejection the reference decides
+ * before any write. */
+function reportRejection(
+  seed: number,
+  expected: Outcome,
+  changesNext: boolean,
+  changed: boolean,
+): Report[] {
   const reports: Report[] = []
-  if (expected.ok)
-    reports.push({ detail: 'runtime rejected; reference succeeds', kind: 'rejection', seed })
+  const mismatch = rejectionMismatch(expected, changesNext)
+  if (mismatch !== undefined) reports.push({ detail: mismatch, kind: 'rejection', seed })
   if (changed && expected.passes === 0)
     reports.push({
       detail: 'current changed before a rejection the reference decides before any write',
@@ -552,15 +589,28 @@ function compareReconcile(seed: number, c: Case, expected: Outcome): Report[] {
   const current = materialize(c.cur, counters, undefined, wrap, classes)
   const next = materializeNext(c, current, classes, nextCounters)
   const before = stable(recapture(current[0], current))
+  const nextRoot = toJs(c.next.root, next)
+  // Every object `next` reaches, numbered by node and then as a current object.
+  const known = [...next, ...current]
+  const nextBefore = stable(recapture(nextRoot, known))
   getterCounts(counters, current, 'current')
+  getterCounts(nextCounters, next, 'next')
   armed.on = true
-  const run = attempt(() => reconcile(toJs(c.cur.root, current), toJs(c.next.root, next)))
+  const run = attempt(() => reconcile(toJs(c.cur.root, current), nextRoot))
   armed.on = false
   const gets = getterCounts(counters, current, 'current')
   const freshGets = getterCounts(nextCounters, next, 'next')
   const reports = reconcileReports(seed, c, expected, run, current, before, gets, writes)
   // `next` is read in full whether the call succeeds or not.
   if (!('error' in run)) reportGetters(seed, freshGets, wantedFreshGets(expected), reports)
+  // `next` keeps its identities and contents whatever the outcome.
+  const nextAfter = stable(recapture(nextRoot, known))
+  if (nextAfter !== nextBefore)
+    reports.push({
+      detail: `${run.rejected ? reason(run.changesNext) : 'succeeded'}\nbefore ${nextBefore}\nafter  ${nextAfter}`,
+      kind: 'next-changed',
+      seed,
+    })
   classIndex = prototypeIndex
   return [
     ...reports,
@@ -582,9 +632,20 @@ function reconcileReports(
 ): Report[] {
   if ('error' in run) return [errorReport(seed, run.error)]
   if (run.rejected)
-    return reportRejection(seed, expected, stable(recapture(current[0], current)) !== before)
+    return reportRejection(
+      seed,
+      expected,
+      run.changesNext,
+      stable(recapture(current[0], current)) !== before,
+    )
   if (!expected.ok)
-    return [{ detail: 'reference rejects; runtime succeeded', kind: 'rejection', seed }]
+    return [
+      {
+        detail: `reference ${reason(expected.changesNext)}; runtime succeeded`,
+        kind: 'rejection',
+        seed,
+      },
+    ]
   const reports: Report[] = []
   compareCaptured(seed, recapture(run.result, current), expected, reports)
   reportGetters(seed, gets, wantedGets(expected), reports)
@@ -921,6 +982,229 @@ function compareRoundTrip(seed: number, graph: Graph, expected: Outcome): Report
   return reports
 }
 
+const toNode = (node: number): Value => ({ ref: node })
+
+/** A plain object of writable, enumerable and configurable data properties, as `Spec.KeepsNext`
+ * builds its examples. */
+const plainNode = (fields: Array<[string, Value]>): GraphNode => ({
+  extensible: true,
+  fields: fields.map(([key, v]): [string, Slot] => [key, { a: [true, true, true], v }]),
+  kind: 'object',
+  proto: 'object',
+})
+
+/** An object whose `key` is a getter without a setter that reads `value`. */
+const getterNode = (key: string, value: Value): GraphNode => ({
+  extensible: true,
+  fields: [[key, { c: true, e: true, get: value, set: null }]],
+  kind: 'object',
+  proto: 'object',
+})
+
+/** A case of two graphs rooted at node 0. */
+const exampleCase = (
+  current: GraphNode[],
+  next: GraphNode[],
+  same: Array<number | null>,
+): Case => ({
+  classes: [],
+  cur: { nodes: current, root: toNode(0) },
+  next: { nodes: next, root: toNode(0) },
+  same,
+})
+
+/** A fixed case, with the outcome its theorem or design states. */
+interface Example {
+  readonly c: Case
+  readonly name: string
+  readonly outcome: { changesNext: boolean; ok: boolean; passes?: number }
+}
+
+const WOULD_CHANGE_NEXT = { changesNext: true, ok: false, passes: 0 }
+
+/** A root holding node 1 at `a` and node 2 at `b`. */
+const AB = plainNode([
+  ['a', toNode(1)],
+  ['b', toNode(2)],
+])
+
+/** The object of `walkReachesRoot` whose walk reaches the root of `next`: its read-only,
+ * non-configurable `up` holds node `up`, between nodes `a` and `b`. */
+const walker = (a: number, up: number, b: number): GraphNode => ({
+  extensible: true,
+  fields: [
+    ['a', { a: [true, true, true], v: toNode(a) }],
+    ['up', { a: [false, true, false], v: toNode(up) }],
+    ['b', { a: [true, true, true], v: toNode(b) }],
+  ],
+  kind: 'object',
+  proto: 'object',
+})
+
+/** The examples of `Spec.KeepsNext`: a counterexample for each clause of the rule (`swap`,
+ * `mapChild`), its conservative case (`equalCopy`), a rejection after one pass (`laterPass`), an
+ * object in place (`inPlace`) and `next` holding `current` below a new root (`rootCycle`). Then a
+ * call that succeeds although the walk of an object in place reaches the root of `next`, which is
+ * an object of `current`: the object cannot take the root's target at its read-only `up`, so it is
+ * copied, and nothing `next` holds is kept elsewhere (`walkReachesRoot`). Every other walk that
+ * reaches a root rejects the call, so this case alone shows the order of the walk's reads. */
+const EXAMPLES: readonly Example[] = [
+  {
+    c: exampleCase(
+      [AB, plainNode([['v', 1]]), plainNode([['v', 2]])],
+      [AB, plainNode([['v', 2]]), plainNode([['v', 1]])],
+      [null, 2, 1],
+    ),
+    name: 'swap',
+    outcome: WOULD_CHANGE_NEXT,
+  },
+  {
+    c: exampleCase(
+      [
+        plainNode([
+          ['p', toNode(1)],
+          ['m', toNode(2)],
+        ]),
+        plainNode([['v', 1]]),
+        { entries: [[1, toNode(3)]], kind: 'map' },
+        plainNode([['c', toNode(4)]]),
+        plainNode([['v', 2]]),
+      ],
+      [
+        plainNode([
+          ['p', toNode(1)],
+          ['m', toNode(2)],
+        ]),
+        plainNode([['v', 2]]),
+        { entries: [[1, toNode(3)]], kind: 'map' },
+        plainNode([['c', toNode(1)]]),
+      ],
+      [null, 4, null, 3],
+    ),
+    name: 'mapChild',
+    outcome: WOULD_CHANGE_NEXT,
+  },
+  {
+    c: exampleCase(
+      [AB, plainNode([['v', 1]]), plainNode([['v', 2]])],
+      [AB, plainNode([['v', 2]]), plainNode([['v', 2]])],
+      [null, 2, null],
+    ),
+    name: 'equalCopy',
+    outcome: WOULD_CHANGE_NEXT,
+  },
+  {
+    c: exampleCase(
+      [
+        AB,
+        {
+          extensible: true,
+          fields: [['s', { c: true, e: true, get: 1, set: false }]],
+          kind: 'object',
+          proto: 'object',
+        },
+        plainNode([['s', 1]]),
+      ],
+      [
+        plainNode([
+          ['a', toNode(1)],
+          ['b', toNode(1)],
+          ['c', toNode(2)],
+        ]),
+        plainNode([['s', 2]]),
+        plainNode([['s', 1]]),
+      ],
+      [null, null, 2],
+    ),
+    name: 'laterPass',
+    outcome: { changesNext: true, ok: false, passes: 2 },
+  },
+  {
+    c: exampleCase(
+      [plainNode([['a', toNode(1)]]), plainNode([['v', 1]])],
+      [
+        plainNode([
+          ['a', toNode(1)],
+          ['n', 1],
+        ]),
+        plainNode([['v', 1]]),
+      ],
+      [null, 1],
+    ),
+    name: 'inPlace',
+    outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: exampleCase(
+      [plainNode([['a', toNode(1)]]), plainNode([['up', toNode(0)]])],
+      [
+        plainNode([
+          ['a', toNode(1)],
+          ['n', 1],
+        ]),
+        plainNode([['up', toNode(2)]]),
+        plainNode([['a', toNode(1)]]),
+      ],
+      [null, 1, 0],
+    ),
+    name: 'rootCycle',
+    outcome: WOULD_CHANGE_NEXT,
+  },
+  {
+    c: {
+      ...exampleCase(
+        [
+          plainNode([
+            ['k', toNode(2)],
+            ['j', toNode(1)],
+          ]),
+          plainNode([['k', toNode(2)]]),
+          walker(3, 1, 4),
+          getterNode('g', 1),
+          getterNode('h', 2),
+        ],
+        [plainNode([['k', toNode(1)]]), walker(2, 0, 3), getterNode('g', 1), getterNode('h', 2)],
+        [1, 2, 3, 4],
+      ),
+    },
+    name: 'walkReachesRoot',
+    outcome: { changesNext: false, ok: true },
+  },
+]
+
+/** Whether an outcome is the one stated, whose pass count, when it states one, included. */
+const statedOutcome = (stated: Example['outcome'], got: Example['outcome']): boolean =>
+  got.ok === stated.ok &&
+  got.changesNext === stated.changesNext &&
+  (stated.passes === undefined || got.passes === stated.passes)
+
+/** Reports an example whose reference outcome is not the one its theorem states. */
+function exampleReports(example: Example, seed: number, outcome: Outcome): Report[] {
+  const got = { changesNext: outcome.changesNext === true, ok: outcome.ok, passes: outcome.passes }
+  return statedOutcome(example.outcome, got)
+    ? []
+    : [
+        {
+          detail: `${example.name}: reference ${stable(got)}, theorem ${stable(example.outcome)}`,
+          kind: 'rejection',
+          seed,
+        },
+      ]
+}
+
+/** Compares the examples in each mode, after checking the reference's outcome of each against the
+ * one it states; a report's seed is minus one minus the example's index. */
+async function checkExamples(oracle: Oracle, modes: readonly boolean[]): Promise<Report[][]> {
+  const cases = EXAMPLES.map((example) => example.c)
+  const seedsOf = cases.map((_, index) => -1 - index)
+  const outcomes = await ask(oracle, cases.map(reconcileCheck.request))
+  const stated = EXAMPLES.flatMap((example, index) =>
+    exampleReports(example, seedsOf[index], outcomes[index]),
+  )
+  const compared = await compareAll(reconcileCheck, oracle, cases, seedsOf, modes)
+  return compared.map((list) => [...stated, ...list])
+}
+
 const roundTripCheck: Check<Graph> = {
   compare: compareRoundTrip,
   generate: (seed, options) => serializableGraph(genCase(seed, options).cur),
@@ -1097,6 +1381,7 @@ const graphFeatures = (c: Case): Feature[] => [
 /** The features of a reference outcome. */
 const outcomeFeatures = (outcome: Outcome): Feature[] => [
   ['rejected', !outcome.ok],
+  ['changesNext', outcome.changesNext === true],
   ['fresh', outcome.origins.some((o) => o === null)],
   ['getterRan', (outcome.gets ?? []).some(([, [, count]]) => count > 0)],
   ['multiPass', (outcome.passes ?? 1) > 1],
@@ -1167,6 +1452,12 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
     })
   }
   await gate('reconcile', reconcileCheck, 1500, GATE_OPTIONS, [false, true])
+  const examples = await checkExamples(oracle, [false, true])
+  examples.forEach((list, mode) => {
+    const label = mode === 1 ? 'examples through recording proxies' : 'examples'
+    assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
+    summaries.push(`${label} ${EXAMPLES.length} cases (${summary(list)})`)
+  })
   await gate('reconcile with hazards', reconcileCheck, 3000, { ...GATE_OPTIONS, hazards: true }, [
     true,
   ])
@@ -1220,9 +1511,16 @@ async function batch<T>(
 ): Promise<void> {
   const {
     cases,
-    reports: [reports],
+    reports: [found],
   } = await checkSpec(check, oracle, seedRange(from, count), options)
-  console.log(`cases ${cases}; reports ${reports.length}; ${summary(reports)}`)
+  // The examples are reconcile cases, which every reconcile batch checks too.
+  const reconciles = check === (reconcileCheck as Check<unknown>)
+  const examples = reconciles ? (await checkExamples(oracle, [writesMode]))[0] : []
+  const reports = [...found, ...examples]
+  const listed = reconciles ? EXAMPLES.length : 0
+  console.log(
+    `cases ${cases} and ${listed} examples; reports ${reports.length}; ${summary(reports)}`,
+  )
   show(reports)
   if (reports.length > 0) process.exitCode = 1
 }

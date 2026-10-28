@@ -5,6 +5,7 @@ import { produce } from '../produce'
 import { reconcile } from '../reconcile'
 import { snapshot } from '../snapshot'
 import { bytesOf, bytesOfView } from './fixtures/contents'
+import { reconcileKeepingNext, WOULD_CHANGE_NEXT } from './fixtures/graph-state'
 
 type Jsonish =
   | boolean
@@ -589,7 +590,12 @@ describe('overlapping and cyclic graph regressions', () => {
           const current = { a: nodes[0], b: nodes[1] }
           const next = { a: nodes[4], b: nodes[5] }
           const expected = normalize(next)
-          assert.deepEqual(normalize(reconcile(current, next)), expected)
+          // A detached next always publishes; the shared heap publishes too unless the call would
+          // change next, which leaves both arguments as they were.
+          const detached = snapshot(next)
+          const result = reconcileKeepingNext(current, next)
+          if (result !== WOULD_CHANGE_NEXT) assert.deepEqual(normalize(result), expected)
+          assert.deepEqual(normalize(reconcile(current, detached)), expected)
         },
       ),
       { numRuns: 250, seed: 20_260_905 },

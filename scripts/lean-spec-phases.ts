@@ -2,7 +2,9 @@
 // the runtime's discovery and the decision of each pass, and compares them with the reference's
 // phases (`SpecOracle.phases`) on the Spec bridge's random graphs: the visit order, the pinning
 // alignment, the pinned nodes, each node's candidates in decision order with the requirements of
-// their fixed slots, and the decision of every pass. The outcome is the Spec bridge's to compare.
+// their fixed slots, the decision of every pass, and whether the last decision would change `next`,
+// which the runtime reports as `PublicationWouldChangeNext`. The rest of the outcome is the Spec
+// bridge's to compare.
 //
 // Runtime nodes are next objects in first-visit order. Capture keeps an object already in place as
 // an atom edge, so a pinned next node may have no runtime node, or one reached later than the
@@ -21,6 +23,7 @@ import { GATE_OPTIONS, genCase, seedRange, type Case, type Options } from './spe
 /** What the reference's phases are, by node id of the next graph and the current graph. */
 interface Phases {
   candidates: number[][]
+  changesNext: boolean
   first: Array<number | null>
   order: number[]
   pinned: boolean[]
@@ -35,6 +38,8 @@ interface RuntimeCandidate {
 
 /** What the instrumented runtime recorded of one call: its discovery and each pass's decision. */
 interface Recorded {
+  /** Whether the call threw `PublicationWouldChangeNext`. */
+  changesNext: boolean
   currents: Array<object | undefined>
   domains: RuntimeCandidate[][]
   passes: Array<Array<object | undefined>>
@@ -47,8 +52,7 @@ interface Recorder {
   discovered: (
     graph: {
       currents: ReadonlyArray<object | undefined>
-      nodes: ReadonlyArray<{ pinned?: object }>
-      sources: readonly object[]
+      nodes: ReadonlyArray<{ pinned?: object; source?: object }>
     },
     domains: readonly RuntimeCandidate[][],
   ) => void
@@ -89,13 +93,14 @@ function recording(operation: () => void): Recorded | undefined {
     decided: (kept) => recorded!.passes.push([...kept]),
     discovered: (graph, domains) => {
       recorded = {
+        changesNext: false,
         currents: [...graph.currents],
         domains: domains.map((domain) =>
           domain.map(({ identity, required }) => ({ identity, required: [...required] })),
         ),
         passes: [],
         pinned: graph.nodes.map((node) => node.pinned),
-        sources: [...graph.sources],
+        sources: graph.nodes.map((node) => node.source!),
       }
     },
   }
@@ -204,6 +209,10 @@ function comparePhases(
   compareOrder(cx)
   nodes.forEach((nextNode, k) => compareNode(cx, nextNode, k))
   compareRounds(cx)
+  if (got.changesNext !== want.changesNext)
+    cx.differences.push(
+      `would change next: runtime ${got.changesNext}, reference ${want.changesNext}`,
+    )
   return cx.differences
 }
 
@@ -212,24 +221,27 @@ export interface PhaseReport {
   seed: number
 }
 
-/** Runs `reconcile` on the instrumented runtime: what it recorded, or the error it threw that is
- * not a reconcile error. */
+/** Runs `reconcile` on the instrumented runtime: what it recorded, with whether it threw
+ * `PublicationWouldChangeNext`, or the error it threw that is not a reconcile error. */
 function run(library: Library, current: unknown, next: unknown): Error | Recorded | undefined {
   let failure: Error | undefined
+  let changesNext = false
   const got = recording(() => {
     try {
       library.reconcile(current, next)
     } catch (error) {
       if (!library.isReconcileError(error)) failure = new Error(String(error))
+      else changesNext = error.cause.type === 'PublicationWouldChangeNext'
     }
   })
-  return failure ?? got
+  return failure ?? (got === undefined ? undefined : { ...got, changesNext })
 }
 
 /** Whether a call that published nothing agrees with the reference: the runtime publishes
- * nothing when the roots are one object, and the reference decides nothing for a primitive root. */
+ * nothing when the roots are one object, and the reference decides nothing for a primitive root;
+ * neither rejects the call. */
 const unpublished = (want: Phases, current: unknown, next: unknown): boolean =>
-  Object.is(current, next) || want.rounds.length === 0
+  (Object.is(current, next) || want.rounds.length === 0) && !want.changesNext
 
 /** Runs one case on the instrumented runtime and compares its phases with the reference's. */
 function checkCase(library: Library, seed: number, c: Case, want: Phases): PhaseReport[] {

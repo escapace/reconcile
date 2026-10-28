@@ -35,6 +35,7 @@ it.each([false, true])(
       layout: { kind: Symbol('surface') },
       observed: undefined,
       pinned: undefined,
+      source: undefined,
     }
     expect(
       canPublishProperties(

@@ -1,5 +1,6 @@
 import { assert, describe, it } from 'vitest'
-import { isReconcileError, reconcile, ReconcileError } from '../index'
+import { isReconcileError, reconcile, ReconcileError, snapshot } from '../index'
+import { assertWouldChangeNext } from './fixtures/graph-state'
 import { thrown } from './fixtures/thrown'
 
 describe('identical-occupant pruning', () => {
@@ -22,7 +23,7 @@ describe('identical-occupant pruning', () => {
     assert.equal(reads, 1)
   })
 
-  it('runs a getter again when next reaches it through an object that refers to current', () => {
+  it('throws when next reaches current through an object in place that refers to it', () => {
     let reads = 0
     const placed = {
       get value(): number {
@@ -34,13 +35,13 @@ describe('identical-occupant pruning', () => {
     // eslint-disable-next-line perfectionist/sort-objects -- The reference to current is read first.
     const link = { up: current, p: placed }
     current.a = link
-    const result = reconcile(current, { a: link, b: placed, n: 1 })
-    assert.equal(result, current)
+    // `next` holds current itself through link, so keeping current as the root would change next.
+    assertWouldChangeNext(current, { a: link, b: placed, n: 1 })
     assert.equal(current.a, link)
     assert.equal(current.b, placed)
     assert.equal(link.p, placed)
-    assert.equal(current.n, 1)
-    assert.equal(reads, 2)
+    assert.notProperty(current, 'n')
+    assert.isAbove(reads, 0)
   })
 
   it('captures a shared subtree that points at the next root so it reaches the live root', () => {
@@ -48,7 +49,9 @@ describe('identical-occupant pruning', () => {
     const current = { child, counter: 0 }
     const next = { child, counter: 1 }
     child.up = next
-    const result = reconcile(current, next)
+    // child stays in place, but what it refers to does not: the call would change next.
+    assertWouldChangeNext(current, next)
+    const result = reconcile(current, snapshot(next) as typeof next)
     assert.equal(result, current)
     assert.equal(current.child, child)
     assert.equal(child.up, current)
@@ -62,7 +65,9 @@ describe('identical-occupant pruning', () => {
     }
     current.child.parent = current
     const child = current.child
-    const result = reconcile(current, { ...current, counter: 7 })
+    // `next` holds current through child, so the call would change next.
+    assertWouldChangeNext(current, { ...current, counter: 7 })
+    const result = reconcile(current, snapshot({ ...current, counter: 7 }))
     assert.equal(result, current)
     assert.equal(current.child, child)
     assert.notEqual(child.parent, current)
@@ -201,7 +206,10 @@ describe('identical-occupant pruning', () => {
   it('publishes a reference to the current root as a copy of its old state, as before', () => {
     const current: { counter: number; self?: object } = { counter: 0 }
     current.self = current
-    const result = reconcile(current, { counter: 1, self: current })
+    // `next` holds current itself, so keeping current as the root would change next.
+    assertWouldChangeNext(current, { counter: 1, self: current })
+    assert.equal(current.self, current)
+    const result = reconcile(current, snapshot({ counter: 1, self: current }))
     assert.equal(result, current)
     assert.equal(current.counter, 1)
     assert.notEqual(current.self, current)
@@ -235,10 +243,13 @@ describe('identical-occupant pruning', () => {
       const entry = { placed }
       const collection = wrap(entry)
       const current = { a: placed, b: collection }
-      const result = reconcile(current, { a: { v: 'n' }, b: wrap({ placed }) })
+      // Not in place inside the entry, placed is kept at a, where next holds a new object, so the
+      // call would write next's placed.
+      assertWouldChangeNext(current, { a: { v: 'n' }, b: wrap({ placed }) })
+      const result = reconcile(current, snapshot({ a: { v: 'n' }, b: wrap({ placed }) }))
       assert.equal(result, current)
-      // placed is at entry.placed on both sides but not in place there, so current keeps it at a,
-      // the first position read, and the entry receives a new object.
+      // With a detached next, current keeps placed at a, the first position read, and the entry
+      // receives a new object.
       assert.equal(current.a, placed)
       assert.equal(placed.v, 'n')
       assert.equal(current.b, collection)

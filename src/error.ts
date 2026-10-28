@@ -19,6 +19,7 @@ export const RECONCILE_ERROR_TYPES = [
   'FinalizationAccessorUnstable',
   'FinalizationConstructionImpossible',
   'PublicationRejected',
+  'PublicationWouldChangeNext',
   'SerializeValueUnsupported',
   'SnapshotURLSearchParamsMemoIncompatible',
 ] as const
@@ -83,6 +84,14 @@ export interface ReconcileErrorMetadata {
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   PublicationRejected: {}
+  /**
+   * `reconcile` would have to write into an object that `next` holds, for example because `next`
+   * holds an object of `current` at another position, so it stopped before that write. `next` is
+   * unchanged. `current` is unchanged too, unless `reconcile` had already written and was trying
+   * again; those writes are not rolled back.
+   */
+  // eslint-disable-next-line typescript/no-empty-object-type
+  PublicationWouldChangeNext: {}
   /**
    * `serialize` met a value it cannot encode, such as a symbol-keyed property, a function or an
    * object of an unsupported class. `reason` names it for diagnostics; its values are not part of
@@ -201,6 +210,12 @@ export const finalizationConstructionImpossible = () =>
 
 export const publicationRejected = () =>
   new ReconcileError({ type: 'PublicationRejected' }, 'reconcile cannot make current match next.')
+
+export const publicationWouldChangeNext = () =>
+  new ReconcileError(
+    { type: 'PublicationWouldChangeNext' },
+    'reconcile would change an object that next holds.',
+  )
 
 export const snapshotURLSearchParametersMemoIncompatible = () =>
   new ReconcileError(

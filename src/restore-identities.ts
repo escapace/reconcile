@@ -112,6 +112,7 @@ export function compileImmutable(
       layout: record.layout,
       observed: record.observed,
       pinned: undefined,
+      source: undefined,
     }
     // A cycle back to this record reads only its target, so the entry gets its payload last.
     entry.payload = payload

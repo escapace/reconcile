@@ -1,11 +1,12 @@
 /**
- * Tests for the shared-identity bug fix in reconcile.
+ * Tests for `current` and `next` sharing object identities at different positions.
  *
- * BUG: When `current` and `next` share object identities at different positions,
- * reconcile's in-place mutations cascade through the shared references, corrupting data.
+ * BUG: reconcile's in-place mutations cascaded through the shared references, corrupting data,
+ * and changed `next`.
  *
- * FIX: Minimal snapshotting - snapshot shared next entries before reconciliation
- * to prevent cascading mutations while maintaining spec-conformant index/ordinal alignment.
+ * FIX: reconcile never writes into an object that `next` holds: it throws
+ * `PublicationWouldChangeNext` before any write and changes neither argument. These tests check
+ * that, then the spec-conformant index/ordinal alignment with a detached copy of `next`.
  *
  * SPEC-CONFORMANT BEHAVIOR (per Lean spec):
  * - Alignment is by INDEX (arrays), ORDINAL (maps/sets), or KEY (objects)
@@ -22,7 +23,15 @@
  */
 
 import { assert, describe, it } from 'vitest'
-import { produce, reconcile } from '../index'
+import { produce, reconcile, snapshot } from '../index'
+import { assertWouldChangeNext } from './fixtures/graph-state'
+
+/** Checks that `reconcile(current, next)` throws `PublicationWouldChangeNext` without changing
+ * either argument, then reconciles `current` with a detached copy of `next`. */
+function reconcileDetached<T>(current: unknown, next: T): T {
+  assertWouldChangeNext(current, next)
+  return reconcile(current, snapshot(next) as T)
+}
 
 // ============================================================================
 // Set: Shared identity tests
@@ -38,7 +47,7 @@ describe('Set with shared object identities', () => {
       const original = new Set([a, b, c])
 
       // User reorders: [a, b, c] -> [c, a, b]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.clear()
@@ -78,7 +87,7 @@ describe('Set with shared object identities', () => {
       const original = new Set([x, y])
 
       // Swap: [x, y] -> [y, x]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.clear()
@@ -105,7 +114,7 @@ describe('Set with shared object identities', () => {
       const original = new Set(items)
 
       // Rotate left: [1,2,3,4] -> [2,3,4,1]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.clear()
@@ -147,7 +156,7 @@ describe('Map with shared object identities', () => {
       ])
 
       // Reorder: [(k1,v1), (k2,v2)] -> [(k2,v2), (k1,v1)]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.clear()
@@ -182,7 +191,7 @@ describe('Map with shared object identities', () => {
       ])
 
       // Swap values: a->v1, b->v2 becomes a->v2, b->v1
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.set('a', v2)
@@ -209,7 +218,7 @@ describe('Map with shared object identities', () => {
       ])
 
       // Swap key order: k1->"first", k2->"second" becomes k2->"first", k1->"second"
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.clear()
@@ -245,7 +254,7 @@ describe('Map with shared object identities', () => {
       ])
       /* eslint-enable perfectionist/sort-maps */
 
-      reconcile(current, next)
+      reconcileDetached(current, next)
 
       assert.equal(k1.id, 'k2', "k1 should have k2's id")
       assert.equal(k2.id, 'k1', "k2 should have k1's original id")
@@ -267,7 +276,7 @@ describe('Array with shared object identities', () => {
       const original = [a, b, c]
 
       // Reorder: [a, b, c] -> [c, a, b]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft[0] = c
@@ -298,7 +307,7 @@ describe('Array with shared object identities', () => {
       const original = [x, y]
 
       // Swap: [x, y] -> [y, x]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft[0] = y
@@ -322,7 +331,7 @@ describe('Array with shared object identities', () => {
       const original = [...items]
 
       // Reverse: [1, 2, 3] -> [3, 2, 1]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft[0] = items[2]
@@ -349,7 +358,7 @@ describe('Array with shared object identities', () => {
       const original = [a, b, c]
 
       // Move last to first: [a, b, c] -> [c, a, b]
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           const last = draft.pop()
@@ -382,7 +391,7 @@ describe('Plain object with shared object identities', () => {
       const original = { first: x, second: y }
 
       // Swap: first->x, second->y becomes first->y, second->x
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.first = y
@@ -409,7 +418,7 @@ describe('Plain object with shared object identities', () => {
       const original = { p1: a, p2: b, p3: c }
 
       // Rotate: p1->a, p2->b, p3->c becomes p1->b, p2->c, p3->a
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           draft.p1 = b
@@ -436,7 +445,7 @@ describe('Plain object with shared object identities', () => {
       const original = { a: x, b: y }
 
       // Change key order AND swap values: a->x, b->y becomes b->x, a->y
-      const result = reconcile(
+      const result = reconcileDetached(
         original,
         produce(original, (draft) => {
           delete (draft as Record<string, unknown>).a
@@ -474,7 +483,7 @@ describe('Plain object with shared object identities', () => {
 
       const current = { left: x, right: y }
       const next = { left: y, right: x }
-      const result = reconcile(current, next)
+      const result = reconcileDetached(current, next)
 
       assert.equal(result, current)
       assert.equal(result.left, x)
@@ -502,7 +511,7 @@ describe('Complex shared identity scenarios', () => {
     const original = { a: wrapper1, b: wrapper2 }
 
     // Swap the wrappers
-    const result = reconcile(
+    const result = reconcileDetached(
       original,
       produce(original, (draft) => {
         draft.a = wrapper2
@@ -559,7 +568,7 @@ describe('Complex shared identity scenarios', () => {
     }
 
     // Swap in both collections
-    const result = reconcile(
+    const result = reconcileDetached(
       original,
       produce(original, (draft) => {
         draft.array[0] = b
@@ -593,7 +602,7 @@ describe('Complex shared identity scenarios', () => {
       },
     }
 
-    const result = reconcile(
+    const result = reconcileDetached(
       original,
       produce(original, (draft) => {
         draft.level1.level2.items[0] = b
@@ -624,7 +633,7 @@ describe('Complex shared identity scenarios', () => {
 
     const original = { first: a, second: b }
 
-    const result = reconcile(
+    const result = reconcileDetached(
       original,
       produce(original, (draft) => {
         draft.first = b
@@ -665,8 +674,13 @@ describe('produce produces shared identities - reconcile handles correctly', () 
     assert.equal(nextArray[0], b, 'next[0] should be b (same identity)')
     assert.equal(nextArray[1], a, 'next[1] should be a (same identity)')
 
-    // After reconcile, values should be correctly swapped
-    const result = reconcile(current, next)
+    // reconcile would write into a and b, which next holds: it throws and changes neither.
+    assertWouldChangeNext(current, next)
+    assert.equal(a.id, 'a')
+    assert.equal(b.id, 'b')
+
+    // After reconciling a detached copy of next, values are swapped
+    const result = reconcile(current, snapshot(next) as typeof next)
 
     assert.equal(a.id, 'b', "a should have b's id after reconcile")
     assert.equal(b.id, 'a', "b should have a's original id after reconcile")

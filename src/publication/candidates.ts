@@ -41,7 +41,6 @@ export function candidates(
     | 'pinned'
     | 'prototypes'
     | 'reads'
-    | 'sources'
   >,
   note?: PublicationNote,
 ): Candidates {
@@ -65,14 +64,13 @@ export function candidates(
   const pinned = walked !== undefined && walked.size !== 0 ? walked : undefined
   if (pinned !== undefined) {
     // Capture records every node's source, and its walk never marks a root.
-    const sources = alignment!.sources!
-    records.forEach((node, index) => {
-      if (pinned.has(sources[index])) (node as { pinned?: object }).pinned = sources[index]
+    records.forEach((node) => {
+      if (pinned.has(node.source!)) (node as { pinned?: object }).pinned = node.source
     })
     // No new URL can own `searchParams` that stay in place, so their URL is kept as it is.
     for (let index = 1; index < records.length; index += 1)
       if (records[index].pinned === undefined && ownsPinned(types, records, index))
-        (records[index] as { pinned?: object }).pinned = sources[index]
+        (records[index] as { pinned?: object }).pinned = records[index].source
   }
   // A candidate that passes the preflight, or undefined when it cannot be kept.
   const admitted = (

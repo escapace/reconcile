@@ -1,7 +1,7 @@
 import { atomFrom, isObject } from './object-property'
-import { publicationRejected } from './error'
+import { publicationRejected, publicationWouldChangeNext } from './error'
 import { capture } from './publication/capture'
-import { publishGraph } from './publication/publication-engine'
+import { publishGraph, WOULD_CHANGE_NEXT } from './publication/publication-engine'
 import { publicationTypes } from './types/builtins'
 
 /**
@@ -98,8 +98,8 @@ import { publicationTypes } from './types/builtins'
  * ```
  *
  * @param current - The value to update.
- * @param next - The value `current` should match. `reconcile` does not write to `next` itself, but
- * an object that `next` shares with `current` can change as part of `current`.
+ * @param next - The value `current` should match. `reconcile` never changes `next` or an object it
+ * holds.
  * @returns `current` when both arguments are objects that are not kept by reference, otherwise
  * `next`.
  * @throws {@link ReconcileError} with type `PublicationRejected` when `current` cannot be made to
@@ -112,6 +112,10 @@ import { publicationTypes } from './types/builtins'
  * have to move to reach the key order of `next`, or a value that another property's setter changes
  * during the call. Inside `current`, such an object is replaced by a new one instead. Writes made
  * before the failure are not rolled back.
+ * @throws {@link ReconcileError} with type `PublicationWouldChangeNext` when matching `next` would
+ * write into an object that `next` holds, such as an object of `current` that `next` holds at
+ * another position. Neither argument has changed, unless `reconcile` had already written and was
+ * trying again after an object blocked a change; those writes are not rolled back.
  * @throws Errors thrown by getters, setters or proxy traps propagate unchanged, also without
  * rollback.
  */
@@ -125,6 +129,8 @@ export function reconcile<T>(current: unknown, next: T): T {
   const currentPrototype = Object.getPrototypeOf(current) as object | null
   if (atomFrom(currentPrototype)) return next
   const graph = capture(publicationTypes, next, current, nextPrototype, currentPrototype)
-  if (!publishGraph(publicationTypes, graph, current)) throw publicationRejected()
+  const published = publishGraph(publicationTypes, graph, current)
+  if (published === WOULD_CHANGE_NEXT) throw publicationWouldChangeNext()
+  if (!published) throw publicationRejected()
   return current as T
 }

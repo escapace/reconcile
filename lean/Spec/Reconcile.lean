@@ -22,11 +22,16 @@ graphs, in three phases that mirror the runtime's design:
    length and maximum, and a view only with `next`'s constructor, offset and length; a view's
    buffer, which cannot change, is held like a fixed slot. Nothing is written before this phase
    ends; a root that cannot be kept rejects the call.
-3. **Write.** Kept nodes take `next`'s contents, writing only what differs; fresh nodes are
-   copies (`Obj.copy`). A kept object whose write reaches a fixed slot or a setter that drops its
-   value is *blocked*: it is demoted to a fresh copy and never kept again, and the decision runs
-   again, never moving an object a pass wrote to another node, until no node is blocked. A
-   decision that keeps no root rejects the call, and the passes stop there.
+3. **Write.** Before a pass writes, its decision must keep `next` unchanged (`keepsNext`): no node
+   keeps an object `next` holds at another node, and a node that keeps the very object it is, an
+   *untouched* node, has only untouched nodes below it. A decision that fails rejects the call
+   (`Outcome.changesNext`). Untouched nodes, like pinned ones, already hold their contents, so they
+   are neither written nor read back. The other kept nodes take `next`'s contents, writing only
+   what differs; fresh nodes are copies (`Obj.copy`). A kept object whose write reaches a fixed
+   slot or a setter that drops its value is *blocked*: it is demoted to a fresh copy and never
+   kept again, and the decision runs again, never moving an object a pass wrote to another node,
+   until no node is blocked. A decision that keeps no root rejects the call, and the passes stop
+   there.
 
 The result is one node per `next` node, with the `current` object it keeps, if any, the number
 of passes, and the trace model's observations: the getter runs of reading `next`, which capture
@@ -767,36 +772,80 @@ def writesOf (identity : Nat → Option Nat) (c n : Obj) : List (String × Strin
 /-- The identity a next node resolves to under a decision. -/
 def identityOf (kept : Array (Option Nat)) (j : Nat) : Option Nat := kept[j]?.bind id
 
-/-- The objects kept at unpinned nodes whose writes block. -/
+/-! ### Keeping `next` unchanged
+
+A pass writes only into the objects its decision keeps and into new objects. It must write into no
+object `next` holds, so before any write of a pass its decision is checked from the decision,
+`same` and the references of `next` alone, without reading an object. -/
+
+/-- The current objects `next` holds: those that are next nodes its root reaches, as capture
+records them. -/
+def heldObjects (input : Input) : List Nat :=
+  match input.next.root with
+  | .ref r => (reach input.next r).filterMap fun j => input.same[j]?.bind id
+  | .prim _ => []
+
+/-- Whether `next` holds current object `x` (`heldObjects`). -/
+def nextHolds (input : Input) (x : Nat) : Bool := (heldObjects input).contains x
+
+/-- Whether a decision keeps next node `j` *untouched*: it keeps there the current object the node
+is, so the result holds `next`'s own object at that node. -/
+def untouched (input : Input) (kept : Array (Option Nat)) (j : Nat) : Bool :=
+  match input.same[j]?.bind id with
+  | some c => kept[j]?.bind id == some c
+  | none => false
+
+/-- The check at node `j`: a node that keeps an object `next` holds keeps the object it is, and
+every node an untouched node refers to is untouched. -/
+def keepsNextAt (input : Input) (kept : Array (Option Nat)) (j : Nat) : Bool :=
+  match kept[j]?.bind id with
+  | none => true
+  | some x =>
+    if untouched input kept j then (input.next.node j).refs.all (untouched input kept)
+    else !nextHolds input x
+
+/-- Whether a decision keeps `next` unchanged (`keepsNextAt` at every node): publishing it writes
+into no object `next` holds. One pass over the nodes, which reads the references of the untouched
+ones; those are the nodes publication then skips. -/
+def keepsNext (input : Input) (kept : Array (Option Nat)) : Bool :=
+  (List.range input.next.nodes.size).all (keepsNextAt input kept)
+
+/-- Whether a pass leaves node `j` alone: it is pinned, or the decision keeps it untouched. Neither
+is published or read back. -/
+def skipped (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) (j : Nat) : Bool :=
+  pin[j]?.getD false || untouched input kept j
+
+/-- The objects kept at published nodes whose writes block. -/
 def blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) : List Nat :=
   (List.range input.next.nodes.size).filterMap fun j =>
-    if pin[j]?.getD false then none
+    if skipped input pin kept j then none
     else match kept[j]?.bind id with
       | some i =>
         if (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).2 then some i
         else none
       | none => none
 
-/-- The objects a decision keeps at unpinned nodes, which its pass writes, with their nodes. -/
+/-- The objects a decision keeps at unpinned nodes, with their nodes: a later pass keeps each at
+its node or nowhere. -/
 def writtenPairs (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
     List Requirement :=
   (List.range input.next.nodes.size).filterMap fun j =>
     if pin[j]?.getD false then none
     else (kept[j]?.bind id).map fun i => (j, i)
 
-/-- Decides, and while the decision keeps the root `r` and a kept object's writes block, forbids
-those objects and decides again with the written objects at their nodes: the decision of each
-pass in order, the last one final. As `publishGraph` does, the passes stop at the first decision
-that keeps no root. Each pass that continues forbids an object no earlier pass forbade
-(`blocked_fresh`), so the passes number at most one more than the current objects whatever the
-budget (`demote_length_le`). -/
+/-- Decides, and while the decision keeps the root `r`, keeps `next` unchanged and a kept object's
+writes block, forbids those objects and decides again with the written objects at their nodes:
+the decision of each pass in order, the last one final. As `publishGraph` does, the passes stop at
+the first decision that keeps no root or would change `next`. Each pass that continues forbids an
+object no earlier pass forbade (`blocked_fresh`), so the passes number at most one more than the
+current objects whatever the budget (`demote_length_le`). -/
 def demote (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat) :
     Nat → List Nat → List Requirement → List (Array (Option Nat))
   | 0, forbidden, written => [decide input al pin forbidden written]
   | fuel + 1, forbidden, written =>
     let kept := decide input al pin forbidden written
     let blocked := blockedObjects input pin kept
-    if (kept[r]?.bind id).isNone || blocked.isEmpty then [kept]
+    if (kept[r]?.bind id).isNone || !keepsNext input kept || blocked.isEmpty then [kept]
     else
       kept :: demote input al pin r fuel (forbidden ++ blocked)
         (written ++ writtenPairs input pin kept)
@@ -817,8 +866,12 @@ structure Outcome where
   nodes : Array Obj
   root : Val
   /-- The number of decision passes: one, plus one per demotion; none when the first decision
-  keeps no root, which rejects the call before any write. -/
+  keeps no root or would change `next`, which rejects the call before any write. -/
   passes : Nat
+  /-- Whether the call is rejected because its last decision would change `next`
+  (`keepsNext`): it keeps the root but keeps an object `next` holds at another node, or leaves a
+  node below an untouched node not untouched. Earlier passes wrote into no object `next` holds. -/
+  changesNext : Bool := false
   /-- The getter runs of current objects read as `current`, per current object and key: the reads
   that compare them with `next` and each pass's readback. -/
   gets : List (Nat × String × Nat)
@@ -845,12 +898,13 @@ def capturedKeys (input : Input) (al : Discovery) : List (Nat × String) :=
         if accessorKey input i k then some (i, k) else none).eraseDups
 
 /-- The getters a pass's readback runs after its writes: each accessor of each current object the
-pass keeps, unpinned, at a key of the next node kept as it, once per object and key. A write
-anywhere can change any kept object, so every kept object is read back. -/
+pass keeps at a published node, at a key of the next node kept as it, once per object and key. A
+write anywhere can change any kept object, so every published kept object is read back; a pinned
+or untouched node is `next`'s own object and is not. -/
 def readbackKeys (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
     List (Nat × String) :=
   ((List.range input.next.nodes.size).flatMap fun j =>
-    if pin[j]?.getD false then []
+    if skipped input pin kept j then []
     else match kept[j]?.bind id with
       | some i => (keysOf (input.next.node j)).filterMap fun k =>
           if accessorKey input i k then some (i, k) else none
@@ -864,26 +918,28 @@ def getCounts (captured : List (Nat × String)) (readbacks : List (List (Nat × 
     (i, k, (if captured.contains (i, k) then 1 else 0) +
       (readbacks.filter (·.contains (i, k))).length)
 
-/-- The writes of a decision: per kept, unpinned node, the writes its object needs. -/
+/-- The writes of a decision: per kept node that is published, neither pinned nor untouched, the
+writes its object needs. -/
 def writesOfDecision (input : Input) (pin : Array Bool) (kept : Array (Option Nat)) :
     List (Nat × String × String) :=
   (List.range input.next.nodes.size).flatMap fun j =>
     match kept[j]?.bind id with
     | some i =>
-      if pin[j]?.getD false then []
+      if skipped input pin kept j then []
       else (writesOf (identityOf kept) (input.cur.node i) (input.next.node j)).1.map
         fun (k, w) => (i, k, w)
     | none => []
 
 /-- The result of a successful final decision `kept` after the passes `rounds`: per next node the
 kept object's contents or a fresh copy, the writes and the getter counts. A call whose passes write
-nothing reads nothing back; otherwise each pass reads back the objects its decision keeps. -/
+nothing reads nothing back; otherwise each pass reads back the objects its decision keeps at
+published nodes. -/
 def publish (input : Input) (al : Discovery) (pin : Array Bool)
     (rounds : List (Array (Option Nat))) (kept : Array (Option Nat)) (r : Nat) : Outcome :=
   let n := input.next.nodes.size
   let nodes := (Array.range n).map fun j =>
     match kept[j]?.bind id with
-    | some i => if pin[j]?.getD false then input.next.node j
+    | some i => if skipped input pin kept j then input.next.node j
       else keptObj (input.cur.node i) (input.next.node j)
     | none => (input.next.node j).copy
   let allWrites := (rounds.map (writesOfDecision input pin)).flatten.eraseDups
@@ -903,9 +959,9 @@ def run (raw : Input) : Outcome :=
     { ok := true, origins := (Array.range n).map fun j => input.same[j]?.bind id,
       nodes := input.next.nodes, root := input.next.root, passes := 0, gets := [],
       allWrites := [] }
-  let rejected (passes : Nat) : Outcome :=
-    { ok := false, origins := #[], nodes := #[], root := .prim .undef, passes, gets := [],
-      allWrites := [] }
+  let rejected (passes : Nat) (changesNext : Bool) : Outcome :=
+    { ok := false, origins := #[], nodes := #[], root := .prim .undef, passes, changesNext,
+      gets := [], allWrites := [] }
   match input.cur.root, input.next.root with
   | .ref _, .ref r =>
     -- `next` is read in full before any decision, whether the call succeeds or not.
@@ -915,10 +971,12 @@ def run (raw : Input) : Outcome :=
     let al := discover input
     let passes := rounds input al r
     let final := passes.getLastD #[]
-    -- A root the first decision cannot keep rejects the call before any write; a root a write
-    -- blocked, after the passes that found it.
-    withReads (if (final[r]?.bind id).isNone then
-      rejected (if passes.length = 1 then 0 else passes.length)
+    let count := if passes.length = 1 then 0 else passes.length
+    -- A root the first decision cannot keep, or a first decision that would change `next`,
+    -- rejects the call before any write; a root a write blocked, or a later decision that would
+    -- change `next`, after the passes before it.
+    withReads (if (final[r]?.bind id).isNone then rejected count false
+    else if !keepsNext input final then rejected count true
     else publish input al al.pinned passes final r)
   | _, _ => asIs
 

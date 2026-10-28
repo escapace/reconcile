@@ -2,6 +2,7 @@ import { assert, describe, it } from 'vitest'
 
 import { produce, reconcile, snapshot } from '../index'
 import { bytesOf } from './fixtures/contents'
+import { assertWouldChangeNext } from './fixtures/graph-state'
 
 const returnFortyTwo = (): number => 42
 
@@ -62,8 +63,10 @@ describe('README publication semantics', () => {
       const current = { a: x, b: y }
       // eslint-disable-next-line perfectionist/sort-objects
       const next = { b: x, a: y }
+      // `next` holds x and y at other keys, so it must be detached before current takes them.
+      assertWouldChangeNext(current, next)
 
-      const result = reconcile(current, next)
+      const result = reconcile(current, snapshot(next) as typeof next)
 
       assert.equal(result, current)
       assert.equal(result.a, x)
@@ -79,8 +82,9 @@ describe('README publication semantics', () => {
       const current = [a, b, { id: 'drop' }] as Array<{ id: string } | undefined>
       const next = [b, a] as Array<{ id: string } | undefined>
       next.length = 4
+      assertWouldChangeNext(current, next)
 
-      const result = reconcile(current, next)
+      const result = reconcile(current, snapshot(next) as typeof next)
 
       assert.equal(result, current)
       assert.equal(result[0], a)
@@ -93,25 +97,27 @@ describe('README publication semantics', () => {
       assert.equal(result[3], undefined)
     })
 
-    it('changes next too when next holds an object of current at another index', () => {
+    it('throws without changing either argument when next holds an object of current at another index', () => {
       const a = { id: 'a' }
       const b = { id: 'b' }
       const c = { id: 'c' }
       const items = [a, b, c]
       const state = { items }
       const next = { items: state.items.slice(1) }
-      const built = snapshot(next) as typeof next
 
-      const result = reconcile(state, next)
+      assertWouldChangeNext(state, next)
+      assert.equal(next.items[0], b)
+      assert.deepEqual(next.items, [{ id: 'b' }, { id: 'c' }])
+
+      // A detached next shifts the contents into the objects at their indices.
+      const detached = snapshot(next) as typeof next
+      const result = reconcile(state, detached)
 
       assert.equal(result, state)
       assert.equal(result.items, items)
       assert.equal(result.items[0], a)
       assert.equal(result.items[1], b)
-      assert.deepEqual(result, built)
-      // b takes the contents next holds at its own index, and next holds b at index 0.
-      assert.equal(next.items[0], b)
-      assert.deepEqual(next.items, [{ id: 'c' }, { id: 'c' }])
+      assert.deepEqual(result, { items: [{ id: 'b' }, { id: 'c' }] })
     })
 
     it('matches maps by entry order and iterates in the next order', () => {
@@ -127,8 +133,9 @@ describe('README publication semantics', () => {
         ['left', first],
       ])
       /* eslint-enable perfectionist/sort-maps */
+      assertWouldChangeNext(current, next)
 
-      const result = reconcile(current, next)
+      const result = reconcile(current, snapshot(next) as typeof next)
       const entries = [...result.entries()]
 
       assert.equal(entries[0][1], first)
@@ -148,8 +155,9 @@ describe('README publication semantics', () => {
       const current = new Set([a, b])
       // eslint-disable-next-line perfectionist/sort-sets
       const next = new Set([b, a])
+      assertWouldChangeNext(current, next)
 
-      const result = reconcile(current, next)
+      const result = reconcile(current, snapshot(next) as typeof next)
       const values = [...result]
 
       assert.equal(values[0], a)

@@ -159,12 +159,14 @@ theorem run_gets (input : Input) : (run input).gets = [] ∨
   split
   · split
     · exact Or.inl rfl
-    · simp only [publish]
-      refine Or.inr ⟨_, _, ?_, ?_, rfl⟩
-      · split <;> simp
-      · intro hw
-        rw [hw]
-        rfl
+    · split
+      · exact Or.inl rfl
+      · simp only [publish]
+        refine Or.inr ⟨_, _, ?_, ?_, rfl⟩
+        · split <;> simp
+        · intro hw
+          rw [hw]
+          rfl
   · exact Or.inl rfl
 
 /-- A getter of `current` runs at most once when its object is read, and once per pass that reads
@@ -1002,7 +1004,8 @@ theorem mem_blockedObjects (input : Input) (pin : Array Bool) (kept : Array (Opt
       · rename_i hw
         simp only [Option.some.injEq] at hf
         subst hf
-        exact ⟨by simpa using hpin, hi', hw⟩
+        simp only [skipped, Bool.or_eq_true, not_or] at hpin
+        exact ⟨by simpa using hpin.1, hi', hw⟩
       · simp at hf
     · simp at hf
 
@@ -1716,15 +1719,16 @@ theorem demote_length_le (input : Input) (al : Discovery) (pin : Array Bool) (r 
       omega
 
 /-- Once the budget covers the current objects no earlier pass forbade, the passes end on their
-own: the last decision keeps no root, which rejects the call, or keeps no object whose writes
-block. -/
+own: the last decision keeps no root or would change `next`, which rejects the call, or keeps no
+object whose writes block. -/
 theorem demote_last_unblocked (input : Input) (al : Discovery) (pin : Array Bool) (r : Nat) :
     ∀ fuel forbidden written d, (unforbidden input forbidden).length ≤ fuel →
       ((demote input al pin r fuel forbidden written).getLastD d)[r]?.bind id = none ∨
+        keepsNext input ((demote input al pin r fuel forbidden written).getLastD d) = false ∨
         blockedObjects input pin ((demote input al pin r fuel forbidden written).getLastD d) = []
   | 0, forbidden, written, _, hm => by
     simp only [demote, List.getLastD_cons, List.getLastD_nil]
-    refine Or.inr (List.eq_nil_iff_forall_not_mem.mpr fun i hi => ?_)
+    refine Or.inr (Or.inr (List.eq_nil_iff_forall_not_mem.mpr fun i hi => ?_))
     have : i ∈ unforbidden input forbidden := by
       simp only [unforbidden, List.mem_filter, List.mem_range]
       exact ⟨blocked_lt input pin _ i hi,
@@ -1736,16 +1740,20 @@ theorem demote_last_unblocked (input : Input) (al : Discovery) (pin : Array Bool
     split
     · rename_i h
       simp only [List.getLastD_cons, List.getLastD_nil]
-      simp only [Bool.or_eq_true, List.isEmpty_iff, Option.isNone_iff_eq_none] at h
-      exact h
+      simp only [Bool.or_eq_true, List.isEmpty_iff, Option.isNone_iff_eq_none,
+        Bool.not_eq_true'] at h
+      rcases h with (h | h) | h
+      · exact Or.inl h
+      · exact Or.inr (Or.inl h)
+      · exact Or.inr (Or.inr h)
     · rename_i h
       simp only [Bool.or_eq_true, not_or, List.isEmpty_iff] at h
       have := unforbidden_lt input al pin forbidden written h.2
       rw [List.getLastD_cons]
       exact demote_last_unblocked input al pin r fuel _ _ _ (by omega)
 
-/-- The passes of a run: none when it has nothing to do or its first decision keeps no root, else
-the decisions of its passes. -/
+/-- The passes of a run: none when it has nothing to do or its first decision keeps no root or
+would change `next`, else the decisions of its passes. -/
 theorem run_passes (input : Input) : (run input).passes = 0 ∨
     ∃ r, (run input).passes =
       (rounds (normalized input) (discover (normalized input)) r).length := by
@@ -1755,7 +1763,11 @@ theorem run_passes (input : Input) : (run input).passes = 0 ∨
     · split
       · exact Or.inl rfl
       · exact Or.inr ⟨_, rfl⟩
-    · exact Or.inr ⟨_, rfl⟩
+    · split
+      · split
+        · exact Or.inl rfl
+        · exact Or.inr ⟨_, rfl⟩
+      · exact Or.inr ⟨_, rfl⟩
   · exact Or.inl rfl
 
 /-- A call makes at most one decision pass per current object, plus one, whatever the budget: no
@@ -1803,8 +1815,14 @@ theorem run_last_unblocked (input : Input) (c r : Nat) (hc : input.cur.root = .r
   split at hok
   · simp at hok
   · rename_i hroot
-    rw [if_neg hroot]
-    exact hlast.resolve_left fun h => hroot (by unfold rounds; rw [h]; rfl)
+    split at hok
+    · simp at hok
+    · rename_i hkeeps
+      rw [if_neg hroot, if_neg hkeeps]
+      rcases hlast with h | h | h
+      · exact absurd (by unfold rounds; rw [h]; rfl) hroot
+      · exact absurd (by unfold rounds; rw [h]; rfl) hkeeps
+      · exact h
 
 /-! ## Reads of `next`
 
@@ -2072,7 +2090,8 @@ theorem freshGets_le_one (input : Input) : ∀ e ∈ (run input).freshGets, e.2.
     exact (captureReads_once _ _).1 _ _
   · simp
 
-/-- A pass writes only to objects its decision keeps at unpinned nodes. -/
+/-- A pass writes only to objects its decision keeps at unpinned nodes; `Spec.KeepsNext` adds that
+the node is not untouched either. -/
 theorem mem_writesOfDecision {input : Input} {pin : Array Bool} {kept : Array (Option Nat)}
     {e : Nat × String × String} (h : e ∈ writesOfDecision input pin kept) :
     ∃ j, j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧
@@ -2085,7 +2104,8 @@ theorem mem_writesOfDecision {input : Input} {pin : Array Bool} {kept : Array (O
     · simp at he
     · rename_i hp
       obtain ⟨⟨k, w⟩, _, rfl⟩ := List.mem_map.1 he
-      exact ⟨j, hj, by simpa using hp, hi⟩
+      simp only [skipped, Bool.or_eq_true, not_or] at hp
+      exact ⟨j, hj, by simpa using hp.1, hi⟩
   · simp at he
 
 /-- A pass reads back only objects its decision keeps at unpinned nodes. -/
@@ -2105,7 +2125,8 @@ theorem mem_readbackKeys {input : Input} {pin : Array Bool} {kept : Array (Optio
       split at hk'
       · simp only [Option.some.injEq, Prod.mk.injEq] at hk'
         obtain ⟨rfl, rfl⟩ := hk'
-        exact ⟨j, hj, by simpa using hp, hi⟩
+        simp only [skipped, Bool.or_eq_true, not_or] at hp
+        exact ⟨j, hj, by simpa using hp.1, hi⟩
       · simp at hk'
     · simp at he
 
@@ -2208,19 +2229,21 @@ theorem run_pinned (raw : Input)
   · dsimp only
     split
     · simp
-    · rename_i _ _ _ r _ _ _
-      simp only [publish]
-      refine ⟨hwrites r, fun e he hei => ?_⟩
-      obtain ⟨hle, hcap⟩ := hgets r _ _ (fun l hl => by
-        split at hl
-        · simp at hl
-        · obtain ⟨kept, hk, rfl⟩ := List.mem_map.1 hl
-          exact ⟨kept, hk, rfl⟩) e he hei
-      obtain ⟨c, hc⟩ := mem_capturedKeys hcap
-      refine ⟨hle, c, fun hcj => ?_, hc⟩
-      subst hcj
-      rw [discover_pinned_candidates _ _ hpin] at hc
-      simp at hc
+    · split
+      · simp
+      · rename_i _ _ _ r _ _ _ _
+        simp only [publish]
+        refine ⟨hwrites r, fun e he hei => ?_⟩
+        obtain ⟨hle, hcap⟩ := hgets r _ _ (fun l hl => by
+          split at hl
+          · simp at hl
+          · obtain ⟨kept, hk, rfl⟩ := List.mem_map.1 hl
+            exact ⟨kept, hk, rfl⟩) e he hei
+        obtain ⟨c, hc⟩ := mem_capturedKeys hcap
+        refine ⟨hle, c, fun hcj => ?_, hc⟩
+        subst hcj
+        rw [discover_pinned_candidates _ _ hpin] at hc
+        simp at hc
   · simp
 
 

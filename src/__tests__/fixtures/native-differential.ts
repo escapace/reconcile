@@ -1742,12 +1742,19 @@ function entryPairs(left: object, right: object, kind: Kind): Array<[unknown, un
     .map((value, index) => [value, others[index], { index, kind: step }])
 }
 
-/** Runs `reconcile` and compares the result with the copy `expected` of `next`. */
+/** Whether `error` is the rejection of a call that would change `next`. */
+const wouldChangeNext = (error: unknown): boolean =>
+  (error as { cause?: { type?: unknown } } | undefined)?.cause?.type ===
+  'PublicationWouldChangeNext'
+
+/** Runs `reconcile` and compares the result with the copy `expected` of `next`; when `next` holds
+ * objects of `current`, a rejection because the call would change `next` is no failure. */
 function reconcileFailure(
   current: object,
   next: unknown,
   expected: unknown,
   reconcile: Reconcile,
+  shared = false,
 ): string | undefined {
   const states = recordStates(current)
   const positions = keptPositions(current, next as object)
@@ -1755,7 +1762,7 @@ function reconcileFailure(
   try {
     result = reconcile(current, next)
   } catch (error) {
-    return `reconcile threw ${String(error)}`
+    return shared && wouldChangeNext(error) ? undefined : `reconcile threw ${String(error)}`
   }
   if (result !== current) return 'reconcile did not return current'
   const { failure } = compareGraphs(expected, result, reconcilePolicy(states))
@@ -1789,7 +1796,8 @@ export function checkReconcileCase(
 /**
  * One seeded case of README "Apply a recipe in place": `next` is `produce(current, recipe)`, which
  * holds the objects of `current` that the recipe left unchanged, at their positions or moved.
- * `reconcile` can then change `next` too, so only the result is compared.
+ * `reconcile` either reaches `next` or throws because it would change `next`; `next` stays as it
+ * was in both cases.
  */
 export function checkRecipeInPlaceCase(
   seed: number,
@@ -1804,8 +1812,11 @@ export function checkRecipeInPlaceCase(
     return draft
   })
   const before = deepCopy(current)
-  const expected = deepCopy(next)
-  const failure = reconcileFailure(current, next, expected, reconcile)
+  const nextCopies = new Map<object, object>()
+  const expected = deepCopy(next, nextCopies)
+  const failure =
+    reconcileFailure(current, next, expected, reconcile, true) ??
+    unchangedFailure(expected, next, nextCopies, 'next')
   if (failure === undefined) return undefined
   const sections = ['current:', describeGraph(before), 'recipe:', ...formatRecipe(recipe)]
   return [failure, ...sections, 'next, the result of produce:', describeGraph(expected)].join('\n')

@@ -382,6 +382,9 @@ export interface CapturedNode<L extends { readonly kind: symbol } = Layout> {
   readonly layout: L
   readonly observed: readonly unknown[] | undefined
   readonly pinned: object | undefined
+  /** The object of `next` this node is, which capture records when it creates the node;
+   * undefined in a graph that `produce` builds. */
+  readonly source: object | undefined
 }
 
 /**
@@ -403,8 +406,9 @@ export interface CapturedGraph {
   /** The values discovery read at the slots of each node's other aligned objects, by object and
    * edge position; discovery creates the table on its first read. */
   candidateReads?: Array<Map<object, unknown[]> | undefined>
-  /** Source object of each captured node; pinned nodes record their occupant. */
-  readonly sources?: readonly object[]
+  /** Every object of `next` capture met, by object: a captured node's reference, or the object
+   * itself as an atom edge. */
+  readonly references: ReadonlyMap<object, Edge>
   /** Every object inside a pinned subtree; no other position may retain one. */
   readonly pinned?: ReadonlySet<object>
   /** The prototype capture read of each node's aligned current object; undefined when unread. */
@@ -480,6 +484,7 @@ export interface BuildingNode {
   layout: Layout | undefined
   readonly observed: undefined
   readonly pinned: undefined
+  readonly source: object
 }
 
 /** Supplies native equivalence and provenance facts to the finite special-value decision. */

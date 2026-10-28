@@ -24,6 +24,7 @@ function capturedNode(properties: Map<PropertyKey, Edge>, keys: PropertyKey[]): 
     layout: { kind: OBJECT_KIND },
     observed: undefined,
     pinned: undefined,
+    source: undefined,
   }
 }
 
