@@ -426,41 +426,41 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   through `serialize`, JSON text and `deserialize` equals the reference's `snapshot`. The bridge
   checks this on seeded random graphs, a `current` of up to seven nodes with cycles, sharing,
   attributes, accessors, prototypes and integrity levels, where `next` reuses, reorders and moves
-  current objects and `produce` recipes write drafts, create objects and return values, so its
-  evidence is for the generated cases. The models cover objects, arrays, maps, sets, dates, buffers,
-  views and, for `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`,
-  views that track their buffer's length, buffer and view subclasses, URLs, Temporal values or
-  proxies. The gate allows no difference: results, rejections and writes before a rejection must
-  agree, and so must the getter counts of every object on success and of every object only `next`
-  holds on rejection. No setter of a `next` object and no getter or setter of a class prototype may
-  run. The gate also runs the `--writes`, `--hazards`, `--binary` and `--getters` batches and the
-  round trip. Every standalone `reconcile` batch also checks seven fixed cases that random graphs
-  need not produce, and the gate checks them plainly and through the recording proxies: the six
-  examples of `Spec.KeepsNext` and `walkReachesRoot`, each checked to have, in the reference, the
-  outcome the bridge states for it. In `walkReachesRoot`, the walk of an object in place reaches the
-  root of `next`, itself an object of `current`, yet the call succeeds: the object's read-only `up`
-  cannot take the root's target, so the object is copied. A call that keeps such an object is
-  rejected, and getter counts of `current` are compared only on success, so this case alone shows
-  the order of the walk's reads. The `--writes` batch wraps every current object and array in a
-  recording proxy and compares the writes and deletions each one receives, over every decision pass,
-  with the reference's writes. The `--hazards` batch, also through the proxies, generates more
-  accessors and more setters that drop their value than the default batch, so that about one call in
-  nine needs more than one decision pass. The `--binary` batches, one per operation, add buffers,
-  some of them resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs
-  through the recording proxies. The `--getters` batch, also through the proxies, adds accessors to
-  the objects only `next` holds. The round trip (`--op roundtrip`) restricts the `--binary` graphs
-  to what `serialize` accepts and uses the `maxBytes` that `requiredMaxBytes` returns; it also
-  checks that each getter of the source runs once, depth first, that no setter runs, that one byte
-  less is refused and that the source is unchanged.
+  current objects, rarely one whose subtree reaches `current`'s root, which makes `next` hold
+  `current` and the call reject, and `produce` recipes write drafts, create objects and return
+  values, so its evidence is for the generated cases. The models cover objects, arrays, maps, sets,
+  dates, buffers, views and, for `reconcile`, the slots of class prototypes; they do not cover
+  `SharedArrayBuffer`, views that track their buffer's length, buffer and view subclasses, URLs,
+  Temporal values or proxies. The gate allows no difference: results, rejections and writes before a
+  rejection must agree, and so must the getter counts of every object on success and of every object
+  only `next` holds on rejection. No setter of a `next` object and no getter or setter of a class
+  prototype may run. The gate also runs the `--writes`, `--hazards`, `--binary` and `--getters`
+  batches and the round trip. Every standalone `reconcile` batch also checks seven fixed cases, and
+  the gate checks them plainly and through the recording proxies: the six examples of
+  `Spec.KeepsNext` and `walkReachesRoot`, each checked to have, in the reference, the outcome the
+  bridge states for it. The enumeration never produces `laterPass`, `mapChild` or `walkReachesRoot`,
+  and the gate's random graphs almost never do. In `walkReachesRoot`, the walk of an object in place
+  reaches the root of `next`, itself an object of `current`, yet the call succeeds: the object's
+  read-only `up` cannot take the root's target, so the object is copied. A call that keeps such an
+  object is rejected, and getter counts of `current` are compared only on success, so this case
+  alone shows the order of the walk's reads. The `--writes` batch wraps every current object and
+  array in a recording proxy and compares the writes and deletions each one receives, over every
+  decision pass, with the reference's writes. The `--hazards` batch, also through the proxies,
+  generates more accessors and more setters that drop their value than the default batch, so that
+  about one call in twelve needs more than one decision pass. The `--binary` batches, one per
+  operation, add buffers, some of them resizable, with typed arrays and `DataView`s over them; the
+  `reconcile` batch runs through the recording proxies. The `--getters` batch, also through the
+  proxies, adds accessors to the objects only `next` holds. The round trip (`--op roundtrip`)
+  restricts the `--binary` graphs to what `serialize` accepts and uses the `maxBytes` that
+  `requiredMaxBytes` returns; it also checks that each getter of the source runs once, depth first,
+  that no setter runs, that one byte less is refused and that the source is unchanged.
 - **Spec phases.** On the `reconcile` cases, plain, hazard-rich and with buffers and views, the
   runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
   order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
-  candidates in decision order with the requirements of their fixed slots, the decision of every
-  pass up to the first that keeps no root or could change `next`, and whether the call stops
-  because that last decision could change `next`, which the runtime reports as
-  `PublicationWouldChangeNext` (`Phases.changesNext`; `SpecOracle.phases_changesNext` proves it
-  equals `run`'s). The phase bridge reads them from a bundle of the sources that records
-  `publishGraph`'s candidates and each `decide`, so the library carries no hook.
+  candidates in decision order with the requirements of their fixed slots, and the decision of every
+  pass up to the first that keeps no root or could change `next`. The phase bridge reads them from a
+  bundle of the sources that records `publishGraph`'s candidates and each `decide`, so the library
+  carries no hook.
 - **Spec enumeration.** Every case within the bounds of `scripts/lean-spec-enumerate.ts` agrees with
   the reference, as the outcome bridge compares it, plain and through recording proxies, and, for
   `reconcile`, as the phase bridge compares it. Its universes are objects and arrays of up to two
@@ -497,7 +497,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
     (`references`); a node is _untouched_ when it keeps its `source`, and a node that keeps another
     object capture met in `next` breaks the rule's first clause. An object inside a subtree kept in
     place is no node's candidate, so it needs no entry. A node's references are its captured
-    edges, a view's buffer and a URL's `searchParams` included.
+    edges, a view's buffer and a URL's `searchParams` included: a write into a buffer changes its
+    views and a write into a URL changes its `searchParams`, and discovery keeps a view's buffer
+    or a URL's `searchParams` only with its owner's own object, so the rule sees the linked object
+    as a target. A URL that discovery pins because its `searchParams` stay in place keeps the
+    object it is.
   - _Skipping._ `skipped` makes publication and readback leave untouched nodes alone, as they
     leave pinned ones (`writesOfDecision_eq_publishedWrites`), and `remember` still records them
     at their nodes, as `writtenPairs` does.

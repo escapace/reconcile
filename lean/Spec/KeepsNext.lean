@@ -23,8 +23,8 @@ Why this rule, and no other:
   exact: given that the arguments read each shared object alike (`Coherent`), an untouched node
   whose references are untouched already holds its contents (`untouched_holds`), so it takes no
   write and blocks nothing (`untouched_writesOf`). Skipping untouched nodes then changes no write
-  (`writesOfDecision_eq_publishedWrites`), and even the publication of every unpinned node writes
-  into no object of `next` (`publishedWrites_not_next`).
+  (`writesOfDecision_eq_publishedWrites`), so even the publication of every unpinned node writes
+  into no object of `next`.
 - **Exactness.** The second clause is exact: an untouched object, array, `Map` or `Set` node with a
   reference that is not untouched takes a write into `next`'s own object
   (`publishedWrites_child`); a view's buffer is a fixed slot, which the decision keeps as the
@@ -57,26 +57,6 @@ Why this rule, and no other:
   (`writtenPairs`).
 
 `coherent` decides `Coherent` (`coherent_spec`); the examples are coherent inputs.
-
-## Runtime obligations
-
-- After each pass's decision keeps the root, and before that pass allocates or writes, the runtime
-  runs the check and throws when it fails. It skips pinned nodes, which pass it
-  (`keepsNextAt_pinned`).
-- `nextHolds` is the per-call table from each object capture reached in `next` to its captured
-  node, which capture already builds: a node is untouched when its target is its own source, and a
-  target that is another node's source breaks the first clause. Objects inside a kept subtree are
-  no node's target, since discovery offers them to no other node.
-- The references of a node are its captured edges, including a view's buffer and a URL's
-  `searchParams`. A write into a URL changes the `searchParams` object it owns, and a write into a
-  buffer changes every view over it; discovery keeps a URL's `searchParams` node only with its
-  URL's own object and a view's buffer node only with the view's own buffer, so the rule sees the
-  linked object as a target. A URL node that discovery pins to its own source because its
-  `searchParams` stay in place (URL adoption) is untouched.
-- `Coherent` is the premise the README's *Where `next` can still change* states: an object
-  `current` and `next` share reads the same through both, so its contents are `next`'s.
-- An object `next` reaches only through a prototype, a function, another object kept by reference
-  or a proxy's target is not one `next` holds; the rule does not see it.
 -/
 
 namespace Reconcile.Spec.Reconcile
@@ -157,24 +137,6 @@ theorem keepsNext_cur (input : Input) (g : Graph) (kept : Array (Option Nat)) :
 
 /-! ## Safety -/
 
-/-- A pass publishes, and so writes and reads back, only nodes that are neither pinned nor
-untouched. -/
-theorem mem_writesOfDecision_published {input : Input} {pin : Array Bool}
-    {kept : Array (Option Nat)} {e : Nat × String × String}
-    (h : e ∈ writesOfDecision input pin kept) :
-    ∃ j, j < input.next.nodes.size ∧ skipped input pin kept j = false ∧
-      kept[j]?.bind id = some e.1 := by
-  simp only [writesOfDecision, List.mem_flatMap, List.mem_range] at h
-  obtain ⟨j, hj, he⟩ := h
-  split at he
-  · rename_i i hi
-    split at he
-    · simp at he
-    · rename_i hp
-      obtain ⟨⟨k, w⟩, _, rfl⟩ := List.mem_map.1 he
-      exact ⟨j, hj, by simpa using hp, hi⟩
-  · simp at he
-
 /-- **Safety.** A pass whose decision passes the rule's first clause writes into no object `next`
 holds: it writes only into objects kept at nodes that are not untouched, and the first clause keeps
 every object of `next` at its own node, untouched. -/
@@ -183,7 +145,7 @@ theorem writesOfDecision_not_next (input : Input) (pin : Array Bool) (kept : Arr
       nextHolds input x = true → untouched input kept j = true) :
     ∀ e ∈ writesOfDecision input pin kept, nextHolds input e.1 = false := by
   intro e he
-  obtain ⟨j, hj, hs, hkept⟩ := mem_writesOfDecision_published he
+  obtain ⟨j, hj, hs, hkept⟩ := mem_writesOfDecision he
   cases hn : nextHolds input e.1
   · rfl
   · have := hk j hj e.1 hkept hn
@@ -621,14 +583,6 @@ theorem writesOfDecision_eq_publishedWrites (input : Input) (pin : Array Bool)
         have hd := (keepsNext_iff input kept).1 hk |>.2 j (List.mem_range.1 hj) hu
         simp [skipped, hp, hu, untouched_writesOf input kept hco j i hc hd]
       · simp [skipped, hp, hu]
-
-/-- **Safety of the full publication.** Even publishing every unpinned node, untouched ones
-included, a decision that keeps `next` unchanged writes into no object `next` holds. -/
-theorem publishedWrites_not_next (input : Input) (pin : Array Bool) (kept : Array (Option Nat))
-    (hco : Coherent input) (hk : keepsNext input kept = true) :
-    ∀ e ∈ publishedWrites input pin kept, nextHolds input e.1 = false := by
-  rw [← writesOfDecision_eq_publishedWrites input pin kept hco hk]
-  exact writesOfDecision_keepsNext input pin kept hk
 
 /-- **The second clause is exact.** An untouched node with a reference that is not untouched
 takes a write into `next`'s own object when it is published, unless it is a view, whose buffer the

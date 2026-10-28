@@ -315,10 +315,10 @@ function reconcileCase(r: Realized): Reconciled {
   return { expected, next: nextFailures(r, expected, before), rejected, result }
 }
 
-/** The failures of a rejected call, which keeps `next`; undefined when there are none and the
- * call is rejected because `current` cannot match `next`, which does not count as a case. */
+/** The failures of a rejected call, which keeps `next`; undefined when there are none, since a
+ * rejected call does not count as a case. */
 const rejectedFailures = (done: Reconciled): string[] | undefined =>
-  done.rejected === 'PublicationRejected' && done.next.length === 0 ? undefined : done.next
+  done.rejected !== undefined && done.next.length === 0 ? undefined : done.next
 
 /** Every current object in the result is kept at a position current held it, with its
  * attributes; `next` can share it into other positions, which the shape check covers. The own

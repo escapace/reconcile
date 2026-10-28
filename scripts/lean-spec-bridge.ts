@@ -5,9 +5,9 @@
 // holds included. A rejection must have the reference's reason: `PublicationWouldChangeNext` exactly
 // when the reference's decision would change `next` (`changesNext`). Whatever the outcome, `next`
 // must read back after the call with the identities and contents it had before. Every `reconcile`
-// batch also checks fixed cases the random graphs need not produce: the examples of
-// `Spec.KeepsNext`, and a walk that reaches a root in a call that succeeds. A standalone batch fails
-// on any difference.
+// batch also checks fixed cases, some of shapes the random graphs almost never produce: the
+// examples of `Spec.KeepsNext`, and a walk that reaches a root in a call that succeeds. A standalone
+// batch fails on any difference.
 //
 // The round trip runs `serialize`, JSON text and `deserialize` on the graphs restricted to what
 // `serialize` accepts and compares the restored value with the reference's `snapshot`.
@@ -1367,6 +1367,7 @@ const graphFeatures = (c: Case): Feature[] => [
   ['cycle', hasCycle(c.cur)],
   ['shared', [...referrers(c.cur).values()].some((n) => n > 1)],
   ['pinned', c.same.some((s) => s !== null)],
+  ['nextHoldsRoot', c.same.includes(0)],
   [
     'mapObjectKey',
     c.cur.nodes.some((n) => n.kind === 'map' && n.entries.some(([k]) => isReference(k))),

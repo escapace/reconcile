@@ -678,7 +678,6 @@ const SEEDS = 1500
 
 /** Both outcomes occur often enough to matter. */
 function assertMixed({ cases, rejected }: Tally): void {
-  console.log(`TALLY ${cases} ${rejected}`)
   assert.isAbove(cases, SEEDS * 0.9, 'cases built')
   assert.isAbove(rejected, cases / 20, 'rejections')
   assert.isBelow(rejected, cases - cases / 20, 'rejections')

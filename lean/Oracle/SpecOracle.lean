@@ -41,10 +41,8 @@ instance : FromJson Request where
 
 /-- The phases of the reference for one case, which the runtime's discovery and decisions must
 agree with: the visit order, the pinning alignment and the pinned nodes; each node's admitted
-candidates in decision order, with the requirements each one's fixed slots make; the decision
-of each pass, up to the first that keeps no root or would change `next`, where the call stops;
-and whether the call stops because the last decision would change `next`, as `run` reports it
-(`phases_changesNext`). -/
+candidates in decision order, with the requirements each one's fixed slots make; and the decision
+of each pass, up to the first that keeps no root or would change `next`, where the call stops. -/
 structure Phases where
   order : List Nat
   first : Array (Option Nat)
@@ -52,19 +50,7 @@ structure Phases where
   candidates : Array (List Nat)
   required : Array (List (List (Nat × Nat)))
   rounds : List (Array (Option Nat))
-  changesNext : Bool
   deriving ToJson
-
-open Reconcile in
-/-- The passes of `run` on a normalized input, and whether the last one keeps the root but would
-change `next`. -/
-def roundsOf (input : Input) (al : Discovery) : List (Array (Option Nat)) × Bool :=
-  match input.cur.root, input.next.root with
-  | .ref _, .ref r =>
-    let passes := rounds input al r
-    let final := passes.getLastD #[]
-    (passes, (final[r]?.bind id).isSome && !keepsNext input final)
-  | _, _ => ([], false)
 
 open Reconcile in
 /-- The phases of `Reconcile.run` on `raw`. A current object inside a pinned subtree, which no
@@ -80,27 +66,9 @@ def phases (raw : Reconcile.Input) : Phases :=
   { order := al.order, first := al.first, pinned := pin,
     candidates := (Array.range n).map candidatesAt,
     required := (Array.range n).map fun j => (candidatesAt j).map (fixedRequirements input j),
-    rounds := (roundsOf input al).1,
-    changesNext := (roundsOf input al).2 }
-
-open Reconcile in
-/-- The phases report the rejection `run` reports. -/
-theorem phases_changesNext (raw : Reconcile.Input) :
-    (phases raw).changesNext = (Reconcile.run raw).changesNext := by
-  simp only [phases, roundsOf, Reconcile.run]
-  generalize normalized raw = input
-  split
-  · next c r hc hn =>
-    simp only [hc, hn]
-    generalize rounds input (discover input) r = passes
-    generalize passes.getLastD #[] = final
-    cases h : final[r]?.bind id with
-    | none => simp
-    | some x => cases k : keepsNext input final <;> simp [publish]
-  · next hne =>
-    split
-    · next c r hc hn => exact (hne c r hc hn).elim
-    · rfl
+    rounds := match input.cur.root, input.next.root with
+      | .ref _, .ref r => rounds input al r
+      | _, _ => [] }
 
 def answer (request : Request) : Except String Json :=
   match request.op with

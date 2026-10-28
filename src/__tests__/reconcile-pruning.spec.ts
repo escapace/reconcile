@@ -23,7 +23,7 @@ describe('identical-occupant pruning', () => {
     assert.equal(reads, 1)
   })
 
-  it('throws when next reaches current through an object in place that refers to it', () => {
+  it('throws when next reaches current through an object in place, reading its getter twice', () => {
     let reads = 0
     const placed = {
       get value(): number {
@@ -36,43 +36,36 @@ describe('identical-occupant pruning', () => {
     const link = { up: current, p: placed }
     current.a = link
     // `next` holds current itself through link, so keeping current as the root would change next.
-    assertWouldChangeNext(current, { a: link, b: placed, n: 1 })
+    // While `next` is read, the walk from link reads placed before it meets current, and the walk
+    // that keeps placed in place reads it again (Spec.Promises, insideRootRef).
+    const error = thrown(() => reconcile(current, { a: link, b: placed, n: 1 }))
+    assert.ok(isReconcileError(error))
+    assert.deepEqual(error.cause, { type: 'PublicationWouldChangeNext' })
+    assert.equal(reads, 2)
     assert.equal(current.a, link)
     assert.equal(current.b, placed)
     assert.equal(link.p, placed)
     assert.notProperty(current, 'n')
-    assert.isAbove(reads, 0)
   })
 
-  it('captures a shared subtree that points at the next root so it reaches the live root', () => {
+  it('throws when an object in place refers to a root, or next holds current itself', () => {
+    // child stays in place, but the next root it refers to takes current: the call would change it.
     const child: { n: number; up?: object } = { n: 0 }
-    const current = { child, counter: 0 }
+    const shared = { child, counter: 0 }
     const next = { child, counter: 1 }
     child.up = next
-    // child stays in place, but what it refers to does not: the call would change next.
-    assertWouldChangeNext(current, next)
-    const result = reconcile(current, snapshot(next) as typeof next)
-    assert.equal(result, current)
-    assert.equal(current.child, child)
-    assert.equal(child.up, current)
-    assert.equal(current.counter, 1)
-  })
-
-  it('captures a subtree whose back reference reaches the current root, as before', () => {
-    const current: { child: { n: number; parent?: object }; counter: number } = {
+    assertWouldChangeNext(shared, next)
+    // `next` holds current through the back reference of an object in place.
+    const parented: { child: { n: number; parent?: object }; counter: number } = {
       child: { n: 0 },
       counter: 0,
     }
-    current.child.parent = current
-    const child = current.child
-    // `next` holds current through child, so the call would change next.
-    assertWouldChangeNext(current, { ...current, counter: 7 })
-    const result = reconcile(current, snapshot({ ...current, counter: 7 }))
-    assert.equal(result, current)
-    assert.equal(current.child, child)
-    assert.notEqual(child.parent, current)
-    assert.equal((child.parent as { counter: number }).counter, 0)
-    assert.equal(current.counter, 7)
+    parented.child.parent = parented
+    assertWouldChangeNext(parented, { ...parented, counter: 7 })
+    // `next` holds current itself.
+    const cyclic: { counter: number; self?: object } = { counter: 0 }
+    cyclic.self = cyclic
+    assertWouldChangeNext(cyclic, { counter: 1, self: cyclic })
   })
 
   it('never reuses an object inside a pinned subtree for another position', () => {
@@ -201,19 +194,6 @@ describe('identical-occupant pruning', () => {
     assert.equal(other.n, 0)
     assert.equal(current.b, box)
     assert.equal(box.placed, placed)
-  })
-
-  it('publishes a reference to the current root as a copy of its old state, as before', () => {
-    const current: { counter: number; self?: object } = { counter: 0 }
-    current.self = current
-    // `next` holds current itself, so keeping current as the root would change next.
-    assertWouldChangeNext(current, { counter: 1, self: current })
-    assert.equal(current.self, current)
-    const result = reconcile(current, snapshot({ counter: 1, self: current }))
-    assert.equal(result, current)
-    assert.equal(current.counter, 1)
-    assert.notEqual(current.self, current)
-    assert.equal((current.self as { counter: number }).counter, 0)
   })
 
   it('pins collections and dates but not buffers or views', () => {

@@ -526,12 +526,43 @@ const holders: ByKind<[rng: Rng, reference: Value], void> = {
   view: () => undefined,
 }
 
+/** How often `next` holds a current object whose subtree reaches the current root, which makes
+ * `next` hold `current` itself, so that the call is rejected whatever else the case holds. The
+ * enumeration covers that rejection, so random cases rarely spend themselves on it. */
+const P_ROOT_REACHING = 0.1
+
+/** The current nodes whose subtree reaches the current root, the root included. */
+function reachingRoot(current: Graph): Set<number> {
+  const reaching = new Set<number>([0])
+  for (let changed = true; changed;) {
+    changed = false
+    current.nodes.forEach((n, id) => {
+      if (!reaching.has(id) && referencesOf(n).some((r) => reaching.has(r))) {
+        reaching.add(id)
+        changed = true
+      }
+    })
+  }
+  return reaching
+}
+
+/** Whether `next` may hold current node `c`: always when its subtree misses the current root, else
+ * rarely (`P_ROOT_REACHING`). */
+const mayHold = (rng: Rng, reaching: ReadonlySet<number>, c: number): boolean =>
+  !reaching.has(c) || rng.chance(P_ROOT_REACHING)
+
 /** The positions that hold the current object they mirror, chosen before any node is remapped so
  * that each current object is one next node. */
-function pickInPlace(rng: Rng, size: number, options: Options): Set<number> {
+function pickInPlace(
+  rng: Rng,
+  size: number,
+  options: Options,
+  reaching: ReadonlySet<number>,
+): Set<number> {
   const inPlace = new Set<number>()
   if (options.same !== true) return inPlace
-  for (let index = 1; index < size; index += 1) if (rng.chance(0.12)) inPlace.add(index)
+  for (let index = 1; index < size; index += 1)
+    if (rng.chance(0.12) && mayHold(rng, reaching, index)) inPlace.add(index)
   return inPlace
 }
 
@@ -557,17 +588,21 @@ function sameNodes(
   return of
 }
 
-/** Positions elsewhere that hold a current object, including cycles back to the current root. */
+/** Positions elsewhere that hold a current object, rarely one whose subtree reaches the current
+ * root (`mayHold`). */
 function addHolders(
   rng: Rng,
   nodes: GraphNode[],
   same: Array<number | null>,
   sameNode: (c: number) => number,
+  reaching: ReadonlySet<number>,
 ): void {
   const size = same.length
   for (let attempt = rng.int(3); attempt > 0; attempt -= 1) {
     const host = rng.int(size)
-    if (same[host] === null) byKind(holders, nodes[host], rng, { ref: sameNode(rng.int(size)) })
+    const c = rng.int(size)
+    if (same[host] === null && mayHold(rng, reaching, c))
+      byKind(holders, nodes[host], rng, { ref: sameNode(c) })
   }
 }
 
@@ -602,13 +637,14 @@ function genNext(
   const same: Array<number | null> = nodes.map(() => null)
   const size = current.nodes.length
   const references = Array.from({ length: size }, (_, index) => index)
-  const inPlace = pickInPlace(rng, size, options)
+  const reaching = reachingRoot(current)
+  const inPlace = pickInPlace(rng, size, options, reaching)
   const sameNode = sameNodes(current, nodes, same, inPlace)
   for (let index = 0; index < size; index += 1) {
     if (inPlace.has(index)) sameNode(index)
     else nodes[index] = mutateNode(rng, nodes[index], references, options)
   }
-  if (options.same === true) addHolders(rng, nodes, same.slice(0, size), sameNode)
+  if (options.same === true) addHolders(rng, nodes, same.slice(0, size), sameNode, reaching)
   // A view that is a current object keeps its buffer, which is one too.
   bindViews(rng, nodes, (id) => same[id] !== null && same[id] !== undefined)
   while (same.length < nodes.length) same.push(null)

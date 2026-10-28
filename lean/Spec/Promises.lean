@@ -2090,11 +2090,11 @@ theorem freshGets_le_one (input : Input) : ∀ e ∈ (run input).freshGets, e.2.
     exact (captureReads_once _ _).1 _ _
   · simp
 
-/-- A pass writes only to objects its decision keeps at unpinned nodes; `Spec.KeepsNext` adds that
-the node is not untouched either. -/
+/-- A pass publishes, and so writes and reads back, only nodes it does not skip, which are neither
+pinned nor untouched. -/
 theorem mem_writesOfDecision {input : Input} {pin : Array Bool} {kept : Array (Option Nat)}
     {e : Nat × String × String} (h : e ∈ writesOfDecision input pin kept) :
-    ∃ j, j < input.next.nodes.size ∧ pin[j]?.getD false = false ∧
+    ∃ j, j < input.next.nodes.size ∧ skipped input pin kept j = false ∧
       kept[j]?.bind id = some e.1 := by
   simp only [writesOfDecision, List.mem_flatMap, List.mem_range] at h
   obtain ⟨j, hj, he⟩ := h
@@ -2104,8 +2104,7 @@ theorem mem_writesOfDecision {input : Input} {pin : Array Bool} {kept : Array (O
     · simp at he
     · rename_i hp
       obtain ⟨⟨k, w⟩, _, rfl⟩ := List.mem_map.1 he
-      simp only [skipped, Bool.or_eq_true, not_or] at hp
-      exact ⟨j, hj, by simpa using hp.1, hi⟩
+      exact ⟨j, hj, by simpa using hp, hi⟩
   · simp at he
 
 /-- A pass reads back only objects its decision keeps at unpinned nodes. -/
@@ -2197,7 +2196,8 @@ theorem run_pinned (raw : Input)
     obtain ⟨l, hl, he⟩ := List.mem_flatten.1 ((eraseDups_spec _).1 _ he)
     obtain ⟨kept, hk, rfl⟩ := List.mem_map.1 hl
     obtain ⟨b, _, hb, hbi⟩ := mem_writesOfDecision he
-    exact hkeep r kept hk b hb (hei ▸ hbi)
+    simp only [skipped, Bool.or_eq_false_iff] at hb
+    exact hkeep r kept hk b hb.1 (hei ▸ hbi)
   have hgets : ∀ (r : Nat) (captured : List (Nat × String))
       (readbacks : List (List (Nat × String))),
       (∀ l ∈ readbacks, ∃ kept ∈ rounds (normalized raw) (discover (normalized raw)) r,
