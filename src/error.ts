@@ -86,9 +86,9 @@ export interface ReconcileErrorMetadata {
   PublicationRejected: {}
   /**
    * `reconcile` would have to write into an object that `next` holds, for example because `next`
-   * holds an object of `current` at another position, so it stopped before that write. `next` is
+   * holds an object of `current` at another position, so it threw before that write. `next` is
    * unchanged. `current` is unchanged too, unless `reconcile` had already written and was trying
-   * again; those writes are not rolled back.
+   * again after an object blocked a change; those writes are not rolled back.
    */
   // eslint-disable-next-line typescript/no-empty-object-type
   PublicationWouldChangeNext: {}

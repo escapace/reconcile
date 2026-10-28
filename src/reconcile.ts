@@ -16,6 +16,21 @@ import { publicationTypes } from './types/builtins'
  * `Error`, as it is, and any other object as a new copy. A kept object keeps its prototype: a class
  * instance updated from a plain object stays an instance of its class.
  *
+ * `reconcile` never writes into an object that `next` holds. When matching by position would, it
+ * throws `PublicationWouldChangeNext` instead. This happens when `next` holds an object of
+ * `current` at another position and a value of the same type at the object's own position, where
+ * the object would be kept, as after a reorder, an insert or a removal. This includes a `next` that
+ * holds `current` itself below a new root, for example through an object that refers back to
+ * `current`. It also happens when `next` holds an object at its own position but an object below it
+ * would be replaced or kept at another position. An object that `next` holds at its own position,
+ * with every object below it kept as itself, is kept without a write.
+ *
+ * The check compares no contents, so it also throws when an object that `next` holds at another
+ * position already holds the contents that `next` has at the object's own position, for example an
+ * equal Temporal value, which `reconcile` never writes. It does not cover an object that `next`
+ * reaches only through a prototype, a function, another object kept by reference or a proxy's
+ * target. To match such a `next` by position, pass a detached copy, `snapshot(next)`.
+ *
  * When `current` holds one object at two positions and `next` holds different objects there, the
  * object is kept at the first of them in the order `reconcile` reads `next`, and the others
  * receive new objects. Afterwards `current` has the key order, array lengths and holes, entry
@@ -54,7 +69,8 @@ import { publicationTypes } from './types/builtins'
  *
  * On an object that `reconcile` keeps and updates, an own getter for a key that `next` also has
  * runs once when the call writes nothing and twice when it writes anything: once when `reconcile`
- * compares its value and again when it checks the result. When the check finds that an object
+ * compares its value and again when it checks the result. An object that `next` holds at its own
+ * position is not checked, so its getter runs at most once. When the check finds that an object
  * inside `current` blocked a change, for example through a setter that does not store its value,
  * `reconcile` replaces that object and tries again; each retry runs the getter at most once more.
  * These counts leave out reading `next`, which also runs the getters of any object of `current`
@@ -74,7 +90,7 @@ import { publicationTypes } from './types/builtins'
  * unless it is inside another object that stays, when it is a buffer, view, URL or
  * `URLSearchParams`, or when `next` holds it first, in the order `reconcile` reads `next`, at a
  * position where it is not already in place. An object is never already in place as a key, value
- * or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is updated
+ * or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is matched
  * like any other.
  *
  * An object that stays is exempt from the rules above for one object at two positions: it keeps

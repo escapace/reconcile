@@ -24,9 +24,10 @@ its trace keeps the _read discipline_:
   Reads of `next` do not count: when `next` holds an object of `current`, `reconcile` can read it
   more than once as part of `next`, as the [`reconcile` remarks](../README.md#function-reconcile-)
   state.
-- After any write, readback reads every unpinned node again, once per pass, so an own getter of
-  `current` runs at most once without writes, twice with them and once more per _demotion pass_ (a
-  pass that decides again without a blocked object), not counting reads of `next` or proxy traps.
+- After any write, readback reads again, once per pass, every node that is neither pinned nor
+  _untouched_ (kept as the very object of `next` it is), so an own getter of `current` runs at most
+  once without writes, twice with them and once more per _demotion pass_ (a pass that decides
+  again without a blocked object), not counting reads of `next` or proxy traps.
 
 Within that discipline the exact trace is internal: a change may drop, merge or reorder reads if
 the new trace is deterministic. A getter or trap that changes what the call already read before the
@@ -81,8 +82,11 @@ can.
    first candidate of each node that qualifies: it is not blocked, it is not kept at another
    node, and each object its fixed slots hold is kept at that slot's node. A different decision
    for the same candidates is a behavior change.
-4. _Write_ (observes; `publication/publication-engine.ts`, `graph/construction.ts`) allocates the
-   new objects in construction order, writes every node, new objects first, and reads each written
+4. _Write_ (observes; `publication/publication-engine.ts`, `graph/construction.ts`). Before each
+   pass allocates, `keepsNextAt` checks, without reading an application object, that the decision
+   writes into no object `next` holds (`Spec.KeepsNext`); otherwise `reconcile` throws
+   `PublicationWouldChangeNext`. The pass then allocates the new objects in construction order,
+   writes every node but the pinned and untouched ones, new objects first, and reads each written
    object back to confirm the write (_readback_). A kept object whose write is refused or does not
    read back is _blocked_: the next pass decides again without it, every object the earlier pass
    wrote staying at its node, and the passes end when no object is blocked; a blocked root rejects
@@ -149,10 +153,13 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   because they catch unsound shortcuts: the public API fuzz files
   (`src/__tests__/public-api-fuzz*.spec.ts`); the invariants file
   (`src/__tests__/public-api-invariants.spec.ts`), which checks the documented contracts on graphs
-  of up to 120 objects; and the native differential file
+  of up to 120 objects; the native differential file
   (`src/__tests__/native-differential.spec.ts`), which compares `produce` and `reconcile` results,
-  descriptors included, with native JavaScript applied to plain copies. The README rules that let a
-  result differ from native mutation are the policies in its fixture.
+  descriptors included, with native JavaScript applied to plain copies; and the stress file
+  (`src/__tests__/reconcile-keeps-next-stress.spec.ts`), which builds `next` from `current` with
+  immutable idioms and `produce` recipes and checks that `reconcile` never changes `next`, with the
+  helpers in `src/__tests__/fixtures/graph-state.ts`. The README rules that let a result differ
+  from native mutation are the policies in the native differential fixture.
 - **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
   regenerates the README's API section. A new export also goes into `OPERATIONS` or `OTHERS` and the
   smoke `checks` in `scripts/bundle-size.ts`. Errors follow `src/error.ts`: one factory per
