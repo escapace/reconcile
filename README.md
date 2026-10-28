@@ -49,7 +49,7 @@ reconcile(state, { user: { name: 'Grace' }, items: [{ id: 1 }, { id: 2 }] })
 // state.user is still `user`, now named 'Grace'; state.items has two items
 ```
 
-Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. An array element is not matched by an identifier such as `id`, and a `Map` entry is not matched by its key. When `next` holds new objects, inserting an element at the front of an array therefore shifts contents, not objects: each existing element object takes the contents of the element now at its index, so code that holds `items[0]` sees the new first element:
+Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. An array element is not matched by an identifier such as `id`, and a `Map` entry is not matched by its key. So when `next` holds new objects, inserting an element at the front of an array shifts contents, not objects: each existing element object takes the contents of the element now at its index, so code that holds `items[0]` sees the new first element:
 
 ```ts
 const state = { items: [{ id: 1 }, { id: 2 }] }
@@ -59,12 +59,12 @@ reconcile(state, { items: [{ id: 0 }, { id: 1 }, { id: 2 }] })
 // state.items[0] is still `first`, now { id: 0 }
 ```
 
-`Map` and `Set` entries work the same way: after a reorder, the first entry's value, key object or `Set` member stays first and takes the contents of the new first entry. To match objects by identifier, store them in a plain object keyed by identifier, not in an array, `Map` or `Set`.
+`Map` and `Set` entries work the same way: when `next` holds new objects in another order, the first entry's value, key object or `Set` member remains first and takes the contents of the new first entry. To match objects by identifier, store them in a plain object keyed by identifier, not in an array, `Map` or `Set`.
 
 - An existing object at a matched position is kept and its contents are updated. A value of a different type, such as an array where an object was, replaces it. An object that `next` adds is a new copy, except for functions and other [objects kept by reference](#objects-kept-by-reference), such as a `RegExp`.
 - Only changed values are written, by ordinary assignment, so setters and watchers run only for values that changed or moved: to reach the key order of `next`, `reconcile` deletes and adds back the properties and the `Map` and `Set` entries that move. `reconcile(state, { ...state, count: 1 })` writes only `count`; [Object identity](#object-identity) gives the rule.
 
-`reconcile` never changes `next` or an object it holds. When `next` holds an object of `current` at a different position and a value of the same type at the object's own position, as after a reorder or after inserting or removing an element before it, matching by position would keep the object at its own position and write that value's contents into it. `reconcile` throws a `ReconcileError` of type `PublicationWouldChangeNext` instead. To shift contents as above, pass a detached copy of `next`; `next` itself still holds the objects of `current`, so it shows their new contents:
+`reconcile` never changes `next` or an object it holds; [`reconcile` limitations](#reconcile-limitations) says what this covers. When `next` holds an object of `current` at another position and another value of the same type at the object's own position, matching by position could keep the object there, if it can be changed in place, and give it that value's contents, changing `next`, which holds the same object. This happens after reordering, inserting or removing array elements or `Map` or `Set` entries before the object, or after swapping two properties. `reconcile` throws a `ReconcileError` of type `PublicationWouldChangeNext` instead, even when the contents are already equal. For a `next` that holds `current` itself, see [Object identity](#object-identity). To shift contents as above, pass a detached copy of `next`:
 
 ```ts
 const state = { items: [{ id: 1 }, { id: 2 }] }
@@ -72,9 +72,10 @@ const next = { items: [{ id: 0 }, ...state.items] } // next.items[1] is state.it
 
 reconcile(state, next) // throws PublicationWouldChangeNext
 reconcile(state, snapshot(next)) // state.items[0] is the same object, now { id: 0 }
+// next still holds state's objects, so next.items now reads [{ id: 0 }, { id: 0 }, { id: 1 }]
 ```
 
-When `next` lacks the object's own position, or has a value of another type there, `current` drops the object unchanged. An object inside an [object already in place](#object-identity) is the exception: `current` then holds it at both positions.
+When `next` holds an object of `current` at another position but lacks the object's own position, or has a value of another type there, `current` drops the object unchanged. When `next` also holds the object at its own position, as when the object is inside an [object already in place](#object-identity), `current` can hold it at both positions.
 
 When both arguments are objects that are not [kept by reference](#objects-kept-by-reference), `reconcile` returns `current`; otherwise it returns `next` and changes nothing. When `current` cannot be made to match `next`, for example because one is an object and the other an array, `reconcile` throws a `ReconcileError` of type `PublicationRejected` (see [Errors](#errors)). A failed call is not rolled back. Objects inside `current` that cannot be changed in place, such as frozen plain objects and arrays, are replaced by copies; see [`reconcile` limitations](#reconcile-limitations).
 
@@ -119,7 +120,7 @@ reconcile(
 )
 ```
 
-Objects are matched by position, and the result of `produce` holds the elements and entries that the recipe leaves unchanged as the original objects. A recipe that reorders, inserts or removes array elements or `Map` or `Set` entries can therefore move such an object and make `reconcile` throw `PublicationWouldChangeNext`. See [Update objects in place](#update-objects-in-place) for when it throws and how to give existing objects the contents of other elements or entries instead.
+Objects are matched by position, and the result of `produce` holds the original object for each element or entry that the recipe leaves unchanged. A recipe that reorders, inserts or removes array elements or `Map` or `Set` entries can therefore leave such an object at another position and make `reconcile` throw `PublicationWouldChangeNext`; [Update objects in place](#update-objects-in-place) says when it throws and how to shift contents instead.
 
 `produce` finishes before `reconcile` starts, so an error in the recipe leaves `current` unchanged, apart from changes the recipe makes to objects that have no draft: `Map` key objects and [objects kept by reference](#objects-kept-by-reference). `reconcile` itself is not rolled back if it fails; see [`reconcile` limitations](#reconcile-limitations). When `current` comes from a getter or a function call, read it once into a variable, as above, and pass that variable to both functions, so that both receive the same object.
 
@@ -282,7 +283,7 @@ Each function keeps or replaces objects as follows:
 | `snapshot(value)`                             | No                                | All new, except objects kept by reference                                                        |
 | `deserialize(serialize(value), { maxBytes })` | No                                | All new                                                                                          |
 
-- **Objects already in place.** An object in `next` that is already the object at the same property or index in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. If an object inside `state` refers back to `state`, such as a parent pointer, that `next` holds `state` itself below a new root, and `reconcile` throws `PublicationWouldChangeNext`; build it with `produce` instead, which points the result's copy of that object at the new root. A successful call leaves `current` with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile-) give the exceptions, such as a buffer or view, or an object that `next` holds first at another position or inside a `Map` or `Set` entry.
+- **Objects already in place.** An object in `next` that is already the object at the same property or index in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. A successful call leaves `current` with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile-) give the exceptions, such as a buffer or view, or an object that `next` holds first at another position or inside a `Map` or `Set` entry. If an object inside `state` refers back to `state`, such as a parent pointer, `{ ...state, count: 1 }` still holds `state` through that pointer, so `reconcile` throws `PublicationWouldChangeNext`. Build `next` with a `produce` recipe that changes the draft and returns it instead: the result holds a copy of that object that points at the new root.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
@@ -369,7 +370,7 @@ Error messages can change between versions; branch on `cause.type`. After `isRec
 
 - `reconcile` throws:
   - `PublicationRejected` when `current` cannot be made to match `next`; see [`reconcile` limitations](#reconcile-limitations).
-  - `PublicationWouldChangeNext` when matching `next` by position would change an object that `next` holds; see [Update objects in place](#update-objects-in-place).
+  - `PublicationWouldChangeNext` when matching `next` by position could change an object that `next` holds; see [Update objects in place](#update-objects-in-place).
 - `produce` throws `DraftDefinePropertyUnsupported` when a recipe defines a property on an object or array draft. Its other types are rare; see [`produce`](#function-produce-).
 - `snapshot` throws `SnapshotURLSearchParamsMemoIncompatible` when its optional `seen` map holds the `searchParams` of a URL in `value` but not the URL; see [`snapshot`](#function-snapshot-).
 - `serialize` throws `SerializeValueUnsupported` for any value listed in [`serialize` and `deserialize` limitations](#serialize-and-deserialize-limitations).
@@ -409,11 +410,15 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 
 ### `reconcile` limitations
 
-- **Matched by position, not by identifier.** Array elements and `Map` and `Set` entries are matched by index and insertion order. When `next` moves an object of `current`, `reconcile` can throw `PublicationWouldChangeNext`; see [Update objects in place](#update-objects-in-place).
-- **Not rolled back.** A failed call is not rolled back: writes made before the failure stay, so `current` can hold some of the new values. This applies to `PublicationRejected`, to errors from getters, setters and proxy traps, and to `PublicationWouldChangeNext` when `reconcile` throws it while trying again after an object blocked a change; otherwise `PublicationWouldChangeNext` comes before any write.
+- **Matched by position, not by identifier.** Array elements and `Map` and `Set` entries are matched by index and insertion order. When `next` holds an object of `current` at another position, `reconcile` can throw `PublicationWouldChangeNext`; see [Update objects in place](#update-objects-in-place).
+- **Not rolled back.** A failed call is not rolled back: writes made before the failure stay, so `current` can hold some of the new values. This applies to `PublicationRejected` and to errors from getters, setters and proxy traps. `PublicationWouldChangeNext` comes before any write, unless `reconcile` throws it after replacing an object that blocked a change and deciding again.
 - **`current` itself must be updatable.** `reconcile` throws `PublicationRejected` when it cannot update `current` itself: for example, when `current` and `next` have different types, such as an object and an array, when `current` is a Temporal value that changed, or when `current` blocks a change, as described below. For more causes, see [`reconcile`](#function-reconcile-).
 - **Objects that block a change are replaced.** A change to a property is blocked by a frozen or non-extensible object, a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, or a proxy trap that refuses an assignment or deletion or does not carry it out. A setter or trap that changes another value during the call can also block a change; `reconcile` then replaces the object that holds the value or the object whose setter made the change. An object inside `current` that blocks a change is replaced by a new copy, so code that holds the old object does not see the change.
-- **Getters must not change values.** `reconcile` decides what to write from values it read earlier in the call, and checks the result only when it wrote something. A getter or proxy trap in `current` or `next` that changes a value of `current` during the call can therefore leave `current` different from `next` without an error. The promise that `reconcile` never changes `next` also assumes that each getter returns the same value on every read.
+- **Getters must not change values.** `reconcile` decides what to write from values it read earlier in the call, and checks the result only when it wrote something. A getter or proxy trap in `current` or `next` that changes a value of `current` during the call can therefore leave `current` different from `next` without an error.
+- **Where `next` can still change.** The promise that `reconcile` never changes `next` covers what `reconcile` reads of `next`: the own properties of plain objects and class instances, the elements of arrays, the entries of `Map` and `Set`, and the links between a view and its buffer and between a URL and its `searchParams`. It assumes that each getter and proxy trap returns the same value on every read. It does not cover:
+  - An object that `next` reaches only through state that `reconcile` does not read: a prototype, a function or another [object kept by reference](#objects-kept-by-reference), a property that a built-in value does not carry (see _Built-in values carry only their contents_ in [Limitations › All functions](#all-functions)), or a private field or an internal slot, such as an iterator's.
+  - An object of `next` that is the target of a proxy in `current`. `reconcile` treats a proxy and its target as separate objects, so a write into the proxy reaches the target. For example, when `current` holds reactive proxies of the raw objects that `next` holds, a swap of two raw objects does not throw: `reconcile` writes each one's contents into the other through the proxies, and `next` changes. Build `next` from the proxies instead, so that `reconcile` sees the swap and throws.
+  - Code that runs during the call, such as a setter or a proxy trap, which can change `next` itself.
 - **Inherited getters and setters.** `reconcile` never writes to or overrides a getter or setter that an object inherits, such as `get fullName()` in a class or one on `Object.prototype`. When `next` has such a key as an own property and the object lacks it, `reconcile` cannot update the object in place: an object inside `current` is replaced by a new copy, and `current` itself makes `reconcile` throw `PublicationRejected` before any write. To apply data through a class setter, assign it in a `produce` recipe and reconcile the result, as in [Apply a recipe in place](#apply-a-recipe-in-place).
 - **Getters and setters keep their place in key order.** A getter or setter defined on the object itself keeps its place, because JavaScript can move a property only by deleting and recreating it. Other keys are reordered around it; when the key order of `next` cannot be reached that way, the object is replaced, or `reconcile` throws when it is `current` itself, as for an inherited getter or setter.
 
@@ -613,10 +618,10 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Parameters
 
-| Parameter | Type               | Description                                                                               |
-| --------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| `current` | <pre>unknown</pre> | The value to update.                                                                      |
-| `next`    | <pre>T</pre>       | The value `current` should match. `reconcile` never changes `next` or an object it holds. |
+| Parameter | Type               | Description                                                                                                                                         |
+| --------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `current` | <pre>unknown</pre> | The value to update.                                                                                                                                |
+| `next`    | <pre>T</pre>       | The value `current` should match. `reconcile` never changes `next` or an object it holds, within the limits that the `reconcile` limitations state. |
 
 ### Returns
 
@@ -625,16 +630,14 @@ export declare function reconcile<T>(current: unknown, next: T): T
 ### Throws
 
 1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. Writes made before the failure are not rolled back.
-2. [ReconcileError](#class-reconcileerror-) with type `PublicationWouldChangeNext` when matching `next` would write into an object that `next` holds, such as an object of `current` that `next` holds at another position. Neither argument has changed, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
+2. [ReconcileError](#class-reconcileerror-) with type `PublicationWouldChangeNext` when matching `next` by position could write into an object that `next` holds, such as an object of `current` that `next` holds at another position. Neither argument has changed, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
 3. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
 
 ### Remarks
 
 Values are matched by position: object properties by key, array elements by index, and `Map` and `Set` entries by insertion order. A current object at a matched position is kept and updated when the next value has the same type, such as object, array or `Map`; otherwise the position receives the next value: a primitive or an object kept by reference, such as a function, `RegExp` or `Error`, as it is, and any other object as a new copy. A kept object keeps its prototype: a class instance updated from a plain object stays an instance of its class.
 
-`reconcile` never writes into an object that `next` holds. When matching by position would, it throws `PublicationWouldChangeNext` instead. This happens when `next` holds an object of `current` at another position and a value of the same type at the object's own position, where the object would be kept, as after a reorder, an insert or a removal. This includes a `next` that holds `current` itself below a new root, for example through an object that refers back to `current`. It also happens when `next` holds an object at its own position but an object below it would be replaced or kept at another position. An object that `next` holds at its own position, with every object below it kept as itself, is kept without a write.
-
-The check compares no contents, so it also throws when an object that `next` holds at another position already holds the contents that `next` has at the object's own position, for example an equal Temporal value, which `reconcile` never writes. It does not cover an object that `next` reaches only through a prototype, a function, another object kept by reference or a proxy's target. To match such a `next` by position, pass a detached copy, `snapshot(next)`.
+`reconcile` never writes into an object that `next` holds. When matching by position could, it throws `PublicationWouldChangeNext` instead. This happens when `next` holds an object of `current` at another position and another value of the same type at the object's own position, where the object can be kept, as after a reorder, an insert or a removal. This includes a `next` that holds `current` itself below a new root, for example through an object that refers back to `current`. It also happens when `next` holds an object at its own position but matching replaces an object below it or keeps that object at another position. To match such a `next` by position, pass a detached copy, `snapshot(next)`.
 
 When `current` holds one object at two positions and `next` holds different objects there, the object is kept at the first of them in the order `reconcile` reads `next`, and the others receive new objects. Afterwards `current` has the key order, array lengths and holes, entry order, shared references and cycles of `next`.
 
@@ -650,11 +653,13 @@ On an object that `reconcile` keeps and updates, an own getter for a key that `n
 
 An object in `next` that is already the object at the same property or index of the matched current object stays in place: `reconcile` reads its contents as part of `next` and does not change them. `reconcile(state, { ...state, count: 1 })` therefore writes only `count`. Objects inside an object that stays also stay, and a successful call leaves `current` with the same contents as if each of them had been updated.
 
-An object does not stay when it refers to `current` or `next` at any depth. Nor does it stay, unless it is inside another object that stays, when it is a buffer, view, URL or `URLSearchParams`, or when `next` holds it first, in the order `reconcile` reads `next`, at a position where it is not already in place. An object is never already in place as a key, value or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is matched like any other.
+An object does not stay when it refers to `current` or `next` at any depth. Nor does it stay, unless it is inside another object that stays, when it is a buffer, view, URL or `URLSearchParams`, or when `next` holds it first, in the order `reconcile` reads `next`, at a position where it is not already in place. An object is never already in place as a key, value or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is matched like any other; when `next` holds it at its own position and every object below it is also kept as itself, it is kept without a write.
 
 An object that stays is exempt from the rules above for one object at two positions: it keeps its position, and `current` also holds it wherever else `next` places it. When a `URLSearchParams` stays, `current` also holds the URL that owns it wherever `next` places that URL. An object inside `current` that cannot hold one of these objects, such as a frozen object, is replaced; if `current` itself cannot, the call throws `PublicationRejected`. When the call succeeds, only which objects `current` holds can differ from those rules, not the contents it ends with.
 
 `reconcile` runs each getter of an object that stays once, as part of `next`, unless `current` or `next` also holds the object, or an object that contains it, at another position, including in a `Map` or `Set`, or the object is inside an object of `next` that refers to `current` or `next`. In those cases it can run a getter more than once, as part of `next` or of `current`.
+
+Whether `reconcile` throws `PublicationWouldChangeNext` depends on which objects `next` holds, not on their contents, so it also throws when an object that `next` holds at another position already has the contents that `next` has at the object's own position, for example when both are equal Temporal values, which need no write.
 
 ### Examples
 
@@ -990,7 +995,7 @@ PublicationRejected: {
 
 ### ReconcileErrorMetadata.PublicationWouldChangeNext
 
-`reconcile` would have to write into an object that `next` holds, for example because `next` holds an object of `current` at another position, so it threw before that write. `next` is unchanged. `current` is unchanged too, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
+`reconcile` could have written into an object that `next` holds, for example because `next` holds an object of `current` at another position, so it threw instead. `next` is unchanged. `current` is unchanged too, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
 
 ```typescript
 PublicationWouldChangeNext: {

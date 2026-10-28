@@ -16,20 +16,14 @@ import { publicationTypes } from './types/builtins'
  * `Error`, as it is, and any other object as a new copy. A kept object keeps its prototype: a class
  * instance updated from a plain object stays an instance of its class.
  *
- * `reconcile` never writes into an object that `next` holds. When matching by position would, it
+ * `reconcile` never writes into an object that `next` holds. When matching by position could, it
  * throws `PublicationWouldChangeNext` instead. This happens when `next` holds an object of
- * `current` at another position and a value of the same type at the object's own position, where
- * the object would be kept, as after a reorder, an insert or a removal. This includes a `next` that
- * holds `current` itself below a new root, for example through an object that refers back to
- * `current`. It also happens when `next` holds an object at its own position but an object below it
- * would be replaced or kept at another position. An object that `next` holds at its own position,
- * with every object below it kept as itself, is kept without a write.
- *
- * The check compares no contents, so it also throws when an object that `next` holds at another
- * position already holds the contents that `next` has at the object's own position, for example an
- * equal Temporal value, which `reconcile` never writes. It does not cover an object that `next`
- * reaches only through a prototype, a function, another object kept by reference or a proxy's
- * target. To match such a `next` by position, pass a detached copy, `snapshot(next)`.
+ * `current` at another position and another value of the same type at the object's own position,
+ * where the object can be kept, as after a reorder, an insert or a removal. This includes a `next`
+ * that holds `current` itself below a new root, for example through an object that refers back to
+ * `current`. It also happens when `next` holds an object at its own position but matching replaces
+ * an object below it or keeps that object at another position. To match such a `next` by position,
+ * pass a detached copy, `snapshot(next)`.
  *
  * When `current` holds one object at two positions and `next` holds different objects there, the
  * object is kept at the first of them in the order `reconcile` reads `next`, and the others
@@ -91,7 +85,8 @@ import { publicationTypes } from './types/builtins'
  * `URLSearchParams`, or when `next` holds it first, in the order `reconcile` reads `next`, at a
  * position where it is not already in place. An object is never already in place as a key, value
  * or member of a `Map` or `Set`, or anywhere inside one. An object that does not stay is matched
- * like any other.
+ * like any other; when `next` holds it at its own position and every object below it is also kept
+ * as itself, it is kept without a write.
  *
  * An object that stays is exempt from the rules above for one object at two positions: it keeps
  * its position, and `current` also holds it wherever else `next` places it. When a
@@ -106,6 +101,11 @@ import { publicationTypes } from './types/builtins'
  * in a `Map` or `Set`, or the object is inside an object of `next` that refers to `current` or
  * `next`. In those cases it can run a getter more than once, as part of `next` or of `current`.
  *
+ * Whether `reconcile` throws `PublicationWouldChangeNext` depends on which objects `next` holds,
+ * not on their contents, so it also throws when an object that `next` holds at another position
+ * already has the contents that `next` has at the object's own position, for example when both are
+ * equal Temporal values, which need no write.
+ *
  * @example
  * ```ts
  * const state = { user: { name: 'Ada' }, tags: ['a'] }
@@ -115,7 +115,7 @@ import { publicationTypes } from './types/builtins'
  *
  * @param current - The value to update.
  * @param next - The value `current` should match. `reconcile` never changes `next` or an object it
- * holds.
+ * holds, within the limits that the `reconcile` limitations state.
  * @returns `current` when both arguments are objects that are not kept by reference, otherwise
  * `next`.
  * @throws {@link ReconcileError} with type `PublicationRejected` when `current` cannot be made to
@@ -128,10 +128,10 @@ import { publicationTypes } from './types/builtins'
  * have to move to reach the key order of `next`, or a value that another property's setter changes
  * during the call. Inside `current`, such an object is replaced by a new one instead. Writes made
  * before the failure are not rolled back.
- * @throws {@link ReconcileError} with type `PublicationWouldChangeNext` when matching `next` would
- * write into an object that `next` holds, such as an object of `current` that `next` holds at
- * another position. Neither argument has changed, unless `reconcile` had already written and was
- * trying again after an object blocked a change; those writes are not rolled back.
+ * @throws {@link ReconcileError} with type `PublicationWouldChangeNext` when matching `next` by
+ * position could write into an object that `next` holds, such as an object of `current` that
+ * `next` holds at another position. Neither argument has changed, unless `reconcile` had already
+ * written and was trying again after an object blocked a change; those writes are not rolled back.
  * @throws Errors thrown by getters, setters or proxy traps propagate unchanged, also without
  * rollback.
  */

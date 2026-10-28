@@ -136,19 +136,20 @@ instead maps the main promises of the public functions to their theorems, bridge
 
 ### Reference models
 
-| Module(s)        | Key theorems                                                                                                                                                                                                                                                                           | Runtime                                                                                                                                                                                                                | Bridge            | Obligations                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------- |
-| `Spec.Graph`     | `Graph.normalize`, `Obj.copy` (definitions)                                                                                                                                                                                                                                            | the graphs the bridge builds and reads back                                                                                                                                                                            | Spec              | Spec agreement                              |
-| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `rounds`, `retainPrefix`, `captureReads`, `keepWalk`, `keepsNext`, `skipped` (definitions)                                                                                                                                                      | `src/reconcile.ts` `reconcile`; the reads of `next` by `AlignedCapture` and its `keep` in `src/publication/capture.ts`                                                                                                 | Spec, Spec phases | Spec agreement, Spec phases                 |
-| `Spec.KeepsNext` | `keepsNext_iff`, `keepsNext_cur`, `writesOfDecision_keepsNext`, `untouched_writesOf`, `writesOfDecision_eq_publishedWrites`, `publishedWrites_child`, `rounds_dropLast_writes_not_next`, `run_allWrites_not_next`, `run_changesNext`, `keepsNextAt_pinned`, `rounds_keepsNext_inPlace` | `keepsNextAt` and `allocate`, `skipped` in `publishPhase` and `readback`, and `remember` in `src/publication/publication-engine.ts`; each node's `source` and the graph's `references` in `src/publication/capture.ts` | Spec, Spec phases | Spec agreement, Spec phases, Next unchanged |
-| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                                                                                                                                                                                                                                     | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`                                                                                                                                                               | Spec              | Spec agreement                              |
-| `Spec.Promises`  | most theorems in [Promises](#promises)                                                                                                                                                                                                                                                 | the documented promises of `reconcile`, `produce` and `snapshot`                                                                                                                                                       | Spec              | Spec agreement                              |
-| `Spec.Discovery` | `candidates_eq_aligned`, `offersAligned_needed`, `captureChildren_map`                                                                                                                                                                                                                 | `candidates` in `src/publication/candidates.ts`, `offersOther` in `src/publication/capture.ts`                                                                                                                         | Spec phases       | Ordinal candidates                          |
+| Module(s)        | Key theorems                                                                                                                                                                                                                                            | Runtime                                                                                                                                                                                                                     | Bridge            | Obligations                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------- |
+| `Spec.Graph`     | `Graph.normalize`, `Obj.copy` (definitions)                                                                                                                                                                                                             | the graphs the bridge builds and reads back                                                                                                                                                                                 | Spec              | Spec agreement                              |
+| `Spec.Reconcile` | `run`, `discover`, `decide`, `demote`, `rounds`, `retainPrefix`, `captureReads`, `keepWalk`, `keepsNext`, `skipped` (definitions)                                                                                                                       | `src/reconcile.ts` `reconcile`; the reads of `next` by `AlignedCapture` and its `keep` in `src/publication/capture.ts`                                                                                                      | Spec, Spec phases | Spec agreement, Spec phases                 |
+| `Spec.KeepsNext` | `keepsNext_iff`, `writesOfDecision_keepsNext`, `writesOfDecision_eq_publishedWrites`, `run_allWrites_not_next`, `rounds_dropLast_writes_not_next`, `run_changesNext`, `keepsNextAt_pinned`, `rounds_keepsNext_inPlace`; `keepsNext_cur` (by definition) | `keepsNextAt`, `allocate`, `remember` and `skipped`, as `publishPhase` and `readback` use it, in `src/publication/publication-engine.ts`; each node's `source` and the graph's `references` in `src/publication/capture.ts` | Spec, Spec phases | Spec agreement, Spec phases, Next unchanged |
+| `Spec.Produce`   | `run`, `kept`, `rebuild`, `snapshot` (definitions)                                                                                                                                                                                                      | `src/produce.ts` `produce`, `src/snapshot.ts` `snapshot`                                                                                                                                                                    | Spec              | Spec agreement                              |
+| `Spec.Promises`  | most theorems in [Promises](#promises)                                                                                                                                                                                                                  | the documented promises of `reconcile`, `produce` and `snapshot`                                                                                                                                                            | Spec              | Spec agreement                              |
+| `Spec.Discovery` | `candidates_eq_aligned`, `offersAligned_needed`, `captureChildren_map`                                                                                                                                                                                  | `candidates` in `src/publication/candidates.ts`, `offersOther` in `src/publication/capture.ts`                                                                                                                              | Spec phases       | Ordinal candidates                          |
 
-The docstrings of `Spec.Graph`, `Spec.Reconcile`, `Spec.Produce`, `Spec.Discovery` and
-`Spec.KeepsNext` state their models and what each theorem proves; `Spec.KeepsNext` also gives the
-counterexamples that show each clause of its rule necessary and its first clause conservative. `Spec.Promises` proves most of the [promises](#promises) about
-these models; its docstring names the theorem for each promise.
+The docstrings of `Spec.Graph`, `Spec.Reconcile`, `Spec.KeepsNext`, `Spec.Produce` and
+`Spec.Discovery` state their models and what each theorem proves; `Spec.KeepsNext` also gives the
+examples that show each clause of its rule necessary and its first clause conservative.
+`Spec.Promises` proves most of the [promises](#promises) about these models; its docstring names
+the theorem for each promise.
 
 ### Promises
 
@@ -165,7 +166,7 @@ marks a part that the [runtime obligation](#runtime-obligations) of that name su
 | Keys and entries keep their place; the retained prefix is the longest                                                                                                                                                        | `retainPrefix_prefix`, `retainPrefix_sublist`, `retainPrefix_longest`, `objectWrites_delete_iff`, `entryWrites_delete_iff`, `CollectionPlan.publish_retained`                                                                                                                                                                                                                                                                                                                                                     | `Spec` (results), `PropertyOrder`, `CollectionWrites` (moves and other writes inside a kept `Map` or `Set`) | `reconcile-property-order.spec.ts`                                                                             |
 | An own getter or setter keeps its place in key order; when `next`'s order cannot be reached around it, the object is replaced or, if it is `current` itself, `reconcile` throws                                              | `retainPrefix_feasible_iff`, `PropertyPlacement.feasible_iff`, `reference_keeps_fixed_iff`                                                                                                                                                                                                                                                                                                                                                                                                                        | `PropertyPlacement`, `Spec` (results)                                                                       | `reconcile-accessors.spec.ts`                                                                                  |
 | A current object is kept only at its own position, and an object already in place nowhere else                                                                                                                               | `demote_candidate`, `demote_pinned`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | `Spec` (phases)                                                                                             | `readme-publication-semantics.spec.ts`, `reconcile-semantics.spec.ts`                                          |
-| `reconcile` never changes `next`; where it would, it throws `PublicationWouldChangeNext`, before any write when the first decision would                                                                                     | `Spec.KeepsNext.run_allWrites_not_next` (a call that succeeds), `rounds_dropLast_writes_not_next` (the passes before a rejection), `run_changesNext` (a rejection by the first decision comes before any pass); that the runtime's check sees every object `next` holds is _Next unchanged_                                                                                                                                                                                                                       | `Spec` (`next` read back after every call; the reason of each rejection), `Spec` (phases)                   | `reconcile-keeps-next-stress.spec.ts`, `readme-publication-semantics.spec.ts`                                  |
+| `reconcile` never changes `next`: where matching by position could, it throws `PublicationWouldChangeNext`, before any write when the first decision already could                                                           | `Spec.KeepsNext.run_allWrites_not_next` (a call that succeeds), `rounds_dropLast_writes_not_next` (the passes before a rejection), `run_changesNext` (a rejection by the first decision comes before any pass); that the runtime's check sees every object `next` holds is _Next unchanged_                                                                                                                                                                                                                       | `Spec` (`next` read back after every call; the reason of each rejection), `Spec` (phases)                   | `reconcile-keeps-next-stress.spec.ts`, `readme-publication-semantics.spec.ts`                                  |
 | A current object at two positions is kept at the first position read; a node with several candidates keeps the first candidate read unless an admitted candidate's fixed slot needs another                                  | `decide_injective`, `demands_satisfiable`, `demands_pinned`; `Spec.Reconcile.decide`, `orderedCandidates` (definitions) for the order                                                                                                                                                                                                                                                                                                                                                                             | `Spec` (identities)                                                                                         | `reconcile-semantics.spec.ts`, `demanded-candidates.spec.ts`                                                   |
 | An own getter of a kept object runs once without writes, twice with them and at most once more per demotion pass                                                                                                             | `get_bound`, `read_once_before_write` (upper bounds)                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `Spec` (getter counts), `WriteFreeReadback`                                                                 | `write-free-readback.spec.ts`                                                                                  |
 | Reading `next` runs each getter of an object only `next` holds at most once, and the walk over an object already in place runs each of its getters at most once; an object already in place is neither written nor read back | `freshGets_le_one`, `captureReads_once`, `run_pinned`; two examples in `Spec.Promises` show that a getter of an object `current` and `next` share can run twice while `next` is read                                                                                                                                                                                                                                                                                                                              | `Spec` (getter counts of every object, accessors in `next` included)                                        | `reconcile-pruning.spec.ts`                                                                                    |
@@ -417,26 +418,27 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 ### Reference models
 
 - **Spec agreement.** The runtime's result, read back as a graph, equals the reference's on
-  identities, values, descriptors, prototypes and extensibility, rejections agree, each with the
+  identities, values, descriptors, prototypes and extensibility. Rejections agree, each with the
   reference's reason (`PublicationWouldChangeNext` exactly when the reference reports
-  `changesNext`), nothing is written before a rejection the reference decides before any write,
-  `next` reads back after every `reconcile` call, successful or rejected, with the identities and
-  contents it had before, `produce` and `snapshot` leave `current` unchanged, and a value sent
-  through `serialize`, JSON text and `deserialize` equals the reference's `snapshot`. The bridge checks this on seeded random graphs, a `current` of
-  up to seven nodes with cycles, sharing, attributes, accessors, prototypes and integrity levels,
-  where `next` reuses, reorders and moves current objects and `produce` recipes write drafts,
-  create objects and return values, so its evidence is for the generated cases. The models cover
-  objects, arrays, maps, sets, dates, buffers, views and, for `reconcile`, the slots of class
-  prototypes; they do not cover `SharedArrayBuffer`, views that track their buffer's length, buffer
-  and view subclasses, URLs, Temporal values or proxies. The gate allows no difference: results,
-  rejections and writes before a rejection must agree, and so must the getter counts of every
-  object on success and of every object only `next` holds on rejection. No setter of a `next`
-  object and no getter or setter of a class prototype may run. The gate also runs the `--writes`,
-  `--hazards`, `--binary` and `--getters` batches and the round trip. Every standalone `reconcile`
-  batch also checks 7 fixed cases that random graphs need not produce, and the gate checks them
-  plainly and through the recording proxies: the six examples of `Spec.KeepsNext`, each first
-  checked to have the outcome its theorem states, and `walkReachesRoot`. In that case the walk of
-  an object in place reaches the root of `next`, itself an object of `current`, yet the call
+  `changesNext`), and nothing is written before a rejection the reference decides before any
+  write. After every `reconcile` call, successful or rejected, `next` reads back with the
+  identities and contents it had before. `produce` and `snapshot` leave `current` unchanged, and a
+  value sent through `serialize`, JSON text and `deserialize` equals the reference's `snapshot`.
+  The bridge checks this on seeded random graphs, a `current` of up to seven nodes with cycles,
+  sharing, attributes, accessors, prototypes and integrity levels, where `next` reuses, reorders
+  and moves current objects and `produce` recipes write drafts, create objects and return values,
+  so its evidence is for the generated cases. The models cover objects, arrays, maps, sets, dates,
+  buffers, views and, for `reconcile`, the slots of class prototypes; they do not cover
+  `SharedArrayBuffer`, views that track their buffer's length, buffer and view subclasses, URLs,
+  Temporal values or proxies. The gate allows no difference: results, rejections and writes before
+  a rejection must agree, and so must the getter counts of every object on success and of every
+  object only `next` holds on rejection. No setter of a `next` object and no getter or setter of a
+  class prototype may run. The gate also runs the `--writes`, `--hazards`, `--binary` and
+  `--getters` batches and the round trip. Every standalone `reconcile` batch also checks seven
+  fixed cases that random graphs need not produce, and the gate checks them plainly and through
+  the recording proxies: the six examples of `Spec.KeepsNext` and `walkReachesRoot`, each checked
+  to have, in the reference, the outcome stated beside it. In `walkReachesRoot`, the walk of an
+  object in place reaches the root of `next`, itself an object of `current`, yet the call
   succeeds: the object's read-only `up` cannot take the root's target, so the object is copied. A
   call that keeps such an object is rejected, and getter counts of `current` are compared only on
   success, so this case alone shows the order of the walk's reads.
@@ -455,12 +457,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
   order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
   candidates in decision order with the requirements of their fixed slots, the decision of every
-  pass up to the first that keeps no root or would change `next`, and whether the call stops
-  because the last would change `next` (`Phases.changesNext`, which equals `run`'s by
-  `SpecOracle.phases_changesNext`), which the runtime reports as `PublicationWouldChangeNext`. The
-  phase bridge reads them from a bundle of the
-  sources that records `publishGraph`'s candidates and each `decide`, so the library carries no
-  hook.
+  pass up to the first that keeps no root or could change `next`, and whether the call stops
+  because that last decision could change `next`, which the runtime reports as
+  `PublicationWouldChangeNext` (`Phases.changesNext`; `SpecOracle.phases_changesNext` proves it
+  equals `run`'s). The phase bridge reads them from a bundle of the sources that records
+  `publishGraph`'s candidates and each `decide`, so the library carries no hook.
 - **Spec enumeration.** Every case within the bounds of `scripts/lean-spec-enumerate.ts` agrees with
   the reference, as the outcome bridge compares it, plain and through recording proxies, and, for
   `reconcile`, as the phase bridge compares it. Its universes are objects and arrays of up to two
@@ -478,13 +479,14 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   reference, because the runtime meets both of its premises: a decision keeps no demoted object
   (the runtime's `forbidden` set), and every object a pass finds blocked is one that pass kept.
   Each pass that continues therefore demotes a captured current object for the first time. The
-  reference stops, as `publishGraph` does, at the first decision that keeps no root or would
-  change `next` (`Spec.Reconcile.rounds`, which both `run` and `SpecOracle.phases` use). The reference's budget
-  of one demotion per current object never cuts the passes short (`demote_last_unblocked`), and
-  there is at most one more pass than there are current objects (`demote_length_le`,
-  `passes_le_cur`). The `forbidden-ignored` mutant keeps demoted objects and `blocked-not-forbidden`
-  demotes nothing; the [mutation audit](#runtime-bridges) reports each as `hung`.
-- **Next unchanged.** `Spec.KeepsNext` proves that a pass whose decision passes
+  reference stops, as `publishGraph` does, at the first decision that keeps no root or could
+  change `next` (`Spec.Reconcile.rounds`, which both `run` and `SpecOracle.phases` use). The
+  reference's budget of one demotion per current object never cuts the passes short
+  (`demote_last_unblocked`), and there is at most one more pass than there are current objects
+  (`demote_length_le`, `passes_le_cur`). The `forbidden-ignored` mutant keeps demoted objects and
+  `blocked-not-forbidden` demotes nothing; the [mutation audit](#runtime-bridges) reports each as
+  `hung`.
+- **Next unchanged.** `Spec.KeepsNext` proves that a pass whose decision satisfies
   `Spec.Reconcile.keepsNext` writes into no object `next` holds, so the runtime must check the same
   rule at the same point and supply its inputs:
   - _Placement._ After each decision keeps the root, and before its pass allocates or writes,
@@ -500,10 +502,17 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   - _Skipping._ `skipped` makes publication and readback leave untouched nodes alone, as they
     leave pinned ones (`writesOfDecision_eq_publishedWrites`), and `remember` still records them
     at their nodes, as `writtenPairs` does.
-  - _Premise and boundary._ The theorems assume that each object both arguments share reads the
-    same through both (`Coherent`), which README _Getters must not change values_ requires. An
-    object `next` reaches only through a prototype, a function, another object kept by reference
-    or a proxy's target is not one `next` holds, and the rule does not see it.
+  - _Premise._ The theorems that make skipping exact and that show pinned and in-place nodes pass
+    (`untouched_writesOf`, `writesOfDecision_eq_publishedWrites`, `publishedWrites_child`,
+    `keepsNextAt_pinned`, `rounds_keepsNext_inPlace`) assume that each object both arguments share
+    reads the same through both (`Coherent`; README: _Getters must not change values_). The safety
+    theorems do not need it.
+  - _Boundary._ The objects `next` holds are those capture reads. README: _Where `next` can still
+    change_ lists the objects and changes the rule does not see.
+
+  The `next-held-elsewhere-kept` and `untouched-child-unchecked` mutants each drop one clause of
+  the rule, and `untouched-published` publishes and reads back untouched nodes again; the
+  [mutation audit](#runtime-bridges) detects each.
 
 ### `snapshot`
 
@@ -845,7 +854,7 @@ the corpora draw from.
 | `Serialization`                    | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below, with `Size.lean`'s `tableCharges` admitting every node                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SerializationCollection`          | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `Spec`                             | `lean-spec-bridge.ts`                       | results, rejections with their reason, `next` read back after every call, and getter counts of every object, `next`'s included, on seeded random graphs and 7 fixed cases, and the `serialize` and `deserialize` round trip against `snapshot`, as _Spec agreement_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Spec` (phases)                    | `lean-spec-phases.ts`                       | discovery, every pass's decision and whether the call would change `next`, on the `Spec` bridge's `reconcile` cases, as _Spec phases_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `Spec` (phases)                    | `lean-spec-phases.ts`                       | discovery, every pass's decision and whether the call could change `next`, on the `Spec` bridge's random `reconcile` cases, as _Spec phases_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `Spec` (enumeration)               | `lean-spec-enumerate.ts`                    | every case of the universes _Spec enumeration_ lists, about 52,000 `reconcile` cases, 46,000 `produce` recipes and 800 `snapshot` graphs, compared as the outcome and phase bridges compare them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 Read the table with these limits:
@@ -870,9 +879,7 @@ instead, with `--binary`, without flags and with `--hazards`. A mutant that only
 kept `Map` or `Set` show runs the CollectionWrites bridge, once over its fixed corpus. It restores
 the sources after each mutant. A mutant the bridge does not detect marks a case the generator does
 not produce or a difference the comparison does not see; the script lists the mutants it expects to
-go undetected, each with the gap it stands for. Of its 20 mutants, `next-held-elsewhere-kept` and
-`untouched-child-unchecked` each drop one clause of the `Spec.KeepsNext` rule, and
-`untouched-published` publishes and reads back untouched nodes again. Run the audit after changing the `Spec` bridge, its
+go undetected, each with the gap it stands for. Run the audit after changing the `Spec` bridge, its
 generator or the code its mutants patch, and with nothing else running, since it rewrites the
 sources. With its default 1500 seeds it fits the [time budget](development.md#time-budget).
 
