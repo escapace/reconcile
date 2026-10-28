@@ -53,6 +53,7 @@ import {
   isHole,
   isReference,
   mapReferences,
+  REGRESSION_SEEDS,
   seedRange,
   slotValue,
   type ByKind,
@@ -1516,24 +1517,31 @@ export async function checkSpecGate(oracle: Oracle): Promise<void> {
     count: number,
     options: Options,
     modes: boolean[],
+    regressions: readonly number[] = [],
   ): Promise<void> => {
-    const { cases, reports } = await checkSpec(check, oracle, seeds(count), options, modes)
+    const seedList = [...seeds(count), ...regressions]
+    const { cases, reports } = await checkSpec(check, oracle, seedList, options, modes)
     reports.forEach((list, mode) => {
       const label = modes[mode] ? `${name} through recording proxies` : name
       assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
       summaries.push(`${label} ${cases} cases (${summary(list)})`)
     })
   }
-  await gate('reconcile', reconcileCheck, 1500, GATE_OPTIONS, [false, true])
+  await gate('reconcile', reconcileCheck, 1500, GATE_OPTIONS, [false, true], REGRESSION_SEEDS.plain)
   const examples = await checkExamples(oracle, [false, true])
   examples.forEach((list, mode) => {
     const label = mode === 1 ? 'examples through recording proxies' : 'examples'
     assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
     summaries.push(`${label} ${EXAMPLES.length} cases (${summary(list)})`)
   })
-  await gate('reconcile with hazards', reconcileCheck, 3000, { ...GATE_OPTIONS, hazards: true }, [
-    true,
-  ])
+  await gate(
+    'reconcile with hazards',
+    reconcileCheck,
+    3000,
+    { ...GATE_OPTIONS, hazards: true },
+    [true],
+    REGRESSION_SEEDS.hazards,
+  )
   await gate('reconcile with buffers and views', reconcileCheck, 1500, binary, [true])
   await gate(
     'reconcile with accessors in next',

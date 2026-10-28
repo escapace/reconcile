@@ -16,7 +16,14 @@ import { parseArgs } from 'node:util'
 import { bundleWithHooks, type Hook } from './esbuild'
 import type { Oracle } from './lean-oracle'
 import { materialize, materializeClasses, materializeNext, toJs } from './spec-realize'
-import { GATE_OPTIONS, genCase, seedRange, type Case, type Options } from './spec-generator'
+import {
+  GATE_OPTIONS,
+  genCase,
+  REGRESSION_SEEDS,
+  seedRange,
+  type Case,
+  type Options,
+} from './spec-generator'
 
 /** What the reference's phases are, by node id of the next graph and the current graph. */
 interface Phases {
@@ -282,17 +289,19 @@ export async function checkPhaseCases(
 /** The seeded batches `check-lean.ts` runs: every phase difference fails. */
 export async function checkSpecPhasesGate(oracle: Oracle): Promise<void> {
   const library = await instrumented()
-  const batches: Array<[name: string, count: number, options: Options]> = [
-    ['plain', 1500, GATE_OPTIONS],
-    ['hazards', 3000, { ...GATE_OPTIONS, hazards: true }],
-    ['binary', 1500, { ...GATE_OPTIONS, binary: true }],
+  const batches: Array<
+    [name: string, count: number, options: Options, regressions: readonly number[]]
+  > = [
+    ['plain', 1500, GATE_OPTIONS, REGRESSION_SEEDS.plain],
+    ['hazards', 3000, { ...GATE_OPTIONS, hazards: true }, REGRESSION_SEEDS.hazards],
+    ['binary', 1500, { ...GATE_OPTIONS, binary: true }, []],
   ]
   const summaries: string[] = []
-  for (const [name, count, options] of batches) {
+  for (const [name, count, options, regressions] of batches) {
     const { cases, passes, reports } = await checkPhases(
       library,
       oracle,
-      seedRange(1, count),
+      [...seedRange(1, count), ...regressions],
       options,
     )
     assert.deepEqual(

@@ -489,13 +489,20 @@ def fixedRequirements (input : Input) (c x : Nat) : List Requirement :=
     | (.ref x', .ref c') => some (c', x')
     | _ => none
 
-/-- The requirements the admitted candidates of every node make (`fixedRequirements`). A candidate
-whose fixed slots require two objects at one node, or another object at a pinned node, is not
-admitted, and a demand that would have the candidate's own node keep another object is left out:
-the candidate could never be kept with them, so they must not reorder a node. -/
+/-- The objects next node `c` can keep: at the root `current` itself, as every pass decides
+(`passCandidates`), since a cycle back to the root offers it no other; elsewhere its candidates. -/
+def keptCandidates (input : Input) (al : Discovery) (c : Nat) : List Nat :=
+  if input.next.root.refId = some c then input.cur.root.refId.toList
+  else al.candidates[c]?.getD []
+
+/-- The requirements the admitted candidates of every node make (`fixedRequirements`), among the
+objects each node can keep (`keptCandidates`). A candidate whose fixed slots require two objects at
+one node, or another object at a pinned node, is not admitted, and a demand that would have the
+candidate's own node keep another object is left out: the candidate could never be kept with them,
+so they must not reorder a node. -/
 def demands (input : Input) (al : Discovery) : List Requirement :=
   (List.range input.next.nodes.size).flatMap fun c =>
-    (al.candidates[c]?.getD []).flatMap fun x =>
+    (keptCandidates input al c).flatMap fun x =>
       if admitted input al.pinned c x then
         (fixedRequirements input c x).filter fun (c', x') => c' != c || x' == x
       else []
@@ -892,13 +899,19 @@ def accessorKey (input : Input) (i : Nat) (k : String) : Bool := getterAt (input
 /-- Whether next node `j` is current object `i` itself, which `next` reads as its own. -/
 def isOwn (input : Input) (j i : Nat) : Bool := input.same[j]?.bind id == some i
 
-/-- The getters the read phase runs: each accessor of a candidate at a key of a next node it is a
-candidate of, once per current object and key however many nodes share the candidate. A candidate
-is not read at the node it is (`isOwn`): reading `next` read that very object, and what it read
-there serves as the candidate's slots. -/
+/-- The current objects the read phase reads as `current` at next node `j`: its candidates, and at
+a pinned node, which has none, the object capture aligned it with before a walk found the node
+inside a subtree kept in place. Never the object the node is (`isOwn`): reading `next` read that
+very object, and what it read there serves as its slots. -/
+def readAt (input : Input) (al : Discovery) (j : Nat) : List Nat :=
+  (if al.pinned[j]?.getD false then (al.first[j]?.bind id).toList
+    else al.candidates[j]?.getD []).filter fun i => !isOwn input j i
+
+/-- The getters the read phase runs: each accessor of an object read at a next node (`readAt`), at a
+key of that node, once per current object and key however many nodes read it. -/
 def capturedKeys (input : Input) (al : Discovery) : List (Nat × String) :=
   ((List.range input.next.nodes.size).flatMap fun j =>
-    ((al.candidates[j]?.getD []).filter fun i => !isOwn input j i).flatMap fun i =>
+    (readAt input al j).flatMap fun i =>
       (keysOf (input.next.node j)).filterMap fun k =>
         if accessorKey input i k then some (i, k) else none).eraseDups
 

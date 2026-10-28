@@ -2129,9 +2129,9 @@ theorem mem_readbackKeys {input : Input} {pin : Array Bool} {kept : Array (Optio
       · simp at hk'
     · simp at he
 
-/-- The comparison reads only objects that are candidates of some node. -/
+/-- The comparison reads only objects that some node reads (`readAt`). -/
 theorem mem_capturedKeys {input : Input} {al : Discovery} {i : Nat} {k : String}
-    (h : (i, k) ∈ capturedKeys input al) : ∃ c : Nat, i ∈ al.candidates[c]?.getD [] := by
+    (h : (i, k) ∈ capturedKeys input al) : ∃ c : Nat, i ∈ readAt input al c := by
   have h := (eraseDups_spec _).1 _ h
   simp only [List.mem_flatMap, List.mem_range] at h
   obtain ⟨c, _, i', hi', hk⟩ := h
@@ -2139,34 +2139,13 @@ theorem mem_capturedKeys {input : Input} {al : Discovery} {i : Nat} {k : String}
   split at hk'
   · simp only [Option.some.injEq, Prod.mk.injEq] at hk'
     obtain ⟨rfl, rfl⟩ := hk'
-    exact ⟨c, (List.mem_filter.1 hi').1⟩
+    exact ⟨c, hi'⟩
   · simp at hk'
-
-/-- A pinned node has no candidate. -/
-theorem discover_pinned_candidates (input : Input) (j : Nat)
-    (h : (discover input).pinned[j]?.getD false = true) :
-    (discover input).candidates[j]?.getD [] = [] := by
-  cases hr : input.next.root with
-  | prim p =>
-    simp only [discover, hr]
-    by_cases hj : j < input.next.nodes.size <;> simp [hj]
-  | ref r =>
-    simp only [discover, hr] at h ⊢
-    generalize visitStep input.cur input.next input.next.budget [(r, input.cur.root.refId)]
-      (Array.replicate input.next.nodes.size false)
-      (Array.replicate input.next.nodes.size none) [] = vs at h ⊢
-    obtain ⟨order, first⟩ := vs
-    simp only at h ⊢
-    rw [Array.getElem?_mapIdx]
-    cases (candidateStep input.cur input.next (input.next.budget * (input.cur.nodes.size + 1))
-      [(r, input.cur.root.refId)] (Array.replicate input.next.nodes.size []))[j]? with
-    | none => simp
-    | some cs => simp [h]
 
 /-- An object kept in place is neither changed nor read back: given that each current object is at
 most one next node, no pass writes to the object at a pinned node, and read as `current` its
-getters run at most once, in the comparison of another node it is a candidate of, which only an
-object `current` also holds at another position is. -/
+getters run at most once, at another node that reads it (`readAt`), which only an object `current`
+also holds at another position is. -/
 theorem run_pinned (raw : Input)
     (hsame : ∀ (a b x : Nat), raw.same[a]?.bind id = some x → raw.same[b]?.bind id = some x →
       a = b)
@@ -2175,7 +2154,7 @@ theorem run_pinned (raw : Input)
     (hs : raw.same[j]?.bind id = some i) :
     (∀ e ∈ (run raw).allWrites, e.1 ≠ i) ∧ ∀ e ∈ (run raw).gets, e.1 = i →
       e.2.2 ≤ 1 ∧
-        ∃ c : Nat, c ≠ j ∧ i ∈ (discover (normalized raw)).candidates[c]?.getD [] := by
+        ∃ c : Nat, c ≠ j ∧ i ∈ readAt (normalized raw) (discover (normalized raw)) c := by
   have hj' : j < (normalized raw).next.nodes.size := by
     simpa [normalized, Graph.normalize] using hj
   have hkeep : ∀ (r : Nat) (kept : Array (Option Nat)),
@@ -2242,8 +2221,8 @@ theorem run_pinned (raw : Input)
         obtain ⟨c, hc⟩ := mem_capturedKeys hcap
         refine ⟨hle, c, fun hcj => ?_, hc⟩
         subst hcj
-        rw [discover_pinned_candidates _ _ hpin] at hc
-        simp at hc
+        have hown := (List.mem_filter.1 hc).2
+        simp [isOwn, normalized, hs] at hown
   · simp
 
 
@@ -2302,10 +2281,10 @@ example : (run mapOwn).ok = true ∧ (run mapOwn).origins[2]? = some (some 2) �
 /-! ## Demands -/
 
 /-- No demand asks a candidate's own node for another object: every demand comes from an admitted
-candidate `x` of some node `c`, through a fixed slot, and names `c` only with `x` itself. -/
+object `x` that some node `c` can keep, through a fixed slot, and names `c` only with `x` itself. -/
 theorem demands_satisfiable (input : Input) (al : Discovery) (c' x' : Nat)
     (h : (c', x') ∈ demands input al) :
-    ∃ c x, x ∈ al.candidates[c]?.getD [] ∧ admitted input al.pinned c x = true ∧
+    ∃ c x, x ∈ keptCandidates input al c ∧ admitted input al.pinned c x = true ∧
       (Val.ref x', Val.ref c') ∈ fixedPairs (input.cur.node x) (input.next.node c) ∧
       (c' = c → x' = x) := by
   simp only [demands, List.mem_flatMap, List.mem_range] at h

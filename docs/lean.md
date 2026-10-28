@@ -435,25 +435,28 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   rejection must agree, and so must the getter counts of every object on success and of every object
   only `next` holds on rejection. No setter of a `next` object and no getter or setter of a class
   prototype may run. The gate also runs the `--writes`, `--hazards`, `--binary` and `--getters`
-  batches and the round trip. Every standalone `reconcile` batch also checks nine fixed cases, and
-  the gate checks them plainly and through the recording proxies: the six examples of
-  `Spec.KeepsNext`, `walkReachesRoot`, `ownNodeInCapture` and `ownNodeInDiscovery` (_Reads before
-  the first write_), each checked to have, in the reference, the outcome the bridge states for it. The enumeration never produces `laterPass`, `mapChild` or `walkReachesRoot`,
-  and the gate's random graphs almost never do. In `walkReachesRoot`, the walk of an object in place
-  reaches the root of `next`, itself an object of `current`, yet the call succeeds: the object's
-  read-only `up` cannot take the root's target, so the object is copied. A call that keeps such an
-  object is rejected, and getter counts of `current` are compared only on success, so this case
-  alone shows the order of the walk's reads. The `--writes` batch wraps every current object and
-  array in a recording proxy and compares the writes and deletions each one receives, over every
-  decision pass, with the reference's writes. The `--hazards` batch, also through the proxies,
-  generates more accessors and more setters that drop their value than the default batch, so that
-  about one call in twelve needs more than one decision pass. The `--binary` batches, one per
-  operation, add buffers, some of them resizable, with typed arrays and `DataView`s over them; the
-  `reconcile` batch runs through the recording proxies. The `--getters` batch, also through the
-  proxies, adds accessors to the objects only `next` holds. The round trip (`--op roundtrip`)
-  restricts the `--binary` graphs to what `serialize` accepts and uses the `maxBytes` that
-  `requiredMaxBytes` returns; it also checks that each getter of the source runs once, depth first,
-  that no setter runs, that one byte less is refused and that the source is unchanged.
+  batches and the round trip. The plain and hazard batches of both gates also run the seeds
+  `REGRESSION_SEEDS` names in `spec-generator.ts`, whose cases once showed the runtime and the
+  reference apart past the batches' ranges. Every standalone `reconcile` batch also checks nine
+  fixed cases, and the gate checks them plainly and through the recording proxies: the six examples
+  of `Spec.KeepsNext`, `walkReachesRoot`, `ownNodeInCapture` and `ownNodeInDiscovery` (_Reads before
+  the first write_), each checked to have, in the reference, the outcome the bridge states for it.
+  The enumeration never produces `laterPass`, `mapChild` or `walkReachesRoot`, and the gate's random
+  graphs almost never do. In `walkReachesRoot`, the walk of an object in place reaches the root of
+  `next`, itself an object of `current`, yet the call succeeds: the object's read-only `up` cannot
+  take the root's target, so the object is copied. A call that keeps such an object is rejected, and
+  getter counts of `current` are compared only on success, so this case alone shows the order of the
+  walk's reads. The `--writes` batch wraps every current object and array in a recording proxy and
+  compares the writes and deletions each one receives, over every decision pass, with the
+  reference's writes. The `--hazards` batch, also through the proxies, generates more accessors and
+  more setters that drop their value than the default batch, so that about one call in twelve needs
+  more than one decision pass. The `--binary` batches, one per operation, add buffers, some of them
+  resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs through the
+  recording proxies. The `--getters` batch, also through the proxies, adds accessors to the objects
+  only `next` holds. The round trip (`--op roundtrip`) restricts the `--binary` graphs to what
+  `serialize` accepts and uses the `maxBytes` that `requiredMaxBytes` returns; it also checks that
+  each getter of the source runs once, depth first, that no setter runs, that one byte less is
+  refused and that the source is unchanged.
 - **Spec phases.** On the `reconcile` cases, plain, hazard-rich and with buffers and views, the
   runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
   order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
@@ -573,7 +576,8 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   of it as part of `next` gives each slot, the edge's value, or a node edge's own object, which a
   read returns under `Coherent` (`Spec.Reconcile.capturedKeys`; example `mapOwn` in
   `Spec.Promises`). Those values were not read, so they enter no table, and the object is still
-  read once at any other node it is a candidate of. The `own-node-walk-read` and
+  read once at any other node it is a candidate of, or that capture aligned it with before a later
+  walk pinned that node (`Spec.Reconcile.readAt`). The `own-node-walk-read` and
   `own-node-occupant-read` mutants read it at its own node again, and `own-node-walk-shared` and
   `own-node-occupants-shared` let those values enter the table; the bridge's fixed cases
   `ownNodeInCapture` and `ownNodeInDiscovery` show the reads the random graphs do not. The
@@ -590,8 +594,9 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Ordinal candidates.** The runtime offers each captured node other than the root the current
   objects aligned with it, at the same key of an object, the same index of an array and the same
   insertion position among `Map` entries (key and value) and `Set` members, inside any candidate of
-  any parent, in discovery order; the root gets `current` only; an object some admitted candidate's
-  fixed slot requires at a node comes first there (`candidates.ts` `collect`,
+  any parent, in discovery order; the root gets `current` only, so only `current`'s fixed slots
+  make demands there (`keptCandidates`); an object some admitted candidate's fixed slot requires at
+  a node comes first there (`candidates.ts` `collect`,
   `Spec.Reconcile.discover`, `orderedCandidates`). A current object is a candidate only at its own
   position; another position gets it only as a pinned fixed image (_Full capture_). The Spec bridge
   checks this on random graphs; `readme-publication-semantics.spec.ts` and

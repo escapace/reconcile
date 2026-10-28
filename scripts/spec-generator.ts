@@ -77,6 +77,10 @@ export const GATE_OPTIONS: Options = {
   same: true,
 }
 
+/** Seeds past the gate's ranges whose cases once showed the runtime and the reference apart, by
+ * batch; the gates run them after their ranges. */
+export const REGRESSION_SEEDS = { hazards: [10_563, 16_131], plain: [25_127] } as const
+
 /** The `count` seeds from `from`. */
 export const seedRange = (from: number, count: number): number[] =>
   Array.from({ length: count }, (_, index) => from + index)
