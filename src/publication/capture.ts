@@ -148,7 +148,7 @@ class AlignedCapture extends Detached {
     const policy = this.types.policies[kind]
     const outerReference = this.currentReference
     this.currentReference = reference
-    policy.observe(source, this.beginCallback, this.edgeCallback, 'publication', prototype)
+    policy.observe(source, this.beginCallback, this.edgeCallback, prototype)
     this.currentReference = outerReference
     // Native policies supply begin before returning; all graph nodes are sealed.
     this.nodes[reference.node] = policy.seal(this.nodes[reference.node] as CapturedNode)
@@ -381,8 +381,7 @@ class AlignedCapture extends Detached {
         closure.add(source)
         visited.push(source)
         // A kind that `someChild` lists needs no observation, which would copy its value.
-        if (policy.someChild === undefined)
-          policy.observe(source, noValue, edge, 'publication', prototype)
+        if (policy.someChild === undefined) policy.observe(source, noValue, edge, prototype)
         else policy.someChild(source, ownValue, push)
       }
       source = pop()

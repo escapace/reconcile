@@ -48,7 +48,7 @@ const objectSurface: PropertySurface<ObjectLayout> = {
 const objectCapture = {
   construction: noValue,
   // A caller that classified the value passes the prototype it read.
-  observe(value, begin, edge, _mode, known) {
+  observe(value, begin, edge, known) {
     const prototype = known === undefined ? (Object.getPrototypeOf(value) as object | null) : known
     const names = Object.getOwnPropertyNames(value)
     const layout: ObjectLayout = {

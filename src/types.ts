@@ -193,7 +193,6 @@ export interface NativePolicy<L extends { readonly kind: symbol } = Layout> {
     value: object,
     begin: Begin<L>,
     edge: CaptureEdge,
-    mode?: 'publication' | 'snapshot',
     prototype?: object | null,
   ) => void
   /** Finalizes derived layout indexes and native collection normalization after observation. */

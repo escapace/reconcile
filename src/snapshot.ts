@@ -471,7 +471,7 @@ class SnapshotWalk extends Detached {
     const parentSource = this.currentSource
     this.currentReference = reference
     this.currentSource = source
-    policy.observe(source, begin, edge, 'snapshot')
+    policy.observe(source, begin, edge)
     this.currentReference = parent
     this.currentSource = parentSource
   }

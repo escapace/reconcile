@@ -22,7 +22,10 @@ it('projects the same native callbacks into each public registry', () => {
     const pairs = sharedFacets(kind, publicationTypes.policies, produceTypes.policies)
     if (SNAPSHOT_FACETS.includes(kind))
       pairs.push(...sharedFacets(kind, snapshotTypes.policies, publicationTypes.policies))
-    for (const [left, right] of pairs) expect(left).toBe(right)
+    // A facet built per registry, as URL capture is with its own operation's error, shares the
+    // code of its callbacks rather than their identity.
+    for (const [left, right] of pairs)
+      expect(left === right || String(left) === String(right)).toBe(true)
     expect(produceTypes.drafts[kind]).toBeDefined()
   }
 })

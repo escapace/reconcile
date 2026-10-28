@@ -3,10 +3,10 @@ import { builtinValue, uncurried } from '../standard-prototypes'
 import { inChain } from '../object-property'
 import {
   bufferByteLength,
-  bufferOfView,
   sliceBytes,
-  viewByteLength,
-  viewOffset,
+  typedBufferOf,
+  typedByteLengthOf,
+  typedOffsetOf,
 } from '../types/shared/binary-native'
 // Base64 decoding through the stable same-realm native decoder or atob, validated together.
 // decodedSize is only a prediction on those paths; decodeBytes or checkBytes MUST follow, even
@@ -40,7 +40,7 @@ export function decodeBytes(text: string, length: number): ArrayBuffer {
   const binary = decodeAtob(text, length)
   const bytes = new Uint8Array(length)
   for (let index = 0; index < length; index++) bytes[index] = binary.charCodeAt(index)
-  return bufferOfView(bytes)
+  return typedBufferOf(bytes)
 }
 // For measuring, which reads only the byte length: the same checks as decodeBytes, without
 // copying the bytes atob returns.
@@ -115,12 +115,12 @@ function decodeNativeBytes(text: string, length: number): ArrayBuffer {
   }
   return dedicatedBuffer(bytes, length)
 }
-// The decoder's bytes, read with the built-in accessors: their own buffer when they fill it,
-// otherwise a copy of them.
+// The decoder's bytes, read with the built-in typed-array accessors: their own buffer when they
+// fill it, otherwise a copy of them.
 function dedicatedBuffer(bytes: Uint8Array<ArrayBuffer>, length: number): ArrayBuffer {
-  if (viewByteLength(bytes) !== length) decodeFail('base64 size')
-  const buffer = bufferOfView(bytes)
-  const offset = viewOffset(bytes)
+  if (typedByteLengthOf(bytes) !== length) decodeFail('base64 size')
+  const buffer = typedBufferOf(bytes)
+  const offset = typedOffsetOf(bytes)
   if (length !== 0 && offset === 0 && length === bufferByteLength(buffer)) return buffer
   return sliceBytes(buffer, offset, length)
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { map, set } from '../src/serialization/facets/collection'
+import { decodeBytes } from '../src/serialization/binary'
 import type { DecodeContext } from '../src/serialization/contracts'
 import type { Oracle } from './lean-oracle'
 
@@ -81,6 +82,7 @@ function contextFor(request: Request, values: unknown[], reads: number[]): Decod
   // The control table holds only the collection's framed layout, at offset 1.
   const layout = layoutFor(request)
   return {
+    bytes: decodeBytes,
     control: [layout.length, ...layout],
     cursor: values.length,
     ends: [],

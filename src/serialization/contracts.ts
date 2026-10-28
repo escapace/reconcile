@@ -7,6 +7,9 @@ export interface Budget {
   words: number
 }
 export interface DecodeContext extends Budget {
+  // The bytes of a base64 payload: decoded, or, while measuring, checked without the copy, so that
+  // each operation's bundle carries only its own reader.
+  bytes: (text: string, length: number) => ArrayBuffer
   // The control table; layouts and shapes are read in place by the offset of their first entry.
   control: unknown[]
   cursor: number

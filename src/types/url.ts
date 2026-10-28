@@ -34,33 +34,33 @@ export interface URLLayout {
   readonly prototype: object | null
 }
 
-const urlCapture = {
-  construction: noValue,
-  observe(value, begin, edge, mode) {
-    const url = value as URL
-    const prototype = Object.getPrototypeOf(url) as object | null
-    const href = nativeURLHref(url)
-    const response = edge(
-      nativeURLSearchParameters(url),
-      'searchParams',
-      URL_SEARCH_PARAMS_KIND,
-      true,
-    )
-    const carrier = carrierFromResponse(response)
-    // Only a `seen` entry, or parameters met as another kind, such as ones whose prototype was
-    // replaced, leave no carrier: the URL would have no parameters node to build from.
-    if (carrier === undefined)
-      throw mode === 'snapshot'
-        ? snapshotURLSearchParametersMemoIncompatible()
-        : publicationRejected()
-    ownedURL(carrier, href, prototype)
-    begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })
-  },
-} satisfies CapturePolicy<URLLayout>
+/** The URL capture, which throws `rejected()` for a URL whose parameters leave no carrier: each
+ * facet names its own operation's error, so each bundle carries only that one. */
+const urlCapture = (rejected: () => Error) =>
+  ({
+    construction: noValue,
+    observe(value, begin, edge) {
+      const url = value as URL
+      const prototype = Object.getPrototypeOf(url) as object | null
+      const href = nativeURLHref(url)
+      const response = edge(
+        nativeURLSearchParameters(url),
+        'searchParams',
+        URL_SEARCH_PARAMS_KIND,
+        true,
+      )
+      const carrier = carrierFromResponse(response)
+      // Only a `seen` entry, or parameters met as another kind, such as ones whose prototype was
+      // replaced, leave no carrier: the URL would have no parameters node to build from.
+      if (carrier === undefined) throw rejected()
+      ownedURL(carrier, href, prototype)
+      begin({ carrier, href: nativeURLHref(carrier), kind: URL_KIND, prototype })
+    },
+  }) satisfies CapturePolicy<URLLayout>
 
 export const urlSnapshot = /* @__PURE__ */ (() =>
   /* @__PURE__ */ freeze({
-    ...urlCapture,
+    ...urlCapture(snapshotURLSearchParametersMemoIncompatible),
     snapshot: (layout) => layout.carrier,
   }))() satisfies SnapshotPolicy<URLLayout>
 
@@ -94,7 +94,7 @@ const urlChildren: NativePolicy['someChild'] = (source, _read, test) =>
 
 export const urlPublication = /* @__PURE__ */ (() =>
   freeze({
-    ...urlCapture,
+    ...urlCapture(publicationRejected),
     ...urlConstruction,
     requirements: urlBindings,
     seal: same,

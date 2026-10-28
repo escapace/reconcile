@@ -4,17 +4,18 @@ import { int, decodeFail as fail } from './common'
 import { keyed, slotted } from './layout'
 import { temporalKinds, validViewKind } from './facets/native'
 import { charge, chargeLiteral, stringWords } from './size'
+import { checkBytes, decodeBytes } from './binary'
 import { deserializeLimitExceeded } from '../error'
 import { denseArray } from '../standard-prototypes'
 // The value the document encodes. Decoding writes decoded values into the document's rows.
 export function decodeGraph(document: unknown, maxBytes: number): unknown {
-  return decodeDocument(document, maxBytes, false)
+  return decodeDocument(document, maxBytes, false, decodeBytes)
 }
 // The words `decodeGraph` charges under a finite limit, with the same checks and charges in the
 // same order (Size.lean accepts_iff_bytes: eight bytes per word is the smallest accepted limit).
 // Nothing is written into the document, so it can still be decoded.
 export function measureGraph(document: unknown, maxBytes: number): number {
-  return decodeDocument(document, maxBytes, true) as number
+  return decodeDocument(document, maxBytes, true, checkBytes) as number
 }
 function createContext(
   control: unknown[],
@@ -23,8 +24,10 @@ function createContext(
   maxBytes: number,
   limited: boolean,
   measuring: boolean,
+  bytes: DecodeContext['bytes'],
 ): DecodeContext {
   return {
+    bytes,
     control,
     cursor: 0,
     ends: denseArray<number>(payloads.length),
@@ -49,7 +52,12 @@ function createContext(
 // node reachable and numbered in depth-first entry order, so the size charges no unreachable node
 // (Size.lean accounting_eq_reachable); the root slot is charged first.
 // Returns the root, or while measuring the words charged.
-function decodeDocument(document: unknown, maxBytes: number, measuring: boolean): unknown {
+function decodeDocument(
+  document: unknown,
+  maxBytes: number,
+  measuring: boolean,
+  bytes: DecodeContext['bytes'],
+): unknown {
   if (!Array.isArray(document)) fail('envelope')
   const limit = Math.floor(maxBytes / 8)
   const limited = measuring || limit !== Infinity
@@ -68,7 +76,7 @@ function decodeDocument(document: unknown, maxBytes: number, measuring: boolean)
   // Size.lean node_count_le_accounting: a document has at most as many nodes as words, so its
   // tables are allocated only within the limit.
   if (payloads.length > limit) throw deserializeLimitExceeded(maxBytes)
-  const context = createContext(control, payloads, limit, maxBytes, limited, measuring)
+  const context = createContext(control, payloads, limit, maxBytes, limited, measuring, bytes)
   if (limited) charge(context, 1)
   checkControl(context)
   allocate(context)

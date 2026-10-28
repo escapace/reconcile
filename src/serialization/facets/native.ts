@@ -1,5 +1,5 @@
 import { decodeFail as fail, int } from '../common'
-import { checkBytes, decodedSize, decodeBytes } from '../binary'
+import { decodedSize } from '../binary'
 import { dataViewKind, decodeTemporal, constructView, temporalNames } from '../native'
 import { bufferByteLength, viewConstructors } from '../../types/shared/binary-native'
 import type { DecodeContext, Decoder } from '../contracts'
@@ -33,7 +33,7 @@ export const buffer: Decoder = {
     if (payload.length !== 1) fail('base64')
     const length = decodedSize(payload[0])
     if (context.limited) charge(context, 1 + Math.ceil(length / 8))
-    return (context.measuring ? checkBytes : decodeBytes)(payload[0] as string, length)
+    return context.bytes(payload[0] as string, length)
   },
 }
 // A view is [buffer reference, byte offset, length]; Positional.lean typedRef_sound: the

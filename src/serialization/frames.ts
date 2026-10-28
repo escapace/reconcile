@@ -8,7 +8,7 @@ import { readView, readURL } from './native'
 import { lengths } from './layout'
 import { layout, node, slot } from './emit'
 import { intern } from './radix'
-import { openBuiltin, hasElement } from '../standard-prototypes'
+import { hasElement, mapStep, openMapEntries, openSetValues, setStep } from '../standard-prototypes'
 import { hasSymbolKey, hiddenNames } from '../object-property'
 
 // Up to this many values, a row made at its length costs less than the first push, which in V8
@@ -55,9 +55,8 @@ function array(frame: Frame, context: EncodeContext) {
 // Opens the built-in iterator of a `Map`'s entries or a `Set`'s members, stepped by the built-in
 // `next`; its steps are fresh native results, which nothing can observe.
 function builtinIterator(frame: Frame, collection: object, map: boolean) {
-  const opened = openBuiltin(collection, map, map ? 'entries' : 'values')
-  frame.iterator = opened.iterator
-  frame.step = opened.step
+  frame.iterator = (map ? openMapEntries : openSetValues)(collection)
+  frame.step = map ? mapStep : setStep
 }
 function map(frame: Frame, context: EncodeContext) {
   if (frame.phase === 0) {
