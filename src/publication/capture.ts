@@ -199,11 +199,12 @@ class AlignedCapture extends Detached {
     }
     const first = alignedAt.get(object)
     if (first === undefined) alignedAt.set(object, index)
-    else if (this.reads?.has(object) !== true)
-      (this.reads ??= new Map()).set(
-        object,
-        tableOf((this.nodes[first] as BuildingNode).keys, this.occupants[first]),
-      )
+    else if (this.reads?.has(object) !== true) {
+      const node = this.nodes[first] as BuildingNode
+      // At the node it is, the object was not read (`adopt`): nothing to share.
+      const reads = node.source === object ? undefined : this.occupants[first]
+      ;(this.reads ??= new Map()).set(object, tableOf(node.keys, reads))
+    }
   }
 
   // The occupant of `aligned` at `key`: the value read for another node, else one read now.
@@ -293,7 +294,12 @@ class AlignedCapture extends Detached {
       this.offersOther = true
       return this.visit(child, kind)
     }
-    const occupant = this.occupantOf(aligned, key)
+    // At the node it is, the aligned object is `next`'s own, whose slot capture just read: that
+    // read serves (Spec.Reconcile.capturedKeys).
+    const occupant =
+      aligned === (this.nodes[parent] as BuildingNode).source
+        ? child
+        : this.occupantOf(aligned, key)
     this.recordOccupant(parent, occupant)
     if (!isObject(child)) return child as Primitive
     const references = this.references
@@ -403,7 +409,8 @@ export function tableOf(
  * @remarks
  * Aligned capture reads, for each own-property edge of a node whose aligned current object
  * has the same kind, the occupant of that slot right after the next value, once; the read
- * serves discovery, the preflight and the first publication. A child that is the occupant
+ * serves discovery, the preflight and the first publication. A node aligned with the object it
+ * is takes the next value as the occupant and reads nothing. A child that is the occupant
  * itself is walked once and kept as an atom edge holding the object when its kind needs no
  * construction input and has independent bindings and the walk meets neither root. Everything
  * the walk met is protected: no other position may retain it, and a later child found inside it

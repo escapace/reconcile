@@ -23,6 +23,7 @@ export const diagnosticNames = [
   'diag-views',
   'diag-shared-cycle',
   'diag-shared-spread',
+  'diag-map-update',
   'diag-produce-deep',
   'diag-unsupported-cycle',
   'diag-serialize-graph',
@@ -292,6 +293,28 @@ const scenarios: Record<DiagnosticName, (context: Context) => Scenario> = {
       validate: () => {
         assert.equal(last, current)
         assert(current.every((item) => item.n === turn % 2))
+      },
+    }
+  },
+  'diag-map-update': ({ api, size }) => {
+    let last: unknown
+    const records = Array.from({ length: size }, (_, id) => ({ id, label: `r${id}`, tags: [id] }))
+    const current = { index: new Map(records.map((record) => [record.id, record])) }
+    let counter = 0
+    return {
+      // A Map of records updated as a store returns it: a new Map holding current's records, one
+      // replaced by a new record each operation, which its old record takes.
+      run: () => {
+        counter += 1
+        const id = counter % size
+        const index = new Map(current.index).set(id, { id, label: `n${counter}`, tags: [id] })
+        last = api.reconcile(current, { index })
+      },
+      validate: () => {
+        assert.equal(last, current)
+        assert.equal(current.index.size, size)
+        records.forEach((record, id) => assert.equal(current.index.get(id), record))
+        assert.equal(records[counter % size].label, `n${counter}`)
       },
     }
   },

@@ -2139,7 +2139,7 @@ theorem mem_capturedKeys {input : Input} {al : Discovery} {i : Nat} {k : String}
   split at hk'
   · simp only [Option.some.injEq, Prod.mk.injEq] at hk'
     obtain ⟨rfl, rfl⟩ := hk'
-    exact ⟨c, hi'⟩
+    exact ⟨c, (List.mem_filter.1 hi').1⟩
   · simp at hk'
 
 /-- A pinned node has no candidate. -/
@@ -2282,6 +2282,21 @@ private def mapValue : Input where
 keeps `p` reads it, and capture visits it as the `Map` value. -/
 example : ((captureReads mapValue 0).filter (·.2 == (.cur 3, "g"))).map Prod.fst =
     [.keep, .observe] ∧ (discover mapValue).pinned[2]? = some true := by
+  decide +kernel
+
+/-- `current` holds `x`, which has a getter, as a `Map` value, and `next` holds `x` there in a new
+`Map`, as an application updating its state returns it. -/
+private def mapOwn : Input where
+  cur := ⟨#[plainObject [("m", .ref 1)], .map [(.prim (.num 1), .ref 2)], getterObject], .ref 0⟩
+  next := ⟨#[plainObject [("m", .ref 1)], .map [(.prim (.num 1), .ref 2)], getterObject], .ref 0⟩
+  same := #[none, none, some 2]
+
+/-- `x` runs its getter once, while `next` is read. It is a candidate only at the node it is, where
+that read serves, so the call does not read it as `current`; it is kept untouched and not read
+back. -/
+example : (run mapOwn).ok = true ∧ (run mapOwn).origins[2]? = some (some 2) ∧
+    (discover mapOwn).candidates[2]? = some [2] ∧ (run mapOwn).gets = [] ∧
+    (run mapOwn).nextGets = [(2, "g", 1)] := by
   decide +kernel
 
 /-! ## Demands -/

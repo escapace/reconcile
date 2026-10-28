@@ -1030,7 +1030,7 @@ const AB = plainNode([
 
 /** The object of `walkReachesRoot` whose walk reaches the root of `next`: its read-only,
  * non-configurable `up` holds node `up`, between nodes `a` and `b`. */
-const walker = (a: number, up: number, b: number): GraphNode => ({
+const walker = (a: number, up: number, b: number): NodeOf<'object'> => ({
   extensible: true,
   fields: [
     ['a', { a: [true, true, true], v: toNode(a) }],
@@ -1041,13 +1041,23 @@ const walker = (a: number, up: number, b: number): GraphNode => ({
   proto: 'object',
 })
 
+/** `node` with a getter `g` without a setter that reads 7 after its fields. */
+const withGetter = (node: NodeOf<'object'>): GraphNode => ({
+  ...node,
+  fields: [...node.fields, ['g', { c: true, e: true, get: 7, set: null }]],
+})
+
 /** The examples of `Spec.KeepsNext`: a counterexample for each clause of the rule (`swap`,
  * `mapChild`), its conservative case (`equalCopy`), a rejection after one pass (`laterPass`), an
  * object in place (`inPlace`) and `next` holding `current` below a new root (`rootCycle`). Then a
  * call that succeeds although the walk of an object in place reaches the root of `next`, which is
  * an object of `current`: the object cannot take the root's target at its read-only `up`, so it is
  * copied, and nothing `next` holds is kept elsewhere (`walkReachesRoot`). Every other walk that
- * reaches a root rejects the call, so this case alone shows the order of the walk's reads. */
+ * reaches a root rejects the call, so this case alone shows the order of the walk's reads. Last,
+ * two calls that succeed with an object of `current` a candidate both at the node it is, where it is
+ * not read as `current`, and at another node, where it is: the object is that walker, which capture
+ * aligns first at its own node (`ownNodeInCapture`), or a `Map` value, which discovery walks first
+ * at its own node (`ownNodeInDiscovery`). Each runs its getter once as `current`. */
 const EXAMPLES: readonly Example[] = [
   {
     c: exampleCase(
@@ -1168,6 +1178,68 @@ const EXAMPLES: readonly Example[] = [
       ),
     },
     name: 'walkReachesRoot',
+    outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: exampleCase(
+      [
+        plainNode([
+          ['k', toNode(2)],
+          ['j', toNode(1)],
+          ['q', toNode(2)],
+        ]),
+        plainNode([
+          ['k', toNode(2)],
+          ['q', toNode(5)],
+        ]),
+        withGetter(walker(3, 1, 4)),
+        getterNode('g', 1),
+        getterNode('h', 2),
+        plainNode([['g', 5]]),
+      ],
+      [
+        plainNode([
+          ['k', toNode(1)],
+          ['q', toNode(4)],
+        ]),
+        withGetter(walker(2, 0, 3)),
+        getterNode('g', 1),
+        getterNode('h', 2),
+        plainNode([['g', 5]]),
+      ],
+      [1, 2, 3, 4, 5],
+    ),
+    name: 'ownNodeInCapture',
+    outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: exampleCase(
+      [
+        plainNode([['m', toNode(1)]]),
+        {
+          entries: [
+            [1, toNode(2)],
+            [2, toNode(2)],
+          ],
+          kind: 'map',
+        },
+        getterNode('g', 1),
+      ],
+      [
+        plainNode([['m', toNode(1)]]),
+        {
+          entries: [
+            [1, toNode(2)],
+            [2, toNode(3)],
+          ],
+          kind: 'map',
+        },
+        getterNode('g', 1),
+        plainNode([['g', 5]]),
+      ],
+      [null, null, 2, null],
+    ),
+    name: 'ownNodeInDiscovery',
     outcome: { changesNext: false, ok: true },
   },
 ]

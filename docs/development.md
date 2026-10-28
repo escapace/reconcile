@@ -20,7 +20,9 @@ its trace keeps the _read discipline_:
 - The library's own reads run each getter of an object other than `current` once per call; a
   recipe's reads through a draft are the recipe's.
 - In `reconcile`, a value of `current` read before the first write is read once and serves every
-  phase up to readback; a kind, prototype, key list or descriptor read then may serve them too.
+  phase up to readback; a kind, prototype, key list or descriptor read then may serve them too. At
+  the node of `next` that an object of `current` is, the value read as part of `next` serves, so
+  the object is not read as `current` there.
   Reads of `next` do not count: when `next` holds an object of `current`, `reconcile` can read it
   more than once as part of `next`, as the [`reconcile` remarks](../README.md#function-reconcile-)
   state.

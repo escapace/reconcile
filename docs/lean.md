@@ -435,10 +435,10 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   rejection must agree, and so must the getter counts of every object on success and of every object
   only `next` holds on rejection. No setter of a `next` object and no getter or setter of a class
   prototype may run. The gate also runs the `--writes`, `--hazards`, `--binary` and `--getters`
-  batches and the round trip. Every standalone `reconcile` batch also checks seven fixed cases, and
+  batches and the round trip. Every standalone `reconcile` batch also checks nine fixed cases, and
   the gate checks them plainly and through the recording proxies: the six examples of
-  `Spec.KeepsNext` and `walkReachesRoot`, each checked to have, in the reference, the outcome the
-  bridge states for it. The enumeration never produces `laterPass`, `mapChild` or `walkReachesRoot`,
+  `Spec.KeepsNext`, `walkReachesRoot`, `ownNodeInCapture` and `ownNodeInDiscovery` (_Reads before
+  the first write_), each checked to have, in the reference, the outcome the bridge states for it. The enumeration never produces `laterPass`, `mapChild` or `walkReachesRoot`,
   and the gate's random graphs almost never do. In `walkReachesRoot`, the walk of an object in place
   reaches the root of `next`, itself an object of `current`, yet the call succeeds: the object's
   read-only `up` cannot take the root's target, so the object is copied. A call that keeps such an
@@ -569,7 +569,15 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   object, and each index of an aligned array (`occupants`), and candidate discovery records the
   same for each other object aligned with a node (`candidateReads`). An object aligned or walked at
   more than one node is read through one table of its reads (`reads`), so no key of it is read
-  twice. The preflight of each candidate takes a fixed slot's value from those reads. The first
+  twice. At the node of `next` that it is, an object of `current` is not read: what capture read
+  of it as part of `next` gives each slot, the edge's value, or a node edge's own object, which a
+  read returns under `Coherent` (`Spec.Reconcile.capturedKeys`; example `mapOwn` in
+  `Spec.Promises`). Those values were not read, so they enter no table, and the object is still
+  read once at any other node it is a candidate of. The `own-node-walk-read` and
+  `own-node-occupant-read` mutants read it at its own node again, and `own-node-walk-shared` and
+  `own-node-occupants-shared` let those values enter the table; the bridge's fixed cases
+  `ownNodeInCapture` and `ownNodeInDiscovery` show the reads the random graphs do not. The
+  preflight of each candidate takes a fixed slot's value from those reads. The first
   publication of the object decides from them whether a key needs a write, without reading it
   again: `publishPre_eq` when the current keys begin in the requested order, so the preflight's
   descriptor gives the attributes, and otherwise, as for an array, `publishSeen_eq`, whose write

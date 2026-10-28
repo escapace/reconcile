@@ -149,6 +149,30 @@ const MUTANTS: readonly Mutant[] = [
     replace: '=> node.pinned !== undefined\n',
   },
   {
+    file: 'src/publication/candidates.ts',
+    find: '      candidate === node.source &&\n      policy.aligned === alignedProperties\n',
+    name: 'own-node-walk-read',
+    replace: '      false &&\n      policy.aligned === alignedProperties\n',
+  },
+  {
+    file: 'src/publication/capture.ts',
+    find: '      aligned === (this.nodes[parent] as BuildingNode).source\n',
+    name: 'own-node-occupant-read',
+    replace: '      false\n',
+  },
+  {
+    file: 'src/publication/candidates.ts',
+    find: '          records[first].source === candidate ? undefined : readsAt(alignment, candidate, first)\n',
+    name: 'own-node-walk-shared',
+    replace: '          readsAt(alignment, candidate, first)\n',
+  },
+  {
+    file: 'src/publication/capture.ts',
+    find: '      const reads = node.source === object ? undefined : this.occupants[first]\n',
+    name: 'own-node-occupants-shared',
+    replace: '      const reads = this.occupants[first]\n',
+  },
+  {
     bridge: 'collections',
     file: 'src/types/shared/collection.ts',
     find: '        if (position < wanted && sameKey(key, resolve(edges[position * width]))) {',

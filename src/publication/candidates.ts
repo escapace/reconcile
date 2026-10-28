@@ -1,7 +1,7 @@
-import { isNode } from '../graph/edge'
+import { atomValue, isNode } from '../graph/edge'
 import { matchesKind, recognize } from '../adapters/recognition'
 import { isObject } from '../object-property'
-import { ownValue } from '../types/shared/properties'
+import { alignedProperties, ownValue } from '../types/shared/properties'
 import { EMPTY_FACTS } from '../constants'
 import type {
   BoundEdge,
@@ -399,7 +399,9 @@ function collect(
       const first = alignedAt(alignment, candidate) ?? walked?.get(candidate)
       if (first === undefined) (walked ??= new Map()).set(candidate, index)
       else {
-        const reads = readsAt(alignment, candidate, first)
+        // At the node it is, the candidate was not read (`walk`): nothing to share.
+        const reads =
+          records[first].source === candidate ? undefined : readsAt(alignment, candidate, first)
         if (first !== index || reads !== undefined)
           (alignment.reads ??= new Map()).set(candidate, tableOf(records[first].keys, reads))
       }
@@ -420,15 +422,35 @@ function collect(
     reading = index
     readingObject = alignment === undefined ? undefined : candidate
     read = undefined
-    types.policies[node.layout.kind].aligned(
-      node,
-      candidate,
-      visit,
-      candidate === undefined ? undefined : readerFor(index, candidate),
+    const policy = types.policies[node.layout.kind]
+    if (
+      candidate !== undefined &&
+      candidate === node.source &&
+      policy.aligned === alignedProperties
     )
+      walkOwn(index, node, candidate)
+    else
+      policy.aligned(
+        node,
+        candidate,
+        visit,
+        candidate === undefined ? undefined : readerFor(index, candidate),
+      )
     reading = outer
     readingObject = outerObject
     read = outerRead
+  }
+  // Walks the slots of `candidate` at the node it is, `next`'s own object, without reading it:
+  // capture read each slot, a node edge's child being that node's own object
+  // (Spec.Reconcile.capturedKeys). It still registers the candidate's walk, so that a walk of it
+  // at another node shares its reads there.
+  const walkOwn = (index: number, node: CapturedNode, candidate: object): void => {
+    readerFor(index, candidate)
+    const edges = node.edges
+    for (let at = 0; at < node.keys.length; at += 1) {
+      const edge = edges[at]
+      visit(isNode(edge) ? records[edge.node].source : atomValue(edge), edge, at)
+    }
   }
   const visit = (current: unknown, edge: Edge, position?: number): void => {
     note(current, position)

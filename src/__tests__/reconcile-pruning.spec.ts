@@ -23,6 +23,50 @@ describe('identical-occupant pruning', () => {
     assert.equal(reads, 1)
   })
 
+  it('reads an object that next keeps as a Map value only as part of next', () => {
+    let reads = 0
+    const value = {
+      get g(): number {
+        reads += 1
+        return 1
+      },
+    }
+    const current = { m: new Map([[1, value]]) }
+    const result = reconcile(current, { m: new Map([[1, value]]) })
+    assert.equal(result, current)
+    assert.equal(current.m.get(1), value)
+    // At the node it is, reading next read value: that read serves for current (Spec.Promises,
+    // mapOwn).
+    assert.equal(reads, 1)
+  })
+
+  it('still reads such an object once where next holds another object', () => {
+    let reads = 0
+    const value = {
+      get g(): number {
+        reads += 1
+        return 1
+      },
+    }
+    const current = {
+      m: new Map([
+        [1, value],
+        [2, value],
+      ]),
+    }
+    const result = reconcile(current, {
+      m: new Map<number, object>([
+        [1, value],
+        [2, { g: 5 }],
+      ]),
+    })
+    assert.equal(result, current)
+    assert.equal(current.m.get(1), value)
+    assert.notEqual(current.m.get(2), value)
+    // Once as part of next, and once as current, as the candidate of the other entry.
+    assert.equal(reads, 2)
+  })
+
   it('throws when next reaches current through an object in place, reading its getter twice', () => {
     let reads = 0
     const placed = {

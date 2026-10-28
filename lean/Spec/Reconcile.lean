@@ -889,11 +889,16 @@ structure Outcome where
 /-- Whether current object `i` holds `k` as an accessor, whose getter a read of the key runs. -/
 def accessorKey (input : Input) (i : Nat) (k : String) : Bool := getterAt (input.cur.node i) k
 
+/-- Whether next node `j` is current object `i` itself, which `next` reads as its own. -/
+def isOwn (input : Input) (j i : Nat) : Bool := input.same[j]?.bind id == some i
+
 /-- The getters the read phase runs: each accessor of a candidate at a key of a next node it is a
-candidate of, once per current object and key however many nodes share the candidate. -/
+candidate of, once per current object and key however many nodes share the candidate. A candidate
+is not read at the node it is (`isOwn`): reading `next` read that very object, and what it read
+there serves as the candidate's slots. -/
 def capturedKeys (input : Input) (al : Discovery) : List (Nat × String) :=
   ((List.range input.next.nodes.size).flatMap fun j =>
-    (al.candidates[j]?.getD []).flatMap fun i =>
+    ((al.candidates[j]?.getD []).filter fun i => !isOwn input j i).flatMap fun i =>
       (keysOf (input.next.node j)).filterMap fun k =>
         if accessorKey input i k then some (i, k) else none).eraseDups
 
