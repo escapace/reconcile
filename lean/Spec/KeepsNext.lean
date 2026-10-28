@@ -50,6 +50,10 @@ Why this rule, and no other:
   reference another position takes first (`mapChild`) satisfies the first and writes into that
   object. When `next` holds `current` itself below a new root (`rootCycle`), the root breaks the
   first clause.
+- **Own nodes.** An object `next` holds at node `j`, read alike as `current`, passes the preflight
+  there whatever is pinned (`own_admitted`), and requires only that each node one of its fixed
+  slots holds keep the object it is (`own_fixedRequirements`). Its preflight needs only whether
+  each slot holding an object is fixed; capture's reads of it as part of `next` decide the rest.
 - **Algorithm.** `keepsNext` reads the decision, `same` and the references of `next`'s nodes, never
   `current` (`keepsNext_cur`). It is one pass over the nodes that reads the references of the
   untouched nodes only, which publication and readback then skip (`skipped` in `writesOfDecision`,
@@ -502,6 +506,147 @@ theorem untouched_writesOf (input : Input) (kept : Array (Option Nat)) (hco : Co
     (hd : ∀ d ∈ (input.next.node j).refs, untouched input kept d = true) :
     writesOf (identityOf kept) (input.cur.node c) (input.next.node j) = ([], false) :=
   writesOf_of_holds _ _ _ (untouched_holds input kept hco j c hc hd)
+
+/-! ## Objects at their own node
+
+An object that `next` holds at node `j` is a candidate of `j` too. Read alike as `current`, it
+passes every static check, and its only requirements come from its fixed slots that hold objects:
+each node such a slot holds keeps the object it is. -/
+
+/-- The values of a node's fixed slots (`fixedPairs`): those of its fixed keys, every entry of a
+frozen array, and a view's buffer. -/
+def fixedValues : Obj → List Val
+  | .object _ fields _ => fields.filterMap fun (_, s) => if s.fixed then some s.value else none
+  | .array entries .frozen => entries.filterMap id
+  | .view _ b _ _ => [b]
+  | _ => []
+
+/-- The nodes a node's fixed slots hold. -/
+def fixedNodes (n : Obj) : List Nat := (fixedValues n).filterMap Val.refId
+
+theorem renameSlot_fixed (f : Nat → Nat) (s : Slot) : (renameSlot f s).fixed = s.fixed := by
+  cases s with
+  | data v a => rfl
+  | accessor v setter e c => cases setter <;> rfl
+
+theorem fixedPairs_renameObj (f : Nat → Nat) (n : Obj) (hkeys : distinctKeys (renameObj f n) n) :
+    fixedPairs (renameObj f n) n = (fixedValues n).map fun v => (renameVal f v, v) := by
+  cases n with
+  | object p nf ext =>
+    simp only [renameObj, fixedPairs, fixedValues, List.filterMap_map, List.map_filterMap]
+    refine List.filterMap_congr fun q hq => ?_
+    simp only [Function.comp, Prod.map, id, renameSlot_fixed, renameSlot_value]
+    split <;> simp [lookup_of_mem_nodup hkeys.2 hq]
+  | array ne ext =>
+    clear hkeys
+    cases ext <;> simp only [renameObj, fixedPairs, fixedValues, List.map_nil]
+    induction ne with
+    | nil => rfl
+    | cons e rest ih => cases e <;> simp [ih]
+  | view c b o l => rfl
+  | _ => rfl
+
+theorem fixedValues_refs {n : Obj} {d : Nat} (h : .ref d ∈ fixedValues n) : d ∈ n.refs := by
+  cases n with
+  | object p nf ext =>
+    obtain ⟨q, hq, hv⟩ := List.mem_filterMap.1 h
+    refine mem_refs_object.2 ⟨q, hq, ?_⟩
+    split at hv
+    simp_all
+  | array ne ext =>
+    cases ext
+    case frozen => exact mem_refs_array.2 (by simpa [fixedValues] using h)
+    all_goals simp [fixedValues] at h
+  | view c b o l =>
+    simp only [fixedValues, List.mem_singleton] at h
+    simp [Obj.refs, ← h]
+  | _ => simp [fixedValues] at h
+
+theorem admitsStatic_renameObj (classes : Array (List (String × Slot))) (f : Nat → Nat) (n : Obj) :
+    admitsStatic classes (renameObj f n) n = true := by
+  cases n with
+  | object p nf ext =>
+    have hk : (nf.map (Prod.map id (renameSlot f))).map Prod.fst = nf.map Prod.fst := by
+      simp [List.map_map, Function.comp_def]
+    simp only [renameObj, admitsStatic, objectAdmits, hk, retainPrefix_self, List.all_eq_true,
+      Bool.and_eq_true]
+    have hm : ∀ x ∈ nf, (nf.map Prod.fst).contains x.1 = true := fun x hx =>
+      List.contains_iff_mem.2 (List.mem_map.2 ⟨x, hx, rfl⟩)
+    have hm' : ∀ x ∈ nf.map (Prod.map id (renameSlot f)), (nf.map Prod.fst).contains x.1 = true :=
+      fun x hx => by
+        obtain ⟨x', hx', rfl⟩ := List.mem_map.1 hx
+        exact hm x' hx'
+    refine ⟨⟨⟨fun x hx => ?_, fun x hx => ?_⟩, fun x hx => ?_⟩, fun x hx => ?_⟩
+    · simp only [hm x hx, Bool.or_true]
+    · simp only [hm x hx, Bool.true_or]
+    · simp only [hm' x hx, Bool.true_or]
+    · simp only [hm' x hx, Bool.or_true]
+  | array ne ext =>
+    have hp : ∀ i, ((ne.map (Option.map (renameVal f)))[i]?.bind id).isSome =
+        (ne[i]?.bind id).isSome := fun i => by
+      rw [List.getElem?_map]; cases ne[i]? with
+      | none => rfl
+      | some e => cases e <;> rfl
+    have hz : ∀ x ∈ ne.zipIdx, (!x.1.isSome || (ne[x.2]?.bind id).isSome) = true := by
+      intro x hx
+      rw [List.mem_zipIdx_iff_getElem?.1 hx]
+      cases x.1 <;> simp
+    have hz' : ∀ x ∈ (ne.map (Option.map (renameVal f))).zipIdx,
+        (!x.1.isSome || (ne[x.2]?.bind id).isSome) = true := by
+      intro x hx
+      rw [← hp, List.mem_zipIdx_iff_getElem?.1 hx]
+      cases x.1 <;> simp
+    cases ext <;>
+      simp only [renameObj, admitsStatic, arrayAdmits, hp, List.length_map, List.all_eq_true,
+        Bool.and_eq_true, decide_true, and_true] <;>
+      first
+      | exact hz
+      | exact ⟨hz, hz'⟩
+  | view c b o l => simp [renameObj, admitsStatic]
+  | buffer b m => simp [renameObj, admitsStatic]
+  | _ => rfl
+
+/-- A node's references resolve under `Coherent` to the current objects they are. -/
+theorem same_refs {input : Input} (hco : Coherent input) {j c : Nat}
+    (hc : input.same[j]?.bind id = some c) :
+    ∀ d ∈ (input.next.node j).refs, input.same[d]?.bind id = some (sameOf input d) := by
+  intro d hd
+  obtain ⟨x, hx⟩ := Option.isSome_iff_exists.1 (hco.shared j c hc d hd)
+  simp [sameOf, hx]
+
+/-- **An object at its own node passes the preflight.** An object that `next` holds at node `j`,
+read alike as `current`, is admitted there whatever is pinned. -/
+theorem own_admitted (input : Input) (pin : Array Bool) (hco : Coherent input) (j i : Nat)
+    (h : input.same[j]?.bind id = some i) : admitted input pin j i = true := by
+  have hs := same_refs hco h
+  have hkeys := hco.keys j i h
+  rw [hco.node j i h] at hkeys
+  simp only [admitted, hco.node j i h, fixedPairs_renameObj _ _ hkeys, admitsStatic_renameObj,
+    Bool.true_and, List.all_eq_true, List.mem_map]
+  rintro _ ⟨v, hv, rfl⟩
+  cases v with
+  | prim p => simp [renameVal]
+  | ref d =>
+    simp only [renameVal, hs d (fixedValues_refs hv), beq_self_eq_true, Bool.or_true,
+      Bool.true_and, List.all_eq_true, List.mem_map]
+    rintro _ ⟨w, -, rfl⟩
+    cases w with
+    | prim q => rfl
+    | ref e => by_cases he : e = d <;> simp [he]
+
+/-- **Its requirements are its fixed slots holding objects.** An object that `next` holds at node
+`j`, read alike as `current`, requires that each node one of its fixed slots holds keep the object
+it is. -/
+theorem own_fixedRequirements (input : Input) (hco : Coherent input) (j i : Nat)
+    (h : input.same[j]?.bind id = some i) :
+    fixedRequirements input j i =
+      (fixedNodes (input.next.node j)).map fun d => (d, sameOf input d) := by
+  have hkeys := hco.keys j i h
+  rw [hco.node j i h] at hkeys
+  simp only [fixedRequirements, hco.node j i h, fixedPairs_renameObj _ _ hkeys, fixedNodes,
+    List.filterMap_map, List.map_filterMap]
+  refine List.filterMap_congr fun v _ => ?_
+  cases v <;> rfl
 
 /-! ## Publishing untouched nodes too
 

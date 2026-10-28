@@ -6,8 +6,8 @@
 // when the reference's decision would change `next` (`changesNext`). Whatever the outcome, `next`
 // must read back after the call with the identities and contents it had before. Every `reconcile`
 // batch also checks fixed cases, some of shapes the random graphs almost never produce: the
-// examples of `Spec.KeepsNext`, and a walk that reaches a root in a call that succeeds. A standalone
-// batch fails on any difference.
+// examples of `Spec.KeepsNext`, a walk that reaches a root in a call that succeeds, and objects
+// that `next` holds at their own node. A standalone batch fails on any difference.
 //
 // The round trip runs `serialize`, JSON text and `deserialize` on the graphs restricted to what
 // `serialize` accepts and compares the restored value with the reference's `snapshot`.
@@ -1038,6 +1038,27 @@ const withGetter = (node: NodeOf<'object'>): GraphNode => ({
   fields: [...node.fields, ['g', { c: true, e: true, get: 7, set: null }]],
 })
 
+/** A `Map` value that `next` holds at its own node and whose slot `c`, made by `slot`, holds an
+ * object at the node whose first candidate is another object, the root's `x`. */
+const ownSlotCase = (slot: (value: Value) => Slot): Case => {
+  const holder = (child: number): GraphNode => ({
+    extensible: true,
+    fields: [['c', slot(toNode(child))]],
+    kind: 'object',
+    proto: 'object',
+  })
+  const root = plainNode([
+    ['x', toNode(1)],
+    ['m', toNode(2)],
+  ])
+  const map: GraphNode = { entries: [[1, toNode(3)]], kind: 'map' }
+  return exampleCase(
+    [root, plainNode([['v', 2]]), map, holder(4), plainNode([['v', 1]])],
+    [root, plainNode([['v', 1]]), map, holder(1)],
+    [null, 4, null, 3],
+  )
+}
+
 /** The examples of `Spec.KeepsNext`: a counterexample for each clause of the rule (`swap`,
  * `mapChild`), its conservative case (`equalCopy`), a rejection after one pass (`laterPass`), an
  * object in place (`inPlace`) and `next` holding `current` below a new root (`rootCycle`). Then a
@@ -1045,10 +1066,16 @@ const withGetter = (node: NodeOf<'object'>): GraphNode => ({
  * an object of `current`: the object cannot take the root's target at its read-only `up`, so it is
  * copied, and nothing `next` holds is kept elsewhere (`walkReachesRoot`). Every other walk that
  * reaches a root rejects the call, so this case alone shows the order of the walk's reads. Last,
- * two calls that succeed with an object of `current` a candidate both at the node it is, where it is
- * not read as `current`, and at another node, where it is: the object is that walker, which capture
- * aligns first at its own node (`ownNodeInCapture`), or a `Map` value, which discovery walks first
- * at its own node (`ownNodeInDiscovery`). Each runs its getter once as `current`. */
+ * calls with an object of `current` that `next` holds at its own node. In three that succeed, the
+ * object is a candidate both at the node it is, where it is not read as `current`, and at another
+ * node, where it is: the object is that walker, which capture aligns first at its own node and
+ * again at the other (`ownNodeInCapture`), or aligns at its own node only before discovery walks it
+ * as a `Map` value at the other (`ownNodeAlignedOnce`), or a `Map` value that discovery walks first
+ * at its own node (`ownNodeInDiscovery`). Each runs its getter once as `current`. In the last two,
+ * a `Map` value at its own node holds at `c` an object whose node the root's `x` first offers
+ * another object: a getter without a setter at `c` is fixed and requires the object, so the call
+ * succeeds (`ownNodeFixedSlot`); a writable, non-configurable `c` is not, so the node keeps the
+ * other object and the call is rejected (`ownNodeWritableSlot`). */
 const EXAMPLES: readonly Example[] = [
   {
     c: exampleCase(
@@ -1232,6 +1259,51 @@ const EXAMPLES: readonly Example[] = [
     ),
     name: 'ownNodeInDiscovery',
     outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: exampleCase(
+      [
+        plainNode([
+          ['k', toNode(2)],
+          ['j', toNode(1)],
+          ['q', toNode(6)],
+        ]),
+        plainNode([
+          ['k', toNode(2)],
+          ['q', toNode(7)],
+        ]),
+        withGetter(walker(3, 1, 4)),
+        getterNode('g', 1),
+        getterNode('h', 2),
+        plainNode([['g', 5]]),
+        { entries: [[1, toNode(2)]], kind: 'map' },
+        { entries: [[1, toNode(5)]], kind: 'map' },
+      ],
+      [
+        plainNode([
+          ['k', toNode(1)],
+          ['q', toNode(5)],
+        ]),
+        withGetter(walker(2, 0, 3)),
+        getterNode('g', 1),
+        getterNode('h', 2),
+        plainNode([['g', 5]]),
+        { entries: [[1, toNode(4)]], kind: 'map' },
+      ],
+      [1, 2, 3, 4, 5, 7],
+    ),
+    name: 'ownNodeAlignedOnce',
+    outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: ownSlotCase((get) => ({ c: true, e: true, get, set: null })),
+    name: 'ownNodeFixedSlot',
+    outcome: { changesNext: false, ok: true },
+  },
+  {
+    c: ownSlotCase((v) => ({ a: [true, true, false], v })),
+    name: 'ownNodeWritableSlot',
+    outcome: WOULD_CHANGE_NEXT,
   },
 ]
 

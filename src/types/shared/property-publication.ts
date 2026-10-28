@@ -8,7 +8,7 @@ import {
   indexIn,
   isDataDescriptor,
 } from '../../standard-prototypes'
-import { UNREAD } from '../../constants'
+import { EMPTY_FACTS, UNREAD } from '../../constants'
 
 // Property lookup is a derived index over the sealed graph, never a second graph.
 export function propertySlots(node: Pick<CapturedNode, 'edges' | 'keys'>): Map<PropertyKey, Edge> {
@@ -190,6 +190,36 @@ export function canPublishProperties<L extends { readonly kind: symbol }>(
 const recreatable = (descriptor: PropertyDescriptor): boolean =>
   descriptor.configurable !== false && isDataDescriptor(descriptor)
 
+/** Whether a slot's value cannot be assigned: a non-writable data property or an accessor without
+ * a setter. One that cannot be recreated either is fixed (Spec.Slot.fixed). */
+const unwritable = (descriptor: PropertyDescriptor): boolean =>
+  isDataDescriptor(descriptor) ? descriptor.writable === false : descriptor.set === undefined
+
+/**
+ * The requirements of the object `next` holds at `node`, as its candidate there: capture read it
+ * as part of `next`, so it lists the node's keys and each slot holds the edge's value, and it
+ * passes the preflight with one requirement per fixed slot holding an object, that the slot's
+ * node keep the object it is (Spec.Reconcile.own_admitted, own_fixedRequirements). The preflight
+ * reads only the descriptor of each slot holding an object, which tells whether it is fixed.
+ * `records` gives each node's own object.
+ * @internal
+ */
+export function ownRequirements(
+  node: CapturedNode,
+  current: object,
+  records: readonly CapturedNode[],
+): readonly BoundEdge[] {
+  let required: BoundEdge[] | undefined
+  for (let index = 0; index < node.keys.length; index += 1) {
+    const edge = node.edges[index]
+    if (!isNode(edge)) continue
+    const descriptor = Object.getOwnPropertyDescriptor(current, node.keys[index])
+    if (descriptor !== undefined && !recreatable(descriptor) && unwritable(descriptor))
+      (required ??= []).push({ identity: records[edge.node].source!, node: edge.node })
+  }
+  return required ?? EMPTY_FACTS
+}
+
 /**
  * Checks the fixed slot of each current key in key order, reading each descriptor once into
  * `descriptors`. A slot that cannot be recreated, a non-configurable one or an accessor written
@@ -295,8 +325,7 @@ function fixedSlot(
   if (!properties.has(key)) return descriptor.configurable !== false
   if (retained === false) return false
   const expected = properties.get(key)!
-  if (isDataDescriptor(descriptor) ? descriptor.writable !== false : descriptor.set !== undefined)
-    return true
+  if (!unwritable(descriptor)) return true
   const actual = heldValue(node, current, key, context)
   if (isNode(expected) && isObject(actual)) return actual
   return !isNode(expected) && Object.is(atomValue(expected), actual)

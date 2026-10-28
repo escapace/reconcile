@@ -16,6 +16,8 @@ import type {
   PrototypeRead,
 } from '../types'
 import { denseArray } from '../standard-prototypes'
+import { ARRAY_KIND, type ArrayLayout } from '../types/array'
+import { ownRequirements } from '../types/shared/property-publication'
 import { tableOf } from './capture'
 
 /**
@@ -79,6 +81,14 @@ export function candidates(
     candidate: object,
     policy: PublicationRegistry['policies'][symbol],
   ): Candidate | undefined => {
+    // It requires each node only to keep its own object, which a pinned node keeps, so no pin
+    // rules it out.
+    if (ownCandidate(types, node, candidate))
+      return {
+        facts: undefined,
+        identity: candidate,
+        required: ownRequirements(node, candidate, records),
+      }
     const prototype = ingressOf(types, node, index, candidate, prototypes, alignment)
     if (prototype === MISMATCH) return undefined
     if (pinned?.has(candidate) === true) return undefined
@@ -112,6 +122,17 @@ export function candidates(
   promoteDemanded(domains)
   return domains
 }
+
+// Whether `candidate` is the object `next` holds at `node`, whose preflight capture's reads decide
+// but for which of its slots are fixed (`ownRequirements`): an object, or an array with the
+// standard prototype, whose captured elements are all its own. Capture recognized it as the
+// node's kind, so discovery does not recognize it again (Types.Ingress), and it is never published
+// (`keepsNext`), so discovery records no reads of it.
+const ownCandidate = (types: PublicationRegistry, node: CapturedNode, candidate: object): boolean =>
+  candidate === node.source &&
+  types.policies[node.layout.kind].aligned === alignedProperties &&
+  (node.layout.kind !== ARRAY_KIND ||
+    (node.layout as unknown as ArrayLayout).prototype === Array.prototype)
 
 // Whether a candidate's fixed slots require another object at a pinned node, which keeps the
 // object it is: the candidate can never be kept, so it must not reorder a node either; an
@@ -420,9 +441,12 @@ function collect(
     const outerObject = readingObject
     const outerRead = read
     reading = index
-    readingObject = alignment === undefined ? undefined : candidate
-    read = undefined
     const policy = types.policies[node.layout.kind]
+    readingObject =
+      alignment === undefined || (candidate !== undefined && ownCandidate(types, node, candidate))
+        ? undefined
+        : candidate
+    read = undefined
     if (
       candidate !== undefined &&
       candidate === node.source &&
@@ -465,7 +489,11 @@ function collect(
     const first = choices === undefined
     const recorded = first && object !== undefined && object === currents?.[index]
     const candidate =
-      recorded || (object !== undefined && kindOf(object) === node.layout.kind) ? object : undefined
+      recorded ||
+      (object !== undefined &&
+        (ownCandidate(types, node, object) || kindOf(object) === node.layout.kind))
+        ? object
+        : undefined
     if (candidate !== undefined) align(aligned, index, candidate)
     else if (!first) return
     else aligned[index] = VISITED as object[]

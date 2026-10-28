@@ -3,6 +3,36 @@ import { isReconcileError, reconcile, ReconcileError, snapshot } from '../index'
 import { assertWouldChangeNext } from './fixtures/graph-state'
 import { thrown } from './fixtures/thrown'
 
+/** A proxy over `target` that logs each read trap it receives. */
+function traced<T extends object>(target: T, log: string[]): T {
+  return new Proxy(target, {
+    get(object, key, receiver) {
+      log.push(`get ${String(key)}`)
+      return Reflect.get(object, key, receiver) as unknown
+    },
+    getOwnPropertyDescriptor(object, key) {
+      log.push(`gopd ${String(key)}`)
+      return Reflect.getOwnPropertyDescriptor(object, key)
+    },
+    getPrototypeOf(object) {
+      log.push('prototype')
+      return Reflect.getPrototypeOf(object)
+    },
+    has(object, key) {
+      log.push(`has ${String(key)}`)
+      return Reflect.has(object, key)
+    },
+    isExtensible(object) {
+      log.push('isExtensible')
+      return Reflect.isExtensible(object)
+    },
+    ownKeys(object) {
+      log.push('ownKeys')
+      return Reflect.ownKeys(object)
+    },
+  })
+}
+
 describe('identical-occupant pruning', () => {
   it('reads a pinned subtree once and never writes into it or verifies it', () => {
     let reads = 0
@@ -38,6 +68,57 @@ describe('identical-occupant pruning', () => {
     // At the node it is, reading next read value: that read serves for current (Spec.Promises,
     // mapOwn).
     assert.equal(reads, 1)
+  })
+
+  it('reads such an object as current only for whether its slots holding objects are fixed', () => {
+    const object: string[] = []
+    const value = traced({ child: { k: 1 }, n: 1 }, object)
+    const current = { m: new Map([[1, value]]) }
+    assert.equal(reconcile(current, { m: new Map([[1, value]]) }), current)
+    // Capture reads it as part of next; the preflight, its fixed slot holding an object
+    // (Spec.Reconcile.own_admitted, own_fixedRequirements).
+    assert.deepEqual(object, [
+      'prototype',
+      'ownKeys',
+      'ownKeys',
+      'gopd child',
+      'gopd n',
+      'get child',
+      'get n',
+      'ownKeys',
+      'gopd child',
+    ])
+    // A frozen array's length is not read again as current.
+    const array: string[] = []
+    const frozen = traced(Object.freeze([{ k: 1 }, 2]), array)
+    const holder = { m: new Map([[1, frozen]]) }
+    assert.equal(reconcile(holder, { m: new Map([[1, frozen]]) }), holder)
+    assert.deepEqual(array, [
+      'get length',
+      'prototype',
+      'has 0',
+      'get 0',
+      'get length',
+      'has 1',
+      'get 1',
+      'get length',
+      'gopd 0',
+    ])
+  })
+
+  it('keeps at its node the object a fixed slot of such an object holds', () => {
+    const other = { k: 2 }
+    const child = { k: 1 }
+    const holder = Object.freeze({ child })
+    // Discovery meets other first at child's node; holder's frozen slot requires child there.
+    // eslint-disable-next-line perfectionist/sort-objects -- x is walked first.
+    const current = { x: other as object, m: new Map([[1, holder]]) }
+    // eslint-disable-next-line perfectionist/sort-objects -- as in current.
+    const result = reconcile(current, { x: child, m: new Map([[1, holder]]) })
+    assert.equal(result, current)
+    assert.equal(current.x, child)
+    assert.equal(holder.child, child)
+    assert.deepEqual(other, { k: 2 })
   })
 
   it('still reads such an object once where next holds another object', () => {

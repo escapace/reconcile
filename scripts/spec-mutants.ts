@@ -173,6 +173,25 @@ const MUTANTS: readonly Mutant[] = [
     replace: '      const reads = this.occupants[first]\n',
   },
   {
+    file: 'src/types/shared/property-publication.ts',
+    find: '  return required ?? EMPTY_FACTS\n',
+    name: 'own-node-pins-dropped',
+    replace: '  return EMPTY_FACTS\n',
+  },
+  {
+    file: 'src/types/shared/property-publication.ts',
+    find: '    if (descriptor !== undefined && !recreatable(descriptor) && unwritable(descriptor))\n',
+    name: 'own-node-writable-fixed',
+    replace: '    if (descriptor !== undefined && !recreatable(descriptor))\n',
+  },
+  {
+    file: 'src/types/shared/property-publication.ts',
+    find: '    if (descriptor !== undefined && !recreatable(descriptor) && unwritable(descriptor))\n',
+    name: 'own-node-getter-unpinned',
+    replace:
+      '    if (descriptor !== undefined && !recreatable(descriptor) && isDataDescriptor(descriptor) && unwritable(descriptor))\n',
+  },
+  {
     bridge: 'collections',
     file: 'src/types/shared/collection.ts',
     find: '        if (position < wanted && sameKey(key, resolve(edges[position * width]))) {',
