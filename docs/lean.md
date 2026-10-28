@@ -420,39 +420,38 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
 - **Spec agreement.** The runtime's result, read back as a graph, equals the reference's on
   identities, values, descriptors, prototypes and extensibility. Rejections agree, each with the
   reference's reason (`PublicationWouldChangeNext` exactly when the reference reports
-  `changesNext`), and nothing is written before a rejection the reference decides before any
-  write. After every `reconcile` call, successful or rejected, `next` reads back with the
-  identities and contents it had before. `produce` and `snapshot` leave `current` unchanged, and a
-  value sent through `serialize`, JSON text and `deserialize` equals the reference's `snapshot`.
-  The bridge checks this on seeded random graphs, a `current` of up to seven nodes with cycles,
-  sharing, attributes, accessors, prototypes and integrity levels, where `next` reuses, reorders
-  and moves current objects and `produce` recipes write drafts, create objects and return values,
-  so its evidence is for the generated cases. The models cover objects, arrays, maps, sets, dates,
-  buffers, views and, for `reconcile`, the slots of class prototypes; they do not cover
-  `SharedArrayBuffer`, views that track their buffer's length, buffer and view subclasses, URLs,
-  Temporal values or proxies. The gate allows no difference: results, rejections and writes before
-  a rejection must agree, and so must the getter counts of every object on success and of every
-  object only `next` holds on rejection. No setter of a `next` object and no getter or setter of a
-  class prototype may run. The gate also runs the `--writes`, `--hazards`, `--binary` and
-  `--getters` batches and the round trip. Every standalone `reconcile` batch also checks seven
-  fixed cases that random graphs need not produce, and the gate checks them plainly and through
-  the recording proxies: the six examples of `Spec.KeepsNext` and `walkReachesRoot`, each checked
-  to have, in the reference, the outcome stated beside it. In `walkReachesRoot`, the walk of an
-  object in place reaches the root of `next`, itself an object of `current`, yet the call
-  succeeds: the object's read-only `up` cannot take the root's target, so the object is copied. A
-  call that keeps such an object is rejected, and getter counts of `current` are compared only on
-  success, so this case alone shows the order of the walk's reads.
-  The `--writes` batch wraps every current object and array in a recording proxy and compares the
-  writes and deletions each one receives, over every decision pass, with the reference's writes. The
-  `--hazards` batch, also through the proxies, generates more accessors and more setters that drop
-  their value than the default batch, so that about one call in nine needs more than one decision
-  pass. The `--binary` batches, one per operation, add buffers, some of them resizable, with typed
-  arrays and `DataView`s over them; the `reconcile` batch runs through the recording proxies. The
-  `--getters` batch, also through the proxies, adds accessors to the objects only `next` holds. The
-  round trip (`--op roundtrip`) restricts the `--binary` graphs to what `serialize` accepts and uses
-  the `maxBytes` that `requiredMaxBytes` returns; it also checks that each getter of the source runs
-  once, depth first, that no setter runs, that one byte less is refused and that the source is
-  unchanged.
+  `changesNext`), and nothing is written before a rejection the reference decides before any write.
+  After every `reconcile` call, successful or rejected, `next` reads back with the identities and
+  contents it had before. `produce` and `snapshot` leave `current` unchanged, and a value sent
+  through `serialize`, JSON text and `deserialize` equals the reference's `snapshot`. The bridge
+  checks this on seeded random graphs, a `current` of up to seven nodes with cycles, sharing,
+  attributes, accessors, prototypes and integrity levels, where `next` reuses, reorders and moves
+  current objects and `produce` recipes write drafts, create objects and return values, so its
+  evidence is for the generated cases. The models cover objects, arrays, maps, sets, dates, buffers,
+  views and, for `reconcile`, the slots of class prototypes; they do not cover `SharedArrayBuffer`,
+  views that track their buffer's length, buffer and view subclasses, URLs, Temporal values or
+  proxies. The gate allows no difference: results, rejections and writes before a rejection must
+  agree, and so must the getter counts of every object on success and of every object only `next`
+  holds on rejection. No setter of a `next` object and no getter or setter of a class prototype may
+  run. The gate also runs the `--writes`, `--hazards`, `--binary` and `--getters` batches and the
+  round trip. Every standalone `reconcile` batch also checks seven fixed cases that random graphs
+  need not produce, and the gate checks them plainly and through the recording proxies: the six
+  examples of `Spec.KeepsNext` and `walkReachesRoot`, each checked to have, in the reference, the
+  outcome the bridge states for it. In `walkReachesRoot`, the walk of an object in place reaches the
+  root of `next`, itself an object of `current`, yet the call succeeds: the object's read-only `up`
+  cannot take the root's target, so the object is copied. A call that keeps such an object is
+  rejected, and getter counts of `current` are compared only on success, so this case alone shows
+  the order of the walk's reads. The `--writes` batch wraps every current object and array in a
+  recording proxy and compares the writes and deletions each one receives, over every decision pass,
+  with the reference's writes. The `--hazards` batch, also through the proxies, generates more
+  accessors and more setters that drop their value than the default batch, so that about one call in
+  nine needs more than one decision pass. The `--binary` batches, one per operation, add buffers,
+  some of them resizable, with typed arrays and `DataView`s over them; the `reconcile` batch runs
+  through the recording proxies. The `--getters` batch, also through the proxies, adds accessors to
+  the objects only `next` holds. The round trip (`--op roundtrip`) restricts the `--binary` graphs
+  to what `serialize` accepts and uses the `maxBytes` that `requiredMaxBytes` returns; it also
+  checks that each getter of the source runs once, depth first, that no setter runs, that one byte
+  less is refused and that the source is unchanged.
 - **Spec phases.** On the `reconcile` cases, plain, hazard-rich and with buffers and views, the
   runtime's discovery and decisions equal the reference's phases (`SpecOracle.phases`): the visit
   order and the pinning alignment of the nodes that are not pinned, the pinned nodes, each node's
@@ -502,11 +501,11 @@ The proofs assume the following facts. _Intrinsic independence_ applies to every
   - _Skipping._ `skipped` makes publication and readback leave untouched nodes alone, as they
     leave pinned ones (`writesOfDecision_eq_publishedWrites`), and `remember` still records them
     at their nodes, as `writtenPairs` does.
-  - _Premise._ The theorems that make skipping exact and that show pinned and in-place nodes pass
-    (`untouched_writesOf`, `writesOfDecision_eq_publishedWrites`, `publishedWrites_child`,
-    `keepsNextAt_pinned`, `rounds_keepsNext_inPlace`) assume that each object both arguments share
-    reads the same through both (`Coherent`; README: _Getters must not change values_). The safety
-    theorems do not need it.
+  - _Premise._ The theorems that make skipping and the second clause exact and that show pinned
+    and in-place nodes pass (`untouched_writesOf`, `writesOfDecision_eq_publishedWrites`,
+    `publishedWrites_child`, `keepsNextAt_pinned`, `rounds_keepsNext_inPlace`) assume that each
+    object both arguments share reads the same through both (`Coherent`; README: _Where `next` can
+    still change_). The safety theorems do not need it.
   - _Boundary._ The objects `next` holds are those capture reads. README: _Where `next` can still
     change_ lists the objects and changes the rule does not see.
 
@@ -853,7 +852,7 @@ the corpora draw from.
 | `OwnedNativeChild`                 | `check-owned-native-child-runtime.ts`       | production carrier adoption projections: query, ordered entries, owner and child identities; then bulk-versus-sequential parameter publications compared natively, without the oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `Serialization`                    | `check-serialization-lean.ts`               | `serialize` documents decoded and re-emitted exactly by Lean; malformed documents rejected by both; non-canonical documents decoded to the same graph by both; literal roots; every accepted document accepted at exactly eight bytes per word of Lean's `accounting` and rejected one byte below, with `Size.lean`'s `tableCharges` admitting every node                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `SerializationCollection`          | `check-serialization-collection-runtime.ts` | success and failure traces through the production `map` and `set` facets: reads, ordered contents, untouched target on failure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `Spec`                             | `lean-spec-bridge.ts`                       | results, rejections with their reason, `next` read back after every call, and getter counts of every object, `next`'s included, on seeded random graphs and 7 fixed cases, and the `serialize` and `deserialize` round trip against `snapshot`, as _Spec agreement_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `Spec`                             | `lean-spec-bridge.ts`                       | results, rejections with their reason, `next` read back after every call, and getter counts of every object, `next`'s included, on seeded random graphs and seven fixed cases, and the `serialize` and `deserialize` round trip against `snapshot`, as _Spec agreement_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `Spec` (phases)                    | `lean-spec-phases.ts`                       | discovery, every pass's decision and whether the call could change `next`, on the `Spec` bridge's random `reconcile` cases, as _Spec phases_ describes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `Spec` (enumeration)               | `lean-spec-enumerate.ts`                    | every case of the universes _Spec enumeration_ lists, about 52,000 `reconcile` cases, 46,000 `produce` recipes and 800 `snapshot` graphs, compared as the outcome and phase bridges compare them                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 

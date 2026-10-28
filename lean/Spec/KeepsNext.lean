@@ -73,8 +73,8 @@ Why this rule, and no other:
   URL's own object and a view's buffer node only with the view's own buffer, so the rule sees the
   linked object as a target. A URL node that discovery pins to its own source because its
   `searchParams` stay in place (URL adoption) is untouched.
-- `Coherent` is the premise *Getters must not change values* states for `next`: an object `current`
-  and `next` share reads the same through both, so its contents are `next`'s.
+- `Coherent` is the premise the README's *Where `next` can still change* states: an object
+  `current` and `next` share reads the same through both, so its contents are `next`'s.
 - An object `next` reaches only through a prototype, a function, another object kept by reference
   or a proxy's target is not one `next` holds; the rule does not see it.
 -/

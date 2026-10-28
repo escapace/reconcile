@@ -90,10 +90,10 @@ can.
    reads each written object back to confirm the write (_readback_). A kept object whose write is
    refused or does not read back is _blocked_: the next pass decides again without it, every object
    the earlier pass wrote staying at its node, and the passes end when no object is blocked; a
-   blocked root rejects the call. After the first write, the requirement scan reruns, before each
-   pass, on the kept targets it writes. When every node of the first pass wrote nothing and kept
-   its key order, the readback is skipped (`Property.WriteFreeReadback`); that pass also reuses the
-   preflight's key lists and descriptors.
+   blocked root rejects the call. After the first write, the requirement scan reruns before each
+   pass on the kept targets that pass writes. When every node of the first pass wrote nothing and
+   kept its key order, the readback is skipped (`Property.WriteFreeReadback`); that pass also reuses
+   the preflight's key lists and descriptors.
 
 **`produce(current, recipe)`** runs `recipe` against a draft and returns a new graph that reuses
 unchanged objects.
