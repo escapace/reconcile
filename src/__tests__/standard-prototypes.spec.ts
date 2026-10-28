@@ -42,3 +42,18 @@ it('behaves the same for every value kind under SES, imported before or after lo
       expect(locked.outcomes, `${order} lockdown, ${taming} taming`).toEqual(plain.outcomes)
     }
 })
+
+// The documented contracts of public-api-invariants.spec.ts hold on a sample of random graphs under
+// `node --frozen-intrinsics` and under SES `lockdown` with severe override taming.
+it('keeps the documented contracts under node --frozen-intrinsics', async () => {
+  const output = await runDriver('invariants-hardened.ts', ['--frozen-intrinsics'])
+  expect(output.cases).toBeGreaterThan(100)
+  expect(output.failures).toEqual([])
+})
+
+it('keeps the documented contracts under SES lockdown with severe override taming', async () => {
+  const output = await runDriver('invariants-hardened.ts', [], { order: 'after', taming: 'severe' })
+  expect(output.frozen).toBe(true)
+  expect(output.cases).toBeGreaterThan(100)
+  expect(output.failures).toEqual([])
+})

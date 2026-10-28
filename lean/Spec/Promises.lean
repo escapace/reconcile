@@ -324,6 +324,28 @@ theorem objectWrites_unchanged (identity : Nat → Option Nat)
     have := (objectWrites_delete_iff identity cFields nFields k).mp h
     exact this.2 ⟨(retainPrefix_prefix _ _).subset hr, hr⟩
 
+/-- A kept object that already lists `next`'s keys in order, each with a value that does not
+differ, takes no write. -/
+theorem objectWrites_nil_of_holds (identity : Nat → Option Nat)
+    (cFields nFields : List (String × Slot)) (hkeys : cFields.map Prod.fst = nFields.map Prod.fst)
+    (hv : ∀ p ∈ nFields, ∀ cs, cFields.lookup p.1 = some cs →
+      differs identity cs.value p.2.value = false) :
+    (objectWrites identity cFields nFields).1 = [] := by
+  simp only [objectWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
+  have hr : retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) =
+      nFields.map Prod.fst := by
+    rw [hkeys, retainPrefix_self]
+  constructor
+  · intro ⟨k, cs⟩ hp
+    have hk : k ∈ nFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
+    simp only [hr, List.contains_iff_mem, hk, Bool.and_self, if_true]
+  · intro ⟨k, ns⟩ hp
+    have hk : k ∈ cFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
+    obtain ⟨cs, hcs⟩ := exists_lookup_of_mem hk
+    have hk' : k ∈ nFields.map Prod.fst := List.mem_map.mpr ⟨_, hp, rfl⟩
+    simp only [hcs, hr, List.contains_iff_mem, hk', if_true]
+    rw [if_neg (by simpa using hv (k, ns) hp cs hcs)]
+
 /-- A kept object, neither of whose key lists repeats a key, takes no write exactly when it
 already lists `next`'s keys in order, each with a value that does not differ. -/
 theorem objectWrites_nil_iff (identity : Nat → Option Nat)
@@ -333,59 +355,45 @@ theorem objectWrites_nil_iff (identity : Nat → Option Nat)
       cFields.map Prod.fst = nFields.map Prod.fst ∧
         ∀ p ∈ nFields, ∀ cs, cFields.lookup p.1 = some cs →
           differs identity cs.value p.2.value = false := by
-  simp only [objectWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
-  constructor
-  · rintro ⟨hd, hs⟩
-    have hsk : ∀ p ∈ nFields, ∃ cs, cFields.lookup p.1 = some cs ∧
-        p.1 ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) ∧
-        differs identity cs.value p.2.value = false := by
-      intro ⟨k, ns⟩ hp
-      have := hs (k, ns) hp
+  refine ⟨fun h => ?_, fun ⟨hkeys, hv⟩ => objectWrites_nil_of_holds identity _ _ hkeys hv⟩
+  simp only [objectWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff] at h
+  obtain ⟨hd, hs⟩ := h
+  have hsk : ∀ p ∈ nFields, ∃ cs, cFields.lookup p.1 = some cs ∧
+      p.1 ∈ retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) ∧
+      differs identity cs.value p.2.value = false := by
+    intro ⟨k, ns⟩ hp
+    have := hs (k, ns) hp
+    simp only at this
+    split at this
+    · rename_i cs hcs
+      split at this
+      · rename_i hr
+        split at this
+        · simp at this
+        · rename_i hd'
+          exact ⟨cs, hcs, by simpa using hr, by simpa using hd'⟩
+      · simp at this
+    · simp at this
+  have hkeys : cFields.map Prod.fst = nFields.map Prod.fst := by
+    apply retainPrefix_all hc hn
+    · intro k hk
+      obtain ⟨⟨k', cs⟩, hp, rfl⟩ := List.mem_map.mp hk
+      have := hd (k', cs) hp
       simp only at this
       split at this
-      · rename_i cs hcs
-        split at this
-        · rename_i hr
-          split at this
-          · simp at this
-          · rename_i hd'
-            exact ⟨cs, hcs, by simpa using hr, by simpa using hd'⟩
-        · simp at this
+      · rename_i h
+        simp only [Bool.and_eq_true, List.contains_iff_mem] at h
+        exact h.2
       · simp at this
-    have hkeys : cFields.map Prod.fst = nFields.map Prod.fst := by
-      apply retainPrefix_all hc hn
-      · intro k hk
-        obtain ⟨⟨k', cs⟩, hp, rfl⟩ := List.mem_map.mp hk
-        have := hd (k', cs) hp
-        simp only at this
-        split at this
-        · rename_i h
-          simp only [Bool.and_eq_true, List.contains_iff_mem] at h
-          exact h.2
-        · simp at this
-      · intro k hk
-        obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hk
-        obtain ⟨_, _, hr, _⟩ := hsk p hp
-        exact hr
-    refine ⟨hkeys, fun p hp cs hcs => ?_⟩
-    obtain ⟨cs', hcs', _, hd'⟩ := hsk p hp
-    rw [hcs] at hcs'
-    cases hcs'
-    exact hd'
-  · rintro ⟨hkeys, hv⟩
-    have hr : retainPrefix (cFields.map Prod.fst) (nFields.map Prod.fst) =
-        nFields.map Prod.fst := by
-      rw [hkeys, retainPrefix_self]
-    constructor
-    · intro ⟨k, cs⟩ hp
-      have hk : k ∈ nFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
-      simp only [hr, List.contains_iff_mem, hk, Bool.and_self, if_true]
-    · intro ⟨k, ns⟩ hp
-      have hk : k ∈ cFields.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
-      obtain ⟨cs, hcs⟩ := exists_lookup_of_mem hk
-      have hk' : k ∈ nFields.map Prod.fst := List.mem_map.mpr ⟨_, hp, rfl⟩
-      simp only [hcs, hr, List.contains_iff_mem, hk', if_true]
-      rw [if_neg (by simpa using hv (k, ns) hp cs hcs)]
+    · intro k hk
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hk
+      obtain ⟨_, _, hr, _⟩ := hsk p hp
+      exact hr
+  refine ⟨hkeys, fun p hp cs hcs => ?_⟩
+  obtain ⟨cs', hcs', _, hd'⟩ := hsk p hp
+  rw [hcs] at hcs'
+  cases hcs'
+  exact hd'
 
 /-- Whether a slot holding `c` already holds `next`'s `n` under the identities: both are empty,
 or both hold values that do not differ. -/
@@ -686,6 +694,31 @@ def collectionHolds (identity : Nat → Option Nat) (cKeys nKeys : List Val)
     ∀ k ∈ nKeys, ∀ ck cv nv, resolveKey identity k = some ck → cValue ck = some cv →
       nValue k = some nv → differs identity cv nv = false
 
+/-- A kept map or set that already holds `next`'s entries takes no write. -/
+theorem entryWrites_nil_of_holds (identity : Nat → Option Nat) (cKeys nKeys : List Val)
+    (cValue nValue : Val → Option Val) (h : collectionHolds identity cKeys nKeys cValue nValue) :
+    entryWrites identity cKeys nKeys cValue nValue = [] := by
+  obtain ⟨hkeys, hv⟩ := h
+  simp only [entryWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
+  have hr : retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) =
+      nKeys.map (resolveKey identity) := by
+    rw [hkeys, retainPrefix_self]
+  constructor
+  · intro ck hck
+    have hm : some ck ∈ nKeys.map (resolveKey identity) :=
+      hkeys ▸ List.mem_map.mpr ⟨ck, hck, rfl⟩
+    simp only [hr, List.contains_iff_mem, hm, Bool.and_self, if_true]
+  · intro k hk
+    have hmem : resolveKey identity k ∈ cKeys.map some :=
+      hkeys ▸ List.mem_map.mpr ⟨k, hk, rfl⟩
+    obtain ⟨ck, _, hres⟩ := List.mem_map.mp hmem
+    have hm : some ck ∈ nKeys.map (resolveKey identity) := List.mem_map.mpr ⟨k, hk, hres.symm⟩
+    simp only [← hres, hr, List.contains_iff_mem, hm, if_true]
+    split
+    · rename_i cv nv hcv hnv
+      rw [if_neg (by simpa using hv k hk ck cv nv hres.symm hcv hnv)]
+    · rfl
+
 /-- A kept map or set takes no write exactly when it already holds `next`'s entries, given
 distinct keys on both sides and identities that keep each object at one node at most. -/
 theorem entryWrites_nil_iff (identity : Nat → Option Nat) (cKeys nKeys : List Val)
@@ -693,67 +726,48 @@ theorem entryWrites_nil_iff (identity : Nat → Option Nat) (cKeys nKeys : List 
     (hinj : ∀ a b x, identity a = some x → identity b = some x → a = b) :
     entryWrites identity cKeys nKeys cValue nValue = [] ↔
       collectionHolds identity cKeys nKeys cValue nValue := by
-  simp only [entryWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff]
-  constructor
-  · rintro ⟨hd, hs⟩
-    have hsk : ∀ k ∈ nKeys, ∃ ck, resolveKey identity k = some ck ∧
-        some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) ∧
-        ∀ cv nv, cValue ck = some cv → nValue k = some nv → differs identity cv nv = false := by
-      intro k hk
-      have := hs k hk
+  refine ⟨fun h => ?_, entryWrites_nil_of_holds identity _ _ _ _⟩
+  simp only [entryWrites, List.append_eq_nil_iff, List.filterMap_eq_nil_iff] at h
+  obtain ⟨hd, hs⟩ := h
+  have hsk : ∀ k ∈ nKeys, ∃ ck, resolveKey identity k = some ck ∧
+      some ck ∈ retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) ∧
+      ∀ cv nv, cValue ck = some cv → nValue k = some nv → differs identity cv nv = false := by
+    intro k hk
+    have := hs k hk
+    split at this
+    · rename_i ck hres
       split at this
-      · rename_i ck hres
-        split at this
-        · rename_i hr
-          refine ⟨ck, hres, by simpa using hr, fun cv nv hcv hnv => ?_⟩
-          rw [hcv, hnv] at this
-          simpa using this
-        · simp at this
+      · rename_i hr
+        refine ⟨ck, hres, by simpa using hr, fun cv nv hcv hnv => ?_⟩
+        rw [hcv, hnv] at this
+        simpa using this
       · simp at this
-    have hkeys : cKeys.map some = nKeys.map (resolveKey identity) := by
-      apply retainPrefix_all
-      · exact List.Pairwise.map _ (fun a b h e => h (Option.some.inj e)) hc
-      · rw [List.Nodup, List.pairwise_map]
-        refine List.Pairwise.imp_of_mem (fun ha _ hne heq => ?_) hn
-        obtain ⟨ca, hra, -, -⟩ := hsk _ ha
-        exact hne (resolveKey_inj hinj hra (heq ▸ hra))
-      · intro x hx
-        obtain ⟨ck, hck, rfl⟩ := List.mem_map.mp hx
-        have := hd ck hck
-        split at this
-        · rename_i h
-          simp only [Bool.and_eq_true, List.contains_iff_mem] at h
-          exact h.2
-        · simp at this
-      · intro x hx
-        obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hx
-        obtain ⟨ck, hres, hr, -⟩ := hsk k hk
-        rw [hres]
-        exact hr
-    refine ⟨hkeys.symm, fun k hk ck cv nv hres hcv hnv => ?_⟩
-    obtain ⟨ck', hres', -, hv⟩ := hsk k hk
-    rw [hres] at hres'
-    cases hres'
-    exact hv cv nv hcv hnv
-  · rintro ⟨hkeys, hv⟩
-    have hr : retainPrefix (cKeys.map some) (nKeys.map (resolveKey identity)) =
-        nKeys.map (resolveKey identity) := by
-      rw [hkeys, retainPrefix_self]
-    constructor
-    · intro ck hck
-      have hm : some ck ∈ nKeys.map (resolveKey identity) :=
-        hkeys ▸ List.mem_map.mpr ⟨ck, hck, rfl⟩
-      simp only [hr, List.contains_iff_mem, hm, Bool.and_self, if_true]
-    · intro k hk
-      have hmem : resolveKey identity k ∈ cKeys.map some :=
-        hkeys ▸ List.mem_map.mpr ⟨k, hk, rfl⟩
-      obtain ⟨ck, _, hres⟩ := List.mem_map.mp hmem
-      have hm : some ck ∈ nKeys.map (resolveKey identity) := List.mem_map.mpr ⟨k, hk, hres.symm⟩
-      simp only [← hres, hr, List.contains_iff_mem, hm, if_true]
-      split
-      · rename_i cv nv hcv hnv
-        rw [if_neg (by simpa using hv k hk ck cv nv hres.symm hcv hnv)]
-      · rfl
+    · simp at this
+  have hkeys : cKeys.map some = nKeys.map (resolveKey identity) := by
+    apply retainPrefix_all
+    · exact List.Pairwise.map _ (fun a b h e => h (Option.some.inj e)) hc
+    · rw [List.Nodup, List.pairwise_map]
+      refine List.Pairwise.imp_of_mem (fun ha _ hne heq => ?_) hn
+      obtain ⟨ca, hra, -, -⟩ := hsk _ ha
+      exact hne (resolveKey_inj hinj hra (heq ▸ hra))
+    · intro x hx
+      obtain ⟨ck, hck, rfl⟩ := List.mem_map.mp hx
+      have := hd ck hck
+      split at this
+      · rename_i h
+        simp only [Bool.and_eq_true, List.contains_iff_mem] at h
+        exact h.2
+      · simp at this
+    · intro x hx
+      obtain ⟨k, hk, rfl⟩ := List.mem_map.mp hx
+      obtain ⟨ck, hres, hr, -⟩ := hsk k hk
+      rw [hres]
+      exact hr
+  refine ⟨hkeys.symm, fun k hk ck cv nv hres hcv hnv => ?_⟩
+  obtain ⟨ck', hres', -, hv⟩ := hsk k hk
+  rw [hres] at hres'
+  cases hres'
+  exact hv cv nv hcv hnv
 
 /-- A kept date sets its time exactly when the times differ. -/
 theorem writesOf_date (identity : Nat → Option Nat) (cms nms : Int) :

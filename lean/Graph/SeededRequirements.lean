@@ -14,17 +14,6 @@ def trim (seeds : Finset Nat) (successors : Nat → List Nat) (fact : Nat) : Lis
     next ∈ trim seeds successors fact ↔ next ∈ successors fact ∧ next ∉ seeds := by
   simp [trim]
 
-theorem closed_iff (seeds facts : Finset Nat) (successors : Nat → List Nat)
-    (included : seeds ⊆ facts) :
-    Closed (trim seeds successors) facts ↔ Closed successors facts := by
-  constructor
-  · intro closed fact hf next hn
-    by_cases hs : next ∈ seeds
-    · exact included hs
-    · exact closed fact hf next (mem_trim seeds successors fact next |>.mpr ⟨hn, hs⟩)
-  · intro closed fact hf next hn
-    exact closed fact hf next ((mem_trim seeds successors fact next).mp hn).1
-
 theorem admit_filter (seeds known : Finset Nat) (input : List Nat)
     (included : seeds ⊆ known) :
     admit known (input.filter fun next => decide (next ∉ seeds)) = admit known input := by

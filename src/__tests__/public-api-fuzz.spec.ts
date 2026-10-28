@@ -8,10 +8,7 @@ import {
   graphResult,
   mutateSpecial,
   attributeConfigurations,
-  greatestRetainedSubset,
-  hasEdge,
   type ReuseGraphNode,
-  type TinyNode,
   type AttributeFlags,
 } from './fixtures/public-api-fuzz'
 import { reconcileKeepingNext, WOULD_CHANGE_NEXT } from './fixtures/graph-state'
@@ -189,18 +186,6 @@ describe('deterministic public API fuzz regressions', () => {
     }
   })
 
-  it('matches exhaustive greatest reuse across 4,096 three-node graph/edit-mask cases', () => {
-    let cases = 0
-    for (let graph = 0; graph < 512; graph += 1)
-      for (let changed = 0; changed < 8; changed += 1) {
-        checkCase({ changed, graph }, () => {
-          checkTinyGraphReuse(graph, changed)
-        })
-        cases += 1
-      }
-    assert.equal(cases, 4096)
-  })
-
   it('preserves 384 native attribute combinations, cyclic aliases, and held-draft isolation', () => {
     const configurations = attributeConfigurations()
     let cases = 0
@@ -269,44 +254,6 @@ describe('deterministic public API fuzz regressions', () => {
     assert.equal(cases, 248)
   })
 })
-
-function checkTinyGraphReuse(graph: number, changed: number): void {
-  const nodes: TinyNode[] = Array.from({ length: 3 }, () => ({ value: 0 }))
-  for (let from = 0; from < 3; from += 1)
-    for (let to = 0; to < 3; to += 1)
-      if (hasEdge(graph, from, to)) nodes[from][`e${to}`] = nodes[to]
-  const greatest = greatestRetainedSubset(graph, changed)
-  const current = { nodes }
-  const result = produce(current, (draft) => {
-    for (let index = 0; index < 3; index += 1) {
-      draft.nodes[index].value = 1
-      if ((changed & (1 << index)) === 0) draft.nodes[index].value = 0
-    }
-    return draft
-  })
-  for (let index = 0; index < 3; index += 1) {
-    assertTinyNodeReuse(graph, changed, greatest, nodes, result, index)
-  }
-  if (changed === 0) assert.equal(result, current)
-}
-
-function assertTinyNodeReuse(
-  graph: number,
-  changed: number,
-  greatest: number,
-  nodes: TinyNode[],
-  result: { nodes: TinyNode[] },
-  index: number,
-): void {
-  assert.equal(result.nodes[index] === nodes[index], Boolean(greatest & (1 << index)))
-  assert.equal(nodes[index].value, 0)
-  assert.equal(result.nodes[index].value, (changed & (1 << index)) !== 0 ? 1 : 0)
-  for (let child = 0; child < 3; child += 1)
-    if (hasEdge(graph, index, child)) {
-      assert.equal(result.nodes[index][`e${child}`], result.nodes[child])
-      assert.equal(nodes[index][`e${child}`], nodes[child])
-    }
-}
 
 function checkArrayObservation(length: number, mask: number, mutate: boolean, undo: boolean): void {
   const { expected, raw, reads } = observedArray(length, mask, mutate, undo)

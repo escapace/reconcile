@@ -393,11 +393,6 @@ export interface ReuseGraphNode {
   mark: number
 }
 
-export interface TinyNode {
-  [key: string]: unknown
-  value: number
-}
-
 export interface AttributeFlags {
   configurable: boolean
   enumerable: boolean

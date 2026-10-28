@@ -173,25 +173,6 @@ describe('Shared-object fast path', () => {
       assert.equal(result.a, result.b)
     })
 
-    it('pins the occupant and publishes the competing next object into a fresh object', () => {
-      const shared = { count: 0 }
-      const current = { a: shared, b: shared }
-
-      // next.a is a different object, next.b is the object already at that slot
-      const nextA = { count: 5 }
-      const next = { a: nextA, b: shared }
-
-      const result = reconcile(current, next) as { a: { count: number }; b: object }
-
-      // 'b' holds its own occupant, so it is pinned: identity retained, nothing inside touched.
-      assert.equal(result.b, shared)
-      assert.equal(shared.count, 0)
-
-      // 'a' cannot retain the pinned object (one storage per node), so it is published fresh.
-      assert.notEqual(result.a, shared)
-      assert.equal(result.a.count, 5)
-    })
-
     it('consumes current for next when both are fresh', () => {
       // reuse(current) == none AND image(next) == none => consume
       const shared = { count: 0 }

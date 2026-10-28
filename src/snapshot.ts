@@ -385,7 +385,8 @@ class SnapshotWalk extends Detached {
   observeView(reference: SnapshotReference, source: object, kind: symbol): void {
     const view = source as ArrayBufferView
     // Recognition's prototype read, taken before the buffer's observation reuses the record, and
-    // one read of the element type, which decides every getter below.
+    // one read of the element type, which decides every getter below
+    // (Types.Ingress.snapshotView_once).
     const prototype = prototypeOf(source, this.read)
     const element = viewElement(view)
     const buffer = bufferWith(view, element)

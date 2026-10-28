@@ -43,12 +43,6 @@ theorem close_least (successors : Nat → List Nat) (seeds : List Nat) (domain f
     (fun fact hf => hseeds fact ((admit_mem _ _ _).mp hf).1)
     (fun fact hf => hseeds fact (by simpa [start] using hf)) fact hf
 
-theorem close_domain (successors : Nat → List Nat) (seeds : List Nat) (domain : Finset Nat)
-    (hseeds : ∀ fact ∈ seeds, fact ∈ domain)
-    (hdeps : ∀ fact ∈ domain, ∀ next ∈ successors fact, next ∈ domain) :
-    close successors seeds domain ⊆ domain :=
-  close_least successors seeds domain domain hdeps hseeds
-
 theorem close_closed (successors : Nat → List Nat) (seeds : List Nat) (domain : Finset Nat)
     (hseeds : ∀ fact ∈ seeds, fact ∈ domain)
     (hdeps : ∀ fact ∈ domain, ∀ next ∈ successors fact, next ∈ domain) :

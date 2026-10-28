@@ -1,4 +1,4 @@
-// Child-process driver for public-api-invariants.spec.ts: a sample of the documented contracts
+// Child-process driver for standard-prototypes.spec.ts: a sample of the documented contracts
 // on random graphs, run under `node --frozen-intrinsics` and under SES `lockdown`, where every
 // standard prototype is frozen and some of its properties are accessors.
 import {

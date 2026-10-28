@@ -321,8 +321,8 @@ function bindViews(rng: Rng, nodes: GraphNode[], fixed: (id: number) => boolean)
   })
 }
 
-/** The values a node holds, keys and values alike. */
-const valuesOf: ByKind<[], Value[]> = {
+/** The values a node holds, keys and values alike, in the order `serialize` visits them. */
+export const valuesOf: ByKind<[], Value[]> = {
   array: (o) => o.entries.filter((entry): entry is Value => !isHole(entry)),
   buffer: () => [],
   date: () => [],

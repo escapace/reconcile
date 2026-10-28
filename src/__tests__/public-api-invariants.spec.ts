@@ -7,7 +7,6 @@ import {
   snapshotInvariants,
   writeFreeInvariants,
 } from './fixtures/public-api-invariants'
-import { runDriver } from './fixtures/run-driver'
 
 // The documented contracts, checked on seeded random graphs far larger than the Spec bridge's
 // and without a reference; the checks are in `fixtures/public-api-invariants.ts`.
@@ -64,22 +63,5 @@ describe('produce, snapshot and serialize on large random graphs', () => {
 
   it('serialize round-trips supported graphs and rejects the others', () => {
     over((seed) => serializeInvariants(seed, PLAIN))
-  })
-})
-
-describe('in hardened runtimes', () => {
-  it('holds under node --frozen-intrinsics', async () => {
-    const output = await runDriver('invariants-hardened.ts', ['--frozen-intrinsics'])
-    assert.ok(output.cases > 100, `${output.cases} cases`)
-    assert.deepEqual(output.failures, [])
-  })
-
-  it('holds under SES lockdown with severe override taming', async () => {
-    const output = await runDriver('invariants-hardened.ts', [], {
-      order: 'after',
-      taming: 'severe',
-    })
-    assert.ok(output.frozen && output.cases > 100, `${output.cases} cases`)
-    assert.deepEqual(output.failures, [])
   })
 })

@@ -454,64 +454,21 @@ theorem writesOf_of_holds (identity : Nat → Option Nat) (c n : Obj) (h : holds
   cases c <;> cases n <;> simp only [holds] at h
   case object.object p cf ext p' nf ext' =>
     obtain ⟨hkeys, hv⟩ := h
-    have hr : retainPrefix (cf.map Prod.fst) (nf.map Prod.fst) = nf.map Prod.fst := by
-      rw [hkeys, retainPrefix_self]
-    simp only [writesOf, objectWrites, Prod.mk.injEq, List.append_eq_nil_iff,
-      List.filterMap_eq_nil_iff, List.any_eq_false]
-    refine ⟨⟨fun ⟨k, cs⟩ hp => ?_, fun ⟨k, ns⟩ hp => ?_⟩, fun ⟨k, ns⟩ hp => ?_⟩
-    · have hk : k ∈ nf.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
-      simp only [hr, List.contains_iff_mem, hk, Bool.and_self, if_true]
-    · have hk : k ∈ cf.map Prod.fst := hkeys ▸ List.mem_map.mpr ⟨_, hp, rfl⟩
-      obtain ⟨cs, hcs⟩ := exists_lookup_of_mem hk
-      have hk' : k ∈ nf.map Prod.fst := List.mem_map.mpr ⟨_, hp, rfl⟩
-      simp only [hcs, hr, List.contains_iff_mem, hk', if_true]
-      rw [if_neg (by simpa using hv (k, ns) hp cs hcs)]
-    · simp only
-      split
-      · rename_i v e c' hcs
-        simp [show differs identity v ns.value = false from hv (k, ns) hp _ hcs]
-      · rename_i cs _ hcs
-        simp [show differs identity cs.value ns.value = false from hv (k, ns) hp _ hcs]
-      · simp
+    refine Prod.ext (objectWrites_nil_of_holds identity cf nf hkeys hv) ?_
+    simp only [writesOf, objectWrites, List.any_eq_false]
+    intro ⟨k, ns⟩ hp
+    simp only
+    split
+    · rename_i v e c' hcs
+      simp [show differs identity v ns.value = false from hv (k, ns) hp _ hcs]
+    · rename_i cs _ hcs
+      simp [show differs identity cs.value ns.value = false from hv (k, ns) hp _ hcs]
+    · simp
   case array.array ce ext ne ext' =>
     have := (arraySlotWrites_nil_iff identity ce ne).2 h
     simp [writesOf, arrayWrites, this]
-  case map.map ce ne =>
-    obtain ⟨hkeys, hv⟩ := h
-    have hr : retainPrefix ((ce.map Prod.fst).map some)
-        ((ne.map Prod.fst).map (resolveKey identity)) =
-        (ne.map Prod.fst).map (resolveKey identity) := by
-      rw [hkeys, retainPrefix_self]
-    simp only [writesOf, collectionWrites, entryWrites, Prod.mk.injEq, List.map_eq_nil_iff,
-      List.append_eq_nil_iff, List.filterMap_eq_nil_iff, and_true]
-    refine ⟨fun ck hck => ?_, fun k hk => ?_⟩
-    · have hm : some ck ∈ (ne.map Prod.fst).map (resolveKey identity) :=
-        hkeys ▸ List.mem_map.mpr ⟨ck, hck, rfl⟩
-      simp only [hr, List.contains_iff_mem, hm, Bool.and_self, if_true]
-    · have hmem : resolveKey identity k ∈ (ce.map Prod.fst).map some :=
-        hkeys ▸ List.mem_map.mpr ⟨k, hk, rfl⟩
-      obtain ⟨ck, _, hres⟩ := List.mem_map.mp hmem
-      have hm : some ck ∈ (ne.map Prod.fst).map (resolveKey identity) :=
-        List.mem_map.mpr ⟨k, hk, hres.symm⟩
-      simp only [← hres, hr, List.contains_iff_mem, hm, if_true]
-      split
-      · rename_i cv nv hcv hnv
-        rw [if_neg (by simpa using hv k hk ck cv nv hres.symm hcv hnv)]
-      · rfl
-  case set.set cm nm =>
-    obtain ⟨hkeys, -⟩ := h
-    have hr : retainPrefix (cm.map some) (nm.map (resolveKey identity)) =
-        nm.map (resolveKey identity) := by
-      rw [hkeys, retainPrefix_self]
-    simp only [writesOf, collectionWrites, entryWrites, Prod.mk.injEq, List.map_eq_nil_iff,
-      List.append_eq_nil_iff, List.filterMap_eq_nil_iff, and_true]
-    refine ⟨fun ck hck => ?_, fun k hk => ?_⟩
-    · have hm : some ck ∈ nm.map (resolveKey identity) := hkeys ▸ List.mem_map.mpr ⟨ck, hck, rfl⟩
-      simp only [hr, List.contains_iff_mem, hm, Bool.and_self, if_true]
-    · have hmem : resolveKey identity k ∈ cm.map some := hkeys ▸ List.mem_map.mpr ⟨k, hk, rfl⟩
-      obtain ⟨ck, _, hres⟩ := List.mem_map.mp hmem
-      have hm : some ck ∈ nm.map (resolveKey identity) := List.mem_map.mpr ⟨k, hk, hres.symm⟩
-      simp only [← hres, hr, List.contains_iff_mem, hm, if_true]
+  case map.map => simp [writesOf, collectionWrites, entryWrites_nil_of_holds identity _ _ _ _ h]
+  case set.set => simp [writesOf, collectionWrites, entryWrites_nil_of_holds identity _ _ _ _ h]
   case date.date => simp [writesOf, h]
   case buffer.buffer => simp [writesOf, h]
   case view.view => rfl

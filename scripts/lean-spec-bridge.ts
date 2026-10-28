@@ -69,6 +69,7 @@ import {
   type Step,
   type Value,
   type ViewConstructor,
+  valuesOf,
 } from './spec-generator'
 
 const sortedEntries = (v: Record<string, unknown>): Record<string, unknown> =>
@@ -862,21 +863,10 @@ const serializableGraph = (graph: Graph): Graph => ({
   root: serializableValue(graph.root),
 })
 
-/** The values a node other than a plain object holds, in the order `serialize` visits them. */
-const childValues: ByKind<[], Value[]> = {
-  array: (n) => n.entries.filter((entry): entry is Value => !isHole(entry)),
-  buffer: () => [],
-  date: () => [],
-  map: (n) => n.entries.flat(),
-  object: (n) => n.fields.map(([, slot]) => slotValue(slot)),
-  set: (n) => n.members,
-  view: (n) => [n.buffer],
-}
-
 /** The values of node `id` in the order `serialize` visits them, each with the getter, as
  * `<node>.<key>`, that runs as its key is read: none, or one for an object's accessor. */
 function visits(node: GraphNode, id: number): Array<[getters: string[], value: Value]> {
-  if (node.kind !== 'object') return byKind(childValues, node).map((child) => [[], child])
+  if (node.kind !== 'object') return byKind(valuesOf, node).map((child) => [[], child])
   return node.fields.map(([key, slot]) => ['get' in slot ? [`${id}.${key}`] : [], slotValue(slot)])
 }
 

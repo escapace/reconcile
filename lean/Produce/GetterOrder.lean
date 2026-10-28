@@ -1,4 +1,5 @@
 import Batteries.Data.List.Perm
+import Produce.SettledChildren
 import Serialization.DFS
 
 /-!
@@ -2004,42 +2005,6 @@ theorem getters_once {root : Nat} {T : List Slot} {S' : List Nat}
 /-- The objects of `U` not yet seen. -/
 def unseen (U S : List Nat) : List Nat := U.filter (fun x => decide (x ∉ S))
 
-theorem filter_length_mono {p q : Nat → Bool} (h : ∀ x, p x = true → q x = true) (l : List Nat) :
-    (l.filter p).length ≤ (l.filter q).length := by
-  induction l with
-  | nil => simp
-  | cons x xs ih =>
-    simp only [List.filter_cons]
-    by_cases hp : p x = true
-    · rw [if_pos hp, if_pos (h x hp)]; simp only [List.length_cons]; omega
-    · rw [if_neg hp]; split <;> (try simp only [List.length_cons]) <;> omega
-
-theorem filter_length_lt {p q : Nat → Bool} (h : ∀ x, p x = true → q x = true) {l : List Nat}
-    {y : Nat} (hy : y ∈ l) (hq : q y = true) (hp : p y = false) :
-    (l.filter p).length < (l.filter q).length := by
-  induction l with
-  | nil => simp at hy
-  | cons x xs ih =>
-    simp only [List.filter_cons]
-    rcases List.mem_cons.mp hy with rfl | hy'
-    · rw [if_neg (by simp [hp]), if_pos hq]; simp only [List.length_cons]
-      exact Nat.lt_succ_of_le (filter_length_mono h xs)
-    · have := ih hy'
-      by_cases hpx : p x = true
-      · rw [if_pos hpx, if_pos (h x hpx)]; simp only [List.length_cons]; omega
-      · rw [if_neg hpx]; split <;> (try simp only [List.length_cons]) <;> omega
-
-theorem unseen_mono {U S S' : List Nat} (h : ∀ x ∈ S, x ∈ S') :
-    (unseen U S').length ≤ (unseen U S).length :=
-  filter_length_mono (fun x hx => by
-    simp only [decide_eq_true_eq] at hx ⊢; exact fun h' => hx (h x h')) U
-
-theorem unseen_lt {U S : List Nat} {n : Nat} (hn : n ∈ U) (hS : n ∉ S) :
-    (unseen U (n :: S)).length < (unseen U S).length :=
-  filter_length_lt (fun x hx => by
-    simp only [decide_eq_true_eq, List.mem_cons, not_or] at hx ⊢; exact hx.2) hn (by simp [hS])
-    (by simp)
-
 /-- On a finite graph, the walk from any object exists: every object reachable lies in a list
 `U` closed under children. -/
 theorem Dfs.exists {U : List Nat} (hU : ∀ n ∈ U, ∀ c ∈ g n, c ∈ U) :
@@ -2081,7 +2046,7 @@ theorem Dfs.exists {U : List Nat} (hU : ∀ n ∈ U, ∀ c ∈ g n, c ∈ U) :
         intro S₀ n i hk₀ hS₀ hcs hv
         obtain ⟨T₁, S₁, D₁, h₁⟩ := hv S₀ hk₀ hS₀ c (hcs c (List.mem_cons_self ..))
         have hk₁ : (unseen U S₁).length ≤ k + 1 :=
-          Nat.le_trans (unseen_mono (fun x hx => D₁.sub hx)) hk₀
+          Nat.le_trans (SettledChildren.unvisited_le U (fun x hx => D₁.sub hx)) hk₀
         obtain ⟨T₂, S₂, D₂, h₂⟩ := ihc S₁ n (i + 1) hk₁ h₁
           (fun c' h => hcs c' (List.mem_cons_of_mem _ h)) hv
         exact ⟨(n, i) :: (T₁ ++ T₂), S₂, .cons D₁ D₂, h₂⟩
@@ -2092,7 +2057,8 @@ theorem Dfs.exists {U : List Nat} (hU : ∀ n ∈ U, ∀ c ∈ g n, c ∈ U) :
       · exact ⟨[], S₁, .seen hcS, hS₁⟩
       · by_cases hgc : g c = []
         · exact ⟨[], S₁, .leaf hgc, hS₁⟩
-        · have hlt := unseen_lt hc hcS
+        · have hlt : (unseen U (c :: S₁)).length < (unseen U S₁).length :=
+            SettledChildren.unvisited_lt U hc hcS
           have hk' : (unseen U (c :: S₁)).length ≤ k := by omega
           obtain ⟨-, hres⟩ := ih (c :: S₁) hk' (fun m hm => by
             rcases List.mem_cons.mp hm with rfl | hm

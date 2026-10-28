@@ -1,6 +1,7 @@
 // The documented contracts of every function, checked on seeded random graphs without a
 // reference: each check follows from a README sentence and needs no oracle. The spec runs them in
-// process; `invariants-hardened.ts` runs a sample in a locked-down child process.
+// process; `invariants-hardened.ts` runs a sample in a locked-down child process, which
+// standard-prototypes.spec.ts drives.
 import {
   deserialize,
   isReconcileError,

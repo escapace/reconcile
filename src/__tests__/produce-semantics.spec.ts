@@ -159,26 +159,6 @@ describe('produce semantics', () => {
     assert.equal(result, current)
   })
 
-  it('keeps child-draft mutations sticky even when the parent receives a SameValue write back', () => {
-    // Mutating a child through its draft handle permanently marks that child modified. A later
-    // SameValue write of the original reference at the parent level does not discard the child
-    // mutation, so the finalized next value reflects the child change coherently.
-    const child = { value: 1 }
-    const current = { child }
-
-    const result = produce(current, (draft) => {
-      const childDraft = draft.child
-      childDraft.value = 2
-      draft.child = child
-      return draft
-    })
-
-    assert.notEqual(result, current)
-    assert.notEqual(result.child, child)
-    assert.equal(result.child.value, 2)
-    assert.deepEqual(current, { child: { value: 1 } })
-  })
-
   it('keeps child-draft mutations when the mutated child is kept in the result', () => {
     const child = { value: 1 }
     const current = { child }

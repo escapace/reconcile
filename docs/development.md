@@ -158,9 +158,9 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   of up to 120 objects; the native differential file
   (`src/__tests__/native-differential.spec.ts`), which compares `produce` and `reconcile` results,
   descriptors included, with native JavaScript applied to plain copies; and the stress file
-  (`src/__tests__/reconcile-keeps-next-stress.spec.ts`), which uses the helpers in
-  `src/__tests__/fixtures/graph-state.ts` to build `next` from `current` with immutable idioms and
-  `produce` recipes and checks that `reconcile` never changes `next`. The README rules that let a
+  (`src/__tests__/reconcile-keeps-next-stress.spec.ts`), which builds `next` from `current` with
+  immutable idioms and `produce` recipes and checks, with the helpers in
+  `src/__tests__/fixtures/graph-state.ts`, that `reconcile` never changes `next`. The README rules that let a
   result differ from native mutation are the policies in the native differential fixture.
 - **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
   regenerates the README's API section. A new export also goes into `OPERATIONS` or `OTHERS` and the
@@ -228,7 +228,8 @@ sides together.
   `scripts/profile-scenarios.ts`.
 - **Counters.** `scripts/profile-counts.ts` instruments call sites by file path and exact callee,
   function or expression text. `profile-counts.spec.ts` fails only when one of its four
-  text-matched counters finds no site at all; renaming or moving any other rule's site, such as
+  text-matched counters finds no site at all or the `observation.events` sites leave their two
+  files; renaming or moving any other rule's site, such as
   `propertySlots` or `matchesKind`, drops a counter, and a new recognition predicate in
   `builtins.ts` gets none.
 - **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports

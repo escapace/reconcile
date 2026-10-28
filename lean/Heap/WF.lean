@@ -23,10 +23,7 @@ def edge {A : Type} {ι : Type} [DecidableEq ι] (h : Heap A ι) (a b : ι) : Pr
     In the intended instantiation this is SameValue. -/
 class AtomEq (A : Type) where
   eq : A → A → Prop
-  eq_dec : DecidableRel eq
   eq_refl : ∀ a, eq a a
-
-attribute [instance] AtomEq.eq_dec
 
 /-- Option-level value equivalence: both none, or both some with a given
     relation on values. -/
@@ -107,18 +104,6 @@ def SurfaceEq {A : Type} [AtomEq A] {ι₁ ι₂ : Type}
     [DecidableEq ι₁] [DecidableEq ι₂]
     {h₁ : Heap A ι₁} {h₂ : Heap A ι₂} {n : Nat} {a₁ a₂ : A} :
     SurfaceEqBounded h₁ h₂ n (.atom a₁) (.atom a₂) ↔ AtomEq.eq a₁ a₂ := by
-  cases n <;> simp [SurfaceEqBounded]
-
-@[simp] theorem SurfaceEqBounded_atom_ref {A : Type} [AtomEq A] {ι₁ ι₂ : Type}
-    [DecidableEq ι₁] [DecidableEq ι₂]
-    {h₁ : Heap A ι₁} {h₂ : Heap A ι₂} {n : Nat} {a : A} {r : ι₂} :
-    SurfaceEqBounded h₁ h₂ n (.atom a) (.ref r) ↔ False := by
-  cases n <;> simp [SurfaceEqBounded]
-
-@[simp] theorem SurfaceEqBounded_ref_atom {A : Type} [AtomEq A] {ι₁ ι₂ : Type}
-    [DecidableEq ι₁] [DecidableEq ι₂]
-    {h₁ : Heap A ι₁} {h₂ : Heap A ι₂} {n : Nat} {r : ι₁} {a : A} :
-    SurfaceEqBounded h₁ h₂ n (.ref r) (.atom a) ↔ False := by
   cases n <;> simp [SurfaceEqBounded]
 
 end Reconcile

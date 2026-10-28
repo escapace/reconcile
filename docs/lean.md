@@ -400,7 +400,8 @@ their premises.
 **Encoder-only theorems.** `Positional`'s `decode_encode_document`, `encode_decode_document`,
 `intern_canonical`, `canonical_intern` and `sparse_canonical` hold for a decoder that also
 requires first-use, duplicate-free tables. They are true of the encoder's output, which
-`encode.ts` and `facets/array.ts` cite them for, but not of what `deserialize` accepts.
+`encode.ts` cites `decode_encode_document` for and `facets/array.ts` cites `sparse_canonical`
+for, but not of what `deserialize` accepts.
 
 ## Runtime obligations
 
