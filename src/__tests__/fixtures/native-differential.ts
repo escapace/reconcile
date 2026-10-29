@@ -124,7 +124,15 @@ const BACKED = new Map(
 
 type Kind = 'atom' | 'primitive' | NodeKind
 type NodeKind =
-  'array' | 'buffer' | 'DataView' | 'date' | 'Int16Array' | 'map' | 'object' | 'set' | 'Uint8Array'
+  | 'array'
+  | 'buffer'
+  | 'DataView'
+  | 'date'
+  | 'Int16Array'
+  | 'map'
+  | 'object'
+  | 'set'
+  | 'Uint8Array'
 
 const CLASS_KINDS: ReadonlyArray<readonly [abstract new (...parameters: never[]) => object, Kind]> =
   [

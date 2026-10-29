@@ -34,8 +34,6 @@ export interface RoundDefinition {
   readonly exclude: readonly string[]
   /** The round's commands; `directory` holds its logs, receipt and anything else it writes. */
   readonly steps: (options: RoundOptions, directory: string) => Step[]
-  /** Tracked files the round itself may rewrite, such as the README that the build regenerates. */
-  readonly outputs?: readonly string[]
   /** Raises a usage error for narrowing options the round does not take; a round without it
    * takes none. */
   readonly validate?: (options: RoundOptions) => void
@@ -45,8 +43,7 @@ export interface RoundDefinition {
 const LEAN = ['*.lean', 'lake-manifest.json', 'lakefile.toml', 'lean-toolchain', 'lean/fixtures/']
 /** The guides, which no round reads. */
 const GUIDES = ['AGENTS.md', 'docs/']
-/** The README and the guides. No round reads them but `lib`, whose build regenerates the README's
- * API section. */
+/** The README and the guides, which no round reads. */
 const DOCS = ['README.md', ...GUIDES]
 /** The measurement tooling and the frozen workloads, which `temporal`, `lean` and `mutants` never
  * read. */
@@ -188,9 +185,8 @@ export const ROUNDS: readonly RoundDefinition[] = [
   },
   {
     // The library suite runs the diagnostics, so `lib` reads the workloads they build on.
-    exclude: [...LEAN, ...GUIDES, 'perf/'],
+    exclude: [...LEAN, ...DOCS, 'perf/'],
     name: 'lib',
-    outputs: ['README.md'],
     summary: 'The built package: its build, the specs against it and every per-export bundle.',
     steps: (_, directory) => [
       pnpm('build', 'run', '--silent', 'build'),
@@ -204,8 +200,6 @@ export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'temporal',
-    // Its build regenerates the README too.
-    outputs: ['README.md'],
     summary:
       "The cases that need Node's native Temporal, on the sources, the package and the bridges.",
     steps: () => {

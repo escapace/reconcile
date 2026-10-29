@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { deferredKeys, deferredOrderCases } from '../fixtures/deferred-order-cases'
-import { bundleWithHooks, type Hook } from '../../esbuild'
+import { bundleWithHooks, type Hook } from '../../rolldown'
 import type { Oracle } from '../oracle'
 import { keyCode } from '../fixtures/property-bridges'
 import type { canPublishProperties } from '../../../src/types/shared/property-publication'

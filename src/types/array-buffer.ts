@@ -76,4 +76,4 @@ export interface ArrayBufferLayout {
   readonly kind: typeof ARRAY_BUFFER_KIND
 }
 
-export const arrayBufferDraft = /* @__PURE__ */ independentDraft
+export const arrayBufferDraft = independentDraft

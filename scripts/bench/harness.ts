@@ -3,8 +3,9 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { SourceMap, type SourceMapPayload } from 'node:module'
 import path from 'node:path'
+import { build, type Plugin } from 'rolldown'
 import { ROOT } from '../framework/paths'
-import { loadEsbuild } from '../esbuild'
+import { virtualModule } from '../rolldown'
 import type { BundleMap } from './frames'
 
 /** The counter sites of each instrumented source file, by counter. */
@@ -131,37 +132,31 @@ function instrumentSource(
   const destination = path.join(options.directory, 'instrumented', relative)
   mkdirSync(path.dirname(destination), { recursive: true })
   writeFileSync(destination, transformed.contents)
-  return { contents: transformed.contents, loader: 'ts', resolveDir: path.dirname(file) }
+  return { code: transformed.contents, moduleType: 'ts' as const }
 }
 
-/** The esbuild plugin that instruments the tree's sources when the harness counts. */
-function counterPlugins(options: HarnessOptions, counterSites: CounterSites) {
+/** The plugin that instruments the tree's sources when the harness counts. */
+function counterPlugins(options: HarnessOptions, counterSites: CounterSites): Plugin[] {
   const { counting } = options
   if (counting === undefined) return []
   return [
     {
-      name: 'diagnostic-counters',
-      setup(build: {
-        onLoad: (
-          filter: { filter: RegExp },
-          callback: (arguments_: { path: string }) => unknown,
-        ) => void
-      }) {
-        build.onLoad({ filter: /\.ts$/ }, ({ path: file }) =>
-          instrumentSource(file, counting, options, counterSites),
-        )
+      load: {
+        filter: { id: /\.ts$/ },
+        handler: (file) => instrumentSource(file, counting, options, counterSites),
       },
+      name: 'diagnostic-counters',
     },
   ]
 }
 
 /** Fails when a bundle took a package from anywhere but this checkout's dependencies, which
  * every tree is measured with: a `node_modules` above a control could otherwise supply its own. */
-function assertOwnDependencies(inputs: readonly string[]): void {
+function assertOwnDependencies(modules: readonly string[]): void {
   const own = `${realpathSync(path.join(ROOT, 'node_modules'))}${path.sep}`
-  const foreign = inputs
-    .filter((input) => input.split(/[/\\]/).includes('node_modules'))
-    .map((input) => realpathSync(path.resolve(input)))
+  const foreign = modules
+    .filter((module) => module.split(/[/\\]/).includes('node_modules'))
+    .map((module) => realpathSync(module))
     .filter((input) => !input.startsWith(own))
   assert.deepEqual(
     foreign,
@@ -186,19 +181,18 @@ export async function bundleHarness(options: HarnessOptions): Promise<Harness> {
   mkdirSync(options.directory, { recursive: true })
   writeFileSync(path.join(options.directory, 'harness-source.ts'), contents)
   const bundlePath = path.join(options.directory, 'harness.mjs')
-  const { metafile } = await loadEsbuild().build({
-    bundle: true,
-    format: 'esm',
-    metafile: true,
-    nodePaths: [path.join(ROOT, 'node_modules')],
-    outfile: bundlePath,
+  const {
+    output: [chunk],
+  } = await build({
+    input: source,
+    logLevel: 'warn',
+    output: { codeSplitting: false, file: bundlePath, format: 'esm', sourcemap: true },
     platform: 'node',
-    plugins: counterPlugins(options, counterSites),
-    sourcemap: true,
-    stdin: { contents, loader: 'ts', resolveDir: path.dirname(source), sourcefile: source },
-    target: 'esnext',
+    // The overlaid harness stands in for the frozen one, at its path.
+    plugins: [virtualModule(source, contents), ...counterPlugins(options, counterSites)],
+    resolve: { modules: ['node_modules', path.join(ROOT, 'node_modules')] },
   })
-  assertOwnDependencies(Object.keys(metafile?.inputs ?? {}))
+  assertOwnDependencies(chunk.moduleIds)
   const map = JSON.parse(readFileSync(`${bundlePath}.map`, 'utf8')) as SourceMapPayload
   return { bundlePath, counterSites, root: options.tree, sourceMap: new SourceMap(map) }
 }

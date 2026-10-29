@@ -11,7 +11,7 @@
 //
 // `pnpm check lean spec-phases` runs the bridge alone; `--batch`, `--seeds` and `--dump` narrow it.
 import assert from 'node:assert/strict'
-import { bundleWithHooks, type Hook } from '../../esbuild'
+import { bundleWithHooks, type Hook } from '../../rolldown'
 import type { Oracle } from '../oracle'
 import { reproduce, selectBatches, type Selection } from './selection'
 import { materialize, materializeClasses, materializeNext, toJs } from '../fixtures/spec-realize'

@@ -34,7 +34,8 @@ type ObservationPhase = {
   readonly required: WeakMap<object, boolean>
   readonly values: WeakMap<object, unknown>
 } & (
-  { readonly kind: 'discover'; readonly plan: Discovery } | { readonly kind: 'probe' | 'sealed' }
+  | { readonly kind: 'discover'; readonly plan: Discovery }
+  | { readonly kind: 'probe' | 'sealed' }
 )
 
 // This object is owned by one finalization call, never by recipe-visible handles.

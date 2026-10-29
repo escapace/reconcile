@@ -24,7 +24,7 @@ its trace keeps the _read discipline_:
   the node of `next` that an object of `current` is, the value read as part of `next` serves, so
   the object is not read as `current` there.
   Reads of `next` do not count: when `next` holds an object of `current`, `reconcile` can read it
-  more than once as part of `next`, as the [`reconcile` remarks](../README.md#function-reconcile-)
+  more than once as part of `next`, as the [`reconcile` remarks](../README.md#function-reconcile)
   state.
 - After any write, readback reads again, once per pass, every node that is neither pinned nor
   _untouched_ (a node whose kept object is the object `next` holds there), so an own getter of
@@ -163,9 +163,9 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   immutable idioms and `produce` recipes and checks, with the helpers in
   `src/__tests__/fixtures/graph-state.ts`, that `reconcile` never changes `next`. The README rules that let a
   result differ from native mutation are the policies in the native differential fixture.
-- **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
-  regenerates the README's API section. A new export also goes into `OPERATIONS` or `OTHERS` and the
-  smoke `checks` in `scripts/bundles.ts`. Errors follow `src/error.ts`: one factory per
+- **Public API or errors.** Update the TSDoc and the README, its API section included, by hand.
+  A new export also goes into `OPERATIONS` or `OTHERS` and the smoke `checks` in
+  `scripts/bundles.ts`. Errors follow `src/error.ts`: one factory per
   type, so bundles keep only the errors they raise; names of the form
   `<Phase><Subject><Condition>`, such as `DeserializeLimitExceeded`; and only facts the
   detecting phase already holds.
@@ -334,9 +334,10 @@ through stand-ins.
 A command given `--control <experiment>` compares the measured tree with that control and keeps its
 rounds in the experiment, which `latest` names when it is the newest; `--control` also takes any
 source tree, such as a scratch copy, whose rounds no experiment keeps. `--tree` names the measured
-tree, this checkout by default. Both trees run and build with this checkout's dependencies, and
-both must hold the same frozen workloads in `perf/`. An experiment pins its control: once the
-control's sources or frozen workloads change, commands refuse the experiment.
+tree, this checkout by default. Both trees run and build with this checkout's dependencies, so
+`pnpm bench size` cannot build a control whose build needs a tool this checkout no longer
+installs. Both must hold the same frozen workloads in `perf/`. An experiment pins its control:
+once the control's sources or frozen workloads change, commands refuse the experiment.
 
 - A _default round_ is `pnpm bench ab default --control <experiment>` over the six default
   scenarios, and a _small round_ is `pnpm bench ab small` over the ten small ones. Each guards
@@ -460,9 +461,10 @@ The `lib` round also bundles an import that uses nothing with `sideEffects` igno
 must be empty, which is the check that catches an unannotated top-level call.
 
 To find which module grew, `pnpm bench size --modules <exports> --control <experiment>` lists the
-bytes each source module adds to the bundle of those exports, built from the sources as the
-package build does, internal properties renamed; its total is close to the package bundle's, not
-equal. Profile and `ab` bundles are unmangled, so take sizes only from `size`.
+bytes each source module adds to the minified bundle of those exports, as the bundle's source map
+attributes them. The bundle is built from the sources as the package build does, internal
+properties renamed; its total is close to the package bundle's, not equal. Profile and `ab`
+bundles are unmangled, so take sizes only from `size`.
 Gzip removes repetition, so only removing distinct logic saves bytes.
 
 ## JavaScript engine notes

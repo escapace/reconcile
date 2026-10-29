@@ -110,7 +110,12 @@ export const GAIN_PERCENT = 2
 export const GUARD_PERCENT = 3
 
 export type Reading =
-  'faster' | 'slightly faster' | 'slightly slower' | 'slower' | 'too few pairs' | 'unresolved'
+  | 'faster'
+  | 'slightly faster'
+  | 'slightly slower'
+  | 'slower'
+  | 'too few pairs'
+  | 'unresolved'
 
 /** Classifies one round. A resolved change, whose interval excludes zero, reads faster or slower
  * beyond the gain or guard and slightly faster or slower within them. */

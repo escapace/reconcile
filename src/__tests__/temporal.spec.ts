@@ -14,7 +14,8 @@ interface TemporalValue {
   toString: (options?: { calendarName: string }) => string
 }
 const temporal = Reflect.get(globalThis, 'Temporal') as unknown as
-  Record<string, TemporalConstructor> | undefined
+  | Record<string, TemporalConstructor>
+  | undefined
 const fixtures = [
   ['Duration', { milliseconds: 1000 }, { seconds: 2 }],
   ['Instant', '2025-01-02T03:04:05.123456789Z', '2026-01-02T03:04Z'],

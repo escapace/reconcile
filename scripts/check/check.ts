@@ -1,5 +1,5 @@
 import { UsageError, type Command, type Parsed } from '../framework/command'
-import { changedEnvironment, changedFiles, contents, inputs, type Inputs } from '../framework/tree'
+import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/tree'
 import { withLock, type Lock } from '../framework/lock'
 import { interrupted } from '../framework/interrupt'
 import {
@@ -93,43 +93,26 @@ function plan(rounds: readonly RoundDefinition[], options: RoundOptions, fresh: 
   return 0
 }
 
-/** What a round started on: its inputs, and its outputs, which it may rewrite whether or not they
- * are among its inputs. */
-interface Start {
-  readonly inputs: Inputs
-  readonly outputs: Readonly<Record<string, string>>
-}
-
-/** What changed while a round ran, besides the files it declares as its outputs; empty when
- * nothing did. A rewritten output is reported, to be reviewed. */
-function changedWhileRunning(round: RoundDefinition, before: Start, after: Inputs): string[] {
-  const outputs = round.outputs ?? []
-  const rewritten = changedFiles(before.outputs, contents(outputs))
-  if (rewritten.length > 0)
-    process.stdout.write(
-      `${round.name}: the round rewrote ${list(rewritten)}; review and commit it\n`,
-    )
-  return [
-    ...changedFiles(before.inputs.files, after.files).filter((file) => !outputs.includes(file)),
-    ...changedEnvironment(before.inputs.environment, after.environment).map(
-      (key) => `the ${key} environment`,
-    ),
-  ]
-}
+/** What changed while a round ran; empty when nothing did. */
+const changedWhileRunning = (before: Inputs, after: Inputs): string[] => [
+  ...changedFiles(before.files, after.files),
+  ...changedEnvironment(before.environment, after.environment).map(
+    (key) => `the ${key} environment`,
+  ),
+]
 
 /** The outcome of a round that passed: complete, and recorded as a pass unless it was narrowed,
  * when its inputs are those it started with; incomplete when they changed while it ran, since it
  * then validated a tree that no longer exists. */
-function settle(round: RoundDefinition, before: Start, receipt: string, partial: boolean): number {
-  const after = inputs(round.exclude)
-  const changed = changedWhileRunning(round, before, after)
+function settle(round: RoundDefinition, before: Inputs, receipt: string, partial: boolean): number {
+  const changed = changedWhileRunning(before, inputs(round.exclude))
   if (changed.length > 0) {
     process.stdout.write(
       `${round.name}: INCOMPLETE: ${list(changed)} changed while it ran; rerun it\n`,
     )
     return EXIT_CODES.timed_out
   }
-  if (!partial) recordPass(round.name, after, receipt, before.inputs.hash)
+  if (!partial) recordPass(round.name, before, receipt)
   return 0
 }
 
@@ -141,8 +124,8 @@ async function runOne(
   lock: Lock,
 ): Promise<number> {
   if (interrupted()) return EXIT_CODES.cancelled
-  const before: Start = { inputs: inputs(round.exclude), outputs: contents(round.outputs ?? []) }
-  const { pass, why } = decide(round, options, fresh, before.inputs)
+  const before = inputs(round.exclude)
+  const { pass, why } = decide(round, options, fresh, before)
   if (pass !== undefined) {
     process.stdout.write(`${round.name}: reused; passed ${pass.finishedAt} on identical inputs\n`)
     return 0
@@ -155,7 +138,7 @@ async function runOne(
     lock,
     name: `check ${round.name}`,
     record: {
-      inputs: { environment: before.inputs.environment, hash: before.inputs.hash },
+      inputs: { environment: before.environment, hash: before.hash },
       narrowed: partial,
     },
     steps: round.steps(options, directory),

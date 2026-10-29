@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { loadEsbuild } from '../../../scripts/esbuild'
+import { bundle } from '../../../scripts/rolldown'
 
 /** When a child process calls SES `lockdown`, before or after it imports the driver, and with
  * which `overrideTaming`. */
@@ -45,18 +45,14 @@ export async function runDriver(
 ): Promise<DriverResult> {
   const directory = mkdtempSync(path.join(tmpdir(), 'reconcile-prototypes-'))
   try {
-    const result = await loadEsbuild().build({
-      bundle: true,
-      entryPoints: [path.join(import.meta.dirname, fixture)],
+    const chunk = await bundle({
       // The invariants driver's generator reads Node's assert; the child process is Node.
-      external: ['node:*'],
-      format: 'esm',
-      logLevel: 'warning',
+      external: [/^node:/],
+      input: path.join(import.meta.dirname, fixture),
       platform: 'neutral',
-      write: false,
     })
     const driver = path.join(directory, 'driver.mjs')
-    writeFileSync(driver, result.outputFiles[0].contents)
+    writeFileSync(driver, chunk.code)
     const output = execFileSync(
       process.execPath,
       [

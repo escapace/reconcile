@@ -30,42 +30,58 @@ function selectionOf({ seeds, ...rest }: Config): Selection {
   return { ...rest, ...(seeds === undefined ? {} : { seeds: parseSeeds(seeds) }) }
 }
 
+/** The oracle bounds a response before a whole oversized line accumulates; returns once it has
+ * refused one. */
+async function checkOverflow(oracle: Oracle): Promise<boolean> {
+  await assert.rejects(oracle('Atoms', { maxBuffer: 1 }), /output exceeds 1 bytes/)
+  return true
+}
+
+/** Closes the oracle. After an overflow its shutdown must preserve the original diagnostic rather
+ * than mask it with the killed exit code. */
+async function closeOracle(close: () => Promise<void>, overflowed: boolean): Promise<void> {
+  if (overflowed) await assert.rejects(close(), /output exceeds 1 bytes/)
+  else await close()
+}
+
 /** Runs `bridges` against one oracle; the whole gate also checks the oracle's requests and that
- * it bounds a response before a whole oversized line accumulates. */
+ * it bounds a response. */
 async function runBridges(
   bridges: readonly Bridge[],
   selection: Selection,
   whole: boolean,
 ): Promise<void> {
   const oracle = await startOracle()
-  let overflowChecked = false
+  let overflowed = false
   try {
     if (whole) await checkRequests(oracle.run)
     for (const bridge of bridges) await (await bridge.load())(oracle.run, selection)
-    if (whole) {
-      await assert.rejects(oracle.run('Atoms', { maxBuffer: 1 }), /output exceeds 1 bytes/)
-      overflowChecked = true
-    }
+    if (whole) overflowed = await checkOverflow(oracle.run)
   } finally {
-    // Shutdown must preserve the original diagnostic rather than mask it with the killed exit
-    // code.
-    if (overflowChecked) await assert.rejects(oracle.close(), /output exceeds 1 bytes/)
-    else await oracle.close()
+    await closeOracle(oracle.close, overflowed)
   }
 }
 
+/** Whether the run requires a native Temporal that Node does not expose. */
+const lacksTemporal = (config: Config): boolean =>
+  config.temporal === true && Reflect.get(globalThis, 'Temporal') === undefined
+
+/** The bridges of the families the configuration names, or every bridge when it names none. */
+const selectedBridges = ({ families }: Config): readonly Bridge[] =>
+  families.length === 0 ? BRIDGES : BRIDGES.filter((bridge) => families.includes(bridge.family))
+
+/** Whether the run shows cases, as a dump or the features report does, and fails on no
+ * difference instead of agreeing. */
+const showsCases = (config: Config): boolean => config.dump === true || config.features === true
+
 async function main(config: Config): Promise<number> {
-  if (config.temporal === true && Reflect.get(globalThis, 'Temporal') === undefined) {
+  if (lacksTemporal(config)) {
     console.error('Node exposes no Temporal, so the bridges would skip every Temporal value.')
     return 1
   }
-  const whole = config.families.length === 0
-  const bridges = whole
-    ? BRIDGES
-    : BRIDGES.filter((bridge) => config.families.includes(bridge.family))
-  await runBridges(bridges, selectionOf(config), whole)
-  // A dump or the features report shows cases and fails on no difference.
-  if (config.dump !== true && config.features !== true)
+  const bridges = selectedBridges(config)
+  await runBridges(bridges, selectionOf(config), config.families.length === 0)
+  if (!showsCases(config))
     console.log(`Bridges agree: ${bridges.map((bridge) => bridge.family).join(', ')}`)
   return 0
 }

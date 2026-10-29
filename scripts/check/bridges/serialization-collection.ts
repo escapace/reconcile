@@ -149,7 +149,8 @@ function fillTrace(
 function check(request: Request, expected: Response): void {
   const facet = request.map ? map : set
   const target = facet.allocate([], 1, contextFor(request, [], []), 0) as
-    Map<unknown, unknown> | Set<unknown>
+    | Map<unknown, unknown>
+    | Set<unknown>
   const values = domain(target)
   const reads = fillTrace(facet, request, target, values)
   const entries = projectedEntries(request.map, target, values)

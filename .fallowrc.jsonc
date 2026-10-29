@@ -29,6 +29,10 @@
     },
   ],
 
+  // TypeScript 7, which `pnpm typecheck` runs as `tsc` and `scripts/build.ts` locates by its
+  // manifest; `typescript` names TypeScript 6, whose API the linter and the counts tool import.
+  "ignoreDependencies": ["@typescript/native"],
+
   // The frozen workloads keep their exports unchanged even where no tool reads them.
   "ignoreExports": [
     { "exports": ["BATCH_SIZE"], "file": "perf/scenarios.ts" },
@@ -199,7 +203,7 @@
       { "name": "tooling", "patterns": ["perf/**", "scripts/**"] },
       {
         "name": "repository-config",
-        "patterns": ["eslint.config.mjs", "syncpack.config.mjs", "vitest*.ts"],
+        "patterns": ["eslint.config.mjs", "oxfmt.config.ts", "syncpack.config.mjs", "vitest*.ts"],
       },
     ],
   },

@@ -79,9 +79,7 @@ const NAMES = [
 ]
 // Every internal member name the published bundle renames is probed as well, so a new internal
 // field is covered without being listed here.
-const PROBED = [
-  ...new Set([...NAMES, ...Object.values(constants.builds).flatMap((build) => build.mangle)]),
-]
+const PROBED = [...new Set([...NAMES, ...constants.mangle])]
 // Index accessors are left out: an accessor at an index of Array.prototype or Object.prototype
 // runs inside native push and changes the data itself.
 const INDICES = Array.from({ length: 32 }, (_, index) => String(index))

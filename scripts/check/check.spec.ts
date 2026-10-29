@@ -81,7 +81,7 @@ describe('pnpm check', () => {
     const current = inputs(ROUNDS[0].exclude)
     const receipt = path.join(state, 'receipt.json')
     // A pass counts only when its receipt records a round that passed on the same inputs.
-    recordPass('static', current, receipt, current.hash)
+    recordPass('static', current, receipt)
     expect((await cli('static', '--plan')).stdout).toMatch(/static +run/)
     writeFileSync(receipt, JSON.stringify({ inputs: { hash: current.hash }, status: 'failed' }))
     expect((await cli('static', '--plan')).stdout).toMatch(/static +run/)

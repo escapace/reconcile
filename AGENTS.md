@@ -29,7 +29,7 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
   control or trunk directly, never as an aggregate or multiplied ratios.
 - Take validation and measurement evidence only from `pnpm check` and `pnpm bench`. An incomplete
   round (exit 124) is not a pass, and is not split into chunks.
-- CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and Prettier on
+- CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and oxfmt on
   staged files, and its build type-checks only `src/`. Before committing, run `pnpm check`; keep
   it out of the hook.
 - Documentation is `README.md` for users plus these two guides; add no other docs, notes or

@@ -46,7 +46,8 @@ export interface Decoder {
       ) => void)
     | undefined
   link:
-    ((payload: Row, layout: number, context: DecodeContext, index: number) => unknown) | undefined
+    | ((payload: Row, layout: number, context: DecodeContext, index: number) => unknown)
+    | undefined
   allocate: (payload: Row, layout: number, context: DecodeContext, index: number) => unknown
 }
 export interface EncodeContext {

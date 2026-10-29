@@ -4,12 +4,10 @@ import { writeJson } from '../framework/files'
 import type { Inputs } from '../framework/tree'
 import { STATE } from '../framework/paths'
 
-/** A round that passed, and the inputs it passed on: those it left, which include the outputs it
- * rewrote, and the hash of those it started on, which its receipt records. */
+/** A round that passed, and the inputs it passed on. */
 export interface Pass extends Inputs {
   readonly finishedAt: string
   readonly receipt: string
-  readonly startHash: string
 }
 
 /** How many passes each round keeps, so that switching branches back finds them again. */
@@ -28,7 +26,7 @@ function read<T>(file: string): T | undefined {
 /** Whether the receipt a pass names records a round that passed on the inputs it started on. */
 const vouched = (pass: Pass): boolean => {
   const receipt = read<{ inputs?: { hash?: string }; status?: string }>(pass.receipt)
-  return receipt?.status === 'passed' && receipt.inputs?.hash === pass.startHash
+  return receipt?.status === 'passed' && receipt.inputs?.hash === pass.hash
 }
 
 /** The recorded pass of `round` on exactly these inputs, if its receipt vouches for it. Finding
@@ -47,15 +45,10 @@ export const latestPass = (round: string): Pass | undefined =>
   read<Pass>(path.join(directory(round), 'latest.json'))
 
 /** Records that `round` passed on `inputs`, keeping the passes of each round used most recently. */
-export function recordPass(
-  round: string,
-  inputs: Inputs,
-  receipt: string,
-  startHash: string,
-): void {
+export function recordPass(round: string, inputs: Inputs, receipt: string): void {
   const folder = directory(round)
   mkdirSync(folder, { recursive: true })
-  const pass: Pass = { ...inputs, finishedAt: new Date().toISOString(), receipt, startHash }
+  const pass: Pass = { ...inputs, finishedAt: new Date().toISOString(), receipt }
   writeJson(path.join(folder, `${inputs.hash}.json`), pass)
   writeJson(path.join(folder, 'latest.json'), pass)
   const recorded = readdirSync(folder)

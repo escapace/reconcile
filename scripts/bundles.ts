@@ -1,6 +1,6 @@
 /**
  * The consumer bundles: every nonempty combination of the six operations, and each other runtime
- * export on its own, bundled from a built package with esbuild, minified for a browser ES2022
+ * export on its own, bundled from a built package with Rolldown, minified for a browser ES2022
  * target, with their minified and gzip (level 9) sizes. Published source size does not measure
  * consumer tree shaking; these are the bundles consumers actually ship.
  *
@@ -15,9 +15,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
-import { loadEsbuild } from './esbuild'
+import { type Plugin, VERSION } from 'rolldown'
 import { entry as runEntry } from './framework/entry'
 import { ROOT } from './framework/paths'
+import { bundle as bundleChunk, virtualModule } from './rolldown'
 
 export const OPERATIONS = [
   'snapshot',
@@ -36,17 +37,6 @@ export const OTHERS = [
 
 /** Every runtime export, as selections name them. */
 export const EXPORTS: readonly string[] = [...OPERATIONS, ...OTHERS]
-let loaded: ReturnType<typeof loadEsbuild> | undefined
-/** The esbuild the build uses, loaded on first use so that the CLI starts without it. */
-const esbuild = (): ReturnType<typeof loadEsbuild> => (loaded ??= loadEsbuild())
-const options = {
-  bundle: true,
-  format: 'esm',
-  minify: true,
-  platform: 'browser',
-  target: 'es2022',
-  write: false,
-}
 
 export interface Row {
   gzip: number
@@ -63,31 +53,28 @@ const errorOfType = (type: string) => (error: unknown) =>
 /** The built package of a source tree. */
 export const packageEntry = (tree: string): string => path.join(tree, 'lib', 'neutral', 'index.js')
 
-async function bundle(contents: string, plugins: unknown[] = []): Promise<Uint8Array> {
-  const result = await esbuild().build({
-    ...options,
-    plugins,
-    stdin: { contents, resolveDir: ROOT },
-  })
-  return result.outputFiles[0].contents
+/** Bundles the module `code`, whose imports resolve from the repository root, minified for a
+ * browser ES2022 target. */
+async function bundle(code: string, plugins: Plugin[] = []): Promise<Uint8Array> {
+  const entry = path.join(ROOT, '__bundle.ts')
+  const chunk = await bundleChunk(
+    {
+      cwd: ROOT,
+      input: entry,
+      platform: 'browser',
+      plugins: [virtualModule(entry, code), ...plugins],
+      transform: { target: 'es2022' },
+    },
+    { minify: true },
+  )
+  return Buffer.from(chunk.code)
 }
 
 /** Bundles `import entry` with `sideEffects` forced on: no top-level code may stay. */
 async function assertRemovable(entry: string): Promise<void> {
-  const keep = {
+  const keep: Plugin = {
     name: 'keep-side-effects',
-    setup(build: {
-      onResolve: (
-        options: { filter: RegExp },
-        callback: (arguments_: { path: string; resolveDir: string }) => object,
-      ) => void
-    }) {
-      const exact = new RegExp(`^${entry.replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`)}$`)
-      build.onResolve({ filter: exact }, (arguments_) => ({
-        path: path.resolve(arguments_.resolveDir, arguments_.path),
-        sideEffects: true,
-      }))
-    },
+    resolveId: (id) => (id === entry ? { id: entry, moduleSideEffects: true } : undefined),
   }
   const bytes = await bundle(`import ${JSON.stringify(entry)}`, [keep])
   assert.equal(
@@ -246,7 +233,7 @@ export async function bundleExports(
   }
   writeFileSync(
     path.join(directory, 'sizes.json'),
-    `${JSON.stringify({ entry, entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'), esbuild: esbuild().version, rows }, undefined, 2)}\n`,
+    `${JSON.stringify({ entry, entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'), rolldown: VERSION, rows }, undefined, 2)}\n`,
   )
   return { rows, sources }
 }

@@ -17,9 +17,16 @@ export type Kind = GraphNode['kind']
 export type NodeOf<K extends Kind> = Extract<GraphNode, { kind: K }>
 export type Prototype = 'null' | 'object' | { cls: number }
 export type Slot =
-  { a: Attributes; v: Value } | { c: boolean; e: boolean; get: Value; set: boolean | null }
+  | { a: Attributes; v: Value }
+  | { c: boolean; e: boolean; get: Value; set: boolean | null }
 export type Value =
-  boolean | number | string | { atom: number } | { ref: number } | { undef: true } | null
+  | boolean
+  | number
+  | string
+  | { atom: number }
+  | { ref: number }
+  | { undef: true }
+  | null
 /** The view constructors a graph uses, by name; a view's offset and length are in bytes. */
 export type ViewConstructor = 'DataView' | 'Int16Array' | 'Uint8Array'
 /** A table of one function per node kind, and the call that dispatches on a node's kind. */

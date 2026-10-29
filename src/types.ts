@@ -349,7 +349,9 @@ export type DraftStrategy<S extends DraftState = DraftState> =
 /** Represents an opaque atom or a canonical reference into the captured node domain. A
  * primitive is its own atom edge; an object atom is wrapped. */
 export type Edge<R extends { readonly node: number } = { readonly node: number }> =
-  Atom | Primitive | R
+  | Atom
+  | Primitive
+  | R
 
 /** A value that is not an object, held as its own edge. */
 export type Primitive = bigint | boolean | number | string | symbol | null | undefined

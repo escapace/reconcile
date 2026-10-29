@@ -4,7 +4,7 @@
 // `CollectionPlan.publish`'s. The collection must end holding the next entries, which Lean's writes
 // reach (`publish_result`).
 import assert from 'node:assert/strict'
-import { bundleWithHooks, type Hook } from '../../esbuild'
+import { bundleWithHooks, type Hook } from '../../rolldown'
 import { jsonBoolean, jsonObject, oracleCorpus, type Oracle } from '../oracle'
 
 type Library = typeof import('../../../src/index')

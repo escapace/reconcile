@@ -2,11 +2,13 @@
 // there is one, and the bytes each source module adds to one bundle. `plan.json` records the
 // sources measured, so that a report counts a comparison only for the sources it judges.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { SourceMap, type SourceMapPayload } from 'node:module'
 import path from 'node:path'
+import type { OutputOptions } from 'rolldown'
 import { bundleExports, packageEntry, sizeRows, sizeTable } from '../bundles'
-import { loadEsbuild } from '../esbuild'
 import { entry } from '../framework/entry'
 import { writeJson } from '../framework/files'
+import { bundle, virtualModule } from '../rolldown'
 import { sourceHash } from './provenance'
 
 /** The configuration `pnpm bench size` passes. */
@@ -19,33 +21,62 @@ interface Config {
   readonly tree: string
 }
 
-/** The bytes each source module adds to the bundle of `names` from the tree's sources, built
- * with the package's renaming of internal properties, as `scripts/build.ts` builds it. */
-async function moduleBytes(tree: string, names: readonly string[]): Promise<Map<string, number>> {
-  const { builds } = JSON.parse(
+/** The internal member names that the tree's package build renames, if any. */
+function mangledNames(tree: string): readonly string[] | undefined {
+  const constants = JSON.parse(
     readFileSync(path.join(tree, 'scripts', 'constants.json'), 'utf8'),
   ) as {
-    builds: { neutral: { mangle?: string[] } }
+    readonly builds?: { readonly neutral: { readonly mangle?: string[] } }
+    readonly mangle?: string[]
   }
-  const { mangle } = builds.neutral
-  const result = await loadEsbuild().build({
-    absWorkingDir: tree,
-    bundle: true,
-    format: 'esm',
-    metafile: true,
-    minify: true,
-    platform: 'browser',
-    stdin: { contents: `export {${names.join(',')}} from './src/index.ts'`, resolveDir: tree },
-    target: 'es2022',
-    write: false,
-    ...(mangle === undefined ? {} : { mangleProps: new RegExp(`^(?:${mangle.join('|')})$`) }),
-  })
-  const [output] = Object.values(result.metafile!.outputs)
+  // Trees from before the Rolldown build list them among their esbuild options.
+  return constants.mangle ?? constants.builds?.neutral.mangle
+}
+
+/** Minification with the renaming of `mangle`, when the tree's build renames members. */
+const minification = (mangle: readonly string[] | undefined): OutputOptions['minify'] =>
+  mangle === undefined
+    ? true
+    : { mangleProps: { include: new RegExp(`^(?:${mangle.join('|')})$`) } }
+
+/** Counts one character of a bundle for the module that the source map entry `found` names. */
+function tally(characters: Map<string, number>, found: ReturnType<SourceMap['findEntry']>): void {
+  if ('originalSource' in found)
+    characters.set(found.originalSource, (characters.get(found.originalSource) ?? 0) + 1)
+}
+
+/** The characters of `code` that `map` places in each module. */
+function charactersByModule(code: string, map: SourceMap): Map<string, number> {
+  const characters = new Map<string, number>()
+  for (const [line, text] of code.split('\n').entries())
+    for (let column = 0; column < text.length; column += 1)
+      tally(characters, map.findEntry(line, column))
+  return characters
+}
+
+/** The bytes each source module adds to the minified bundle of `names` from the tree's sources,
+ * built with the package's renaming of internal properties, as `scripts/build.ts` builds it.
+ * Each character of the bundle counts for the module that its source map places it in. */
+async function moduleBytes(tree: string, names: readonly string[]): Promise<Map<string, number>> {
+  const file = path.join(tree, '__modules.ts')
+  const chunk = await bundle(
+    {
+      cwd: tree,
+      input: file,
+      platform: 'browser',
+      plugins: [virtualModule(file, `export {${names.join(',')}} from './src/index.ts'`)],
+      transform: { target: 'es2022' },
+    },
+    {
+      // Source map paths are relative to the tree, as the table names modules.
+      dir: tree,
+      minify: minification(mangledNames(tree)),
+      sourcemap: true,
+    },
+  )
+  const map = new SourceMap(chunk.map as unknown as SourceMapPayload)
   return new Map(
-    Object.entries(output.inputs)
-      .map(([file, { bytesInOutput }]) => [file, bytesInOutput] as const)
-      .filter(([, bytes]) => bytes > 0)
-      .toSorted((left, right) => right[1] - left[1]),
+    [...charactersByModule(chunk.code, map)].toSorted((left, right) => right[1] - left[1]),
   )
 }
 
@@ -83,7 +114,8 @@ async function modules(config: Config, names: readonly string[]): Promise<string
     control = await moduleBytes(config.control, names)
   } catch (error) {
     // A control from before one of the exports has no bundle of them; any other failure stands.
-    if (!(error as Error).message.includes('No matching export')) throw error
+    const { errors = [] } = error as { errors?: ReadonlyArray<{ code?: string }> }
+    if (!errors.some(({ code }) => code === 'MISSING_EXPORT')) throw error
     console.log(`The control does not export all of ${names.join('+')}.`)
     control = new Map()
   }

@@ -52,7 +52,8 @@ function construct(payload: Payload): object | undefined {
 
 function constructTemporal(payload: Payload): object | undefined {
   const temporal = Reflect.get(globalThis, 'Temporal') as unknown as
-    Partial<Record<string, TemporalConstructor>> | undefined
+    | Partial<Record<string, TemporalConstructor>>
+    | undefined
   const constructor = temporal?.[payload.kind]
   if (constructor === undefined) return undefined
   return constructor.from(

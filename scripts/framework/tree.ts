@@ -65,10 +65,6 @@ function contentOf(file: string): string {
   return `${digest(readFileSync(file)).slice(0, 16)}${(stats.mode & 0o111) === 0 ? '' : '+x'}`
 }
 
-/** The content of each of `files`, as `inputs` records it. */
-export const contents = (files: readonly string[], root = ROOT): Record<string, string> =>
-  Object.fromEntries(files.map((file) => [file, contentOf(path.join(root, file))]))
-
 /** What a round depends on besides the files: the Node runtime and the options it runs with,
  * the platform, and the installed dependencies. */
 function environmentOf(root: string): Record<string, string> {

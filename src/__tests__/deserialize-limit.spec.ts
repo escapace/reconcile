@@ -221,7 +221,8 @@ describe('deserialize maxBytes', () => {
   })
 
   const temporal = Reflect.get(globalThis, 'Temporal') as unknown as
-    Record<string, { from: (text: string) => { toString: () => string } }> | undefined
+    | Record<string, { from: (text: string) => { toString: () => string } }>
+    | undefined
   it.skipIf(temporal === undefined)('charges a Temporal value by the text it holds', () => {
     // A shorter accepted form is charged as the longer text the value holds.
     const value = temporal!.ZonedDateTime.from('2020-01-01T00:00[UTC]')

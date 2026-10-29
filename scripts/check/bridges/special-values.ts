@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { chooseSpecial } from '../../../src/graph/provenance'
 import type { SpecialFacts } from '../../../src/types'
-import { bundleWithHooks, type Hook } from '../../esbuild'
+import { bundleWithHooks, type Hook } from '../../rolldown'
 import { integerIn, jsonBoolean, jsonObject, oracleCorpus, type Oracle } from '../oracle'
 
 type Library = typeof import('../../../src/index')
@@ -70,7 +70,8 @@ async function checkDecisions(oracle: Oracle): Promise<Set<string>> {
 }
 
 const TEMPORAL = Reflect.get(globalThis, 'Temporal') as
-  { PlainDate: { from: (text: string) => object } } | undefined
+  | { PlainDate: { from: (text: string) => object } }
+  | undefined
 
 /** Makes each value of `current` that stands alone, by kind; the recipe makes an authored view. */
 const alone: Readonly<Record<string, () => unknown>> = {

@@ -79,7 +79,7 @@ When `next` holds an object of `current` at another position but lacks the objec
 
 When both arguments are objects that are not [kept by reference](#objects-kept-by-reference), `reconcile` returns `current`; otherwise it returns `next` and changes nothing. When `current` cannot be made to match `next`, for example because one is an object and the other an array, `reconcile` throws a `ReconcileError` of type `PublicationRejected` (see [Errors](#errors)). A failed call is not rolled back. Objects inside `current` that cannot be changed in place, such as frozen plain objects and arrays, are replaced by copies; see [`reconcile` limitations](#reconcile-limitations).
 
-Full contract: [`reconcile`](#function-reconcile-).
+Full contract: [`reconcile`](#function-reconcile).
 
 ## Build an updated copy
 
@@ -102,7 +102,7 @@ const next = produce(state, (draft) => {
 
 Some changes cannot be made through a draft, such as changes to the properties of a frozen object; see [`produce` limitations](#produce-limitations).
 
-Full contract: [`produce`](#function-produce-).
+Full contract: [`produce`](#function-produce).
 
 ## Apply a recipe in place
 
@@ -151,7 +151,7 @@ copy.user.name = 'Grace' // state.user.name is still 'Ada'
 
 The rows on symbol keys and non-enumerable properties apply to plain objects and class instances. For private fields and other limits, see [Limitations › All functions](#all-functions).
 
-Full contract: [`snapshot`](#function-snapshot-).
+Full contract: [`snapshot`](#function-snapshot).
 
 ## Store or send a value as JSON
 
@@ -174,7 +174,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as typeof st
 
 For the full list of rejected values, format versions and data not produced by `serialize`, see [`serialize` and `deserialize` limitations](#serialize-and-deserialize-limitations).
 
-Full contract: [`serialize`](#function-serialize-), [`deserialize`](#function-deserialize-) and [`DeserializeOptions`](#interface-deserializeoptions-).
+Full contract: [`serialize`](#function-serialize), [`deserialize`](#function-deserialize) and [`DeserializeOptions`](#interface-deserializeoptions).
 
 ### Untrusted input
 
@@ -283,7 +283,7 @@ Each function keeps or replaces objects as follows:
 | `snapshot(value)`                             | No                                | All new, except objects kept by reference                                                        |
 | `deserialize(serialize(value), { maxBytes })` | No                                | All new                                                                                          |
 
-- **Objects already in place.** An object in `next` that is already the object at the same property or index in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. A successful call leaves `current` with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile-) give the exceptions, such as a buffer or view, or an object that `next` holds first at another position or inside a `Map` or `Set` entry. If an object inside `state` refers back to `state`, such as a parent pointer, `{ ...state, count: 1 }` still holds `state` through that pointer, so `reconcile` throws `PublicationWouldChangeNext`. Build `next` with a `produce` recipe that changes the draft and returns it instead: the result holds a copy of that object that points at the new root.
+- **Objects already in place.** An object in `next` that is already the object at the same property or index in `current` stays in place. `reconcile` reads its contents as part of `next` and does not change them, so `reconcile(state, { ...state, count: 1 })` writes only `count`. A successful call leaves `current` with the same contents as if the object had been updated. The [`reconcile` remarks](#function-reconcile) give the exceptions, such as a buffer or view, or an object that `next` holds first at another position or inside a `Map` or `Set` entry. If an object inside `state` refers back to `state`, such as a parent pointer, `{ ...state, count: 1 }` still holds `state` through that pointer, so `reconcile` throws `PublicationWouldChangeNext`. Build `next` with a `produce` recipe that changes the draft and returns it instead: the result holds a copy of that object that points at the new root.
 - **Drafts and `===`.** A draft is a different object from the one it drafts, and `===` compares references. Searches count a draft as the object it drafts, so they find the object whether they receive the original or its draft: `includes`, `indexOf` and `lastIndexOf` on an array draft, `has`, `add` and `delete` on a `Set` draft, `get`, `has`, `set` and `delete` on a `Map` draft, and `Set` draft methods such as `union` and `isSubsetOf`. A set these methods return holds drafts of the draft's object members.
 - **Objects the recipe adds.** A change made through the draft never changes an object the recipe adds. After `draft.items.push(added)`, `draft.items.at(-1)` is a draft of `added`: a change through it goes into a copy in the result, and `added` stays unchanged. If no change is made through the draft, the result holds `added` itself.
 - **Undone edits.** In `produce`, an edit that is later undone restores the original object when its whole subtree ends up equal. A new object that the recipe creates stays distinct from an equal existing one.
@@ -296,7 +296,7 @@ Each function keeps or replaces objects as follows:
 
 ### Choose a limit
 
-[`requiredMaxBytes`](#function-requiredmaxbytes-) returns the smallest `maxBytes` with which `deserialize` accepts the data; for the output of `serialize`, that is the size of the value. Measure the largest legitimate values and choose a limit above the result.
+[`requiredMaxBytes`](#function-requiredmaxbytes) returns the smallest `maxBytes` with which `deserialize` accepts the data; for the output of `serialize`, that is the size of the value. Measure the largest legitimate values and choose a limit above the result.
 
 ```ts
 const size = requiredMaxBytes(serialize(largestLegitimateState), { maxBytes: Infinity })
@@ -366,13 +366,13 @@ try {
 }
 ```
 
-Error messages can change between versions; branch on `cause.type`. After `isReconcileError`, `isReconcileErrorOfType(error, type)` also narrows `cause` to that type's properties. For every type and its properties, see [`RECONCILE_ERROR_TYPES`](#const-reconcile_error_types-) and [`ReconcileErrorMetadata`](#interface-reconcileerrormetadata-).
+Error messages can change between versions; branch on `cause.type`. After `isReconcileError`, `isReconcileErrorOfType(error, type)` also narrows `cause` to that type's properties. For every type and its properties, see [`RECONCILE_ERROR_TYPES`](#const-reconcile_error_types) and [`ReconcileErrorMetadata`](#interface-reconcileerrormetadata).
 
 - `reconcile` throws:
   - `PublicationRejected` when `current` cannot be made to match `next`; see [`reconcile` limitations](#reconcile-limitations).
   - `PublicationWouldChangeNext` when matching `next` by position could change an object that `next` holds; see [Update objects in place](#update-objects-in-place).
-- `produce` throws `DraftDefinePropertyUnsupported` when a recipe defines a property on an object or array draft. Its other types are rare; see [`produce`](#function-produce-).
-- `snapshot` throws `SnapshotURLSearchParamsMemoIncompatible` when its optional `seen` map holds the `searchParams` of a URL in `value` but not the URL; see [`snapshot`](#function-snapshot-).
+- `produce` throws `DraftDefinePropertyUnsupported` when a recipe defines a property on an object or array draft. Its other types are rare; see [`produce`](#function-produce).
+- `snapshot` throws `SnapshotURLSearchParamsMemoIncompatible` when its optional `seen` map holds the `searchParams` of a URL in `value` but not the URL; see [`snapshot`](#function-snapshot).
 - `serialize` throws `SerializeValueUnsupported` for any value listed in [`serialize` and `deserialize` limitations](#serialize-and-deserialize-limitations).
 - `deserialize` and `requiredMaxBytes` throw:
   - `DeserializeLimitInvalid` when `maxBytes` is missing or is neither a non-negative safe integer nor `Infinity`.
@@ -412,7 +412,7 @@ Errors thrown by recipes, getters, setters, proxy traps and iterators propagate 
 
 - **Matched by position, not by identifier.** Array elements and `Map` and `Set` entries are matched by index and insertion order. When `next` holds an object of `current` at another position, `reconcile` can throw `PublicationWouldChangeNext`; see [Update objects in place](#update-objects-in-place).
 - **Not rolled back.** A failed call is not rolled back: writes made before the failure stay, so `current` can hold some of the new values. This applies to `PublicationRejected` and to errors from getters, setters and proxy traps. `PublicationWouldChangeNext` comes before any write, unless `reconcile` throws it when deciding again after an object blocked a change; the earlier writes then stay.
-- **`current` itself must be updatable.** `reconcile` throws `PublicationRejected` when it cannot update `current` itself: for example, when `current` and `next` have different types, such as an object and an array, when `current` is a Temporal value that changed, or when `current` blocks a change, as described below. For more causes, see [`reconcile`](#function-reconcile-).
+- **`current` itself must be updatable.** `reconcile` throws `PublicationRejected` when it cannot update `current` itself: for example, when `current` and `next` have different types, such as an object and an array, when `current` is a Temporal value that changed, or when `current` blocks a change, as described below. For more causes, see [`reconcile`](#function-reconcile).
 - **Objects that block a change are replaced.** A change to a property is blocked by a frozen or non-extensible object, a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, or a proxy trap that refuses an assignment or deletion or does not carry it out. A setter or trap that changes another value during the call can also block a change; `reconcile` then replaces the object that holds the value or the object whose setter made the change. An object inside `current` that blocks a change is replaced by a new copy, so code that holds the old object does not see the change.
 - **Getters must not change values.** `reconcile` decides what to write from values it read earlier in the call, and checks the result only when it wrote something. A getter or proxy trap in `current` or `next` that changes a value of `current` during the call can therefore leave `current` different from `next` without an error.
 - **Where `next` can still change.** The promise that `reconcile` never changes `next` covers what `reconcile` reads of `next`: the own properties of plain objects and class instances, the elements of arrays, the entries of `Map` and `Set`, the time, bytes or text of dates, binary data, URLs and `URLSearchParams`, and the links between a view and its buffer and between a URL and its `searchParams`. It assumes that each getter and proxy trap returns the same value on every read. It does not cover:
@@ -469,9 +469,9 @@ See the [development guide](docs/development.md) for checks, tests and benchmark
 
 # API
 
-## function deserialize [↗](src/deserialize.ts#L55-L57 'deserialize')
+## function deserialize
 
-Restores a value from JSON data produced by [serialize](#function-serialize-).
+Restores a value from JSON data produced by serialize.
 
 ```typescript
 export declare function deserialize(json: unknown, options: DeserializeOptions): unknown
@@ -479,10 +479,10 @@ export declare function deserialize(json: unknown, options: DeserializeOptions):
 
 ### Parameters
 
-| Parameter | Type                                                                                           | Description                                                                                                                            |
-| --------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `json`    | <pre>unknown</pre>                                                                             | JSON data produced by [serialize](#function-serialize-) of the same library version. The call can modify it; do not use it afterwards. |
-| `options` | <pre>[DeserializeOptions](#interface-deserializeoptions- 'interface DeserializeOptions')</pre> | The size limit; see [DeserializeOptions](#interface-deserializeoptions-).                                                              |
+| Parameter | Type                          | Description                                                                                                    |
+| --------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `json`    | <pre>unknown</pre>            | JSON data produced by serialize of the same library version. The call can modify it; do not use it afterwards. |
+| `options` | <pre>DeserializeOptions</pre> | The size limit; see DeserializeOptions.                                                                        |
 
 ### Returns
 
@@ -490,14 +490,14 @@ The restored value.
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `DeserializeLimitInvalid` when `maxBytes` is invalid, `DeserializeLimitExceeded` when the value would be larger than `maxBytes`, or `DeserializeInputInvalid` when `json` is not in the format that `serialize` produces.
+1. ReconcileError with type `DeserializeLimitInvalid` when `maxBytes` is invalid, `DeserializeLimitExceeded` when the value would be larger than `maxBytes`, or `DeserializeInputInvalid` when `json` is not in the format that `serialize` produces.
 2. Native constructor or allocation errors, unchanged.
 
 ### Remarks
 
 Shared references and cycles are restored. For data that `serialize` produces, every object in the result is mutable and distinct from the original value's objects, every property except an array's `length` is a writable, enumerable and configurable data property, and a `__proto__` key is an own data property. A repeated `Map` key keeps its first position and last value, and a repeated `Set` member keeps its first position, as with native insertion. Callers must not modify standard built-ins or prototypes during the call.
 
-Pass the result of `JSON.parse` or [serialize](#function-serialize-) directly, and do not use it after the call, whether the call returns or throws: `deserialize` can modify `json`, and the result can share arrays and objects with it. To retry, parse the text again. Data that does not come from `JSON.parse` or `serialize` must contain only plain arrays without extra properties and plain objects with only data properties, and must not contain the same array at more than one place. Under a finite `maxBytes`, a value of a type that `JSON.parse` cannot produce, such as `undefined`, a typed array, a `Map` or a `bigint`, is rejected. The data carries no format version: both sides must use the same version of this library.
+Pass the result of `JSON.parse` or serialize directly, and do not use it after the call, whether the call returns or throws: `deserialize` can modify `json`, and the result can share arrays and objects with it. To retry, parse the text again. Data that does not come from `JSON.parse` or `serialize` must contain only plain arrays without extra properties and plain objects with only data properties, and must not contain the same array at more than one place. Under a finite `maxBytes`, a value of a type that `JSON.parse` cannot produce, such as `undefined`, a typed array, a `Map` or a `bigint`, is rejected. The data carries no format version: both sides must use the same version of this library.
 
 ### Examples
 
@@ -511,9 +511,9 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as {
 // copy.owner === copy.members[0]; copy.owner !== user
 ```
 
-## function isReconcileError [↗](src/error.ts#L161-L162 'isReconcileError')
+## function isReconcileError
 
-Returns whether `value` is a [ReconcileError](#class-reconcileerror-), narrowing its type.
+Returns whether `value` is a ReconcileError, narrowing its type.
 
 ```typescript
 isReconcileError: (value: unknown) => value is ReconcileError
@@ -525,7 +525,7 @@ isReconcileError: (value: unknown) => value is ReconcileError
 | --------- | ------------------ | ------------------------------------ |
 | `value`   | <pre>unknown</pre> | Any value, typically a caught error. |
 
-## function isReconcileErrorOfType [↗](src/error.ts#L170-L173 'isReconcileErrorOfType')
+## function isReconcileErrorOfType
 
 Returns whether `error` has the given `type`, narrowing `cause` to that type's properties.
 
@@ -536,12 +536,12 @@ isReconcileErrorOfType: <T extends ReconcileErrorType>(error: ReconcileError, ty
 
 ### Parameters
 
-| Parameter | Type                                                                       | Description                                                              |
-| --------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `error`   | <pre>[ReconcileError](#class-reconcileerror- 'class ReconcileError')</pre> | An error already known to be a [ReconcileError](#class-reconcileerror-). |
-| `type`    | <pre>T</pre>                                                               | The error type to test for.                                              |
+| Parameter | Type                      | Description                                    |
+| --------- | ------------------------- | ---------------------------------------------- |
+| `error`   | <pre>ReconcileError</pre> | An error already known to be a ReconcileError. |
+| `type`    | <pre>T</pre>              | The error type to test for.                    |
 
-## function produce [↗](src/produce.ts#L143-L161 'produce')
+## function produce
 
 Runs `recipe` on a writable draft of `current` and returns the next value, leaving `current` unchanged.
 
@@ -569,8 +569,8 @@ The value the recipe returned, with drafts replaced by ordinary values. A recipe
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) while the recipe runs: `DraftDefinePropertyUnsupported` for reflective property definition on an object or array draft, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real array could not have.
-2. [ReconcileError](#class-reconcileerror-) after the recipe returns: `FinalizationAccessorUnstable` can be thrown when a getter adds a getter to a part of the result that `produce` has already visited, and `FinalizationConstructionImpossible` when no consistent result exists.
+1. ReconcileError while the recipe runs: `DraftDefinePropertyUnsupported` for reflective property definition on an object or array draft, `DraftArrayLengthRejected` or `DraftArrayIndexRejected` for an array in `current`, such as a proxy, whose properties a real array could not have.
+2. ReconcileError after the recipe returns: `FinalizationAccessorUnstable` can be thrown when a getter adds a getter to a part of the result that `produce` has already visited, and `FinalizationConstructionImpossible` when no consistent result exists.
 3. Errors thrown by the recipe, getters, setters or proxy traps, and native errors, such as a `RangeError` for an invalid array length or the engine's error for nesting that exceeds the call stack, propagate unchanged.
 
 ### Remarks
@@ -608,7 +608,7 @@ const next = produce(current, (draft) => {
 // current is unchanged; next.todos is a new array; next.filter is still 'all'
 ```
 
-## function reconcile [↗](src/reconcile.ts#L139-L153 'reconcile')
+## function reconcile
 
 Updates `current` in place to match `next`, keeping each existing object whose position in `next` holds a value of the same type.
 
@@ -629,8 +629,8 @@ export declare function reconcile<T>(current: unknown, next: T): T
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. Writes made before the failure are not rolled back.
-2. [ReconcileError](#class-reconcileerror-) with type `PublicationWouldChangeNext` when matching `next` by position could write into an object that `next` holds, such as an object of `current` that `next` holds at another position. Neither argument has changed, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
+1. ReconcileError with type `PublicationRejected` when `current` cannot be made to match `next`. Causes include `current` and `next` having different types, such as an object and an array; `current` itself being a changed Temporal value, which is immutable and cannot be updated in place; and `current` itself blocking a change to a property by being non-extensible or by having a read-only non-configurable property, a non-configurable property that `next` lacks, a getter without a setter, a setter that does not store its value, a proxy trap that refuses the assignment, an inherited getter or setter for a key it lacks, an own getter or setter that would have to move to reach the key order of `next`, or a value that another property's setter changes during the call. Inside `current`, such an object is replaced by a new one instead. Writes made before the failure are not rolled back.
+2. ReconcileError with type `PublicationWouldChangeNext` when matching `next` by position could write into an object that `next` holds, such as an object of `current` that `next` holds at another position. Neither argument has changed, unless `reconcile` had already written and was trying again after an object blocked a change; those writes are not rolled back.
 3. Errors thrown by getters, setters or proxy traps propagate unchanged, also without rollback.
 
 ### Remarks
@@ -669,9 +669,9 @@ const result = reconcile(state, { user: { name: 'Grace' }, tags: ['a', 'b'] })
 // result === state; state.user and state.tags are the same objects, updated in place
 ```
 
-## function requiredMaxBytes [↗](src/required-max-bytes.ts#L45-L50 'requiredMaxBytes')
+## function requiredMaxBytes
 
-Returns the smallest `maxBytes` with which [deserialize](#function-deserialize-) accepts JSON data.
+Returns the smallest `maxBytes` with which deserialize accepts JSON data.
 
 ```typescript
 export declare function requiredMaxBytes(json: unknown, options: DeserializeOptions): number
@@ -679,10 +679,10 @@ export declare function requiredMaxBytes(json: unknown, options: DeserializeOpti
 
 ### Parameters
 
-| Parameter | Type                                                                                           | Description                                                                                    |
-| --------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `json`    | <pre>unknown</pre>                                                                             | JSON data, as for [deserialize](#function-deserialize-). It is not modified.                   |
-| `options` | <pre>[DeserializeOptions](#interface-deserializeoptions- 'interface DeserializeOptions')</pre> | The largest result to measure up to; see [DeserializeOptions](#interface-deserializeoptions-). |
+| Parameter | Type                          | Description                                                  |
+| --------- | ----------------------------- | ------------------------------------------------------------ |
+| `json`    | <pre>unknown</pre>            | JSON data, as for deserialize. It is not modified.           |
+| `options` | <pre>DeserializeOptions</pre> | The largest result to measure up to; see DeserializeOptions. |
 
 ### Returns
 
@@ -690,12 +690,12 @@ The smallest `maxBytes` that `deserialize` accepts for `json`: a multiple of 8, 
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `DeserializeLimitInvalid` when `maxBytes` is invalid, `DeserializeLimitExceeded` when the result would be larger than `maxBytes`, or `DeserializeInputInvalid` when `json` is not in the format that `serialize` produces.
+1. ReconcileError with type `DeserializeLimitInvalid` when `maxBytes` is invalid, `DeserializeLimitExceeded` when the result would be larger than `maxBytes`, or `DeserializeInputInvalid` when `json` is not in the format that `serialize` produces.
 2. Native constructor or allocation errors, unchanged.
 
 ### Remarks
 
-`requiredMaxBytes` checks and counts `json` as [deserialize](#function-deserialize-) does under a finite `maxBytes`, without restoring the value or modifying `json`. For data that [serialize](#function-serialize-) produces, the result is the size of the restored value. For other data it can be larger, for example when a `Map` key is repeated. The result is `Infinity` when the size is larger than every finite `maxBytes`, which requires `maxBytes: Infinity`.
+`requiredMaxBytes` checks and counts `json` as deserialize does under a finite `maxBytes`, without restoring the value or modifying `json`. For data that serialize produces, the result is the size of the restored value. For other data it can be larger, for example when a `Map` key is repeated. The result is `Infinity` when the size is larger than every finite `maxBytes`, which requires `maxBytes: Infinity`.
 
 For data that meets the requirements of `deserialize`, `deserialize` with a finite `maxBytes` returns if and only if `maxBytes` is at least the result. The exceptions: `Object.prototype` or `Array.prototype` has a getter, setter or read-only property at an array index; a built-in method is replaced; or `deserialize` throws a native error, for example for a `Map` or `Set` larger than the engine allows.
 
@@ -710,9 +710,9 @@ deserialize(serialize(value), { maxBytes }) // restores the value
 deserialize(serialize(value), { maxBytes: maxBytes - 1 }) // throws DeserializeLimitExceeded
 ```
 
-## function serialize [↗](src/serialize.ts#L42-L44 'serialize')
+## function serialize
 
-Encodes a value as JSON data that [deserialize](#function-deserialize-) restores, preserving shared references and cycles.
+Encodes a value as JSON data that deserialize restores, preserving shared references and cycles.
 
 ```typescript
 export declare function serialize(value: unknown): unknown
@@ -730,16 +730,16 @@ New JSON data representing the value.
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `SerializeValueUnsupported` for unsupported values.
+1. ReconcileError with type `SerializeValueUnsupported` for unsupported values.
 2. Errors thrown by getters or proxy traps, and native errors, propagate unchanged.
 
 ### Remarks
 
-Plain and null-prototype objects, arrays, `Map`, `Set`, `Date`, fixed-length `ArrayBuffer`, typed arrays, `DataView`, `URL`, `URLSearchParams` and Temporal values are supported. `serialize` rejects objects with other prototypes, such as a class instance, an instance of a subclass of `Array` or a Node.js `Buffer`, because [deserialize](#function-deserialize-) restores only standard prototypes. It also rejects functions and symbols, and the symbol keys and non-enumerable properties of plain and null-prototype objects. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over `buffer.buffer` can encode Node's whole allocation pool. Objects from another iframe or Node.js `vm` context are rejected, plain objects and arrays included.
+Plain and null-prototype objects, arrays, `Map`, `Set`, `Date`, fixed-length `ArrayBuffer`, typed arrays, `DataView`, `URL`, `URLSearchParams` and Temporal values are supported. `serialize` rejects objects with other prototypes, such as a class instance, an instance of a subclass of `Array` or a Node.js `Buffer`, because deserialize restores only standard prototypes. It also rejects functions and symbols, and the symbol keys and non-enumerable properties of plain and null-prototype objects. Pass `new Uint8Array(buffer)` for a `Buffer`; a view over `buffer.buffer` can encode Node's whole allocation pool. Objects from another iframe or Node.js `vm` context are rejected, plain objects and arrays included.
 
 `serialize` calls each getter once, in depth-first order, with the object being encoded as `this`. An array, `Map` or `Set` is encoded from its elements or entries; its other own properties, whatever their key or enumerability, are not encoded, and their getters are not called. A `Map` or `Set` is read with the built-in methods, never an override on the instance. A `Date`, buffer, view, `URL`, `URLSearchParams` or Temporal value is encoded from its built-in value; its own and overriding properties are not read and are not encoded. Callers must not modify standard built-ins or prototypes during the call, including inside getters.
 
-The result holds only arrays, strings, finite numbers, booleans and `null`, so `JSON.stringify` writes it as text and `JSON.parse` reads it back. Only [deserialize](#function-deserialize-) restores the value from it. It carries no format version, so both sides must use the same version of this library.
+The result holds only arrays, strings, finite numbers, booleans and `null`, so `JSON.stringify` writes it as text and `JSON.parse` reads it back. Only deserialize restores the value from it. It carries no format version, so both sides must use the same version of this library.
 
 ### Examples
 
@@ -751,7 +751,7 @@ const copy = deserialize(JSON.parse(text), { maxBytes: 1_000_000 }) as typeof no
 // copy.next === copy; copy.created is a Date
 ```
 
-## function snapshot [↗](src/snapshot.ts#L109-L114 'snapshot')
+## function snapshot
 
 Returns a deep copy of `value` that can be changed without affecting the original.
 
@@ -775,7 +775,7 @@ A copy of `value`, detached unless `seen` supplies entries that are not, or `val
 
 ### Throws
 
-1. [ReconcileError](#class-reconcileerror-) with type `SnapshotURLSearchParamsMemoIncompatible` when `seen` maps the `searchParams` of a URL in `value` but not the URL.
+1. ReconcileError with type `SnapshotURLSearchParamsMemoIncompatible` when `seen` maps the `searchParams` of a URL in `value` but not the URL.
 2. Errors thrown by getters or proxy traps propagate unchanged.
 
 ### Remarks
@@ -795,7 +795,7 @@ const copy = snapshot(node) as typeof node
 // copy !== node; copy.children[0] === copy
 ```
 
-## class ReconcileError [↗](src/error.ts#L136-L154 'ReconcileError')
+## class ReconcileError
 
 The error this library throws for every failure it detects.
 
@@ -805,7 +805,7 @@ export declare class ReconcileError<T extends ReconcileErrorType = ReconcileErro
 
 ### Remarks
 
-Its `cause` holds a stable `type` and that type's properties. Its message is for people and can change between versions. Check for it with `instanceof ReconcileError` or [isReconcileError](#function-isreconcileerror-), then branch on `cause.type`.
+Its `cause` holds a stable `type` and that type's properties. Its message is for people and can change between versions. Check for it with `instanceof ReconcileError` or isReconcileError, then branch on `cause.type`.
 
 Errors from native constructors and allocation, and errors thrown by application getters, setters, proxy traps, iterators and writes into `current`, propagate unchanged. When an error interrupts `reconcile`, earlier writes are not rolled back.
 
@@ -831,10 +831,10 @@ constructor(cause: ReconcileErrorCause<T>, message: string);
 
 #### Parameters
 
-| Parameter | Type                                                                                        | Description                                                |
-| --------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `cause`   | <pre>[ReconcileErrorCause](#type-reconcileerrorcause- 'type ReconcileErrorCause')\<T></pre> | The error's `type` and that type's properties.             |
-| `message` | <pre>string</pre>                                                                           | A description for people; not part of the stable contract. |
+| Parameter | Type                               | Description                                                |
+| --------- | ---------------------------------- | ---------------------------------------------------------- |
+| `cause`   | <pre>ReconcileErrorCause\<T></pre> | The error's `type` and that type's properties.             |
+| `message` | <pre>string</pre>                  | A description for people; not part of the stable contract. |
 
 ### ReconcileError.cause
 
@@ -852,7 +852,7 @@ Always `'ReconcileError'`.
 readonly name: 'ReconcileError';
 ```
 
-## const RECONCILE\_ERROR\_TYPES [↗](src/error.ts#L12-L25 'RECONCILE_ERROR_TYPES')
+## const RECONCILE\_ERROR\_TYPES
 
 Every error type this library throws.
 
@@ -877,9 +877,9 @@ RECONCILE_ERROR_TYPES: readonly[
 
 The prefix of each name identifies the function or phase that detects the failure. `Draft` types come from `produce` while the recipe runs, `Finalization` types from `produce` after the recipe returns, `Publication` types from `reconcile`, `Snapshot` types from `snapshot`, `Serialize` types from `serialize`, and `Deserialize` types from `deserialize` and `requiredMaxBytes`.
 
-## interface DeserializeOptions [↗](src/deserialize.ts#L5-L12 'DeserializeOptions')
+## interface DeserializeOptions
 
-Options for [deserialize](#function-deserialize-).
+Options for deserialize.
 
 ```typescript
 export interface DeserializeOptions
@@ -893,7 +893,7 @@ The largest size, in bytes, of the value `deserialize` may return: a non-negativ
 readonly maxBytes: number;
 ```
 
-## interface ReconcileErrorMetadata [↗](src/error.ts#L36-L107 'ReconcileErrorMetadata')
+## interface ReconcileErrorMetadata
 
 The properties of `cause` for each error type, in addition to `type`.
 
@@ -1021,9 +1021,9 @@ SnapshotURLSearchParamsMemoIncompatible: {
 }
 ```
 
-## type ReconcileErrorCause [↗](src/error.ts#L110-L111 'ReconcileErrorCause')
+## type ReconcileErrorCause
 
-The `cause` of a [ReconcileError](#class-reconcileerror-): its `type` and that type's properties.
+The `cause` of a ReconcileError: its `type` and that type's properties.
 
 ```typescript
 export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorType> = T
@@ -1032,9 +1032,9 @@ export type ReconcileErrorCause<T extends ReconcileErrorType = ReconcileErrorTyp
 } & ReconcileErrorMetadata[T] : never;
 ```
 
-## type ReconcileErrorType [↗](src/error.ts#L28 'ReconcileErrorType')
+## type ReconcileErrorType
 
-The `type` of a [ReconcileError](#class-reconcileerror-): one of [RECONCILE\_ERROR\_TYPES](#const-reconcile_error_types-).
+The `type` of a ReconcileError: one of RECONCILE\_ERROR\_TYPES.
 
 ```typescript
 export type ReconcileErrorType = (typeof RECONCILE_ERROR_TYPES)[number]
