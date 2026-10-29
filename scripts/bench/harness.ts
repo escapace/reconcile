@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { SourceMap, type SourceMapPayload } from 'node:module'
 import path from 'node:path'
 import { build, type Plugin } from 'rolldown'
+import { packageEntry } from '../bundles'
 import { ROOT } from '../framework/paths'
 import { virtualModule } from '../rolldown'
 import type { BundleMap } from './frames'
@@ -35,6 +36,8 @@ export interface HarnessOptions {
   readonly directory: string
   /** Runs the scenario through the diagnostic overlay instead of the frozen harness. */
   readonly overlay: boolean
+  /** Measures the tree's built package, which must be built, instead of its sources. */
+  readonly package: boolean
   /** The diagnostics' size. */
   readonly size: number
   /** The source tree measured: its frozen harness and its `src/`. */
@@ -150,6 +153,37 @@ function counterPlugins(options: HarnessOptions, counterSites: CounterSites): Pl
   ]
 }
 
+/** The library entry modules that the workloads and the diagnostic overlay import. */
+const ENTRIES = ['index.ts', 'reconcile.ts', 'snapshot.ts']
+
+/** The plugin that serves the tree's built package for the library's entry modules, so that a
+ * round measures what the package ships. */
+function packagePlugin(tree: string): Plugin {
+  const entries = new Set(ENTRIES.map((file) => path.join(tree, 'src', file)))
+  const built = packageEntry(tree)
+  return {
+    name: 'built-package',
+    resolveId: {
+      filter: { id: /[/\\]src[/\\](?:index|reconcile|snapshot)(?:\.ts)?$/ },
+      async handler(source, importer, options) {
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
+        return resolved !== null && entries.has(resolved.id) ? built : undefined
+      },
+    },
+  }
+}
+
+/** Fails when a bundle of the built package also took one of the tree's sources, which would
+ * then run beside the package instead of through it. */
+function assertNoSources(modules: readonly string[], tree: string): void {
+  const sources = `${path.join(tree, 'src')}${path.sep}`
+  assert.deepEqual(
+    modules.filter((module) => module.startsWith(sources)),
+    [],
+    "The harness bundled the tree's sources beside its built package",
+  )
+}
+
 /** Fails when a bundle took a package from anywhere but this checkout's dependencies, which
  * every tree is measured with: a `node_modules` above a control could otherwise supply its own. */
 function assertOwnDependencies(modules: readonly string[]): void {
@@ -189,10 +223,15 @@ export async function bundleHarness(options: HarnessOptions): Promise<Harness> {
     output: { codeSplitting: false, file: bundlePath, format: 'esm', sourcemap: true },
     platform: 'node',
     // The overlaid harness stands in for the frozen one, at its path.
-    plugins: [virtualModule(source, contents), ...counterPlugins(options, counterSites)],
+    plugins: [
+      virtualModule(source, contents),
+      ...(options.package ? [packagePlugin(options.tree)] : []),
+      ...counterPlugins(options, counterSites),
+    ],
     resolve: { modules: ['node_modules', path.join(ROOT, 'node_modules')] },
   })
   assertOwnDependencies(chunk.moduleIds)
+  if (options.package) assertNoSources(chunk.moduleIds, options.tree)
   const map = JSON.parse(readFileSync(`${bundlePath}.map`, 'utf8')) as SourceMapPayload
   return { bundlePath, counterSites, root: options.tree, sourceMap: new SourceMap(map) }
 }

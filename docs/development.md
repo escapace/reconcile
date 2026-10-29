@@ -346,10 +346,14 @@ once the control's sources or frozen workloads change, commands refuse the exper
   about a second. Two deciding rounds are two separate runs.
 - An _A/A round_ passes the control's own tree, `tree/` in the experiment, as `--tree`, to check
   noise.
+- A _package round_ adds `--package`: each tree's workloads run its built package, which the
+  round builds first, instead of its sources. Time a change to the build, such as a Rolldown
+  option, this way; a source round cannot see it.
 - `pnpm bench report` judges together only rounds that measured the same things: rounds that
   passed, against the control as it was frozen, with the same frozen workloads in both trees. A
-  diagnostic's readings combine only across rounds of the same shared workloads and `--size`, and a
-  size comparison counts only for the sources judged.
+  diagnostic's readings combine only across rounds of the same shared workloads and `--size`,
+  package rounds only with package rounds of the same packages, and a size comparison counts only
+  for the sources or package judged.
 
 The header of `scripts/bench-workloads.ts` says what each scenario runs. The serialization and small
 workloads live outside `perf/`, so they run against any control. The `diag-*` diagnostics in
@@ -409,9 +413,11 @@ command but `report` prints the directory that keeps its output and receipt.
   `plan.json`, which records the design before the first sample, and `samples.json`. Explicit
   `--batches` and `--warmup` override the automatic sizing, as a heavy diagnostic size needs.
 - **`report`** gathers an experiment's `ab` rounds of this checkout's sources, or else of the
-  latest sources measured: each workload's readings, what the acceptance rule concludes for it as
-  a target and as a guard, and which of the default and small rounds and the size comparison are
-  missing. A round whose trees hold the same sources is an A/A round, which it counts apart.
+  latest sources measured, and apart from them its package rounds of the latest package measured:
+  each workload's readings, what the acceptance rule concludes for it as a target and as a guard,
+  and which of the default and small rounds and the size comparison are missing. A round whose
+  trees time the same sources, or in a package round the same package, is an A/A round, which it
+  counts apart.
 - **`profile`** writes `summary.json`, the raw artifact (under `raw/`) and the bundle with its
   source map:
   - `--mode cpu` (the default) and `--mode heap` sample time or allocation and attribute frames

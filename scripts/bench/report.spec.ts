@@ -35,9 +35,20 @@ const plan = (kind: string, control = 'control', tree = 'change', frozen = ['w',
   sourceSha256: { control, tree },
 })
 
-/** The plan of a size comparison of `tree` against `control`. */
-const sizes = (control: string, tree: string) => ({
-  plan: { modules: null, sourceSha256: { control, tree } },
+/** The plan of an A/B round of `kind` that timed the built packages `packages` of two trees
+ * with the control's sources. */
+const packagePlan = (kind: string, packages = ['package-a', 'package-b']) => ({
+  ...plan(kind, 'control', 'control'),
+  packageSha256: { control: packages[0], tree: packages[1] },
+})
+
+/** The plan of a size comparison of `tree` against `control`, and of their packages. */
+const sizes = (control: string, tree: string, packages: string[] | null = null) => ({
+  plan: {
+    modules: null,
+    packageSha256: packages === null ? null : { control: packages[0], tree: packages[1] },
+    sourceSha256: { control, tree },
+  },
 })
 
 describe('verdict', () => {
@@ -119,6 +130,47 @@ describe('report', () => {
     )
     expect(text).toContain('1 A/A round measures noise.')
     expect(text).toContain('No A/B round of a change yet')
+  })
+
+  it('judges rounds that timed built packages apart, by their packages', () => {
+    const text = report(
+      experimentWith([
+        { plan: plan('default'), summary: faster },
+        { plan: packagePlan('default'), summary: faster },
+        { plan: packagePlan('small', ['package-a', 'package-a']), summary: faster },
+      ]),
+    )
+    expect(text).toContain('1 A/A round measures noise.')
+    expect(text).toContain("Verdicts from the round of sources change, not this checkout's")
+    expect(text).toContain(
+      "Verdicts from the round of the built package package-b, against the control's package-a",
+    )
+    expect(text).toContain('Missing: a small round, a size comparison of this package.')
+  })
+
+  it('counts a round of identical packages as A/A even when its sources differ', () => {
+    const text = report(
+      experimentWith([
+        {
+          plan: { ...plan('default'), packageSha256: { control: 'same', tree: 'same' } },
+          summary: faster,
+        },
+      ]),
+    )
+    expect(text).toContain('1 A/A round measures noise.')
+    expect(text).toContain('No A/B round of a change yet')
+  })
+
+  it('asks for a size comparison of the judged package against the frozen control', () => {
+    const rounds = [
+      { plan: packagePlan('default'), summary: faster },
+      { plan: packagePlan('small'), summary: faster },
+    ]
+    expect(report(experimentWith([...rounds, sizes('control', 'control')]))).toContain(
+      'a size comparison of this package',
+    )
+    const current = sizes('control', 'control', ['package-a', 'package-b'])
+    expect(report(experimentWith([...rounds, current]))).not.toContain('Missing')
   })
 
   it('asks for a size comparison of the judged sources against the frozen control', () => {

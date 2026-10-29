@@ -1,9 +1,9 @@
-// Reads an experiment's A/B rounds and states, for the sources measured, each workload's
-// readings against the control, what the acceptance rule concludes and which rounds are missing.
-// Only rounds that measured the same things are judged together: a round must have passed,
-// measured the control as the experiment pinned it, and run the same frozen workloads in both
-// trees; a diagnostic's readings combine only across rounds of the same shared workloads and
-// size.
+// Reads an experiment's A/B rounds and states, for the sources measured and for the built package
+// measured, each workload's readings against the control, what the acceptance rule concludes and
+// which rounds are missing. Only rounds that measured the same things are judged together: a
+// round must have passed, measured the control as the experiment pinned it, and run the same
+// frozen workloads in both trees; a diagnostic's readings combine only across rounds of the same
+// shared workloads and size, and rounds that timed built packages only with each other.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { ROOT } from '../framework/paths'
@@ -18,21 +18,35 @@ export interface AbRound {
   /** `aa` when both trees held the same sources, else the rule the round served. */
   readonly kind: string
   readonly name: string
-  /** The measured tree's sources. */
+  /** The measured tree's sources, or its built package when the round timed packages. */
   readonly source: string
   readonly summary: Readonly<Record<string, ScenarioSummary>>
   /** The control's sources. */
   readonly control?: string
+  /** The control's built package, when the round timed packages. */
+  readonly controlPackage?: string
+  /** Whether the round timed the trees' sources or their built packages. */
+  readonly library?: Library
   /** Whether both trees ran the same frozen workloads. */
   readonly sameFrozen?: boolean
   /** The shared workloads and diagnostic size, which a diagnostic's readings depend on. */
   readonly workloads?: string
 }
 
+/** What an A/B round timed: the trees' sources, or their built packages. */
+export type Library = 'package' | 'sources'
+
+interface Pair {
+  readonly control: string
+  readonly tree: string
+}
+
 interface Plan {
   readonly kind: string
-  readonly sourceSha256: { readonly control: string; readonly tree: string }
+  readonly sourceSha256: Pair
+  /** The built packages, in a round that timed them. */
   readonly frozenWorkloadSha256?: { readonly control: string; readonly tree: string }
+  readonly packageSha256?: Pair | null
   readonly sharedWorkloadSha256?: string
   readonly size?: number
 }
@@ -49,39 +63,54 @@ function readJson<T>(directory: string, file: string): T | undefined {
 const passed = (directory: string): boolean =>
   readJson<{ status?: string }>(directory, 'receipt.json')?.status === 'passed'
 
+/** The shared workloads and diagnostic size a round ran, as far as its plan records them. */
+const workloadsOf = (plan: Plan): string =>
+  `${plan.sharedWorkloadSha256 ?? 'unrecorded'}:${plan.size ?? 'unrecorded'}`
+
+/** The round that a passed A/B round's plan and summary record. */
+function roundOf(name: string, plan: Plan, summary: Record<string, ScenarioSummary>): AbRound {
+  const sources = plan.sourceSha256
+  const packages = plan.packageSha256 ?? undefined
+  // A round that timed packages measured them, whatever their sources.
+  const timed = packages ?? sources
+  const frozen = plan.frozenWorkloadSha256
+  return {
+    control: sources.control,
+    controlPackage: packages?.control,
+    // Rounds recorded before the A/A check kept the kind they were asked for.
+    kind: timed.control === timed.tree ? 'aa' : plan.kind,
+    library: packages === undefined ? 'sources' : 'package',
+    name,
+    sameFrozen: frozen === undefined || frozen.control === frozen.tree,
+    source: timed.tree,
+    summary,
+    workloads: workloadsOf(plan),
+  }
+}
+
 /** The experiment's A/B rounds that passed and summarized, oldest first. */
 function abRounds(experiment: Experiment): AbRound[] {
   return roundsOf(experiment).flatMap((directory) => {
     const plan = readJson<Plan>(directory, 'plan.json')
     const summary = readJson<Record<string, ScenarioSummary>>(directory, 'summary.json')
     if (plan === undefined || summary === undefined || !passed(directory)) return []
-    const sources = plan.sourceSha256
-    const frozen = plan.frozenWorkloadSha256
-    return [
-      {
-        control: sources.control,
-        // Rounds recorded before the A/A check kept the kind they were asked for.
-        kind: sources.control === sources.tree ? 'aa' : plan.kind,
-        name: path.basename(directory),
-        sameFrozen: frozen === undefined || frozen.control === frozen.tree,
-        source: sources.tree,
-        summary,
-        workloads: `${plan.sharedWorkloadSha256 ?? 'unrecorded'}:${plan.size ?? 'unrecorded'}`,
-      },
-    ]
+    return [roundOf(path.basename(directory), plan, summary)]
   })
 }
 
-/** Whether the experiment holds a size comparison of these sources against its control. */
-const hasSizes = (experiment: Experiment, source: string): boolean =>
+/** Whether the experiment holds a size comparison of these sources, or of this built package,
+ * against its control. */
+const hasSizes = (experiment: Experiment, source: string, library: Library): boolean =>
   roundsOf(experiment).some((directory) => {
     const plan = readJson<{
       modules: unknown
       sourceSha256: { control: string | null; tree: string }
+      packageSha256?: { tree: string } | null
     }>(directory, 'plan.json')
+    const measured = library === 'package' ? plan?.packageSha256?.tree : plan?.sourceSha256.tree
     return (
       plan?.modules === null &&
-      plan.sourceSha256.tree === source &&
+      measured === source &&
       plan.sourceSha256.control === pinnedSource(experiment) &&
       passed(directory)
     )
@@ -165,14 +194,22 @@ function verdicts(rounds: readonly AbRound[]): string[] {
   })
 }
 
-/** The rounds that the protocol asks for and that `rounds` lack. */
-function missing(rounds: readonly AbRound[], experiment: Experiment, source: string): string[] {
-  return [
+/** The note on the rounds that the protocol asks for and that `rounds`, all of `library`,
+ * lack; none when they lack none. */
+function missing(
+  rounds: readonly AbRound[],
+  experiment: Experiment,
+  source: string,
+  library: Library,
+): string[] {
+  const what = library === 'package' ? 'this package' : 'these sources'
+  const absent = [
     ...(['default', 'small'] as const)
       .filter((kind) => !rounds.some((round) => round.kind === kind))
       .map((kind) => `a ${kind} round`),
-    ...(hasSizes(experiment, source) ? [] : ['a size comparison of these sources']),
+    ...(hasSizes(experiment, source, library) ? [] : [`a size comparison of ${what}`]),
   ]
+  return absent.length === 0 ? [] : ['', `Missing: ${absent.join(', ')}.`]
 }
 
 /** The sources to judge: this checkout's when a round measured them, else the latest measured. */
@@ -208,37 +245,68 @@ function notes(rounds: readonly AbRound[], pinned: string): string[] {
   ]
 }
 
-function verdictsHeading(rounds: number, source: string, checkout: string): string {
-  const which = rounds === 1 ? 'the round' : `the ${rounds} rounds`
+const roundsCount = (rounds: number): string =>
+  rounds === 1 ? 'the round' : `the ${rounds} rounds`
+
+/** The verdicts on the sources judged: this checkout's when a round measured them, else the
+ * latest measured. */
+function sourceVerdicts(experiment: Experiment, measured: readonly AbRound[]): string[] {
+  const checkout = sourceHash(ROOT)
+  const source = judgedSource(measured, checkout)
+  if (source === undefined) return []
+  const current = measured.filter((round) => round.source === source)
   const sources =
     source === checkout
       ? "this checkout's sources"
       : `sources ${source.slice(0, 12)}, not this checkout's`
-  return `Verdicts from ${which} of ${sources}, each with its readings, oldest first:`
+  return [
+    '',
+    `Verdicts from ${roundsCount(current.length)} of ${sources}, each with its readings, oldest first:`,
+    ...verdicts(current),
+    ...missing(current, experiment, source, 'sources'),
+  ]
+}
+
+/** The verdicts on the latest built package measured, against the same build of the control. */
+function packageVerdicts(experiment: Experiment, measured: readonly AbRound[]): string[] {
+  const latest = measured.at(-1)
+  if (latest === undefined) return []
+  const current = measured.filter(
+    (round) => round.source === latest.source && round.controlPackage === latest.controlPackage,
+  )
+  return [
+    '',
+    `Verdicts from ${roundsCount(current.length)} of the built package ${latest.source.slice(0, 12)}, ` +
+      `against the control's ${latest.controlPackage?.slice(0, 12)}, each with its readings, oldest first:`,
+    ...verdicts(current),
+    ...missing(current, experiment, latest.source, 'package'),
+  ]
 }
 
 /**
  * The report of an experiment, as `pnpm bench report` prints it. It judges the rounds that
- * measured this checkout's sources, or else the latest measured sources; A/A rounds, which
- * measure noise, and rounds that measured something else are counted apart.
+ * measured this checkout's sources, or else the latest measured sources, and apart from them the
+ * rounds that timed the latest built package measured; A/A rounds, which measure noise, and
+ * rounds that measured something else are counted apart.
  */
 export function report(experiment: Experiment): string {
   const pinned = pinnedSource(experiment)
   const rounds = abRounds(experiment)
-  const measured = rounds.filter(
+  const judged = rounds.filter(
     (round) => round.control === pinned && round.sameFrozen !== false && round.kind !== 'aa',
   )
-  const checkout = sourceHash(ROOT)
-  const source = judgedSource(measured, checkout)
-  const lines = [headline(experiment), ...notes(rounds, pinned)]
-  if (source === undefined)
-    return [
-      ...lines,
-      'No A/B round of a change yet: `pnpm bench ab default --control <experiment>`.',
-    ].join('\n')
-  const current = measured.filter((round) => round.source === source)
-  lines.push('', verdictsHeading(current.length, source, checkout), ...verdicts(current))
-  const absent = missing(current, experiment, source)
-  if (absent.length > 0) lines.push('', `Missing: ${absent.join(', ')}.`)
+  const sections = [
+    ...sourceVerdicts(
+      experiment,
+      judged.filter((round) => round.library !== 'package'),
+    ),
+    ...packageVerdicts(
+      experiment,
+      judged.filter((round) => round.library === 'package'),
+    ),
+  ]
+  const lines = [headline(experiment), ...notes(rounds, pinned), ...sections]
+  if (sections.length === 0)
+    lines.push('No A/B round of a change yet: `pnpm bench ab default --control <experiment>`.')
   return lines.join('\n')
 }

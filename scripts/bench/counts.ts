@@ -470,6 +470,7 @@ async function count(config: Config, scenario: string, tree: string, directory: 
     counting: COUNTING,
     directory,
     overlay: inOverlay(scenario),
+    package: false,
     size: config.size,
     tree,
   })

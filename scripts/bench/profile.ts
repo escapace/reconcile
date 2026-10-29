@@ -62,6 +62,7 @@ async function main(config: Config): Promise<number> {
     counting: undefined,
     directory: config.directory,
     overlay: inOverlay(config.scenario),
+    package: false,
     size: config.size,
     tree: config.tree,
   })

@@ -328,11 +328,25 @@ function positive(written: string): number {
 const automatic = (parsed: Parsed, name: string, minimum: number): number | 'auto' =>
   text(parsed, name) === 'auto' ? 'auto' : integer(parsed, name, minimum)
 
+/** Builds a tree's package with its own build and this checkout's dependencies. */
+const build = (name: string, tree: string): Step => ({
+  command: ['pnpm', 'run', '--silent', 'build'],
+  cwd: tree,
+  name,
+})
+
+/** The steps that build both trees' packages. */
+const builds = (tree: string, control: string | undefined): Step[] => [
+  build('build tree', tree),
+  ...(control === undefined ? [] : [build('build control', control)]),
+]
+
 const ab: Command = {
   examples: [
     'pnpm bench ab default --control latest',
     'pnpm bench ab small --control latest',
     'pnpm bench ab reconcile --decide --control latest',
+    'pnpm bench ab default --package --control latest',
   ],
   name: 'ab',
   options: {
@@ -346,6 +360,11 @@ const ab: Command = {
     decide: {
       description:
         'A deciding round: 32 pairs of 1 second each, unless set; its batches and warmup are sized automatically.',
+      type: 'boolean',
+    },
+    package: {
+      description:
+        "Time each tree's built package, which the round builds first, instead of its sources.",
       type: 'boolean',
     },
     pairs: {
@@ -382,6 +401,7 @@ const ab: Command = {
       batches: automatic(parsed, 'batches', 1),
       control: against.tree,
       kind: kindOf(parsed.positionals, decide, pairs, seconds),
+      package: parsed.values.package === true,
       pairs,
       scenarios: selectScenarios(
         parsed.positionals.length === 0 ? ['default'] : parsed.positionals,
@@ -395,18 +415,14 @@ const ab: Command = {
     const { code } = await measure(
       'ab',
       () => against.rounds,
-      (directory) => [tool('ab', { ...config, directory })],
+      (directory) => [
+        ...(config.package ? builds(config.tree, config.control) : []),
+        tool('ab', { ...config, directory }),
+      ],
     )
     return code
   },
 }
-
-/** Builds a tree's package with its own build and this checkout's dependencies. */
-const build = (name: string, tree: string): Step => ({
-  command: ['pnpm', 'run', '--silent', 'build'],
-  cwd: tree,
-  name,
-})
 
 const size: Command = {
   description: [
@@ -443,17 +459,13 @@ const size: Command = {
         `--modules takes exports of ${EXPORTS.join(', ')}, not ${unknown.join(', ')}`,
       )
     const config = { control: against?.tree, modules, tree: treeOf(parsed) }
-    const builds =
-      modules === undefined
-        ? [
-            build('build tree', config.tree),
-            ...(config.control === undefined ? [] : [build('build control', config.control)]),
-          ]
-        : []
     const { code } = await measure(
       'size',
       () => against?.rounds,
-      (directory) => [...builds, tool('size', { ...config, directory })],
+      (directory) => [
+        ...(modules === undefined ? builds(config.tree, config.control) : []),
+        tool('size', { ...config, directory }),
+      ],
     )
     return code
   },

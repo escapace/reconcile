@@ -6,14 +6,15 @@
 // workload hashes) before any sample is taken, and alternates the order of the tree and the
 // control per pair, in fresh Node processes. Every completed sample is kept at once. Each scenario
 // reports the median paired change (negative is faster), a bootstrap 90% interval from 10 pairs
-// on, the count of faster pairs, a reading and the seconds each process measured.
+// on, the count of faster pairs, a reading and the seconds each process measured. With
+// `package`, each tree's workloads run its built package instead of its sources.
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { entry } from '../framework/entry'
 import { writeJson } from '../framework/files'
 import { bundleHarness, record, runHarness } from './harness'
-import { frozenHash, gitState, sharedHash, sourceHash } from './provenance'
+import { frozenHash, gitState, packageHash, sharedHash, sourceHash } from './provenance'
 import { inOverlay } from './scenarios'
 import {
   batchCounts,
@@ -47,6 +48,8 @@ export interface Config {
   /** default, small, deciding or custom: which rule of the protocol the round serves; a round
    * of two trees with the same sources is recorded as `aa`. */
   readonly kind: string
+  /** Times each tree's built package, which the round builds first, instead of its sources. */
+  readonly package: boolean
   readonly pairs: number
   readonly scenarios: readonly string[]
   readonly seconds: number
@@ -78,10 +81,14 @@ export interface Row extends Sample {
 
 const sha256 = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex')
 
-/** What the round measures: each tree's sources and frozen workloads, and the shared workloads. */
+/** What the round measures: each tree's sources and frozen workloads, the shared workloads and,
+ * when it times the built packages, each tree's package. */
 function provenanceOf(config: Config) {
   return {
     frozen: { control: frozenHash(config.control), tree: frozenHash(config.tree) },
+    packages: config.package
+      ? { control: packageHash(config.control), tree: packageHash(config.tree) }
+      : null,
     shared: sharedHash(),
     sources: { control: sourceHash(config.control), tree: sourceHash(config.tree) },
   }
@@ -111,6 +118,7 @@ async function bundles(config: Config): Promise<Record<Label, Record<string, str
           counting: undefined,
           directory: path.join(config.directory, 'bundles', label, overlay ? 'overlay' : 'frozen'),
           overlay,
+          package: config.package,
           size: config.size,
           tree: config[label],
         })
@@ -173,8 +181,11 @@ function writePlan(
   paths: Record<Label, Record<string, string>>,
   counts: Record<string, Counts>,
   estimate: number,
-  { frozen, shared, sources }: Provenance,
+  { frozen, packages, shared, sources }: Provenance,
 ): void {
+  // Two trees that time the same thing only measure noise.
+  const same =
+    packages === null ? sources.control === sources.tree : packages.control === packages.tree
   const perLabel = <T>(read: (label: Label) => T): Record<Label, T> => ({
     control: read('control'),
     tree: read('tree'),
@@ -185,9 +196,10 @@ function writePlan(
     estimatedSamplingSeconds: estimate,
     frozenWorkloadSha256: frozen,
     git: perLabel((label) => gitState(config[label])),
-    // A round of two trees with the same sources only measures noise.
-    kind: sources.control === sources.tree ? 'aa' : config.kind,
+    kind: same ? 'aa' : config.kind,
+    library: packages === null ? 'sources' : 'package',
     node: process.version,
+    packageSha256: packages,
     pairs: config.pairs,
     requestedSecondsPerProcess: config.seconds,
     roots: perLabel((label) => config[label]),
@@ -262,7 +274,7 @@ async function main(config: Config): Promise<number> {
   }
   if (JSON.stringify(provenanceOf(config)) !== JSON.stringify(provenance)) {
     console.error(
-      'The sources or workloads changed while the round bundled them, so the bundles may not be ' +
+      'The sources, packages or workloads changed while the round bundled them, so the bundles may not be ' +
         'what the hashes describe; rerun the round.',
     )
     return 1

@@ -9,7 +9,7 @@ import { bundleExports, packageEntry, sizeRows, sizeTable } from '../bundles'
 import { entry } from '../framework/entry'
 import { writeJson } from '../framework/files'
 import { bundle, virtualModule } from '../rolldown'
-import { sourceHash } from './provenance'
+import { packageHash, sourceHash } from './provenance'
 
 /** The configuration `pnpm bench size` passes. */
 interface Config {
@@ -123,9 +123,17 @@ async function modules(config: Config, names: readonly string[]): Promise<string
   return sizeTable(rows, ['Module', 'Bytes'], before)
 }
 
+/** The packages a size comparison built and measured; a module breakdown bundles the sources
+ * instead. */
+function packagesOf({ control, modules, tree }: Config) {
+  if (modules !== undefined) return null
+  return { control: control === undefined ? null : packageHash(control), tree: packageHash(tree) }
+}
+
 async function main(config: Config): Promise<number> {
   writeJson(path.join(config.directory, 'plan.json'), {
     modules: config.modules ?? null,
+    packageSha256: packagesOf(config),
     sourceSha256: {
       control: config.control === undefined ? null : sourceHash(config.control),
       tree: sourceHash(config.tree),

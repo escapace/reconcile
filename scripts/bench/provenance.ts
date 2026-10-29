@@ -1,10 +1,11 @@
-// What a measurement measured: hashes of a tree's library sources and frozen workloads, of the
-// workloads every tree shares, and the tree's commit. Rounds whose hashes differ measured
+// What a measurement measured: hashes of a tree's library sources, built package and frozen
+// workloads, of the workloads every tree shares, and the tree's commit. Rounds whose hashes differ measured
 // different things, so they are never judged together.
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
+import { packageEntry } from '../bundles'
 import { Blocked } from '../framework/command'
 import { ROOT } from '../framework/paths'
 
@@ -32,6 +33,13 @@ export function sourceHash(tree: string): string {
     )
     .toSorted()
   return filesHash(tree, files)
+}
+
+/** A hash of the tree's built package, which its build step wrote. */
+export function packageHash(tree: string): string {
+  const file = packageEntry(tree)
+  if (!existsSync(file)) throw new Error(`${tree} has no built package after its build step.`)
+  return sha256(readFileSync(file))
 }
 
 /** The frozen workloads, which the control and the measured tree must share. */
