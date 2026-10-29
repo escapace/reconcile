@@ -9,12 +9,11 @@
 // reference visits it inside the pinned subtree; order and alignment are compared over the nodes
 // that are not pinned, and every pinned node keeps the object it is.
 //
-// Standalone: pnpm exec tsx scripts/check/bridges/spec-phases.ts [--seeds N] [--from S] [--hazards]
-//   [--binary] [--nodes N] [--dump SEED]
+// `pnpm check lean spec-phases` runs the bridge alone; `--batch`, `--seeds` and `--dump` narrow it.
 import assert from 'node:assert/strict'
-import { parseArgs } from 'node:util'
 import { bundleWithHooks, type Hook } from '../../esbuild'
 import type { Oracle } from '../oracle'
+import { reproduce, selectBatches, type Selection } from './selection'
 import { materialize, materializeClasses, materializeNext, toJs } from '../fixtures/spec-realize'
 import {
   GATE_OPTIONS,
@@ -286,70 +285,54 @@ export async function checkPhaseCases(
   return { passes, reports }
 }
 
-/** The seeded batches `scripts/check/lean.ts` runs: every phase difference fails. */
-export async function checkSpecPhasesGate(oracle: Oracle): Promise<void> {
-  const library = await instrumented()
-  const batches: Array<
-    [name: string, count: number, options: Options, regressions: readonly number[]]
-  > = [
-    ['plain', 1500, GATE_OPTIONS, REGRESSION_SEEDS.plain],
-    ['hazards', 3000, { ...GATE_OPTIONS, hazards: true }, REGRESSION_SEEDS.hazards],
-    ['binary', 1500, { ...GATE_OPTIONS, binary: true }, []],
-  ]
-  const summaries: string[] = []
-  for (const [name, count, options, regressions] of batches) {
-    const { cases, passes, reports } = await checkPhases(
-      library,
-      oracle,
-      [...seedRange(1, count), ...regressions],
-      options,
-    )
-    assert.deepEqual(
-      reports.slice(0, 5),
-      [],
-      `Spec phases (${name}): ${reports.length} differences`,
-    )
-    summaries.push(`${cases} ${name} cases (${passes} passes)`)
-  }
-  console.log(`Spec phases: ${summaries.join(', ')} agree`)
+/** The gate's batches, by the name `pnpm check lean spec-phases --batch` takes: the default
+ * cases, hazard-rich ones and buffers and views beside the other kinds. */
+const PHASE_BATCHES: ReadonlyArray<{
+  readonly count: number
+  readonly name: string
+  readonly options: Options
+  readonly regressions: readonly number[]
+}> = [
+  { count: 1500, name: 'plain', options: GATE_OPTIONS, regressions: REGRESSION_SEEDS.plain },
+  {
+    count: 3000,
+    name: 'hazards',
+    options: { ...GATE_OPTIONS, hazards: true },
+    regressions: REGRESSION_SEEDS.hazards,
+  },
+  { count: 1500, name: 'binary', options: { ...GATE_OPTIONS, binary: true }, regressions: [] },
+]
+
+/** The batches, by the name `pnpm check lean spec-phases --batch` takes. */
+export const phaseBatchNames = (): string[] => PHASE_BATCHES.map((batch) => batch.name)
+
+/** Shows one case and the reference's phases. */
+async function dump(oracle: Oracle, seed: number, options: Options): Promise<void> {
+  const c = genCase(seed, options)
+  console.log(`--- seed ${seed}\ncur  ${show(c.cur)}\nnext ${show(c.next)}\nsame ${show(c.same)}`)
+  const input = JSON.stringify([request(c)])
+  console.log(`reference ${(await oracle('Spec', { input })).trim()}`)
 }
 
-if (process.argv[1]?.endsWith('scripts/check/bridges/spec-phases.ts')) {
-  const { values } = parseArgs({
-    options: {
-      binary: { default: false, type: 'boolean' },
-      dump: { type: 'string' },
-      from: { default: '1', type: 'string' },
-      hazards: { default: false, type: 'boolean' },
-      nodes: { default: '6', type: 'string' },
-      seeds: { default: '500', type: 'string' },
-    },
-  })
-  const options: Options = {
-    ...GATE_OPTIONS,
-    binary: values.binary,
-    hazards: values.hazards,
-    nodes: Number(values.nodes),
+/** The gate's batches, or those `selection` names, each over its own seeds or the selected ones:
+ * every phase difference fails. A dump shows each seed's case and differences instead. */
+export async function checkSpecPhasesGate(
+  oracle: Oracle,
+  selection: Selection = {},
+): Promise<void> {
+  const library = await instrumented()
+  const summaries: string[] = []
+  for (const batch of selectBatches(PHASE_BATCHES, selection)) {
+    const seeds = selection.seeds ?? [...seedRange(1, batch.count), ...batch.regressions]
+    if (selection.dump === true) for (const seed of seeds) await dump(oracle, seed, batch.options)
+    const { cases, passes, reports } = await checkPhases(library, oracle, seeds, batch.options)
+    for (const r of reports.slice(0, 5)) console.log(`seed ${r.seed}: ${r.detail}`)
+    if (reports.length > 0 && selection.dump !== true)
+      assert.fail(
+        `Spec phases (${batch.name}): ${reports.length} differences. ` +
+          `Show one: ${reproduce('spec-phases', batch.name, reports[0].seed)}`,
+      )
+    summaries.push(`${cases} ${batch.name} cases (${passes} passes)`)
   }
-  const { startOracle } = await import('../oracle')
-  const oracle = await startOracle()
-  try {
-    const library = await instrumented()
-    const seeds =
-      values.dump === undefined
-        ? seedRange(Number(values.from), Number(values.seeds))
-        : [Number(values.dump)]
-    const { cases, passes, reports } = await checkPhases(library, oracle.run, seeds, options)
-    if (values.dump !== undefined) {
-      const c = genCase(seeds[0], options)
-      console.log(`cur  ${show(c.cur)}\nnext ${show(c.next)}\nsame ${show(c.same)}`)
-      const input = JSON.stringify([request(c)])
-      console.log(`reference ${(await oracle.run('Spec', { input })).trim()}`)
-    }
-    console.log(`cases ${cases}; passes ${passes}; differences ${reports.length}`)
-    for (const r of reports.slice(0, 20)) console.log(`seed ${r.seed}: ${r.detail}`)
-    if (reports.length > 0) process.exitCode = 1
-  } finally {
-    await oracle.close()
-  }
+  if (selection.dump !== true) console.log(`Spec phases: ${summaries.join(', ')} agree`)
 }

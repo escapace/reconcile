@@ -273,6 +273,7 @@ While editing, run the narrowest check:
 | Runtime behavior                 | `pnpm exec vitest run src/__tests__/<file>.spec.ts`               |
 | Types, declarations or exports   | `pnpm typecheck`                                                  |
 | Finite algorithm or Lean         | `lake build <Module.Name>`, then `lake env lean lean/<Path>.lean` |
+| A runtime-to-Lean bridge         | `pnpm check lean <bridge>`, or the command a failure prints       |
 | Bundle, packaging or mangle list | `pnpm build`, then `pnpm bench size`                              |
 
 At each checkpoint, run `pnpm check`. It runs, one after another, each _round_ that has not

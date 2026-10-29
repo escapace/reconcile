@@ -5,13 +5,23 @@ import path from 'node:path'
 import { script } from '../framework/entry'
 import { ROOT } from '../framework/paths'
 import type { Step } from '../framework/round'
+import { UsageError } from '../framework/command'
+import { BRIDGES, type Bridge, type Flag } from './bridges'
+import { mutantNames } from './mutants'
 
-/** What a round may be narrowed to: some mutants, or another seed count. A narrowed run records
- * no pass. */
+/** What a run may narrow its round to: some bridges or mutants, one batch, other seeds, a dump
+ * or the features report. A narrowed run records no pass. */
 export interface RoundOptions {
+  readonly batch: string | undefined
+  readonly dump: boolean
+  readonly features: boolean
   readonly names: readonly string[]
-  readonly seeds: string | undefined
+  readonly seeds: readonly number[] | undefined
 }
+
+/** Whether a run narrows its round. */
+export const narrowed = ({ batch, dump, features, names, seeds }: RoundOptions): boolean =>
+  names.length > 0 || batch !== undefined || seeds !== undefined || dump || features
 
 /** One round of `pnpm check`: a complete validation that answers one question within one
  * budget. */
@@ -21,12 +31,13 @@ export interface RoundDefinition {
   /** Files that cannot change the round's result; every other file of the working tree, tracked
    * or untracked, is an input. */
   readonly exclude: readonly string[]
-  /** Whether a run with these options is narrower than the round, and so records no pass. */
-  readonly narrowed: (options: RoundOptions) => boolean
   /** The round's commands; `directory` holds its logs, receipt and anything else it writes. */
   readonly steps: (options: RoundOptions, directory: string) => Step[]
   /** Tracked files the round itself may rewrite, such as the README that the build regenerates. */
   readonly outputs?: readonly string[]
+  /** Raises a usage error for narrowing options the round does not take; a round without it
+   * takes none. */
+  readonly validate?: (options: RoundOptions) => void
 }
 
 /** The Lean sources and toolchain, which only the Lean rounds read. */
@@ -45,17 +56,6 @@ const TEMPORAL_SPECS = ['src/__tests__/deserialize-limit.spec.ts', 'src/__tests_
 
 const pnpm = (name: string, ...arguments_: string[]): Step => ({
   command: ['pnpm', ...arguments_],
-  name,
-})
-
-/** A TypeScript entry point run by Node with tsx's loader, and Node's own flags first. */
-const tsx = (
-  name: string,
-  file: string,
-  arguments_: string[] = [],
-  flags: string[] = [],
-): Step => ({
-  command: [process.execPath, ...flags, '--import', 'tsx', file, ...arguments_],
   name,
 })
 
@@ -107,14 +107,69 @@ const lakeBuild = (environment: () => Record<string, string>): Step => ({
   name: 'lake build',
 })
 
-const whole = (): boolean => false
+const listed = (names: readonly string[]): string => names.join(', ')
+
+/** The bridge a narrowing option applies to: the one bridge named, which must have batches. */
+function batchedBridge(names: readonly string[]): { readonly batches: readonly string[] } & Bridge {
+  const bridge =
+    names.length === 1 ? BRIDGES.find((candidate) => candidate.family === names[0]) : undefined
+  if (bridge?.batches === undefined)
+    throw new UsageError(
+      '--batch, --seeds, --dump and --features narrow one bridge that has batches: ' +
+        listed(
+          BRIDGES.filter((candidate) => candidate.batches !== undefined).map(
+            (candidate) => candidate.family,
+          ),
+        ),
+    )
+  return { ...bridge, batches: bridge.batches }
+}
+
+/** The flags a run gives that only some bridges with batches take. */
+const flagsGiven = ({ dump, features, seeds }: RoundOptions): Flag[] => [
+  ...(seeds === undefined ? [] : (['--seeds'] as const)),
+  ...(dump ? (['--dump'] as const) : []),
+  ...(features ? (['--features'] as const) : []),
+]
+
+/** The narrowing options of a run of the `lean` round: bridges, and for one bridge with batches,
+ * the batch, the seeds, a dump or the features report it takes. */
+function validateLean(options: RoundOptions): void {
+  const { batch, dump, names, seeds } = options
+  const unknown = names.filter((name) => !BRIDGES.some((bridge) => bridge.family === name))
+  if (unknown.length > 0)
+    throw new UsageError(
+      `unknown bridges: ${listed(unknown)}; the bridges are ${listed(BRIDGES.map((bridge) => bridge.family))}`,
+    )
+  const flags = flagsGiven(options)
+  if (batch === undefined && flags.length === 0) return
+  const { batches, family, takes = [] } = batchedBridge(names)
+  if (batch !== undefined && !batches.includes(batch))
+    throw new UsageError(`${family} has no batch "${batch}"; its batches are ${listed(batches)}`)
+  const refused = flags.filter((flag) => !takes.includes(flag))
+  if (refused.length > 0) throw new UsageError(`${family} takes no ${listed(refused)}`)
+  if (dump && seeds === undefined) throw new UsageError('--dump needs --seeds, the seeds to show')
+}
+
+/** The narrowing options of a run of the `mutants` round: mutants and seeds. */
+function validateMutants({ batch, dump, features, names }: RoundOptions): void {
+  const unknown = names.filter((name) => !mutantNames.includes(name))
+  if (unknown.length > 0)
+    throw new UsageError(
+      `unknown mutants: ${listed(unknown)}; the mutants are ${listed(mutantNames)}`,
+    )
+  if (batch !== undefined || dump || features)
+    throw new UsageError('the mutants round takes mutant names and --seeds only')
+}
+
+/** The seeds of each Spec bridge run of the mutation audit, unless a run names others. */
+const AUDIT_SEEDS = Array.from({ length: 1500 }, (_, index) => index + 1)
 
 /** Every round, in the order `pnpm check` runs them: the fastest feedback first. */
 export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: ['*.lean'],
     name: 'static',
-    narrowed: whole,
     summary: 'Types, ESLint and file names.',
     steps: () => [
       pnpm('typecheck', 'run', '--silent', 'typecheck'),
@@ -125,7 +180,6 @@ export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: [...LEAN, ...DOCS],
     name: 'test',
-    narrowed: whole,
     summary: 'Every spec in the neutral and poisoned projects, then fallow on their coverage.',
     steps: () => [
       pnpm('vitest', 'run', '--silent', 'test'),
@@ -137,7 +191,6 @@ export const ROUNDS: readonly RoundDefinition[] = [
     // The library suite runs the diagnostics, so `lib` reads the workloads they build on.
     exclude: [...LEAN, ...GUIDES, 'perf/'],
     name: 'lib',
-    narrowed: whole,
     outputs: ['README.md'],
     summary: 'The built package: its build, the specs against it and every per-export bundle.',
     steps: (_, directory) => [
@@ -152,7 +205,6 @@ export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'temporal',
-    narrowed: whole,
     summary:
       "The cases that need Node's native Temporal, on the sources, the package and the bridges.",
     steps: () => {
@@ -175,8 +227,9 @@ export const ROUNDS: readonly RoundDefinition[] = [
         toolchain(),
         lakeBuild(environment),
         {
-          ...tsx('bridges', 'scripts/check/lean.ts', [], ['--harmony-temporal']),
+          command: script('scripts/check/lean.ts', { families: [] }, ['--harmony-temporal']),
           env: environment,
+          name: 'bridges',
         },
       ]
     },
@@ -184,10 +237,18 @@ export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'lean',
-    narrowed: whole,
     summary: 'The gate: proofs without warnings or extra axioms, and every runtime-to-Lean bridge.',
-    steps: () => {
+    validate: validateLean,
+    steps: (options) => {
       const environment = leanEnvironment()
+      const { batch, dump, features, names: families, seeds } = options
+      const bridges = {
+        command: script('scripts/check/lean.ts', { batch, dump, families, features, seeds }),
+        env: environment,
+        name: 'bridges',
+      }
+      // A narrowed run is for one bridge's failures; the proofs need no audit for it.
+      if (narrowed(options)) return [toolchain(), lakeBuild(environment), bridges]
       return [
         toolchain(),
         lakeBuild(environment),
@@ -197,7 +258,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
           name: 'axiom audit self-test',
           env: () => ({ ...environment(), PYTHONDONTWRITEBYTECODE: '1' }),
         },
-        { ...tsx('bridges', 'scripts/check/lean.ts'), env: environment },
+        bridges,
       ]
     },
   },
@@ -205,12 +266,12 @@ export const ROUNDS: readonly RoundDefinition[] = [
     exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'mutants',
     summary: 'The mutation audit: every deliberate runtime defect the bridges must detect.',
-    narrowed: ({ names, seeds }) => names.length > 0 || (seeds !== undefined && seeds !== '1500'),
+    validate: validateMutants,
     steps: ({ names, seeds }) => [
       toolchain(),
       lakeBuild(leanEnvironment()),
       {
-        command: script('scripts/check/mutants.ts', { names, seeds: Number(seeds ?? '1500') }),
+        command: script('scripts/check/mutants.ts', { names, seeds: seeds ?? AUDIT_SEEDS }),
         name: 'audit',
       },
     ],

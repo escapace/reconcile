@@ -4,24 +4,17 @@
 // on the same case, the getter counts of every current object and of every object only `next`
 // holds included. A rejection must have the reference's reason: `PublicationWouldChangeNext` exactly
 // when the reference's decision would change `next` (`changesNext`). Whatever the outcome, `next`
-// must read back after the call with the identities and contents it had before. Every `reconcile`
+// must read back after the call with the identities and contents it had before. The `reconcile`
 // batch also checks fixed cases, some of shapes the random graphs almost never produce: the
 // examples of `Spec.KeepsNext`, a walk that reaches a root in a call that succeeds, and objects
-// that `next` holds at their own node. A standalone batch fails on any difference.
+// that `next` holds at their own node.
 //
 // The round trip runs `serialize`, JSON text and `deserialize` on the graphs restricted to what
 // `serialize` accepts and compares the restored value with the reference's `snapshot`.
 //
-// Standalone: pnpm exec tsx scripts/check/bridges/spec.ts
-//   [--op reconcile|produce|snapshot|roundtrip]
-//   [--seeds N] [--from S] [--dump SEED] [--writes] [--hazards] [--binary] [--getters]
-//   [--features] [--no-same] [--no-reorder] [--no-accessors] [--no-attributes] [--no-inherited]
-//   [--nodes N]
-// --getters adds accessors to the objects only `next` holds; --dump SEED shows that case, the
-// reference's outcome and each difference; --features prints how often each feature occurs among
-// the `reconcile` cases instead of comparing them.
+// `pnpm check lean spec` runs the bridge alone; `--batch`, `--seeds`, `--dump` and `--features`
+// narrow it, as `pnpm check --help` describes.
 import assert from 'node:assert/strict'
-import { parseArgs } from 'node:util'
 import {
   deserialize,
   isReconcileError,
@@ -32,6 +25,7 @@ import {
   snapshot,
 } from '../../../src/index'
 import type { Oracle } from '../oracle'
+import { reproduce, selectBatches, type Selection } from './selection'
 import {
   atoms,
   construct,
@@ -1347,13 +1341,6 @@ const roundTripCheck: Check<Graph> = {
   show: (graph) => `cur ${stable(graph)}`,
 }
 
-const checks = {
-  produce: produceCheck,
-  reconcile: reconcileCheck,
-  roundtrip: roundTripCheck,
-  snapshot: snapshotCheck,
-}
-
 /** Asks the oracle for the outcomes of `requests`, one per request. */
 async function ask(oracle: Oracle, requests: readonly object[]): Promise<Outcome[]> {
   const input = JSON.stringify(requests)
@@ -1413,9 +1400,6 @@ export async function checkCases<T>(
     modes,
   )
 }
-
-/** The seeds `1` to `count`. */
-const seeds = (count: number): number[] => seedRange(1, count)
 
 function summary(reports: readonly Report[]): string {
   const counts = new Map<string, number>()
@@ -1565,74 +1549,99 @@ async function features(
     )
 }
 
-/** The seeded batch `scripts/check/lean.ts` runs: every difference of `reconcile`, getter counts
- * included, and of `produce` or `snapshot` fails. */
-export async function checkSpecGate(oracle: Oracle): Promise<void> {
-  const binary: Options = { ...GATE_OPTIONS, binary: true }
-  // The default cases plain and through the recording proxies; hazards (more accessors and
-  // dropping setters below the root, so demotion passes are common), buffers and views beside
-  // the other kinds, and accessors on the objects only `next` holds through the proxies only.
-  const summaries: string[] = []
-  const gate = async <T>(
-    name: string,
-    check: Check<T>,
-    count: number,
-    options: Options,
-    modes: boolean[],
-    regressions: readonly number[] = [],
-  ): Promise<void> => {
-    const seedList = [...seeds(count), ...regressions]
-    const { cases, reports } = await checkSpec(check, oracle, seedList, options, modes)
-    reports.forEach((list, mode) => {
-      const label = modes[mode] ? `${name} through recording proxies` : name
-      assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
-      summaries.push(`${label} ${cases} cases (${summary(list)})`)
-    })
-  }
-  await gate('reconcile', reconcileCheck, 1500, GATE_OPTIONS, [false, true], REGRESSION_SEEDS.plain)
-  const examples = await checkExamples(oracle, [false, true])
-  examples.forEach((list, mode) => {
-    const label = mode === 1 ? 'examples through recording proxies' : 'examples'
-    assert.deepEqual(list, [], `Spec ${label}: ${list.length} differences`)
-    summaries.push(`${label} ${EXAMPLES.length} cases (${summary(list)})`)
-  })
-  await gate(
-    'reconcile with hazards',
-    reconcileCheck,
-    3000,
-    { ...GATE_OPTIONS, hazards: true },
-    [true],
-    REGRESSION_SEEDS.hazards,
-  )
-  await gate('reconcile with buffers and views', reconcileCheck, 1500, binary, [true])
-  await gate(
-    'reconcile with accessors in next',
-    reconcileCheck,
-    1500,
-    { ...GATE_OPTIONS, nextAccessors: true },
-    [true],
-  )
-  await gate('produce', produceCheck, 1500, GATE_OPTIONS, [false])
-  await gate('produce with buffers and views', produceCheck, 1500, binary, [false])
-  await gate('snapshot', snapshotCheck, 500, GATE_OPTIONS, [false])
-  await gate('snapshot with buffers and views', snapshotCheck, 500, binary, [false])
-  await gate('round trip with buffers and views', roundTripCheck, 1500, binary, [false])
-  console.log(`Spec bridge: ${summaries.join('; ')}`)
+/** One batch of the gate: a check over the seeds 1 to `count` and the regression seeds, with
+ * its generator options, in each mode, plain or through recording proxies. */
+interface Batch {
+  readonly check: Check<unknown>
+  readonly count: number
+  readonly modes: readonly boolean[]
+  readonly name: string
+  readonly options: Options
+  /** Whether the batch also checks the fixed examples. */
+  readonly examples?: boolean
+  readonly regressions?: readonly number[]
 }
 
-/** Shows one case, the reference's outcome and the comparison. */
-async function dump<T>(
-  check: Check<T>,
-  oracle: Oracle,
-  seed: number,
-  options: Options,
-): Promise<void> {
-  const c = check.generate(seed, options)
-  console.log(check.show(c))
-  const [outcome] = await ask(oracle, [check.request(c)])
-  console.log(`reference ${stable(outcome)}`)
-  for (const r of check.compare(seed, c, outcome)) console.log(`${r.kind}: ${r.detail}`)
-}
+const BINARY: Options = { ...GATE_OPTIONS, binary: true }
+
+/**
+ * The gate's batches, by the name `pnpm check lean spec --batch` takes: the default cases plain
+ * and through the recording proxies; hazards (more accessors and dropping setters below the
+ * root, so demotion passes are common), buffers and views beside the other kinds, and accessors
+ * on the objects only `next` holds, through the proxies only; then `produce`, `snapshot` and the
+ * round trip. Every difference fails, the getter counts of `reconcile` included.
+ */
+const SPEC_BATCHES: readonly Batch[] = [
+  {
+    check: reconcileCheck as Check<unknown>,
+    count: 1500,
+    examples: true,
+    modes: [false, true],
+    name: 'reconcile',
+    options: GATE_OPTIONS,
+    regressions: REGRESSION_SEEDS.plain,
+  },
+  {
+    check: reconcileCheck as Check<unknown>,
+    count: 3000,
+    modes: [true],
+    name: 'reconcile-hazards',
+    options: { ...GATE_OPTIONS, hazards: true },
+    regressions: REGRESSION_SEEDS.hazards,
+  },
+  {
+    check: reconcileCheck as Check<unknown>,
+    count: 1500,
+    modes: [true],
+    name: 'reconcile-binary',
+    options: BINARY,
+  },
+  {
+    check: reconcileCheck as Check<unknown>,
+    count: 1500,
+    modes: [true],
+    name: 'reconcile-next-accessors',
+    options: { ...GATE_OPTIONS, nextAccessors: true },
+  },
+  {
+    check: produceCheck as Check<unknown>,
+    count: 1500,
+    modes: [false],
+    name: 'produce',
+    options: GATE_OPTIONS,
+  },
+  {
+    check: produceCheck as Check<unknown>,
+    count: 1500,
+    modes: [false],
+    name: 'produce-binary',
+    options: BINARY,
+  },
+  {
+    check: snapshotCheck as Check<unknown>,
+    count: 500,
+    modes: [false],
+    name: 'snapshot',
+    options: GATE_OPTIONS,
+  },
+  {
+    check: snapshotCheck as Check<unknown>,
+    count: 500,
+    modes: [false],
+    name: 'snapshot-binary',
+    options: BINARY,
+  },
+  {
+    check: roundTripCheck as Check<unknown>,
+    count: 1500,
+    modes: [false],
+    name: 'roundtrip-binary',
+    options: BINARY,
+  },
+]
+
+/** The batches, by the name `pnpm check lean spec --batch` takes. */
+export const specBatchNames = (): string[] => SPEC_BATCHES.map((batch) => batch.name)
 
 /** Prints the first report of each kind, and the first five result differences. */
 function show(reports: readonly Report[]): void {
@@ -1645,72 +1654,69 @@ function show(reports: readonly Report[]): void {
   }
 }
 
-async function batch<T>(
-  check: Check<T>,
-  oracle: Oracle,
-  from: number,
-  count: number,
-  options: Options,
-): Promise<void> {
-  const {
-    cases,
-    reports: [found],
-  } = await checkSpec(check, oracle, seedRange(from, count), options)
-  // The examples are reconcile cases, which every reconcile batch checks too.
-  const reconciles = check === (reconcileCheck as Check<unknown>)
-  const examples = reconciles ? (await checkExamples(oracle, [writesMode]))[0] : []
-  const reports = [...found, ...examples]
-  const listed = reconciles ? EXAMPLES.length : 0
-  console.log(
-    `cases ${cases} and ${listed} examples; reports ${reports.length}; ${summary(reports)}`,
-  )
+/** Fails on any report, showing the first ones and the command that shows a failing seed. */
+function assertAgree(reports: readonly Report[], label: string, batch: string | undefined): void {
+  if (reports.length === 0) return
   show(reports)
-  if (reports.length > 0) process.exitCode = 1
+  const again = batch === undefined ? '' : ` Show one: ${reproduce('spec', batch, reports[0].seed)}`
+  assert.fail(`Spec ${label}: ${reports.length} differences.${again}`)
 }
 
-if (process.argv[1]?.endsWith('scripts/check/bridges/spec.ts')) {
-  const { values } = parseArgs({
-    allowNegative: true,
-    options: {
-      accessors: { default: true, type: 'boolean' },
-      attributes: { default: true, type: 'boolean' },
-      binary: { default: false, type: 'boolean' },
-      dump: { type: 'string' },
-      features: { default: false, type: 'boolean' },
-      from: { default: '1', type: 'string' },
-      getters: { default: false, type: 'boolean' },
-      hazards: { default: false, type: 'boolean' },
-      inherited: { default: true, type: 'boolean' },
-      nodes: { default: '6', type: 'string' },
-      op: { default: 'reconcile', type: 'string' },
-      reorder: { default: true, type: 'boolean' },
-      same: { default: true, type: 'boolean' },
-      seeds: { default: '200', type: 'string' },
-      writes: { default: false, type: 'boolean' },
-    },
+const labelOf = (name: string, proxies: boolean): string =>
+  proxies ? `${name} through recording proxies` : name
+
+/** Runs one batch over `seedList` in each of `modes`; returns its summaries. */
+async function runBatch(
+  oracle: Oracle,
+  batch: Batch,
+  seedList: readonly number[],
+  modes: readonly boolean[],
+): Promise<string[]> {
+  const { cases, reports } = await checkSpec(batch.check, oracle, seedList, batch.options, modes)
+  const summaries = reports.map((list, mode) => {
+    const label = labelOf(batch.name, modes[mode])
+    assertAgree(list, label, batch.name)
+    return `${label} ${cases} cases (${summary(list)})`
   })
-  writesMode = values.writes
-  const { startOracle } = await import('../oracle')
-  const oracle = await startOracle()
-  try {
-    const options: Options = {
-      accessors: values.accessors,
-      attributes: values.attributes,
-      binary: values.binary,
-      hazards: values.hazards,
-      inherited: values.inherited,
-      nextAccessors: values.getters,
-      nodes: Number(values.nodes),
-      reorder: values.reorder,
-      same: values.same,
-    }
-    assert.ok(values.op in checks, `unknown operation ${values.op}`)
-    const check = checks[values.op as keyof typeof checks] as Check<unknown>
-    if (values.features) await features(oracle.run, seeds(Number(values.seeds)), options)
-    else if (values.dump === undefined)
-      await batch(check, oracle.run, Number(values.from), Number(values.seeds), options)
-    else await dump(check, oracle.run, Number(values.dump), options)
-  } finally {
-    await oracle.close()
+  if (batch.examples !== true) return summaries
+  const examples = await checkExamples(oracle, modes)
+  return [
+    ...summaries,
+    ...examples.map((list, mode) => {
+      const label = labelOf('examples', modes[mode])
+      assertAgree(list, label, undefined)
+      return `${label} ${EXAMPLES.length} cases (${summary(list)})`
+    }),
+  ]
+}
+
+/** Shows one case, the reference's outcome and the comparison in each mode. */
+async function dump(
+  check: Check<unknown>,
+  oracle: Oracle,
+  seed: number,
+  options: Options,
+  modes: readonly boolean[],
+): Promise<void> {
+  const c = check.generate(seed, options)
+  console.log(`--- seed ${seed}\n${check.show(c)}`)
+  const [outcome] = await ask(oracle, [check.request(c)])
+  console.log(`reference ${stable(outcome)}`)
+  const [reports] = await compareAll(check, oracle, [c], [seed], modes)
+  for (const r of reports) console.log(`${r.kind}: ${r.detail}`)
+}
+
+/** The gate's batches, or those `selection` names: each over its own seeds or the selected ones,
+ * in its modes or the selected one. A dump or the features report replaces the comparison. */
+export async function checkSpecGate(oracle: Oracle, selection: Selection = {}): Promise<void> {
+  const summaries: string[] = []
+  for (const batch of selectBatches(SPEC_BATCHES, selection)) {
+    const seedList = selection.seeds ?? [...seedRange(1, batch.count), ...(batch.regressions ?? [])]
+    const modes = selection.proxies === undefined ? batch.modes : [selection.proxies]
+    if (selection.features === true) await features(oracle, seedList, batch.options)
+    else if (selection.dump === true)
+      for (const seed of seedList) await dump(batch.check, oracle, seed, batch.options, modes)
+    else summaries.push(...(await runBatch(oracle, batch, seedList, modes)))
   }
+  if (summaries.length > 0) console.log(`Spec bridge: ${summaries.join('; ')}`)
 }

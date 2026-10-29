@@ -5,12 +5,10 @@
 // small graphs; and `snapshot` over every current graph listed. Each `reconcile` case runs through
 // the Spec bridge, plain and through recording proxies, and through the phase bridge.
 //
-// Standalone: pnpm exec tsx scripts/check/bridges/spec-enumeration.ts [--only NAME] [--count]
-// --only NAME runs one universe; --count prints each universe's number of cases without running
-// them.
+// `pnpm check lean spec-enumeration --batch NAME` runs one universe.
 import assert from 'node:assert/strict'
-import { parseArgs } from 'node:util'
 import type { Oracle } from '../oracle'
+import type { Selection } from './selection'
 import {
   checkCases,
   produceCheck,
@@ -1086,41 +1084,28 @@ async function runAll(oracle: Oracle, only: string | undefined): Promise<Univers
 const describe = (u: Universe): string =>
   `${u.name} ${u.cases} (${u.reports.length === 0 ? 'agree' : `${u.reports.length} differences`})`
 
-/** Every universe in `scripts/check/lean.ts`: every difference fails. */
-export async function checkSpecEnumerationGate(oracle: Oracle): Promise<void> {
-  const universes = await runAll(oracle, undefined)
+/** The universes, by the name `pnpm check lean spec-enumeration --batch` takes. */
+export const universeNames = (): string[] => [
+  ...Object.keys(RECONCILE),
+  ...Object.keys(PRODUCE),
+  'snapshot',
+]
+
+/** Every universe, or the one `selection` names: every difference fails. */
+export async function checkSpecEnumerationGate(
+  oracle: Oracle,
+  selection: Selection = {},
+): Promise<void> {
+  const universes = await runAll(oracle, selection.batch)
   const reports = universes.flatMap((u) =>
     u.reports
       .slice(0, 3)
       .map((r) => `${u.name} ${r.check} #${r.seed}: ${r.detail}\n${u.show(r.seed)}`),
   )
-  assert.deepEqual(reports, [], 'Spec enumeration differs')
+  assert.deepEqual(
+    reports,
+    [],
+    'Spec enumeration differs; `pnpm check lean spec-enumeration --batch <name>` reruns one universe',
+  )
   console.log(`Spec enumeration: ${universes.map(describe).join(', ')}`)
-}
-
-if (process.argv[1]?.endsWith('scripts/check/bridges/spec-enumeration.ts')) {
-  const { values } = parseArgs({
-    options: { count: { default: false, type: 'boolean' }, only: { type: 'string' } },
-  })
-  if (values.count) {
-    for (const [name, make] of [...Object.entries(RECONCILE), ...Object.entries(PRODUCE)])
-      console.log(`${name.padEnd(20)} ${make().length}`)
-    console.log(`${'snapshot'.padEnd(20)} ${snapshotCases().length}`)
-  } else {
-    const { startOracle } = await import('../oracle')
-    const oracle = await startOracle()
-    try {
-      const started = Date.now()
-      const universes = await runAll(oracle.run, values.only)
-      for (const u of universes) {
-        console.log(describe(u))
-        for (const r of u.reports.slice(0, 5))
-          console.log(`  ${r.check} #${r.seed}: ${r.detail}\n${u.show(r.seed)}`)
-      }
-      console.log(`${Math.round((Date.now() - started) / 1000)} s`)
-      if (universes.some((u) => u.reports.length > 0)) process.exitCode = 1
-    } finally {
-      await oracle.close()
-    }
-  }
 }

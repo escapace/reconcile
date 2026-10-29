@@ -22,8 +22,9 @@ import {
 import { constants, tmpdir } from 'node:os'
 import path from 'node:path'
 import { copyTree } from '../framework/tree'
-import { entry } from '../framework/entry'
+import { entry, script } from '../framework/entry'
 import { ROOT } from '../framework/paths'
+import type { Config } from './lean'
 
 interface Mutant {
   readonly file: string
@@ -216,36 +217,26 @@ const MUTANTS: readonly Mutant[] = [
 
 type Verdict = 'hung' | 'killed' | 'survived'
 
-/** Each bridge's command, the text its output holds when it saw nothing, whether it takes the
- * seed count, and its runs: the outcome bridge plain, through recording proxies and on
- * hazard-rich cases; the phase bridge with buffers and views beside the other kinds, plain and on
- * hazard-rich cases; the collection-writes bridge once, over its fixed corpus. */
+/** The gate's runs that must see a mutant, as configurations of `scripts/check/lean.ts`: the
+ * outcome bridge's `reconcile` batch plain and through recording proxies and its hazard-rich
+ * batch; the phase bridge's batch with buffers and views beside the other kinds, its plain batch
+ * and its hazard-rich one; the collection-writes bridge once, over its fixed corpus. The Spec
+ * runs take the audit's seeds. */
 const BRIDGES = {
-  collections: {
-    agreed: 'Collection-writes Lean/native bridge:',
-    command: ['scripts/check/bridges/collection-writes.ts'],
-    runs: [[]],
-    seeded: false,
-  },
-  outcome: {
-    agreed: 'reports 0;',
-    command: ['scripts/check/bridges/spec.ts', '--op', 'reconcile'],
-    runs: [[], ['--writes'], ['--writes', '--hazards']],
-    seeded: true,
-  },
-  phases: {
-    agreed: 'differences 0',
-    command: ['scripts/check/bridges/spec-phases.ts'],
-    runs: [['--binary'], [], ['--hazards']],
-    seeded: true,
-  },
-} as const
+  collections: [{ families: ['collection-writes'] }],
+  outcome: [
+    { batch: 'reconcile', families: ['spec'], proxies: false },
+    { batch: 'reconcile', families: ['spec'], proxies: true },
+    { batch: 'reconcile-hazards', families: ['spec'] },
+  ],
+  phases: [
+    { batch: 'binary', families: ['spec-phases'] },
+    { batch: 'plain', families: ['spec-phases'] },
+    { batch: 'hazards', families: ['spec-phases'] },
+  ],
+} as const satisfies Record<string, readonly Config[]>
 
 type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
-
-/** The seed count for a bridge that takes one. */
-const seedArguments = (bridge: Bridge, seeds: number): string[] =>
-  bridge.seeded ? ['--seeds', String(seeds)] : []
 
 /** The oracle every bridge runs, built by the round's first step. */
 const ORACLE = path.join('.lake', 'build', 'bin', 'reconcile-oracle')
@@ -275,22 +266,20 @@ const killGroup = (group: number | undefined): void => {
   }
 }
 
-/** One bridge run in the copy, in a process group of its own. It saw nothing when it finished
- * with the bridge's report of no difference; a mutant that throws inside the runtime is caught
- * as well, since the bridge reports errors. A run takes some seconds; one that loops is cut off,
- * with its oracle, well inside the round. */
-async function runBridge(
-  copy: string,
-  bridge: Bridge,
-  seeds: number,
-  flags: readonly string[],
-): Promise<Verdict> {
+/** One run of the gate's bridges in the copy, in a process group of its own. It saw nothing when
+ * it finished with the runner's report that the bridges agree; a mutant that throws inside the
+ * runtime is caught as well, since the bridges report errors. A run takes some seconds; one that
+ * loops is cut off, with its oracle, well inside the round. */
+async function runBridge(copy: string, run: Config, seeds: readonly number[]): Promise<Verdict> {
+  const seeded = run.families.some((family) => family.startsWith('spec'))
+  const config = seeded ? { ...run, seeds } : run
   return await new Promise((resolve) => {
-    const child = spawn(
-      process.execPath,
-      ['--import', 'tsx', ...bridge.command, ...seedArguments(bridge, seeds), ...flags],
-      { cwd: copy, detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
-    )
+    const [command, ...arguments_] = script('scripts/check/lean.ts', config)
+    const child = spawn(command, arguments_, {
+      cwd: copy,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
     const group = child.pid
     if (group !== undefined) running.add(group)
     let output = ''
@@ -314,21 +303,19 @@ async function runBridge(
       clearTimeout(timer)
       if (group !== undefined) running.delete(group)
       if (hung) resolve('hung')
-      else resolve(status === 0 && output.includes(bridge.agreed) ? 'survived' : 'killed')
+      else resolve(status === 0 && output.includes('Bridges agree:') ? 'survived' : 'killed')
     })
   })
 }
 
 /** The bridge's runs, all at once: the verdict is the first run, in order, that did not end or
  * saw a difference, as running them one after another until one does would find. */
-async function runAll(copy: string, bridge: Bridge, seeds: number): Promise<Verdict> {
-  const verdicts = await Promise.all(
-    bridge.runs.map(async (flags) => await runBridge(copy, bridge, seeds, flags)),
-  )
+async function runAll(copy: string, bridge: Bridge, seeds: readonly number[]): Promise<Verdict> {
+  const verdicts = await Promise.all(bridge.map(async (run) => await runBridge(copy, run, seeds)))
   return verdicts.find((verdict) => verdict !== 'survived') ?? 'survived'
 }
 
-async function audit(copy: string, mutant: Mutant, seeds: number): Promise<Verdict> {
+async function audit(copy: string, mutant: Mutant, seeds: readonly number[]): Promise<Verdict> {
   const file = path.join(copy, mutant.file)
   const original = readFileSync(file, 'utf8')
   assert.equal(original.split(mutant.find).length, 2, `${mutant.name}: find text not present once`)
@@ -342,7 +329,11 @@ async function audit(copy: string, mutant: Mutant, seeds: number): Promise<Verdi
 
 /** Runs every bridge the mutants need on the unmutated copy, which must agree, then each mutant;
  * returns the exit code. */
-async function auditAll(copy: string, selected: readonly Mutant[], seeds: number): Promise<number> {
+async function auditAll(
+  copy: string,
+  selected: readonly Mutant[],
+  seeds: readonly number[],
+): Promise<number> {
   // An unmutated run that does not agree means the copy, not a mutant, is broken: every mutant
   // would then read as killed.
   const started = Date.now()
@@ -381,12 +372,12 @@ export const mutantNames: readonly string[] = MUTANTS.map((mutant) => mutant.nam
 
 /** The mutants round's configuration: the mutants to audit, all when empty, and the seeds of
  * each Spec bridge run. */
-interface Config {
+interface AuditConfig {
   readonly names: readonly string[]
-  readonly seeds: number
+  readonly seeds: readonly number[]
 }
 
-async function main({ names, seeds }: Config): Promise<number> {
+async function main({ names, seeds }: AuditConfig): Promise<number> {
   const selected = MUTANTS.filter((mutant) => names.length === 0 || names.includes(mutant.name))
   if (!existsSync(path.join(ROOT, ORACLE))) {
     console.error(`The oracle ${ORACLE} is missing; the round builds it first.`)

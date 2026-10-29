@@ -3,9 +3,10 @@ import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framew
 import { withLock, type Lock } from '../framework/lock'
 import { BUDGET_SECONDS, stampedDirectory, runRound, type Status } from '../framework/round'
 import { STATE } from '../framework/paths'
-import { mutantNames } from './mutants'
+import { BRIDGES } from './bridges'
+import { parseSeeds } from './bridges/selection'
 import { findPass, latestPass, recordPass, type Pass } from './passes'
-import { ROUNDS, type RoundDefinition, type RoundOptions } from './rounds'
+import { narrowed, ROUNDS, type RoundDefinition, type RoundOptions } from './rounds'
 
 const list = (names: readonly string[], limit = 3): string =>
   names.length <= limit
@@ -36,7 +37,7 @@ function decide(
   fresh: boolean,
   current: Inputs,
 ): { pass: Pass | undefined; why: string } {
-  if (round.narrowed(options)) return { pass: undefined, why: 'narrowed run; records no pass' }
+  if (narrowed(options)) return { pass: undefined, why: 'narrowed run; records no pass' }
   if (fresh) return { pass: undefined, why: '--fresh' }
   const pass = findPass(round.name, current.hash)
   return { pass, why: pass === undefined ? reason(round, current) : '' }
@@ -115,43 +116,46 @@ async function runOne(
     return 0
   }
   process.stdout.write(`${round.name}: running (${why})\n`)
-  const narrowed = round.narrowed(options)
+  const partial = narrowed(options)
   const directory = stampedDirectory(`check-${round.name}`)
   const result = await runRound({
     directory,
     lock,
     name: `check ${round.name}`,
-    record: { inputs: { environment: before.environment, hash: before.hash }, narrowed },
+    record: { inputs: { environment: before.environment, hash: before.hash }, narrowed: partial },
     steps: round.steps(options, directory),
+    // A narrowed run is for reading a bridge's or a mutant's output, such as a dump.
+    stream: partial,
   })
-  if (result.status === 'passed' && !narrowed) record(round, before, result.receipt)
+  if (result.status === 'passed' && !partial) record(round, before, result.receipt)
   process.stdout.write(
     `${round.name}: ${verdicts[result.status]} in ${result.elapsedSeconds} s; receipt ${result.receipt}\n`,
   )
   return result.exitCode
 }
 
-/** The options of a run: only the mutants round takes mutant names and a seed count. */
+/** The options of a run, which only a named round that takes them may narrow. */
 function optionsFor(
-  round: string | undefined,
+  round: RoundDefinition | undefined,
   names: readonly string[],
-  seeds: string | undefined,
+  parsed: Parsed,
 ): RoundOptions {
-  if (names.length > 0 && round !== 'mutants')
-    throw new UsageError(`only the mutants round takes names, not "${round}"`)
-  const unknown = names.filter((name) => !mutantNames.includes(name))
-  if (unknown.length > 0)
+  const seeds = parsed.values.seeds as string | undefined
+  const options: RoundOptions = {
+    batch: parsed.values.batch as string | undefined,
+    dump: parsed.values.dump === true,
+    features: parsed.values.features === true,
+    names,
+    seeds: seeds === undefined ? undefined : parseSeeds(seeds),
+  }
+  if (!narrowed(options)) return options
+  if (round?.validate === undefined)
     throw new UsageError(
-      `unknown mutants: ${unknown.join(', ')}; the mutants are ${mutantNames.join(', ')}`,
+      'only the lean and mutants rounds take names and narrowing options: name the round, as in ' +
+        '`pnpm check lean spec --batch reconcile`',
     )
-  if (seeds === undefined) return { names, seeds }
-  if (round !== 'mutants')
-    throw new UsageError(
-      '--seeds applies only to the mutants round: pnpm check mutants --seeds <n>',
-    )
-  if (!/^[1-9]\d*$/.test(seeds))
-    throw new UsageError(`--seeds takes a positive integer, not "${seeds}"`)
-  return { names, seeds }
+  round.validate(options)
+  return options
 }
 
 /** Runs the rounds in order and returns the first failure's exit code; stops there unless
@@ -178,8 +182,11 @@ async function runAll(
 async function run({ positionals, values }: Parsed): Promise<number> {
   const [name, ...names] = positionals
   const rounds = name === undefined ? ROUNDS : [roundNamed(name)]
-  // A string option that is not `multiple` parses to a string.
-  const options = optionsFor(name, names, values.seeds as string | undefined)
+  // String options that are not `multiple` parse to strings.
+  const options = optionsFor(name === undefined ? undefined : rounds[0], names, {
+    positionals,
+    values,
+  })
   const fresh = values.fresh === true
   if (values.plan === true) return plan(rounds, options, fresh)
   return await runAll(rounds, options, fresh, values['keep-going'] === true)
@@ -200,10 +207,27 @@ export const check: Command = {
     'pnpm check                  # every round that has not passed on its current inputs',
     'pnpm check --plan           # what would run, and why',
     'pnpm check lean             # one round',
-    'pnpm check mutants own-node-pins-dropped',
+    'pnpm check lean spec        # one bridge of the gate',
+    'pnpm check lean spec --batch reconcile-hazards --seeds 10563 --dump',
+    'pnpm check mutants own-node-pins-dropped --seeds 1-200',
   ],
   name: 'check',
   options: {
+    'batch': {
+      description: 'lean: the one batch of the one bridge named to run.',
+      placeholder: '<name>',
+      type: 'string',
+    },
+    'dump': {
+      description:
+        'lean: show each seed of the bridge named: its case, the reference and the comparison.',
+      type: 'boolean',
+    },
+    'features': {
+      description:
+        'lean spec: how often each feature occurs among the generated cases; compares nothing.',
+      type: 'boolean',
+    },
     'fresh': {
       description: 'Run rounds even when a pass on identical inputs is recorded.',
       type: 'boolean',
@@ -214,15 +238,27 @@ export const check: Command = {
     },
     'plan': { description: 'Show which rounds would run and why; run nothing.', type: 'boolean' },
     'seeds': {
-      description: 'mutants: seeds per bridge run. Any count but 1500 records no pass.',
-      placeholder: '<n>',
+      description:
+        "lean: the seeds of the bridge named in place of each batch's own; mutants: the seeds " +
+        'of each Spec bridge run in place of 1-1500. Seeds and ranges joined by commas.',
+      placeholder: '<seeds>',
       type: 'string',
     },
   },
   run,
   sections: [
     { rows: ROUNDS.map((round) => [round.name, round.summary] as const), title: 'Rounds' },
+    {
+      rows: [
+        ['lean <bridge...>', 'Only these bridges of the gate, after the build; no axiom audit.'],
+        ['mutants <mutant...>', 'Only these mutants, after the unmutated control run.'],
+        ...BRIDGES.filter((bridge) => bridge.batches !== undefined).map(
+          (bridge) => [`lean ${bridge.family}`, `--batch ${bridge.batches!.join(', ')}`] as const,
+        ),
+      ],
+      title: 'Narrowed runs, which record no pass',
+    },
   ],
   summary: 'Is the change correct? Runs every round that has not passed on its current inputs.',
-  usage: '[round [mutant...]] [options]',
+  usage: '[round [bridge... | mutant...]] [options]',
 }

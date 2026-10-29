@@ -3,9 +3,6 @@
 // built-in methods, and compares the writes, in order, and the `unchanged` flag with
 // `CollectionPlan.publish`'s. The collection must end holding the next entries, which Lean's writes
 // reach (`publish_result`).
-//
-// Standalone, as the mutation audit runs it:
-//   pnpm exec tsx scripts/check/bridges/collection-writes.ts
 import assert from 'node:assert/strict'
 import { bundleWithHooks, type Hook } from '../../esbuild'
 import { jsonBoolean, jsonObject, oracleCorpus, type Oracle } from '../oracle'
@@ -193,10 +190,4 @@ export async function checkCollectionWritesRuntime(oracle: Oracle): Promise<void
       `unchanged flag (${totals.unchanged} unchanged) and keep the collection, holding the next ` +
       'entries',
   )
-}
-
-if (process.argv[1]?.endsWith('scripts/check/bridges/collection-writes.ts')) {
-  const { startOracle } = await import('../oracle')
-  const oracle = await startOracle()
-  await checkCollectionWritesRuntime(oracle.run).finally(oracle.close)
 }
