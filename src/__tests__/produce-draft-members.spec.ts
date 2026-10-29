@@ -2,7 +2,7 @@ import { assert, describe, it } from 'vitest'
 import { produce } from '../index'
 
 // Where a draft decides membership, it compares member identities: a draft counts as the object
-// it drafts. lean/Produce/DraftMembers.lean proves the array searches and check-draft-members-runtime.ts compares
+// it drafts. lean/Produce/DraftMembers.lean proves the array searches and scripts/check/bridges/draft-members.ts compares
 // them natively.
 
 describe('array drafts find an object in any of its forms', () => {

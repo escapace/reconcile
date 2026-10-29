@@ -223,19 +223,19 @@ type Verdict = 'hung' | 'killed' | 'survived'
 const BRIDGES = {
   collections: {
     agreed: 'Collection-writes Lean/native bridge:',
-    command: ['scripts/check-collection-writes-runtime.ts'],
+    command: ['scripts/check/bridges/collection-writes.ts'],
     runs: [[]],
     seeded: false,
   },
   outcome: {
     agreed: 'reports 0;',
-    command: ['scripts/lean-spec-bridge.ts', '--op', 'reconcile'],
+    command: ['scripts/check/bridges/spec.ts', '--op', 'reconcile'],
     runs: [[], ['--writes'], ['--writes', '--hazards']],
     seeded: true,
   },
   phases: {
     agreed: 'differences 0',
-    command: ['scripts/lean-spec-phases.ts'],
+    command: ['scripts/check/bridges/spec-phases.ts'],
     runs: [['--binary'], [], ['--hazards']],
     seeded: true,
   },

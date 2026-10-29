@@ -11,8 +11,14 @@ import {
   serialize,
   snapshot,
 } from '../../index'
-import { genCase, Rng, type Case, type Graph, type Options } from '../../../scripts/spec-generator'
-import { materialize, type Counters } from '../../../scripts/spec-realize'
+import {
+  genCase,
+  Rng,
+  type Case,
+  type Graph,
+  type Options,
+} from '../../../scripts/check/fixtures/spec-generator'
+import { materialize, type Counters } from '../../../scripts/check/fixtures/spec-realize'
 
 type Kind = 'array' | 'date' | 'map' | 'object' | 'set'
 const KINDS: ReadonlyArray<[(x: object) => boolean, Kind]> = [

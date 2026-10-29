@@ -4,7 +4,7 @@ import { produce, snapshot } from '../index'
 // A draft admits exactly the writes the result can carry and refuses the others like a
 // non-extensible object, so a write is never accepted and then dropped; an unchanged object keeps
 // its own accessors. lean/Produce/DraftSurface.lean proves both rules and
-// check-draft-surface-runtime.ts compares them natively.
+// scripts/check/bridges/draft-surface.ts compares them natively.
 
 describe('drafts of built-ins refuse properties the result cannot carry', () => {
   it('throws on a new property of an array draft instead of dropping it', () => {

@@ -2,7 +2,7 @@
 # Plain-object recognition by one prototype read
 
 Recognition runs ordered native predicate probes, the plain-object fallback last. The reference
-is the ordered scan `scanTrace`, which `scripts/recognition-scan.ts` runs as the tests'
+is the ordered scan `scanTrace`, which `scripts/check/fixtures/recognition-scan.ts` runs as the tests'
 reference: probes in rank order up to a bound `last`, stopping at the first that holds or throws.
 
 `builtinFirstMatch` in `src/types/builtins.ts` reads an object's prototype once after the array

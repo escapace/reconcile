@@ -20,7 +20,7 @@
         "scripts/bench/size.ts",
         "scripts/bundles.ts",
         "scripts/check/mutants.ts",
-        "scripts/check-lean.ts",
+        "scripts/check/lean.ts",
         "perf/profile-harness.ts",
         "vitest-library.config.ts",
       ],

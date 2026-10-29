@@ -4,7 +4,7 @@ import { thrown } from './fixtures/thrown'
 
 // Values whose state lives in internal slots are atoms, like functions: every function keeps
 // them by reference and never drafts or copies them. lean/Types/Atoms.lean proves the
-// classifier and check-atoms-runtime.ts compares it natively.
+// classifier and scripts/check/bridges/atoms.ts compares it natively.
 
 class HttpError extends Error {
   constructor(

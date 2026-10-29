@@ -4,7 +4,7 @@ import { thrown } from './fixtures/thrown'
 
 // reconcile writes a changed own property by assignment, so own setters run and own accessors
 // are kept; it never writes or overrides accessors on the prototype. lean/Property/PropertyWrite.lean
-// proves the single-key decision and check-property-write-runtime.ts compares it natively.
+// proves the single-key decision and scripts/check/bridges/property-write.ts compares it natively.
 
 function storingAccessor(target: object, key: string, initial: unknown) {
   const log: unknown[] = []

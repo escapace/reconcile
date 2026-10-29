@@ -1,0 +1,193 @@
+import assert from 'node:assert/strict'
+import { checkRealChains } from './atoms'
+import { integerIn, jsonBoolean, jsonObject, oracleCorpus, type Oracle } from '../oracle'
+import { publicationTypes } from '../../../src/types/builtins'
+import { orderedScan, recognitionOrder } from '../fixtures/recognition-scan'
+
+/** Kinds at ranks 1 to 10, in recognition order; arrays, at rank 0, are atoms there. */
+export const ranked = recognitionOrder.slice(1)
+
+/** The real chains of `RecognitionPlainOracle.tails`, from the first prototype to `null`, in its
+ * order; the last entry stands for the throwing read. */
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object
+export const tails: ReadonlyArray<readonly object[]> = [
+  [],
+  [Object.prototype],
+  ...[Date, Map, Set, ArrayBuffer, DataView].map((constructor) => [
+    constructor.prototype as object,
+    Object.prototype,
+  ]),
+  [Uint8Array.prototype, typedArrayPrototype, Object.prototype],
+  [URL.prototype, Object.prototype],
+  [URLSearchParams.prototype, Object.prototype],
+  [],
+]
+const RAISING_TAIL = 10
+
+export const thrown = new Error('prototype read')
+
+/** Prototype reads of the object itself and of its custom prototypes, counted apart. */
+export interface Reads {
+  count: number
+  own: number
+}
+
+/** A prototype level whose reads `count` adds to and, if `throws`, fail. */
+export function level(prototype: object | null, count: () => void, throws: boolean): object {
+  return new Proxy(Object.create(prototype) as object, {
+    getPrototypeOf(target) {
+      count()
+      if (throws) throw thrown
+      return Reflect.getPrototypeOf(target)
+    },
+  })
+}
+
+/** The first prototype of a tail, or `null` for the empty chain. */
+const first = (tail: readonly object[]): object | null => tail[0] ?? null
+
+/** The view an object is, if any: a `Uint8Array` or a `DataView`, over a buffer whose prototype is
+ * `null` when `foreign` and whose prototype's prototype read throws when `raises`. */
+export interface View {
+  brand: boolean
+  foreign: boolean
+  raises: boolean
+  typed: boolean
+}
+
+/** An object behind `depth` custom prototypes that count their reads; on the throwing tail the
+ * read after them throws. A branded object is a `Uint8Array` or a `DataView`, which a proxy would
+ * lose, over the buffer `branded` makes. */
+function build(depth: number, tail: number, view: View, reads: Reads): object {
+  // Levels count from the deepest custom prototype, created first, to the object at `depth`; on
+  // the throwing tail the deepest level's read throws.
+  const throwing = tail === RAISING_TAIL ? 0 : -1
+  let prototype = first(tails[tail])
+  for (let index = 0; index < depth; index++)
+    prototype = level(prototype, () => (reads.count += 1), index === throwing)
+  return view.brand
+    ? (Object.setPrototypeOf(branded(view), prototype) as object)
+    : level(prototype, () => (reads.own += 1), depth === throwing)
+}
+
+/** A `Uint8Array` or a `DataView` over a buffer whose prototype is `null` when `foreign`, and a
+ * prototype whose own prototype read throws when `raises`. */
+export function branded(view: View): ArrayBufferView {
+  const buffer = new ArrayBuffer(1)
+  if (view.foreign) Object.setPrototypeOf(buffer, null)
+  if (view.raises)
+    Object.setPrototypeOf(
+      buffer,
+      new Proxy(Object.create(null) as object, {
+        getPrototypeOf() {
+          throw thrown
+        },
+      }),
+    )
+  return view.typed ? new Uint8Array(buffer) : new DataView(buffer)
+}
+
+/** Runs one recognition, reporting its kind or that it threw the prototype read's error. */
+export function attempt(run: () => unknown): unknown {
+  try {
+    return run()
+  } catch (error) {
+    assert.equal(error, thrown, 'the prototype read error propagates')
+    return thrown
+  }
+}
+
+/** Narrows one row field to a list with an entry for each ranked kind. */
+function perRank(value: unknown): unknown[] {
+  assert.ok(Array.isArray(value) && value.length === ranked.length)
+  return value
+}
+
+/** Each known-kind check on a fresh object matches Lean's recognition bounded at that rank, the
+ * error it raises included. */
+function checkKnown(row: Record<string, unknown>, depth: number, tail: number, view: View): void {
+  const known = perRank(row.known)
+  const knownRaised = perRank(row.knownRaised)
+  for (const [index, expected] of known.entries()) {
+    const matched = attempt(() =>
+      publicationTypes.matches(ranked[index], build(depth, tail, view, { count: 0, own: 0 })),
+    )
+    const raised = jsonBoolean(knownRaised[index])
+    assert.equal(matched, raised ? thrown : expected, `known-kind check at rank ${index + 1}`)
+  }
+}
+
+/** The custom prototypes' reads of the ordered scan: the walks from the object's prototype,
+ * which built-in recognition repeats, while it reads the object itself once. */
+function scannedReads(depth: number, tail: number, view: View): number {
+  const scanned = { count: 0, own: 0 }
+  attempt(() => orderedScan.recognize(build(depth, tail, view, scanned)))
+  return scanned.count
+}
+
+/** The object is read once; its custom prototypes as the ordered scan reads them. */
+function checkReads(
+  row: Record<string, unknown>,
+  depth: number,
+  tail: number,
+  view: View,
+  reads: Reads,
+): void {
+  // A branded object cannot be proxied, so only a proxied object reports its one own read.
+  assert.equal(reads.own, Number(!view.brand), 'reads of the object itself')
+  const expected = row.plain === true ? 0 : scannedReads(depth, tail, view) - repeated(row, view)
+  assert.equal(reads.count, expected, 'reads of its custom prototypes')
+}
+
+/** Whether a view is a typed array over a recognized buffer. */
+const typedOverRecognized = (view: View): boolean => view.typed && !view.foreign && !view.raises
+
+/** The custom prototypes' reads of the scan's walk for `DataView` in the typed-array probe, which
+ * the failed `DataView` probe already decided: one per custom prototype once that probe runs its
+ * walks, for a typed array over a recognized buffer. */
+function repeated(row: Record<string, unknown>, view: View): number {
+  const walks = typedOverRecognized(view) && (row.selected as number) >= 6
+  return walks ? (row.depth as number) : 0
+}
+
+/** The view a row describes; a typed array also holds the view brand, and only a branded object
+ * has a raising buffer. */
+function viewOf(row: Record<string, unknown>): View {
+  const view = {
+    brand: jsonBoolean(row.brand),
+    foreign: jsonBoolean(row.foreign),
+    raises: jsonBoolean(row.bufferRaises),
+    typed: jsonBoolean(row.typed),
+  }
+  assert.ok(view.brand || (!view.raises && !view.typed))
+  return view
+}
+
+/** Compares one Lean recognition with the runtime recognizer, its reads and each known-kind
+ * check. */
+function checkRow(row: Record<string, unknown>): void {
+  const depth = integerIn(row.depth, 0, 2)
+  const tail = integerIn(row.tail, 0, tails.length - 1)
+  assert.ok(typeof row.raised === 'boolean' && typeof row.plain === 'boolean')
+  const view = viewOf(row)
+  const reads = { count: 0, own: 0 }
+  const kind = attempt(() => publicationTypes.recognize(build(depth, tail, view, reads)))
+  const expected = row.raised ? thrown : ranked[integerIn(row.selected, 1, 10) - 1]
+  assert.equal(kind, expected, 'recognized kind')
+  checkReads(row, depth, tail, view, reads)
+  checkKnown(row, depth, tail, view)
+}
+
+/** Compares built-in recognition with Lean's `Types.RecognitionPlain.recognize`. */
+export async function checkRecognitionPlainRuntime(oracle: Oracle): Promise<void> {
+  checkRealChains(tails)
+  // 11 tails behind zero to two custom prototypes, without a view brand and as a typed array or a
+  // `DataView` over a recognized, a foreign or a raising buffer; a branded object cannot throw on
+  // its own read.
+  const rows = await oracleCorpus(oracle, 'RecognitionPlain', 225, 64 * 1024)
+  for (const line of rows) checkRow(jsonObject(JSON.parse(line)))
+  console.log(
+    `RecognitionPlain Lean/native bridge: ${rows.length} prototype chains, full recognition and ` +
+      `${rows.length * ranked.length} known-kind checks`,
+  )
+}

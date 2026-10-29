@@ -1,6 +1,6 @@
 import { runInNewContext } from 'node:vm'
 import { assert, it, vi } from 'vitest'
-import { orderedScan, recognitionOrder } from '../../scripts/recognition-scan'
+import { orderedScan, recognitionOrder } from '../../scripts/check/fixtures/recognition-scan'
 import { publicationTypes, snapshotTypes } from '../types/builtins'
 import { TEMPORAL_KIND } from '../types/temporal'
 import { OBJECT_KIND } from '../types/object'

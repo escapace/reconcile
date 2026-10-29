@@ -152,7 +152,7 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   mismatch.
 - **Finite algorithm or new feature.** Work proof first, following [Adding or changing a
   model](lean.md#adding-or-changing-a-model); the reference models (`Spec.Reconcile`,
-  `scripts/lean-spec-bridge.ts`) are the worked example. Then implement. Run these tests early,
+  `scripts/check/bridges/spec.ts`) are the worked example. Then implement. Run these tests early,
   because they catch unsound shortcuts: the public API fuzz files
   (`src/__tests__/public-api-fuzz*.spec.ts`); the invariants file
   (`src/__tests__/public-api-invariants.spec.ts`), which checks the documented contracts on graphs
@@ -179,7 +179,7 @@ A new kind changes every operation's contract and bundle.
    proved for the longer sequence. A kind that can accept a plain or `null`-prototype object also
    invalidates `plain_probes`, which lets `builtinFirstMatch` decide such an object plain from its
    one prototype read. A kind that is kept by reference today also changes `Types.Atoms` and
-   `scripts/check-atoms-runtime.ts`. A kind that `produce` copies when read also changes `Kind`,
+   `scripts/check/bridges/atoms.ts`. A kind that `produce` copies when read also changes `Kind`,
    `WF` and `differs` in `SpecialValues` and the SpecialValues bridge's scenarios. A kind that
    `reconcile` publishes outside the `Spec` model, as it does a URL, changes `Types.NativeWrites`.
    Extend the fixtures of the native-value and copy-prototype bridges.
@@ -191,7 +191,7 @@ A new kind changes every operation's contract and bundle.
    every facet table and the unrolled `builtinFirstMatch` and `builtinRemainingMatch` chains. In
    the two chains, add a `last === <position>` check after the new predicate, renumber the later
    ones and increase `FALLBACK_RANK`. Add it at the same position to the ordered scan in
-   `scripts/recognition-scan.ts`, against which the tests check recognition.
+   `scripts/check/fixtures/recognition-scan.ts`, against which the tests check recognition.
 4. **Update the couplings** below: the counter rules in `scripts/bench/counts.ts`, the
    snapshot walk if the kind is observed inline, and for serialization a wire tag with its
    facets, size charge, Lean format and README entries, or else `serialize` rejects it.
@@ -210,7 +210,7 @@ earlier version stops decoding.
    `facets/*.ts`, and the README's _How size is counted_ table.
 3. Update every spec with a hand-written wire document, including `serialization*.spec.ts`,
    `deserialize-limit.spec.ts` and `arktype-contract.spec.ts`, and the corpus of
-   `scripts/check-serialization-lean.ts`.
+   `scripts/check/bridges/serialization.ts`.
 4. Run `pnpm check`, `pnpm bench size`, and `ab` on `serialize` and `deserialize`; those
    workloads measure value to text and back, so they compare across a format change.
 
@@ -232,7 +232,7 @@ sides together.
   files; renaming or moving any other rule's site, such as
   `propertySlots` or `matchesKind`, drops a counter, and a new recognition predicate in
   `builtins.ts` gets none.
-- **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports
+- **Test fixtures in the tooling.** `scripts/check/bridges/compact-immutable.ts` imports
   `src/__tests__/fixtures/compact-immutable.ts`, so changing that fixture for a test also changes
   a `pnpm check lean` corpus.
 - **Hooked bridges.** The DeferredOrder, phase, SpecialValues and CollectionWrites bridges bundle
@@ -243,9 +243,9 @@ sides together.
   `collectionSurface` and one after the statement that sets `note.unchanged`. Editing, moving or
   duplicating one of those statements, or renaming one of those files, breaks `pnpm check lean`.
 - **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
-- **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
+- **Serialization bridges.** `scripts/check/bridges/serialization.ts` requires Lean's re-emission to
   equal every `serialize` output in its corpus, so a wire change fails `pnpm check lean` until
-  `Positional.lean` changes too. `check-serialization-collection-runtime.ts` calls the production
+  `Positional.lean` changes too. `scripts/check/bridges/serialization-collection.ts` calls the production
   `map` and `set` decoders with a hand-built `DecodeContext`. The record, array, literal and
   bigint charges exist three times: in `facets/*.ts`, in `Size.lean`'s `tableCharges`, and in the
   README's size table. The `Map`, `Set` and native charges exist only in `facets/collection.ts`,

@@ -3,7 +3,7 @@ import { produce } from '../index'
 
 // A Map or Set draft is an instance of its source's class: its prototype chain is the draft's
 // collection methods, then the source's chain. lean/Produce/DraftClass.lean proves the resolution rules
-// and check-draft-class-runtime.ts compares them natively.
+// and scripts/check/bridges/draft-class.ts compares them natively.
 
 class Registry extends Map<string, number> {
   total(): number {

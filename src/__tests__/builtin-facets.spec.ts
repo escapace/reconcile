@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { recognitionOrder } from '../../scripts/recognition-scan'
+import { recognitionOrder } from '../../scripts/check/fixtures/recognition-scan'
 import { snapshotTypes, publicationTypes, produceTypes } from '../types/builtins'
 import { TEMPORAL_KIND } from '../types/temporal'
 import { URL_KIND } from '../types/url'

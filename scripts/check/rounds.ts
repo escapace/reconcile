@@ -173,7 +173,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
         toolchain(),
         lakeBuild(environment),
         {
-          ...tsx('bridges', 'scripts/check-lean.ts', [], ['--harmony-temporal']),
+          ...tsx('bridges', 'scripts/check/lean.ts', [], ['--harmony-temporal']),
           env: environment,
         },
       ]
@@ -195,7 +195,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
           name: 'axiom audit self-test',
           env: () => ({ ...environment(), PYTHONDONTWRITEBYTECODE: '1' }),
         },
-        { ...tsx('bridges', 'scripts/check-lean.ts'), env: environment },
+        { ...tsx('bridges', 'scripts/check/lean.ts'), env: environment },
       ]
     },
   },

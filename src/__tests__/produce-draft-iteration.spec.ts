@@ -4,7 +4,7 @@ import { produce } from '../index'
 // A Map or Set draft iterates its working copy natively: object values come back as drafts, writes
 // made during the walk change the walked collection as on a native Map or Set, and an iteration
 // that changes nothing keeps the original. lean/Produce/DraftIteration.lean proves the rules and
-// check-draft-iteration-runtime.ts compares them natively.
+// scripts/check/bridges/draft-iteration.ts compares them natively.
 
 describe('Map and Set drafts iterate like native collections', () => {
   it('yields drafts of object values through every iteration API', () => {

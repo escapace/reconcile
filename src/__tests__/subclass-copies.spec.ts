@@ -4,7 +4,7 @@ import { thrown } from './fixtures/thrown'
 
 // Copies keep the source's prototype, so an instance of a built-in subclass stays one in every
 // function, as class instances and typed arrays already did. lean/Types/CopyPrototype.lean states the
-// rule and check-copy-prototype-runtime.ts compares every kind natively. `deserialize` restores
+// rule and scripts/check/bridges/copy-prototype.ts compares every kind natively. `deserialize` restores
 // standard prototypes only, so `serialize` rejects every subclass (CopyPrototype.serializes).
 
 class Link extends URL {}
