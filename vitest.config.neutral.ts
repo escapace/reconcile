@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { defineConfig, mergeConfig } from 'vitest/config'
 import type { ViteUserConfig } from 'vitest/config'
 import configShared from './vitest.config.ts'
@@ -15,6 +17,11 @@ const config = mergeConfig(
   configShared,
   defineConfig({
     test: {
+      // The tooling's specs never touch the real passes, receipts or round lock.
+      env: {
+        RECONCILE_LOCK: path.join(tmpdir(), 'reconcile-spec-state', 'round.lock'),
+        RECONCILE_STATE: path.join(tmpdir(), 'reconcile-spec-state'),
+      },
       include: ['scripts/**/*.spec.ts', 'src/**/*.spec.ts'],
       name: 'neutral',
       sequence: {

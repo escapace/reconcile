@@ -78,6 +78,14 @@ describe('main', () => {
     expect(retired.code).toBe(2)
     expect(retired.stderr).toContain('--count no longer exists: use --size')
     expect(retired.stderr).toContain('Run "pnpm tool run --help"')
+    const twice = await cli('tool', 'run', '--size', '1', '--size=2')
+    expect(twice.code).toBe(2)
+    expect(twice.stderr).toContain('--size is given twice')
     expect(ran).toEqual([])
+  })
+
+  it('takes a name every object inherits as an argument, not as a retired flag', async () => {
+    expect((await cli('tool', 'run', 'constructor', 'toString')).code).toBe(0)
+    expect(ran).toEqual([{ positionals: ['constructor', 'toString'], values: { size: '1' } }])
   })
 })

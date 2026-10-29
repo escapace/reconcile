@@ -1713,10 +1713,24 @@ export async function checkSpecGate(oracle: Oracle, selection: Selection = {}): 
   for (const batch of selectBatches(SPEC_BATCHES, selection)) {
     const seedList = selection.seeds ?? [...seedRange(1, batch.count), ...(batch.regressions ?? [])]
     const modes = selection.proxies === undefined ? batch.modes : [selection.proxies]
-    if (selection.features === true) await features(oracle, seedList, batch.options)
-    else if (selection.dump === true)
-      for (const seed of seedList) await dump(batch.check, oracle, seed, batch.options, modes)
+    if (selection.features === true || selection.dump === true)
+      await showBatch(oracle, batch, seedList, modes, selection.features === true)
     else summaries.push(...(await runBatch(oracle, batch, seedList, modes)))
   }
   if (summaries.length > 0) console.log(`Spec bridge: ${summaries.join('; ')}`)
+}
+
+/** Shows a batch's seeds instead of comparing them: its features, which only the reconcile cases
+ * have, or a dump of each seed. */
+async function showBatch(
+  oracle: Oracle,
+  batch: Batch,
+  seedList: readonly number[],
+  modes: readonly boolean[],
+  featuresOnly: boolean,
+): Promise<void> {
+  if (featuresOnly && batch.check !== (reconcileCheck as Check<unknown>)) return
+  console.log(`=== batch ${batch.name}`)
+  if (featuresOnly) await features(oracle, seedList, batch.options)
+  else for (const seed of seedList) await dump(batch.check, oracle, seed, batch.options, modes)
 }

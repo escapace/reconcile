@@ -91,8 +91,9 @@ The `NativeValue` and `SpecialValues` bridges skip Node's native Temporal values
 `pnpm check lean <bridge>...` builds the proofs and runs only the named bridges, by their file names
 in `scripts/check/bridges/`, without the axiom audit, and records no pass. The three `Spec` bridges
 run in batches: `--batch` selects one, and for the outcome and phase bridges `--seeds` replaces
-each batch's seeds and `--dump` shows each seed's case, the reference's outcome and the comparison.
-A failing batch prints the command that shows its first failing seed, and `pnpm check --help` lists
+each batch's seeds and `--dump` shows each seed's case, the reference's outcome and the comparison;
+`--features` instead counts the features of the outcome bridge's `reconcile` cases. A failing batch
+prints the command that shows its first failing seed, and `pnpm check --help` lists
 the batches. _Spec agreement_, _Spec phases_ and _Spec enumeration_ say what the bridges compare,
 and [Runtime bridges](#runtime-bridges) describes the mutation audit and how to query one oracle by
 hand.
@@ -908,10 +909,12 @@ bridge detect runtime defects. It works on a copy of the working tree, where it 
 bridge it needs on the unmutated sources, which must agree. Then it applies one deliberate defect,
 a _mutant_, at a time to the copy's runtime sources and runs the outcome bridge's `reconcile` batch
 plainly and through the recording proxies and its `reconcile-hazards` batch at once, and reports the
-first of these runs, in that order, that shows a difference or does not end. A mutant that only the
+first of these runs, in that order, that shows a difference. A run that does not end within 30
+seconds detects only a mutant marked as one that makes the runtime loop, and a run that crashes, as
+by a signal, detects nothing; the audit reports either as unexpected. A mutant that only the
 runtime's discovery or decisions show runs the phase bridge's `binary`, `plain` and `hazards`
-batches instead. A mutant that only the writes to a
-kept `Map` or `Set` show runs the CollectionWrites bridge, once over its fixed corpus. It restores
+batches instead. A mutant that only the writes to a kept `Map` or `Set` show runs the
+CollectionWrites bridge, once over its fixed corpus. It restores
 the copy's sources after each mutant. A mutant the bridge does not detect marks a case the generator
 does not produce or a difference the comparison does not see; `scripts/check/mutants.ts` lists the
 mutants it expects to go undetected, each with the gap it stands for. `pnpm check mutants <name>...`

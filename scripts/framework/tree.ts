@@ -65,6 +65,10 @@ function contentOf(file: string): string {
   return `${digest(readFileSync(file)).slice(0, 16)}${(stats.mode & 0o111) === 0 ? '' : '+x'}`
 }
 
+/** The content of each of `files`, as `inputs` records it. */
+export const contents = (files: readonly string[], root = ROOT): Record<string, string> =>
+  Object.fromEntries(files.map((file) => [file, contentOf(path.join(root, file))]))
+
 /** What a round depends on besides the files: the Node runtime and the options it runs with,
  * the platform, and the installed dependencies. */
 function environmentOf(root: string): Record<string, string> {
@@ -84,6 +88,14 @@ function environmentOf(root: string): Record<string, string> {
     platform: `${process.platform}-${process.arch}`,
   }
 }
+
+/** The working tree's files that `exclude` does not match and that exist as files. */
+export const listFiles = (exclude: readonly string[], root = ROOT): string[] =>
+  treeFiles(root).filter(
+    (file) =>
+      !exclude.some((pattern) => matches(file, pattern)) &&
+      statSync(path.join(root, file), { throwIfNoEntry: false })?.isFile() === true,
+  )
 
 /** The inputs of a round that ignores the files `exclude` matches. */
 export function inputs(exclude: readonly string[], root = ROOT): Inputs {

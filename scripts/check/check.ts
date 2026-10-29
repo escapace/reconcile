@@ -1,5 +1,5 @@
 import { UsageError, type Command, type Parsed } from '../framework/command'
-import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/tree'
+import { changedEnvironment, changedFiles, contents, inputs, type Inputs } from '../framework/tree'
 import { withLock, type Lock } from '../framework/lock'
 import { interrupted } from '../framework/interrupt'
 import {
@@ -37,6 +37,19 @@ function reason(round: RoundDefinition, current: Inputs): string {
   return parts.length === 0 ? 'its inputs differ from its last pass' : parts.join('; ')
 }
 
+/** What a narrowed run selects, the count of its seeds included, as the listing may read like a
+ * count. */
+function narrowing({ batch, dump, features, names, seeds }: RoundOptions): string {
+  const count = seeds === undefined ? 0 : parseSeeds(seeds).length
+  return [
+    ...(names.length === 0 ? [] : [names.join(', ')]),
+    ...(batch === undefined ? [] : [`batch ${batch}`]),
+    ...(seeds === undefined ? [] : [`${count} ${count === 1 ? 'seed' : 'seeds'}: ${seeds}`]),
+    ...(dump ? ['dump'] : []),
+    ...(features ? ['features'] : []),
+  ].join('; ')
+}
+
 /** Whether a round reuses the pass recorded on `current`, and if not, why it runs. */
 function decide(
   round: RoundDefinition,
@@ -44,7 +57,8 @@ function decide(
   fresh: boolean,
   current: Inputs,
 ): { pass: Pass | undefined; why: string } {
-  if (narrowed(options)) return { pass: undefined, why: 'narrowed run; records no pass' }
+  if (narrowed(options))
+    return { pass: undefined, why: `narrowed run (${narrowing(options)}); records no pass` }
   if (fresh) return { pass: undefined, why: '--fresh' }
   const pass = findPass(round.name, current.hash)
   return { pass, why: pass === undefined ? reason(round, current) : '' }
@@ -79,19 +93,25 @@ function plan(rounds: readonly RoundDefinition[], options: RoundOptions, fresh: 
   return 0
 }
 
-/** What changed while a round ran, besides the files it declares as its outputs, which it may
- * rewrite; empty when nothing did. */
-function changedWhileRunning(round: RoundDefinition, before: Inputs, after: Inputs): string[] {
+/** What a round started on: its inputs, and its outputs, which it may rewrite whether or not they
+ * are among its inputs. */
+interface Start {
+  readonly inputs: Inputs
+  readonly outputs: Readonly<Record<string, string>>
+}
+
+/** What changed while a round ran, besides the files it declares as its outputs; empty when
+ * nothing did. A rewritten output is reported, to be reviewed. */
+function changedWhileRunning(round: RoundDefinition, before: Start, after: Inputs): string[] {
   const outputs = round.outputs ?? []
-  const changed = changedFiles(before.files, after.files)
-  const rewritten = changed.filter((file) => outputs.includes(file))
+  const rewritten = changedFiles(before.outputs, contents(outputs))
   if (rewritten.length > 0)
     process.stdout.write(
       `${round.name}: the round rewrote ${list(rewritten)}; review and commit it\n`,
     )
   return [
-    ...changed.filter((file) => !outputs.includes(file)),
-    ...changedEnvironment(before.environment, after.environment).map(
+    ...changedFiles(before.inputs.files, after.files).filter((file) => !outputs.includes(file)),
+    ...changedEnvironment(before.inputs.environment, after.environment).map(
       (key) => `the ${key} environment`,
     ),
   ]
@@ -100,7 +120,7 @@ function changedWhileRunning(round: RoundDefinition, before: Inputs, after: Inpu
 /** The outcome of a round that passed: complete, and recorded as a pass unless it was narrowed,
  * when its inputs are those it started with; incomplete when they changed while it ran, since it
  * then validated a tree that no longer exists. */
-function settle(round: RoundDefinition, before: Inputs, receipt: string, partial: boolean): number {
+function settle(round: RoundDefinition, before: Start, receipt: string, partial: boolean): number {
   const after = inputs(round.exclude)
   const changed = changedWhileRunning(round, before, after)
   if (changed.length > 0) {
@@ -109,7 +129,7 @@ function settle(round: RoundDefinition, before: Inputs, receipt: string, partial
     )
     return EXIT_CODES.timed_out
   }
-  if (!partial) recordPass(round.name, after, receipt)
+  if (!partial) recordPass(round.name, after, receipt, before.inputs.hash)
   return 0
 }
 
@@ -121,8 +141,8 @@ async function runOne(
   lock: Lock,
 ): Promise<number> {
   if (interrupted()) return EXIT_CODES.cancelled
-  const before = inputs(round.exclude)
-  const { pass, why } = decide(round, options, fresh, before)
+  const before: Start = { inputs: inputs(round.exclude), outputs: contents(round.outputs ?? []) }
+  const { pass, why } = decide(round, options, fresh, before.inputs)
   if (pass !== undefined) {
     process.stdout.write(`${round.name}: reused; passed ${pass.finishedAt} on identical inputs\n`)
     return 0
@@ -134,7 +154,10 @@ async function runOne(
     directory,
     lock,
     name: `check ${round.name}`,
-    record: { inputs: { environment: before.environment, hash: before.hash }, narrowed: partial },
+    record: {
+      inputs: { environment: before.inputs.environment, hash: before.inputs.hash },
+      narrowed: partial,
+    },
     steps: round.steps(options, directory),
     // A narrowed run is for reading a bridge's or a mutant's output, such as a dump.
     stream: partial,
@@ -145,6 +168,12 @@ async function runOne(
   return result.status === 'passed'
     ? settle(round, before, result.receipt, partial)
     : result.exitCode
+}
+
+/** The seeds `text` lists, which must parse, as the text that lists them. */
+const checkedSeeds = (text: string): string => {
+  parseSeeds(text)
+  return text
 }
 
 /** The options of a run, which only a named round that takes them may narrow. */
@@ -159,7 +188,7 @@ function optionsFor(
     dump: parsed.values.dump === true,
     features: parsed.values.features === true,
     names,
-    seeds: seeds === undefined ? undefined : parseSeeds(seeds),
+    seeds: seeds === undefined ? undefined : checkedSeeds(seeds),
   }
   if (!narrowed(options)) return options
   if (round?.validate === undefined)
@@ -271,6 +300,17 @@ export const check: Command = {
       placeholder: '<seeds>',
       type: 'string',
     },
+  },
+  retired: {
+    '--binary':
+      'name the batch: --batch reconcile-binary, produce-binary, snapshot-binary or roundtrip-binary',
+    '--count': 'run one universe with --batch; its summary counts the cases',
+    '--from': 'list the seeds, such as --seeds 200-400',
+    '--getters': 'name the batch: --batch reconcile-next-accessors',
+    '--hazards': 'name the batch: --batch reconcile-hazards, or hazards for spec-phases',
+    '--only': 'name them: pnpm check lean <bridge...> or pnpm check mutants <mutant...>',
+    '--op': 'name the batch: --batch produce, snapshot or roundtrip-binary',
+    '--writes': 'the reconcile batch also runs through the recording proxies: --batch reconcile',
   },
   run,
   sections: [

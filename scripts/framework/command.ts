@@ -109,23 +109,48 @@ const parseOption = ({ default: value, multiple, short, type }: Option) => ({
   ...(short === undefined ? {} : { short }),
 })
 
-/** Parses `arguments_` against the command's options; a retired or unknown flag is a usage
- * error. */
-function parse(command: Command, arguments_: readonly string[]): Parsed {
+/** Refuses a flag that no longer exists, naming what replaced it. */
+function refuseRetired(command: Command, arguments_: readonly string[]): void {
+  const retired = command.retired ?? {}
   for (const argument of arguments_) {
     const flag = argument.split('=')[0]
-    const retired = command.retired ?? {}
     if (flag.startsWith('--') && Object.hasOwn(retired, flag))
       throw new UsageError(`${flag} no longer exists: ${retired[flag]}`)
   }
-  const options = Object.fromEntries(
-    optionsOf(command).map(([name, option]) => [name, parseOption(option)]),
-  )
+}
+
+type ParseOptions = Record<string, ReturnType<typeof parseOption>>
+
+/** `parseArgs` in strict mode, its errors as usage errors. */
+function parseStrict(options: ParseOptions, arguments_: readonly string[]) {
   try {
-    return parseArgs({ allowPositionals: true, args: [...arguments_], options, strict: true })
+    return parseArgs({
+      allowPositionals: true,
+      args: [...arguments_],
+      options,
+      strict: true,
+      tokens: true,
+    })
   } catch (error) {
     throw new UsageError((error as Error).message)
   }
+}
+
+/** Parses `arguments_` against the command's options; a retired or unknown flag, and an option
+ * that takes one value given twice, are usage errors. */
+function parse(command: Command, arguments_: readonly string[]): Parsed {
+  refuseRetired(command, arguments_)
+  const options: ParseOptions = Object.fromEntries(
+    optionsOf(command).map(([name, option]) => [name, parseOption(option)]),
+  )
+  const { positionals, tokens, values } = parseStrict(options, arguments_)
+  const given = new Set<string>()
+  for (const token of tokens) {
+    if (token.kind !== 'option' || options[token.name].multiple === true) continue
+    if (given.has(token.name)) throw new UsageError(`--${token.name} is given twice; give it once`)
+    given.add(token.name)
+  }
+  return { positionals, values }
 }
 
 const printHelp = (invocation: string, command: Command): number => {

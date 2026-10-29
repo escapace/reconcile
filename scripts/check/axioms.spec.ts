@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ROOT } from '../framework/paths'
 import { auditSource, configuredModules } from './axioms'
 
 const directories: string[] = []
@@ -26,10 +25,9 @@ afterEach(() => {
 })
 
 describe('the audited modules', () => {
+  // The `test` round does not read the Lean sources, so these checkouts are the spec's own; the
+  // `lean` round's audit checks the real one.
   it('are the roots of the Lake library, which list every Lean file once', () => {
-    expect(configuredModules(ROOT)).toEqual(
-      expect.arrayContaining(['Oracle.RuntimeOracle', 'Oracle.OracleMain']),
-    )
     const config = '[package]\nname = "x"\n\n[[lean_lib]]\nroots = [\n  "A",\n  "Graph.B",\n]\n'
     expect(
       configuredModules(

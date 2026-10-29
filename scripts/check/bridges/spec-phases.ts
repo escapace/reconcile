@@ -324,7 +324,10 @@ export async function checkSpecPhasesGate(
   const summaries: string[] = []
   for (const batch of selectBatches(PHASE_BATCHES, selection)) {
     const seeds = selection.seeds ?? [...seedRange(1, batch.count), ...batch.regressions]
-    if (selection.dump === true) for (const seed of seeds) await dump(oracle, seed, batch.options)
+    if (selection.dump === true) {
+      console.log(`=== batch ${batch.name}`)
+      for (const seed of seeds) await dump(oracle, seed, batch.options)
+    }
     const { cases, passes, reports } = await checkPhases(library, oracle, seeds, batch.options)
     for (const r of reports.slice(0, 5)) console.log(`seed ${r.seed}: ${r.detail}`)
     if (reports.length > 0 && selection.dump !== true)

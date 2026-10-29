@@ -7,7 +7,7 @@
 // it stands for, and a verdict that differs from the expectation, in either direction, fails the
 // audit. The working tree itself is never written.
 //
-//   pnpm check mutants [name...] [--seeds N]
+//   pnpm check mutants [name...] [--seeds <seeds>]
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import {
@@ -38,6 +38,8 @@ interface Mutant {
   readonly bridge?: 'collections' | 'phases'
   /** Why the bridge is expected not to see this mutant: the gap it stands for. */
   readonly survives?: string
+  /** Why the mutant makes the runtime loop, so that a bridge run that never ends detects it. */
+  readonly loops?: string
 }
 
 const ENGINE = 'src/publication/publication-engine.ts'
@@ -57,6 +59,7 @@ const MUTANTS: readonly Mutant[] = [
   {
     file: ENGINE,
     find: '  state.passes?.forbidden.has(x) !== true && !reservedElsewhere(state, c, x)',
+    loops: 'a candidate the pass forbade is admitted again, so the passes never settle',
     name: 'forbidden-ignored',
     replace: '  !reservedElsewhere(state, c, x)',
   },
@@ -75,6 +78,7 @@ const MUTANTS: readonly Mutant[] = [
   {
     file: ENGINE,
     find: '  for (let index = 0; index < blocked.length; index += 1) state.forbidden.add(blocked[index])',
+    loops: 'a blocked object is never forbidden, so every pass blocks it again',
     name: 'blocked-not-forbidden',
     replace: '  for (let index = 0; index < 0; index += 1) state.forbidden.add(blocked[index])',
   },
@@ -215,7 +219,9 @@ const MUTANTS: readonly Mutant[] = [
   },
 ]
 
-type Verdict = 'hung' | 'killed' | 'survived'
+/** How a run of the bridges ended: it agreed, it reported a difference, it did not end within its
+ * time, or it crashed, as by a signal or a failure to start, which detects nothing. */
+type Verdict = 'crashed' | 'hung' | 'killed' | 'survived'
 
 /** The gate's runs that must see a mutant, as configurations of `scripts/check/lean.ts`: the
  * outcome bridge's `reconcile` batch plain and through recording proxies and its hazard-rich
@@ -270,7 +276,7 @@ const killGroup = (group: number | undefined): void => {
  * it finished with the runner's report that the bridges agree; a mutant that throws inside the
  * runtime is caught as well, since the bridges report errors. A run takes some seconds; one that
  * loops is cut off, with its oracle, well inside the round. */
-async function runBridge(copy: string, run: Config, seeds: readonly number[]): Promise<Verdict> {
+async function runBridge(copy: string, run: Config, seeds: string): Promise<Verdict> {
   const seeded = run.families.some((family) => family.startsWith('spec'))
   const config = seeded ? { ...run, seeds } : run
   return await new Promise((resolve) => {
@@ -297,25 +303,38 @@ async function runBridge(copy: string, run: Config, seeds: readonly number[]): P
     child.once('exit', () => killGroup(group))
     child.once('error', () => {
       clearTimeout(timer)
-      resolve('hung')
+      resolve('crashed')
     })
     child.once('close', (status) => {
       clearTimeout(timer)
       if (group !== undefined) running.delete(group)
-      if (hung) resolve('hung')
-      else resolve(status === 0 && output.includes('Bridges agree:') ? 'survived' : 'killed')
+      resolve(ending(hung, status, output))
     })
   })
 }
 
+/** The verdict of a bridge run that ended with `status`, null when a signal ended it. */
+function ending(hung: boolean, status: number | null, output: string): Verdict {
+  if (hung) return 'hung'
+  if (status === 0) return output.includes('Bridges agree:') ? 'survived' : 'crashed'
+  return status === null ? 'crashed' : 'killed'
+}
+
+/** The verdicts that detect `mutant` as expected: none for one expected to survive, a hang as
+ * well as a reported difference for one that makes the runtime loop. */
+const expectedVerdicts = (mutant: Mutant): readonly Verdict[] => {
+  if (mutant.survives !== undefined) return ['survived']
+  return mutant.loops === undefined ? ['killed'] : ['hung', 'killed']
+}
+
 /** The bridge's runs, all at once: the verdict is the first run, in order, that did not end or
  * saw a difference, as running them one after another until one does would find. */
-async function runAll(copy: string, bridge: Bridge, seeds: readonly number[]): Promise<Verdict> {
+async function runAll(copy: string, bridge: Bridge, seeds: string): Promise<Verdict> {
   const verdicts = await Promise.all(bridge.map(async (run) => await runBridge(copy, run, seeds)))
   return verdicts.find((verdict) => verdict !== 'survived') ?? 'survived'
 }
 
-async function audit(copy: string, mutant: Mutant, seeds: readonly number[]): Promise<Verdict> {
+async function audit(copy: string, mutant: Mutant, seeds: string): Promise<Verdict> {
   const file = path.join(copy, mutant.file)
   const original = readFileSync(file, 'utf8')
   assert.equal(original.split(mutant.find).length, 2, `${mutant.name}: find text not present once`)
@@ -329,11 +348,7 @@ async function audit(copy: string, mutant: Mutant, seeds: readonly number[]): Pr
 
 /** Runs every bridge the mutants need on the unmutated copy, which must agree, then each mutant;
  * returns the exit code. */
-async function auditAll(
-  copy: string,
-  selected: readonly Mutant[],
-  seeds: readonly number[],
-): Promise<number> {
+async function auditAll(copy: string, selected: readonly Mutant[], seeds: string): Promise<number> {
   // An unmutated run that does not agree means the copy, not a mutant, is broken: every mutant
   // would then read as killed.
   const started = Date.now()
@@ -355,7 +370,7 @@ async function auditAll(
   for (const mutant of selected) {
     const begun = Date.now()
     const verdict = await audit(copy, mutant, seeds)
-    const expected = (verdict === 'survived') === (mutant.survives !== undefined)
+    const expected = expectedVerdicts(mutant).includes(verdict)
     if (!expected) surprises += 1
     const note = mutant.survives === undefined ? '' : ` (expected to survive: ${mutant.survives})`
     const elapsed = Math.round((Date.now() - begun) / 1000)
@@ -374,7 +389,8 @@ export const mutantNames: readonly string[] = MUTANTS.map((mutant) => mutant.nam
  * each Spec bridge run. */
 interface AuditConfig {
   readonly names: readonly string[]
-  readonly seeds: readonly number[]
+  /** The seeds as listed, such as `1-1500`. */
+  readonly seeds: string
 }
 
 async function main({ names, seeds }: AuditConfig): Promise<number> {

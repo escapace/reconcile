@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { script } from '../framework/entry'
 import { ROOT } from '../framework/paths'
+import { listFiles } from '../framework/tree'
 import type { Step } from '../framework/round'
 import { UsageError } from '../framework/command'
 import { BRIDGES, type Bridge, type Flag } from './bridges'
@@ -15,7 +16,8 @@ export interface RoundOptions {
   readonly dump: boolean
   readonly features: boolean
   readonly names: readonly string[]
-  readonly seeds: readonly number[] | undefined
+  /** The seeds as the run lists them, such as `1-200,10563`, checked by `parseSeeds`. */
+  readonly seeds: string | undefined
 }
 
 /** Whether a run narrows its round. */
@@ -41,14 +43,17 @@ export interface RoundDefinition {
 
 /** The Lean sources and toolchain, which only the Lean rounds read. */
 const LEAN = ['*.lean', 'lake-manifest.json', 'lakefile.toml', 'lean-toolchain', 'lean/fixtures/']
-/** The guides, which no round but `static` reads. */
+/** The guides, which no round reads. */
 const GUIDES = ['AGENTS.md', 'docs/']
-/** The README and the guides. Only `static` reads them, and `lib` the README, whose API section
- * the build regenerates. */
+/** The README and the guides. No round reads them but `lib`, whose build regenerates the README's
+ * API section. */
 const DOCS = ['README.md', ...GUIDES]
 /** The measurement tooling and the frozen workloads, which `temporal`, `lean` and `mutants` never
  * read. */
 const BENCH = ['perf/', 'scripts/bench/', 'scripts/bench-workloads.ts']
+
+/** What `static` does not read: ESLint lints no Markdown, and ls-lint names only TypeScript. */
+const STATIC_EXCLUDE = [...LEAN, ...DOCS]
 
 /** The specs that run only with a native `Temporal`. */
 const TEMPORAL_SPECS = ['src/__tests__/deserialize-limit.spec.ts', 'src/__tests__/temporal.spec.ts']
@@ -119,7 +124,7 @@ const flagsGiven = ({ dump, features, seeds }: RoundOptions): Flag[] => [
 /** The narrowing options of a run of the `lean` round: bridges, and for one bridge with batches,
  * the batch, the seeds, a dump or the features report it takes. */
 function validateLean(options: RoundOptions): void {
-  const { batch, dump, names, seeds } = options
+  const { batch, names } = options
   const unknown = names.filter((name) => !BRIDGES.some((bridge) => bridge.family === name))
   if (unknown.length > 0)
     throw new UsageError(
@@ -132,7 +137,16 @@ function validateLean(options: RoundOptions): void {
     throw new UsageError(`${family} has no batch "${batch}"; its batches are ${listed(batches)}`)
   const refused = flags.filter((flag) => !takes.includes(flag))
   if (refused.length > 0) throw new UsageError(`${family} takes no ${listed(refused)}`)
+  validateShows(options)
+}
+
+/** A run shows either the dump of some seeds or the features of `reconcile` cases. */
+function validateShows({ batch, dump, features, seeds }: RoundOptions): void {
+  if (dump && features)
+    throw new UsageError('--dump and --features show different things; give one')
   if (dump && seeds === undefined) throw new UsageError('--dump needs --seeds, the seeds to show')
+  if (features && batch !== undefined && !batch.startsWith('reconcile'))
+    throw new UsageError('--features describes the reconcile cases; name a reconcile batch or none')
 }
 
 /** The narrowing options of a run of the `mutants` round: mutants and seeds. */
@@ -147,17 +161,18 @@ function validateMutants({ batch, dump, features, names }: RoundOptions): void {
 }
 
 /** The seeds of each Spec bridge run of the mutation audit, unless a run names others. */
-const AUDIT_SEEDS = Array.from({ length: 1500 }, (_, index) => index + 1)
+const AUDIT_SEEDS = '1-1500'
 
 /** Every round, in the order `pnpm check` runs them: the fastest feedback first. */
 export const ROUNDS: readonly RoundDefinition[] = [
   {
-    exclude: ['*.lean'],
+    exclude: STATIC_EXCLUDE,
     name: 'static',
     summary: 'Types, ESLint and file names.',
     steps: () => [
       pnpm('typecheck', 'run', '--silent', 'typecheck'),
-      pnpm('ls-lint', 'run', '--silent', 'ls-lint'),
+      // The file names of the round's inputs, not of ignored files.
+      pnpm('ls-lint', 'exec', 'ls-lint', '--config', '.ls-lint.yaml', ...listFiles(STATIC_EXCLUDE)),
       pnpm('eslint', 'exec', 'eslint', '--concurrency', 'auto'),
     ],
   },
@@ -189,6 +204,8 @@ export const ROUNDS: readonly RoundDefinition[] = [
   {
     exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'temporal',
+    // Its build regenerates the README too.
+    outputs: ['README.md'],
     summary:
       "The cases that need Node's native Temporal, on the sources, the package and the bridges.",
     steps: () => {
@@ -211,7 +228,9 @@ export const ROUNDS: readonly RoundDefinition[] = [
         toolchain(),
         lakeBuild(),
         {
-          command: script('scripts/check/lean.ts', { families: [] }, ['--harmony-temporal']),
+          command: script('scripts/check/lean.ts', { families: [], temporal: true }, [
+            '--harmony-temporal',
+          ]),
           env: environment,
           name: 'bridges',
         },

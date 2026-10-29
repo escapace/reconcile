@@ -32,7 +32,7 @@ describe('a selection', () => {
   it('reads seeds and ranges, once each, and refuses anything else', () => {
     expect(parseSeeds('3-5,1, 4,10563')).toEqual([3, 4, 5, 1, 10_563])
     for (const text of ['0', '5-2', 'x', '', '1,,2', '-3'])
-      expect(() => parseSeeds(text)).toThrow('--seeds takes seeds and ranges')
+      expect(() => parseSeeds(text)).toThrow('--seeds takes seeds from 1 to')
   })
 
   it('selects the batch it names, or every batch, and prints the command for one seed', () => {
