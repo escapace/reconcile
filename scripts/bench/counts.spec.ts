@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
-import { instrumentCounts } from '../../scripts/profile-counts'
+import { instrumentCounts } from './counts'
 
 function prepare(source: string, path = 'src/types/fixture.ts') {
   const overlay = instrumentCounts(source, path)

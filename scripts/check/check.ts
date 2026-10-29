@@ -1,5 +1,5 @@
 import { UsageError, type Command, type Parsed } from '../framework/command'
-import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/fingerprint'
+import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/tree'
 import { withLock, type Lock } from '../framework/lock'
 import { BUDGET_SECONDS, roundDirectory, runRound, type Status } from '../framework/round'
 import { STATE } from '../framework/paths'

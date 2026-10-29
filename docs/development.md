@@ -165,7 +165,7 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
   result differ from native mutation are the policies in the native differential fixture.
 - **Public API or errors.** Update the TSDoc and the hand-written README; `pnpm build`
   regenerates the README's API section. A new export also goes into `OPERATIONS` or `OTHERS` and the
-  smoke `checks` in `scripts/bundle-size.ts`. Errors follow `src/error.ts`: one factory per
+  smoke `checks` in `scripts/bundles.ts`. Errors follow `src/error.ts`: one factory per
   type, so bundles keep only the errors they raise; names of the form
   `<Phase><Subject><Condition>`, such as `DeserializeLimitExceeded`; and only facts the
   detecting phase already holds.
@@ -192,7 +192,7 @@ A new kind changes every operation's contract and bundle.
    the two chains, add a `last === <position>` check after the new predicate, renumber the later
    ones and increase `FALLBACK_RANK`. Add it at the same position to the ordered scan in
    `scripts/recognition-scan.ts`, against which the tests check recognition.
-4. **Update the couplings** below: the counter rules in `scripts/profile-counts.ts`, the
+4. **Update the couplings** below: the counter rules in `scripts/bench/counts.ts`, the
    snapshot walk if the kind is observed inline, and for serialization a wire tag with its
    facets, size charge, Lean format and README entries, or else `serialize` rejects it.
 5. **Check** with `builtin-recognition.spec.ts` and `builtin-facets.spec.ts`, then `pnpm check`,
@@ -220,14 +220,14 @@ Some code and tooling must change together, and `pnpm test` does not catch a mis
 `pnpm check lean`, the counters, the measurements, the package or an invariant. Change both
 sides together.
 
-- **Profile harness.** `scripts/profile.ts` rewrites `perf/profile-harness.ts` by exact text (the
-  `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for the
-  `diag-*`, `serialize`, `deserialize` and small scenarios, imports the measured tree's
-  `src/index.ts`. Renaming or moving any of these breaks `pnpm bench profile` and `ab`, which
-  bundles through the same harness. These scenarios always come from the current checkout's
-  `scripts/profile-scenarios.ts`.
-- **Counters.** `scripts/profile-counts.ts` instruments call sites by file path and exact callee,
-  function or expression text. `profile-counts.spec.ts` fails only when one of its four
+- **Profile harness.** `scripts/bench/harness.ts` rewrites `perf/profile-harness.ts` by exact
+  text (the `./scenarios` imports, the `profileScenarios` registry, the measurement loop) and, for
+  the `diag-*`, `serialize`, `deserialize` and small scenarios, imports the measured tree's
+  `src/index.ts`. Renaming or moving any of these breaks `pnpm bench profile`, `counts` and `ab`,
+  which bundle the same harness. These scenarios always come from the current checkout's
+  `scripts/bench/diagnostics.ts`.
+- **Counters.** `scripts/bench/counts.ts` instruments call sites by file path and exact callee,
+  function or expression text. `counts.spec.ts` fails only when one of its four
   text-matched counters finds no site at all or the `observation.events` sites leave their two
   files; renaming or moving any other rule's site, such as
   `propertySlots` or `matchesKind`, drops a counter, and a new recognition predicate in
@@ -309,42 +309,44 @@ through stand-ins.
 
 ## Performance work
 
-### Rounds
+### Experiments and rounds
 
-- A _default round_ is `pnpm bench ab --baseline <control> --out <dir>` over the six default
-  scenarios, and a _small round_ adds `--round small` for the ten small ones. Each guards against
-  large regressions only, and a change runs both.
-- A _deciding round_ adds `--scenario <name> --pairs 32 --seconds 1`. Two deciding rounds are two
-  separate runs, one after the other, each with its own `--out`.
-- An _A/A round_ runs the control against a copy of itself with deciding settings, to check
+`pnpm bench control` freezes a _control_: it exports a revision, `HEAD` by default, or with
+`--worktree` the working tree, into a new _experiment_ under `$XDG_STATE_HOME/reconcile/experiments`.
+A command given `--control <experiment>` compares the measured tree with that control and keeps its
+rounds in the experiment; `latest` names the newest experiment. `--tree` names the measured tree,
+this checkout by default. Both trees use this checkout's dependencies, and `--build` also builds
+the control, which `size --control` needs.
+
+- A _default round_ is `pnpm bench ab default --control <experiment>` over the six default
+  scenarios, and a _small round_ is `pnpm bench ab small` over the ten small ones. Each guards
+  against large regressions only, and a change runs both.
+- A _deciding round_ is `pnpm bench ab <scenario> --decide`: 32 pairs, each process measuring for
+  about a second. Two deciding rounds are two separate runs.
+- An _A/A round_ passes the control's own tree, `tree/` in the experiment, as `--tree`, to check
   noise.
 
 The header of `scripts/bench-workloads.ts` says what each scenario runs. The serialization and small
-workloads live outside `perf/`, so they run against any control. The `diag-*` diagnostics that `pnpm
-bench profile --help` lists target particular shapes, and most scale with `--size`; add one for a
-new shape instead of changing a frozen workload.
+workloads live outside `perf/`, so they run against any control. The `diag-*` diagnostics in
+`scripts/bench/diagnostics.ts` target particular shapes, and most scale with `--size`; add one for
+a new shape instead of changing a frozen workload. `pnpm bench --help` lists every scenario.
 
 ### Protocol
 
-1. **Freeze a control.** Export the source tree outside the repository, for example
-   `mkdir <control> && git archive HEAD | tar -x -C <control>` on a clean tree, and record
-   `git rev-parse HEAD`. `ab` and `profile` use this checkout's dependencies, so the
-   bare tree is enough for them. For its bundle sizes, run
-   `pnpm install --frozen-lockfile --ignore-scripts && pnpm build` in `<control>`, then
-   `pnpm bench size --entry <control>/lib/neutral/index.js --out <dir>` here.
+1. **Freeze a control** with `pnpm bench control`, adding `--build` to compare bundle sizes.
 2. **Write down the hypothesis** before measuring: which repeated work disappears, which counters
    fall or stay equal, and the expected effect, checked with the cost screen below. For an idea
    taken from another library, read its original change and later fixes, and find out who owns
    the data and what invalidates it.
-3. **Locate the work** on the control with `pnpm bench profile <scenario> --candidate <control>`,
-   in `--mode cpu` and `--mode counts`.
+3. **Locate the work** on the control with `pnpm bench profile <scenario>` and
+   `pnpm bench counts <scenario>`, each with `--tree` set to the control's tree.
 4. **Bound before building.** When the gain is uncertain, remove the work unsafely in a scratch
-   copy and time that copy with a deciding round. If even the unsafe bound does not read faster,
-   drop the idea before any proof work.
-5. **Change one thing,** then run `--mode counts` with `--baseline <control>`. Stop if the predicted
-   counter does not fall or another counter moves; otherwise run a default round to check for
-   losses. If the first version misses, one further change justified by the counts or profile is
-   allowed; then keep the change, or revert it and reject the hypothesis.
+   copy and time that copy, as `--tree`, with a deciding round. If even the unsafe bound does not
+   read faster, drop the idea before any proof work.
+5. **Change one thing,** then run `pnpm bench counts <scenario> --control <experiment>`. Stop if
+   the predicted counter does not fall or another counter moves; otherwise run a default round to
+   check for losses. If the first version misses, one further change justified by the counts or
+   profile is allowed; then keep the change, or revert it and reject the hypothesis.
 6. **Check semantics beyond the tests.** Near an observation boundary, compare results, errors and
    identities with the control's, and check that each trace difference keeps the read discipline in
    [What must not change](#what-must-not-change). Write a one-off script outside the repository
@@ -353,10 +355,10 @@ new shape instead of changing a frozen workload.
    and cycles; `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts`
    help. Plant a mutant for each new guard to confirm that a test kills it.
 7. **Time it** with a default round, a small round and two deciding rounds on the target, and
-   **measure bundles** against the control's `sizes.json`.
+   **measure bundles** with `pnpm bench size --control <experiment>`.
 8. **Run the checkpoint and report** the outcome alongside the change: each workload's reading
-   against the control and the bundle-size change. Keep frozen trees, receipts and one-off
-   scripts outside the repository.
+   against the control, which `pnpm bench report` gathers, and the bundle-size change. Keep
+   one-off scripts outside the repository.
 
 **Acceptance.** Report `snapshot`, `reconcile`, `reconcile-plain-object` and `produce` separately,
 plus `serialize` and `deserialize` when serialization changes, and the small scenarios of each
@@ -375,23 +377,24 @@ cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot
 
 ### Reading results
 
-`pnpm bench help` and `pnpm bench <command> --help` list the commands, scenarios and flags.
+`pnpm bench --help` and `pnpm bench <command> --help` list the commands, scenarios and flags. Each
+command prints the directory that keeps its output and receipt.
 
-- **`ab`** prints its table and writes it, with its reading legend, to `report.md`. Explicit
-  `--batches` and `--warmup` override the automatic sizing, as a heavy diagnostic size needs. An
-  exported control has no commit, which is why the protocol records it.
+- **`ab`** prints its table and writes it, with its reading legend, to `report.md`, beside
+  `plan.json`, which records the design before the first sample, and `samples.json`. Explicit
+  `--batches` and `--warmup` override the automatic sizing, as a heavy diagnostic size needs.
+- **`report`** gathers an experiment's `ab` rounds on the measured tree's latest sources: each
+  workload's readings, what the acceptance rule concludes, and the rounds still missing.
 - **`profile`** writes `summary.json`, the raw artifact (under `raw/`) and the bundle with its
-  source map to a new `reconcile-profile-*` directory inside `--out`:
-  - `--mode counts` counts instrumented source events (constructions, not allocations), such as
-    recognitions, memo hits and alias visits.
+  source map:
   - `--mode cpu` (the default) and `--mode heap` sample time or allocation and attribute frames
     to source through the bundle's source map; the raw `.cpuprofile` and `.heapprofile` files
     open in Chrome DevTools. Samples include fixture work.
   - `--mode deopt` traces optimizations and deoptimizations; treat them as signals only.
-  - `--baseline` takes `--mode counts` only. It counts each tree once in its own process, since
-    counts are exact, and `comparison.json` lists each counter that differs with its baseline and
-    candidate counts; each tree's run sits in `baseline/` or `candidate/`. Timing comparisons
-    belong to `ab`.
+- **`counts`** counts instrumented source events (constructions, not allocations), such as
+  recognitions, memo hits and alias visits. Counts are exact, so one run per tree decides; with
+  `--control`, each scenario's `comparison.json` lists each counter that differs as
+  `[control, tree]`. Timing comparisons belong to `ab`.
 
 ### Traps
 
@@ -400,8 +403,8 @@ cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot
 - **Too few pairs.** A gain of a few percent needs 32-pair rounds; 16-pair rounds of one change
   can disagree in sign.
 - **Too little measured work.** Short processes are noisy. Keep the automatic batch sizing.
-- **Load.** Another process on the machine moves results by several percent; check `uptime`
-  first.
+- **Load.** Another process on the machine moves results by several percent; `pnpm bench` warns
+  when the load average is above 1.
 
 ## Bundle size and tree shaking
 
@@ -427,15 +430,13 @@ Consumer bundlers drop code that no used export reaches (_tree shaking_). These 
   opt-in property mangling must restrict it to its own private properties and keep library,
   native and public property names; the package ships its own audited mangle list.
 
-`pnpm bench size` also bundles an import that uses nothing with `sideEffects` ignored; that
-bundle must be empty, which is the check that catches an unannotated top-level call.
+The `lib` round also bundles an import that uses nothing with `sideEffects` ignored; that bundle
+must be empty, which is the check that catches an unannotated top-level call.
 
-To find which module grew, bundle one export from the sources with `loadEsbuild()` from
-`scripts/esbuild.ts` and the options `scripts/bundle-size.ts` uses plus `metafile: true`, with
-`mangleProps` built from the `neutral` build's `mangle` list in `scripts/constants.json` as
-`scripts/build.ts` does; then compare `metafile.outputs[*].inputs[file].bytesInOutput`. Profile and
-`ab` bundles are unmangled, so take sizes only from the package. Gzip removes repetition, so only
-removing distinct logic saves bytes.
+To find which module grew, `pnpm bench size --modules <exports> --control <experiment>` lists the
+bytes each source module adds to that bundle, built from the sources with the package's renaming
+of internal properties. Profile and `ab` bundles are unmangled, so take sizes only from `size`.
+Gzip removes repetition, so only removing distinct logic saves bytes.
 
 ## JavaScript engine notes
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type * as API from '../src/index'
+import type * as API from '../../src/index'
 import {
   flatOperation,
   serializationFixtures,
@@ -8,7 +8,7 @@ import {
   smallScenarioNames,
   type SmallScenarioName,
   textCodec,
-} from './bench-workloads'
+} from '../bench-workloads'
 
 export const diagnosticNames = [
   'diag-noop',

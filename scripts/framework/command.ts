@@ -102,8 +102,9 @@ export function help(invocation: string, command: Command): string {
 }
 
 /** An option as `parseArgs` takes it, which refuses a field that is present but undefined. */
-const parseOption = ({ multiple, short, type }: Option) => ({
+const parseOption = ({ default: value, multiple, short, type }: Option) => ({
   type,
+  ...(value === undefined ? {} : { default: value }),
   ...(multiple === undefined ? {} : { multiple }),
   ...(short === undefined ? {} : { short }),
 })

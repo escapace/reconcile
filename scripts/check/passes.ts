@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import type { Inputs } from '../framework/fingerprint'
+import type { Inputs } from '../framework/tree'
 import { STATE } from '../framework/paths'
 
 /** A round that passed, and the inputs it passed on. */

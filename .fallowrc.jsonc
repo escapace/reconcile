@@ -3,7 +3,7 @@
 
   // Development tooling that no package.json field or built-in plugin reveals: the maintainer
   // CLI, the scripts and the library test configuration its rounds launch by path, and the
-  // profiling harness that profile.ts bundles by path. The support role keeps them out of the
+  // frozen harness that the bench tools bundle by path. The support role keeps them out of the
   // shipped-code checks.
   "framework": [
     {
@@ -13,10 +13,14 @@
       "enablers": ["tsx"],
       "entryPoints": [
         "scripts/cli.ts",
+        "scripts/bench/ab.ts",
+        "scripts/bench/control.ts",
+        "scripts/bench/counts.ts",
+        "scripts/bench/profile.ts",
+        "scripts/bench/size.ts",
+        "scripts/bundles.ts",
         "scripts/check/mutants.ts",
-        "scripts/profile.ts",
         "scripts/check-lean.ts",
-        "scripts/bundle-size.ts",
         "perf/profile-harness.ts",
         "vitest-library.config.ts",
       ],
@@ -24,8 +28,11 @@
     },
   ],
 
-  // The frozen perf/ workloads keep their exports unchanged even where no tool reads them.
-  "ignoreExports": [{ "exports": ["BATCH_SIZE"], "file": "perf/scenarios.ts" }],
+  // The frozen workloads keep their exports unchanged even where no tool reads them.
+  "ignoreExports": [
+    { "exports": ["BATCH_SIZE"], "file": "perf/scenarios.ts" },
+    { "exports": ["defaultScenarioNames"], "file": "scripts/bench-workloads.ts" },
+  ],
 
   // The engine calls Proxy handler traps; no source reference names them.
   "usedClassMembers": [

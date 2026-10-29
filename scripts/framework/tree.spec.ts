@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { changedFiles, inputs, matches } from './fingerprint'
+import { changedFiles, inputs, matches } from './tree'
 
 const roots: string[] = []
 

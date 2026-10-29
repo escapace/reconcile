@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { script } from '../framework/entry'
 import { ROOT } from '../framework/paths'
 import type { Step } from '../framework/round'
 
@@ -35,26 +36,8 @@ const GUIDES = ['AGENTS.md', 'docs/']
 /** The README and the guides. Only `static` reads them, and `lib` the README, whose API section
  * the build regenerates. */
 const DOCS = ['README.md', ...GUIDES]
-/** The measurement tooling, which only `static` and `test` read. */
-const BENCH = [
-  'perf/',
-  'scripts/ab-time.py',
-  'scripts/bench/',
-  'scripts/profile-attribution.ts',
-  'scripts/profile-counts.ts',
-  'scripts/profile-deopts.ts',
-  'scripts/profile-frames.ts',
-  'scripts/profile-summary.ts',
-  'scripts/profile.ts',
-  'scripts/test-ab-time.py',
-]
-/** What `lib` reads of the measurement tooling besides: the workloads and diagnostics, which
- * `profile-scenarios.spec.ts` runs against the package, and the bundle checks. */
-const LIB_TOOLING = [
-  'scripts/bench-workloads.ts',
-  'scripts/bundle-size.ts',
-  'scripts/profile-scenarios.ts',
-]
+/** The measurement tooling and the frozen workloads, which only `static` and `test` read. */
+const BENCH = ['perf/', 'scripts/bench/', 'scripts/bench-workloads.ts']
 
 /** The specs that run only with a native `Temporal`. */
 const TEMPORAL_SPECS = ['src/__tests__/deserialize-limit.spec.ts', 'src/__tests__/temporal.spec.ts']
@@ -158,11 +141,14 @@ export const ROUNDS: readonly RoundDefinition[] = [
     steps: (_, directory) => [
       pnpm('build', 'run', '--silent', 'build'),
       pnpm('vitest', 'exec', 'vitest', '--no-watch', '--config', 'vitest-library.config.ts'),
-      tsx('bundles', 'scripts/bundle-size.ts', ['--out', path.join(directory, 'bundles')]),
+      {
+        command: script('scripts/bundles.ts', { directory: path.join(directory, 'bundles') }),
+        name: 'bundles',
+      },
     ],
   },
   {
-    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
+    exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'temporal',
     narrowed: whole,
     summary:
@@ -194,7 +180,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
     },
   },
   {
-    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
+    exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'lean',
     narrowed: whole,
     summary: 'The gate: proofs without warnings or extra axioms, and every runtime-to-Lean bridge.',
@@ -214,14 +200,17 @@ export const ROUNDS: readonly RoundDefinition[] = [
     },
   },
   {
-    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
+    exclude: [...DOCS, ...BENCH, 'scripts/bundles.ts'],
     name: 'mutants',
     summary: 'The mutation audit: every deliberate runtime defect the bridges must detect.',
     narrowed: ({ names, seeds }) => names.length > 0 || (seeds !== undefined && seeds !== '1500'),
     steps: ({ names, seeds }) => [
       toolchain(),
       lakeBuild(leanEnvironment()),
-      tsx('audit', 'scripts/check/mutants.ts', ['--seeds', seeds ?? '1500', ...names]),
+      {
+        command: script('scripts/check/mutants.ts', { names, seeds: Number(seeds ?? '1500') }),
+        name: 'audit',
+      },
     ],
   },
 ]

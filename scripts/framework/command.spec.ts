@@ -52,9 +52,13 @@ describe('help', () => {
 })
 
 describe('main', () => {
-  it('runs a subcommand with its parsed options', async () => {
+  it('runs a subcommand with its parsed options, defaults included', async () => {
     expect((await cli('tool', 'run', '--size', '3', 'x')).code).toBe(0)
-    expect(ran).toEqual([{ positionals: ['x'], values: { size: '3' } }])
+    expect((await cli('tool', 'run')).code).toBe(0)
+    expect(ran).toEqual([
+      { positionals: ['x'], values: { size: '3' } },
+      { positionals: [], values: { size: '1' } },
+    ])
   })
 
   it('prints help for a group, `help <command>` and `--help` without running anything', async () => {

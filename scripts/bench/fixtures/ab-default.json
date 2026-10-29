@@ -1,0 +1,924 @@
+{
+  "rows": [
+    {
+      "elapsedMs": 392.6261319999999,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 0,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 403.497484,
+      "label": "control",
+      "operations": 51450,
+      "pair": 0,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 424.60574199999996,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 0,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 405.38315,
+      "label": "control",
+      "operations": 7050,
+      "pair": 0,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 407.40538000000004,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 0,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 397.199289,
+      "label": "control",
+      "operations": 26400,
+      "pair": 0,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 437.627765,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 0,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 448.94081600000004,
+      "label": "control",
+      "operations": 8100,
+      "pair": 0,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1408.3196630000002,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 0,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1312.6878490000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 0,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 693.8696269999999,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 0,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 791.9189779999999,
+      "label": "control",
+      "operations": 3000,
+      "pair": 0,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 430.930515,
+      "label": "control",
+      "operations": 51450,
+      "pair": 1,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 392.711836,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 1,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 381.059423,
+      "label": "control",
+      "operations": 7050,
+      "pair": 1,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 435.19255699999997,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 1,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 375.7941440000001,
+      "label": "control",
+      "operations": 26400,
+      "pair": 1,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 410.58432100000005,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 1,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 392.716323,
+      "label": "control",
+      "operations": 8100,
+      "pair": 1,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 381.02641700000004,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 1,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1393.501073,
+      "label": "control",
+      "operations": 3000,
+      "pair": 1,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1388.4698400000002,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 1,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 805.675303,
+      "label": "control",
+      "operations": 3000,
+      "pair": 1,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 919.5405059999998,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 1,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 526.834822,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 2,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 403.61078200000003,
+      "label": "control",
+      "operations": 51450,
+      "pair": 2,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 416.733579,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 2,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 421.77918299999993,
+      "label": "control",
+      "operations": 7050,
+      "pair": 2,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 373.986954,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 2,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 329.369501,
+      "label": "control",
+      "operations": 26400,
+      "pair": 2,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 383.31444099999993,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 2,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 398.57955,
+      "label": "control",
+      "operations": 8100,
+      "pair": 2,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1305.773107,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 2,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1252.300489,
+      "label": "control",
+      "operations": 3000,
+      "pair": 2,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 692.8398320000001,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 2,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 726.832678,
+      "label": "control",
+      "operations": 3000,
+      "pair": 2,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 367.649363,
+      "label": "control",
+      "operations": 51450,
+      "pair": 3,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 433.936135,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 3,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 409.02573500000005,
+      "label": "control",
+      "operations": 7050,
+      "pair": 3,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 469.40493799999996,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 3,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 360.879917,
+      "label": "control",
+      "operations": 26400,
+      "pair": 3,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 358.39481100000006,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 3,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 411.616661,
+      "label": "control",
+      "operations": 8100,
+      "pair": 3,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 406.137768,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 3,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1185.021367,
+      "label": "control",
+      "operations": 3000,
+      "pair": 3,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1297.329844,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 3,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 750.554323,
+      "label": "control",
+      "operations": 3000,
+      "pair": 3,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 785.514222,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 3,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 406.716988,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 4,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 360.07642100000004,
+      "label": "control",
+      "operations": 51450,
+      "pair": 4,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 481.024443,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 4,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 382.81080700000007,
+      "label": "control",
+      "operations": 7050,
+      "pair": 4,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 384.318616,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 4,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 355.966467,
+      "label": "control",
+      "operations": 26400,
+      "pair": 4,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 395.17762,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 4,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 436.882845,
+      "label": "control",
+      "operations": 8100,
+      "pair": 4,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1346.715534,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 4,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1303.4857189999998,
+      "label": "control",
+      "operations": 3000,
+      "pair": 4,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 736.8597789999999,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 4,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 770.2676560000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 4,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 429.91851099999997,
+      "label": "control",
+      "operations": 51450,
+      "pair": 5,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 381.72306199999997,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 5,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 429.906013,
+      "label": "control",
+      "operations": 7050,
+      "pair": 5,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 466.36269000000004,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 5,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 361.578296,
+      "label": "control",
+      "operations": 26400,
+      "pair": 5,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 397.570245,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 5,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 481.97080700000004,
+      "label": "control",
+      "operations": 8100,
+      "pair": 5,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 379.007779,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 5,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1339.711557,
+      "label": "control",
+      "operations": 3000,
+      "pair": 5,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1342.873101,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 5,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 713.498564,
+      "label": "control",
+      "operations": 3000,
+      "pair": 5,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 760.960085,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 5,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 402.541099,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 6,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 409.92698099999996,
+      "label": "control",
+      "operations": 51450,
+      "pair": 6,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 445.38813400000004,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 6,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 394.42609500000003,
+      "label": "control",
+      "operations": 7050,
+      "pair": 6,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 386.50921999999997,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 6,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 342.060036,
+      "label": "control",
+      "operations": 26400,
+      "pair": 6,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 373.257721,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 6,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 381.575602,
+      "label": "control",
+      "operations": 8100,
+      "pair": 6,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1418.058079,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 6,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1306.13424,
+      "label": "control",
+      "operations": 3000,
+      "pair": 6,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 741.5002589999999,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 6,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 747.7026440000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 6,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 397.432912,
+      "label": "control",
+      "operations": 51450,
+      "pair": 7,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 402.1051499999999,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 7,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 390.847526,
+      "label": "control",
+      "operations": 7050,
+      "pair": 7,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 423.894046,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 7,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 337.528971,
+      "label": "control",
+      "operations": 26400,
+      "pair": 7,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 380.543468,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 7,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 460.82546899999994,
+      "label": "control",
+      "operations": 8100,
+      "pair": 7,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 404.56728,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 7,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1480.5123859999999,
+      "label": "control",
+      "operations": 3000,
+      "pair": 7,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1360.8665600000002,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 7,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 795.3848780000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 7,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 793.068892,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 7,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 397.98503800000003,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 8,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 389.03424100000007,
+      "label": "control",
+      "operations": 51450,
+      "pair": 8,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 384.499454,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 8,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 398.48664399999996,
+      "label": "control",
+      "operations": 7050,
+      "pair": 8,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 355.388348,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 8,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 353.035832,
+      "label": "control",
+      "operations": 26400,
+      "pair": 8,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 439.137745,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 8,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 453.31586300000004,
+      "label": "control",
+      "operations": 8100,
+      "pair": 8,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1437.1970850000002,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 8,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1302.85125,
+      "label": "control",
+      "operations": 3000,
+      "pair": 8,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 787.8168260000001,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 8,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 755.5709870000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 8,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 361.397637,
+      "label": "control",
+      "operations": 51450,
+      "pair": 9,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 357.59591099999994,
+      "label": "tree",
+      "operations": 51450,
+      "pair": 9,
+      "scenario": "snapshot"
+    },
+    {
+      "elapsedMs": 466.932294,
+      "label": "control",
+      "operations": 7050,
+      "pair": 9,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 458.485315,
+      "label": "tree",
+      "operations": 7050,
+      "pair": 9,
+      "scenario": "reconcile"
+    },
+    {
+      "elapsedMs": 363.167072,
+      "label": "control",
+      "operations": 26400,
+      "pair": 9,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 459.03782,
+      "label": "tree",
+      "operations": 26400,
+      "pair": 9,
+      "scenario": "reconcile-plain-object"
+    },
+    {
+      "elapsedMs": 432.06920199999996,
+      "label": "control",
+      "operations": 8100,
+      "pair": 9,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 390.441916,
+      "label": "tree",
+      "operations": 8100,
+      "pair": 9,
+      "scenario": "produce"
+    },
+    {
+      "elapsedMs": 1346.4871159999998,
+      "label": "control",
+      "operations": 3000,
+      "pair": 9,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 1275.6848909999999,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 9,
+      "scenario": "serialize"
+    },
+    {
+      "elapsedMs": 742.7751170000001,
+      "label": "control",
+      "operations": 3000,
+      "pair": 9,
+      "scenario": "deserialize"
+    },
+    {
+      "elapsedMs": 705.098986,
+      "label": "tree",
+      "operations": 3000,
+      "pair": 9,
+      "scenario": "deserialize"
+    }
+  ],
+  "summary": {
+    "deserialize": {
+      "controlMedianUsPerOperation": 251.02088499999996,
+      "fasterPairs": 6,
+      "medianPairedPercentChange": -0.5603518242673744,
+      "medianPairedPercentInterval": [-4.676846133767231, 4.462810855041788],
+      "pairedPercentChanges": [
+        -12.38123516721682, 14.132889834901619, -4.676846133767231, 4.657877242018116,
+        -4.33717769917632, 6.651943450863063, -0.8295256208830759, -0.2911780276516729,
+        4.26774446806546, -5.07234695100861
+      ],
+      "reading": "unresolved",
+      "treeMedianUsPerOperation": 250.41005733333333
+    },
+    "produce": {
+      "controlMedianUsPerOperation": 53.63901524691358,
+      "fasterPairs": 10,
+      "medianPairedPercentChange": -3.4787620926346463,
+      "medianPairedPercentInterval": [-9.634402500180972, -2.5199426286960813],
+      "pairedPercentChanges": [
+        -2.5199426286960813, -2.9766794287284903, -3.8298776241781685, -1.3310668685493354,
+        -9.546088952062192, -21.36291794121049, -2.1798775803281045, -12.208133617718941,
+        -3.127646561091124, -9.634402500180972
+      ],
+      "reading": "faster",
+      "treeMedianUsPerOperation": 48.49503308641975
+    },
+    "reconcile": {
+      "controlMedianUsPerOperation": 57.012042127659576,
+      "fasterPairs": 3,
+      "medianPairedPercentChange": 8.467621528617098,
+      "medianPairedPercentInterval": [1.4663978910794018, 14.205956009123533],
+      "pairedPercentChanges": [
+        4.741833004159135, 14.205956009123533, -1.1962667204464483, 14.76171248735727,
+        25.655920419195468, 8.48015052071396, 12.920554609856637, 8.455092536520237,
+        -3.5100774920827527, -1.8090372220003315
+      ],
+      "reading": "slower",
+      "treeMedianUsPerOperation": 62.45253127659574
+    },
+    "reconcile-plain-object": {
+      "controlMedianUsPerOperation": 13.57663606060606,
+      "fasterPairs": 1,
+      "medianPairedPercentChange": 9.605949184501617,
+      "medianPairedPercentInterval": [4.315602261320139, 12.869249260240036],
+      "pairedPercentChanges": [
+        2.5695139147139834, 9.257775182361527, 13.546321946791306, -0.6886240776872943,
+        7.964837036180716, 9.954123186641706, 12.994556312331063, 12.743942208149006,
+        0.6663674864595626, 26.398524368420716
+      ],
+      "reading": "slower",
+      "treeMedianUsPerOperation": 14.599012045454543
+    },
+    "serialize": {
+      "controlMedianUsPerOperation": 436.47034816666667,
+      "fasterPairs": 3,
+      "medianPairedPercentChange": 3.7932144491245934,
+      "medianPairedPercentInterval": [-0.3610498116925154, 7.9271411674385455],
+      "pairedPercentChanges": [
+        7.2851907689137185, -0.3610498116925154, 4.269951059645405, 9.47733771959911,
+        3.316477838603782, 0.23598691699573404, 8.569091565963372, -8.081379604209516,
+        10.311678712362626, -5.258292051863933
+      ],
+      "reading": "unresolved",
+      "treeMedianUsPerOperation": 451.2636823333334
+    },
+    "snapshot": {
+      "controlMedianUsPerOperation": 7.783580136054422,
+      "fasterPairs": 5,
+      "medianPairedPercentChange": 0.06182660709137533,
+      "medianPairedPercentInterval": [-2.6942799970470332, 9.602746591386126],
+      "pairedPercentChanges": [
+        -2.6942799970470332, -8.868872746224532, 30.53041333271418, 18.029888984194976,
+        12.952963393290329, -11.210368422586948, -1.8017555180150469, 1.1756041985772736,
+        2.300773571239434, -1.051950984394523
+      ],
+      "reading": "unresolved",
+      "treeMedianUsPerOperation": 7.7754148493683175
+    }
+  }
+}

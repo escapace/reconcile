@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 const state = mkdtempSync(path.join(tmpdir(), 'reconcile-check-spec-'))
 process.env.RECONCILE_STATE = state
 const { main } = await import('../framework/command')
-const { inputs } = await import('../framework/fingerprint')
+const { inputs } = await import('../framework/tree')
 const { check } = await import('./check')
 const { recordPass } = await import('./passes')
 const { ROUNDS } = await import('./rounds')

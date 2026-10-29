@@ -1,8 +1,18 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, statSync, type Stats } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  type Stats,
+} from 'node:fs'
 import path from 'node:path'
 import { ROOT } from './paths'
+
+// The working tree as the tooling sees it: its files, their fingerprint and copies of it.
 
 /**
  * What a round's result depends on: the content of every file of the working tree that the round
@@ -24,7 +34,7 @@ export function matches(file: string, pattern: string): boolean {
 }
 
 /** The working tree's files as git lists them: tracked, and untracked but not ignored. */
-export function treeFiles(root = ROOT): string[] {
+function treeFiles(root = ROOT): string[] {
   const listed = spawnSync(
     'git',
     ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
@@ -95,4 +105,17 @@ export function changedEnvironment(
   after: Inputs['environment'],
 ): string[] {
   return Object.keys(after).filter((key) => before[key] !== after[key])
+}
+
+/** Copies the working tree's files into `destination`, with their modes; deleted files and
+ * nested repositories are left out. */
+export function copyTree(destination: string, root = ROOT): void {
+  for (const file of treeFiles(root)) {
+    const from = path.join(root, file)
+    if (file.endsWith('/') || !existsSync(from)) continue
+    const to = path.join(destination, file)
+    mkdirSync(path.dirname(to), { recursive: true })
+    copyFileSync(from, to)
+    chmodSync(to, statSync(from).mode)
+  }
 }

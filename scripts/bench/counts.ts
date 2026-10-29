@@ -1,4 +1,11 @@
+import assert from 'node:assert/strict'
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import ts from 'typescript'
+import { BATCH_SIZE } from '../../perf/config'
+import { entry } from '../framework/entry'
+import { bundleHarness, record, runHarness, type Counting } from './harness'
+import { inOverlay } from './scenarios'
 
 const intrinsic = new Set([
   'Object.getOwnPropertyDescriptor',
@@ -361,7 +368,7 @@ export function instrumentCounts(source: string, path: string) {
   return { contents, sites }
 }
 
-export const counterSetup = `
+const counterSetup = `
 let diagnosticCounts = Object.create(null)
 let diagnosticIdentities = Object.create(null)
 globalThis.__reconcileCount = (key, identity) => {
@@ -375,6 +382,152 @@ globalThis.__reconcileCount = (key, identity) => {
   }
 }
 `
-export const counterReset =
+const counterReset =
   'diagnosticCounts = Object.create(null)\ndiagnosticIdentities = Object.create(null)\n'
-export const counterReport = "console.log('RECONCILE_COUNTS ' + JSON.stringify(diagnosticCounts))\n"
+const counterReport = "console.log('RECONCILE_COUNTS ' + JSON.stringify(diagnosticCounts))\n"
+
+type Counts = Record<string, number>
+
+const IDENTITY_COUNTERS = ['classification.full', 'classification.expected']
+
+/** Instrumented sites that never ran still report zero. */
+function zeroFillSites(counts: Counts, counterSites: Record<string, Counts>): void {
+  for (const sites of Object.values(counterSites))
+    for (const key of Object.keys(sites)) counts[key] ??= 0
+}
+
+function assertCounters(counts: Counts): void {
+  for (const count of Object.values(counts))
+    assert(Number.isSafeInteger(count) && count >= 0, 'Invalid counter')
+}
+
+function addMemoHits(counts: Counts): void {
+  if ('classification.memoLookups' in counts && 'classification.memoMiss' in counts) {
+    counts['classification.memoHits'] =
+      counts['classification.memoLookups'] - counts['classification.memoMiss']
+    assert(counts['classification.memoHits'] >= 0)
+  }
+}
+
+function zeroFillIdentity(counts: Counts, key: string): void {
+  counts[`${key}.identities`] ??= 0
+  counts[`${key}.maximumPerIdentity`] ??= 0
+}
+
+export function countsResult(
+  counts: Record<string, number>,
+  counterSites: Record<string, Record<string, number>>,
+  operations: number,
+) {
+  zeroFillSites(counts, counterSites)
+  assertCounters(counts)
+  addMemoHits(counts)
+  for (const key of IDENTITY_COUNTERS) if (key in counts) zeroFillIdentity(counts, key)
+  return {
+    counts,
+    operations,
+    scope:
+      'Exact instrumented events; allocation counters describe source constructions, not physical V8 allocations. Counting time is not throughput.',
+  }
+}
+
+/** The counters whose counts differ between two runs, as `[control, tree]`; a counter one run
+ * lacks is `null` there. */
+export function countChanges(
+  control: Record<string, number>,
+  tree: Record<string, number>,
+): Record<string, [number | null, number | null]> {
+  const names = [...new Set([...Object.keys(control), ...Object.keys(tree)])].toSorted()
+  return Object.fromEntries(
+    names
+      .filter((name) => control[name] !== tree[name])
+      .map((name) => [name, [control[name] ?? null, tree[name] ?? null]]),
+  )
+}
+
+/** The counting overlay the harness bundles. */
+const COUNTING: Counting = {
+  instrument: instrumentCounts,
+  report: counterReport,
+  reset: counterReset,
+  setup: counterSetup,
+}
+
+/** The configuration `pnpm bench counts` passes. */
+interface Config {
+  readonly batches: number
+  /** The control's source tree, to compare with. */
+  readonly control: string | undefined
+  readonly directory: string
+  readonly scenarios: readonly string[]
+  readonly size: number
+  readonly tree: string
+  readonly warmup: number
+}
+
+/** Counts one scenario on one tree, keeping the bundle, the instrumented sources and the log. */
+async function count(config: Config, scenario: string, tree: string, directory: string) {
+  const harness = await bundleHarness({
+    counting: COUNTING,
+    directory,
+    overlay: inOverlay(scenario),
+    size: config.size,
+    tree,
+  })
+  const output = runHarness(
+    {
+      batches: config.batches,
+      bundle: harness.bundlePath,
+      log: path.join(directory, 'run.log'),
+      scenario,
+      warmup: config.warmup,
+    },
+    tree,
+  )
+  const counts = record(output, 'RECONCILE_COUNTS ') as Counts
+  const result = countsResult(counts, harness.counterSites, config.batches * BATCH_SIZE)
+  writeFileSync(path.join(directory, 'counts.json'), `${JSON.stringify(result, undefined, 2)}\n`)
+  return result
+}
+
+/** Counts each scenario on the tree and, with a control, reports the counters that differ;
+ * counts are exact, so one run per tree decides. */
+async function main(config: Config): Promise<number> {
+  for (const scenario of config.scenarios) {
+    const tree = await count(
+      config,
+      scenario,
+      config.tree,
+      path.join(config.directory, scenario, 'tree'),
+    )
+    if (config.control === undefined) {
+      console.log(`${scenario}: ${JSON.stringify(tree, undefined, 2)}`)
+      continue
+    }
+    const control = await count(
+      config,
+      scenario,
+      config.control,
+      path.join(config.directory, scenario, 'control'),
+    )
+    const changed = countChanges(control.counts, tree.counts)
+    const comparison = {
+      changed,
+      operations: tree.operations,
+      trees: { control: config.control, tree: config.tree },
+    }
+    writeFileSync(
+      path.join(config.directory, scenario, 'comparison.json'),
+      `${JSON.stringify(comparison, undefined, 2)}\n`,
+    )
+    const names = Object.keys(changed)
+    console.log(
+      names.length === 0
+        ? `${scenario}: every counter equals the control's`
+        : `${scenario}: ${names.length} counters differ, as [control, tree]: ${JSON.stringify(changed, undefined, 2)}`,
+    )
+  }
+  return 0
+}
+
+await entry(import.meta.filename, main)

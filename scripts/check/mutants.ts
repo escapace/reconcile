@@ -11,21 +11,18 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import {
-  chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { constants, tmpdir } from 'node:os'
 import path from 'node:path'
-import { parseArgs } from 'node:util'
-import { treeFiles } from '../framework/fingerprint'
+import { copyTree } from '../framework/tree'
+import { entry } from '../framework/entry'
 import { ROOT } from '../framework/paths'
 
 interface Mutant {
@@ -257,17 +254,9 @@ const ORACLE = path.join('.lake', 'build', 'bin', 'reconcile-oracle')
  * A copy of the working tree, tracked and untracked files alike, in which mutants are applied:
  * the installed dependencies and the built oracle are linked, not copied.
  */
-function copyTree(): string {
+function copyWorkingTree(): string {
   const copy = mkdtempSync(path.join(tmpdir(), 'reconcile-mutants-'))
-  for (const file of treeFiles()) {
-    const from = path.join(ROOT, file)
-    // A nested repository is listed as its directory; deleted files are listed too.
-    if (file.endsWith('/') || !existsSync(from)) continue
-    const to = path.join(copy, file)
-    mkdirSync(path.dirname(to), { recursive: true })
-    copyFileSync(from, to)
-    chmodSync(to, statSync(from).mode)
-  }
+  copyTree(copy)
   symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'))
   mkdirSync(path.join(copy, path.dirname(ORACLE)), { recursive: true })
   symlinkSync(path.join(ROOT, ORACLE), path.join(copy, ORACLE))
@@ -390,19 +379,20 @@ async function auditAll(copy: string, selected: readonly Mutant[], seeds: number
 /** The names `pnpm check mutants` accepts. */
 export const mutantNames: readonly string[] = MUTANTS.map((mutant) => mutant.name)
 
-async function main(): Promise<number> {
-  const { positionals, values } = parseArgs({
-    allowPositionals: true,
-    options: { seeds: { default: '1500', type: 'string' } },
-  })
-  const selected = MUTANTS.filter(
-    (mutant) => positionals.length === 0 || positionals.includes(mutant.name),
-  )
+/** The mutants round's configuration: the mutants to audit, all when empty, and the seeds of
+ * each Spec bridge run. */
+interface Config {
+  readonly names: readonly string[]
+  readonly seeds: number
+}
+
+async function main({ names, seeds }: Config): Promise<number> {
+  const selected = MUTANTS.filter((mutant) => names.length === 0 || names.includes(mutant.name))
   if (!existsSync(path.join(ROOT, ORACLE))) {
     console.error(`The oracle ${ORACLE} is missing; the round builds it first.`)
     return 1
   }
-  const copy = copyTree()
+  const copy = copyWorkingTree()
   const stop = (): void => {
     for (const group of running) killGroup(group)
     rmSync(copy, { force: true, recursive: true })
@@ -414,11 +404,10 @@ async function main(): Promise<number> {
       process.exit(128 + constants.signals[signal])
     })
   try {
-    return await auditAll(copy, selected, Number(values.seeds))
+    return await auditAll(copy, selected, seeds)
   } finally {
     stop()
   }
 }
 
-// The mutants round runs this file; `pnpm check` imports it only for the mutant names.
-if (path.resolve(process.argv[1] ?? '') === import.meta.filename) process.exitCode = await main()
+await entry(import.meta.filename, main)

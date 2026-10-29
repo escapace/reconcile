@@ -316,17 +316,3 @@ export function smallOperation(ports: WorkloadPorts, scenario: SmallScenarioName
     Number(scenario.slice(separator + 1)),
   )
 }
-
-/** Replaces `--round <name>` with its scenarios as `--scenario` arguments. */
-export function expandRound(arguments_: readonly string[]): string[] {
-  const index = arguments_.indexOf('--round')
-  if (index === -1) return [...arguments_]
-  const name = arguments_[index + 1]
-  if (name !== 'default' && name !== 'small')
-    throw new Error(`Unknown round ${String(name)}; choose default or small.`)
-  return [
-    ...arguments_.slice(0, index),
-    ...arguments_.slice(index + 2),
-    ...rounds[name].flatMap((scenario) => ['--scenario', scenario]),
-  ]
-}

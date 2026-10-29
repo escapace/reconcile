@@ -31,7 +31,8 @@ export interface Step {
   readonly name: string
   readonly cwd?: string
   /** Variables added to the environment; a function is called when the step starts, within the
-   * round's budget, and a step whose function throws fails. */
+   * round's budget, and a step whose function throws fails. Every step also gets
+   * `RECONCILE_DEADLINE`, the time in epoch milliseconds by which it must have ended. */
   readonly env?: (() => Readonly<Record<string, string>>) | Readonly<Record<string, string>>
 }
 
@@ -68,10 +69,10 @@ export interface RoundResult {
 
 const seconds = (since: number): number => Math.round((performance.now() - since) / 100) / 10
 
-/** A new directory for one round's logs and receipt. */
-export function roundDirectory(name: string): string {
+/** A new directory for one round's logs and receipt, under `parent`. */
+export function roundDirectory(name: string, parent = path.join(STATE, 'runs')): string {
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-')
-  const base = path.join(STATE, 'runs', `${stamp}-${name.replaceAll(/[^a-z0-9]+/gi, '-')}`)
+  const base = path.join(parent, `${stamp}-${name.replaceAll(/[^a-z0-9]+/gi, '-')}`)
   mkdirSync(path.dirname(base), { recursive: true })
   for (let suffix = 1; ; suffix += 1) {
     const candidate = suffix === 1 ? base : `${base}-${suffix}`
@@ -114,10 +115,15 @@ function launch(
   step: Step,
   output: WriteStream,
   echo: boolean,
+  deadline: number,
 ): { ended: Promise<Ending>; group: number | undefined } {
   let environment: NodeJS.ProcessEnv
   try {
-    environment = { ...process.env, ...(typeof step.env === 'function' ? step.env() : step.env) }
+    environment = {
+      ...process.env,
+      ...(typeof step.env === 'function' ? step.env() : step.env),
+      RECONCILE_DEADLINE: String(Math.round(Date.now() + deadline - performance.now())),
+    }
   } catch (error) {
     output.write(`${(error as Error).message}\n`)
     return { ended: Promise.resolve({ code: 1, signal: null }), group: undefined }
@@ -165,7 +171,7 @@ async function runStep(
 ): Promise<StepResult> {
   const started = performance.now()
   const output = createWriteStream(log)
-  const { ended, group } = launch(step, output, echo)
+  const { ended, group } = launch(step, output, echo, deadline)
   setGroup(control, group)
   let timedOut = false
   const timer = setTimeout(

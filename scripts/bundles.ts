@@ -1,35 +1,25 @@
 /**
- * Consumer bundle review (`pnpm bench size`).
+ * The consumer bundles: every nonempty combination of the six operations, and each other runtime
+ * export on its own, bundled from a built package with esbuild, minified for a browser ES2022
+ * target, with their minified and gzip (level 9) sizes. Published source size does not measure
+ * consumer tree shaking; these are the bundles consumers actually ship.
  *
- * Bundles every nonempty combination of the six operations, and each other runtime export on
- * its own, from the built ESM entry point with esbuild, minified for a browser ES2022 target,
- * then reports minified and gzip (level 9) sizes. It checks
- * that the package's top-level code is removable (an import that uses nothing emits no
- * JavaScript even when the package's `sideEffects: false` is ignored), smoke-tests each bundle,
- * and writes `sizes.json`. Published source size does not measure consumer tree shaking; this
- * script measures the bundles consumers actually ship. Build the package first.
+ * Run by the `lib` round, it also checks that the package's top-level code is removable (an
+ * import that uses nothing emits no JavaScript even when the package's `sideEffects: false` is
+ * ignored) and smoke-tests each bundle; `pnpm bench size` compares the sizes.
  */
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { parseArgs } from 'node:util'
 import { gzipSync } from 'node:zlib'
 import { loadEsbuild } from './esbuild'
+import { entry as runEntry } from './framework/entry'
+import { ROOT } from './framework/paths'
 
-const ROOT = path.resolve(import.meta.dirname, '..')
-const OPERATIONS = [
+export const OPERATIONS = [
   'snapshot',
   'reconcile',
   'produce',
@@ -37,33 +27,13 @@ const OPERATIONS = [
   'deserialize',
   'requiredMaxBytes',
 ] as const
-const OTHERS = [
+export const OTHERS = [
   'isReconcileError',
   'isReconcileErrorOfType',
   'RECONCILE_ERROR_TYPES',
   'ReconcileError',
 ] as const
-const usage =
-  'Usage: pnpm bench size [--entry lib/neutral/index.js] [--out directory]\n' +
-  '  [--compare sizes.json] [--no-smoke]'
-
-const { values } = parseArgs({
-  allowNegative: true,
-  options: {
-    compare: { type: 'string' },
-    entry: { default: 'lib/neutral/index.js', type: 'string' },
-    help: { short: 'h', type: 'boolean' },
-    out: { type: 'string' },
-    smoke: { default: true, type: 'boolean' },
-  },
-})
-if (values.help === true) {
-  console.log(usage)
-  process.exit(0)
-}
-
 const esbuild = loadEsbuild()
-const entry = path.resolve(ROOT, values.entry)
 const options = {
   bundle: true,
   format: 'esm',
@@ -73,7 +43,7 @@ const options = {
   write: false,
 }
 
-interface Row {
+export interface Row {
   gzip: number
   minified: number
   name: string
@@ -93,8 +63,11 @@ function packageRoot(file: string): string | undefined {
   }
 }
 
+/** The built package of a source tree. */
+export const packageEntry = (tree: string): string => path.join(tree, 'lib', 'neutral', 'index.js')
+
 /** Fails when an input of the entry's own build is newer than it: the sizes would be stale. */
-function assertFresh(): void {
+export function assertFresh(entry: string): void {
   const root = packageRoot(entry)
   if (root === undefined || !existsSync(path.join(root, 'src'))) return
   const built = statSync(entry).mtimeMs
@@ -114,7 +87,7 @@ async function bundle(contents: string, plugins: unknown[] = []): Promise<Uint8A
 }
 
 /** Bundles `import entry` with `sideEffects` forced on: no top-level code may stay. */
-async function assertRemovable(): Promise<void> {
+async function assertRemovable(entry: string): Promise<void> {
   const keep = {
     name: 'keep-side-effects',
     setup(build: {
@@ -248,7 +221,7 @@ const checks: Record<string, (api: Api, fixtures: Fixtures) => void> = {
   },
 }
 
-async function smoke(sources: Map<string, Uint8Array>): Promise<void> {
+async function smoke(entry: string, sources: ReadonlyMap<string, Uint8Array>): Promise<void> {
   const full = (await import(pathToFileURL(entry).href)) as Api
   const graph: Record<string, unknown> = { date: new Date(7), map: new Map([['k', 1n]]) }
   graph.self = graph
@@ -267,82 +240,87 @@ async function smoke(sources: Map<string, Uint8Array>): Promise<void> {
   }
 }
 
+/** Bundles every selection of the package at `entry` into `directory`, with its sizes. */
+export async function bundleExports(
+  entry: string,
+  directory: string,
+): Promise<{ rows: Row[]; sources: Map<string, Uint8Array> }> {
+  mkdirSync(directory, { recursive: true })
+  const rows: Row[] = []
+  const sources = new Map<string, Uint8Array>()
+  for (const names of selections()) {
+    const bytes = await bundle(`export {${names.join(',')}} from ${JSON.stringify(entry)}`)
+    const name = names.join('+')
+    writeFileSync(path.join(directory, `${name}.js`), bytes)
+    sources.set(name, bytes)
+    rows.push({ gzip: gzipSync(bytes, { level: 9 }).length, minified: bytes.length, name })
+  }
+  writeFileSync(
+    path.join(directory, 'sizes.json'),
+    `${JSON.stringify({ entry, entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'), esbuild: esbuild.version, rows }, undefined, 2)}\n`,
+  )
+  return { rows, sources }
+}
+
 const number = (value: number): string => value.toLocaleString('en-US')
 const percent = (before: number, after: number): string =>
   `${after >= before ? '+' : ''}${((100 * (after - before)) / before).toFixed(2)}%`
 
-interface Sizes {
-  readonly rows: Row[]
-  readonly esbuild?: string
-}
-
-function sizeLine(row: Row, old: Row | undefined): string {
-  if (old === undefined)
-    return `| \`${row.name}\` | new → ${number(row.minified)} | | new → ${number(row.gzip)} | |`
-  return (
-    `| \`${row.name}\` | ${number(old.minified)} → ${number(row.minified)} | ` +
-    `${percent(old.minified, row.minified)} | ${number(old.gzip)} → ${number(row.gzip)} | ` +
-    `${percent(old.gzip, row.gzip)} |`
-  )
-}
-
-/** The size table against a previous `sizes.json`, with new and removed rows. */
-function compareTable(rows: Row[], previous: Sizes): string[] {
-  const before = new Map(previous.rows.map((row) => [row.name, row]))
-  const lines = [
-    '| Exports | Minified before → after | Change | Gzip before → after | Change |',
-    '| --- | ---: | ---: | ---: | ---: |',
-  ]
-  if (previous.esbuild !== esbuild.version)
-    lines.unshift(`Note: esbuild ${previous.esbuild} before, ${esbuild.version} now.\n`)
-  for (const row of rows) {
-    lines.push(sizeLine(row, before.get(row.name)))
-    before.delete(row.name)
+/** A table of sizes, or of the change from `before` to `after` when there is a before. */
+export function sizeTable(
+  rows: ReadonlyArray<{ readonly name: string; readonly values: readonly number[] }>,
+  headers: readonly string[],
+  before?: ReadonlyMap<string, readonly number[]>,
+): string {
+  const lines =
+    before === undefined
+      ? [`| ${headers.join(' | ')} |`, `| --- |${' ---: |'.repeat(headers.length - 1)}`]
+      : [
+          `| ${headers[0]} | ${headers
+            .slice(1)
+            .flatMap((header) => [`${header} before → after`, 'Change'])
+            .join(' | ')} |`,
+          `| --- |${' ---: | ---: |'.repeat(headers.length - 1)}`,
+        ]
+  const names = new Set(before?.keys())
+  for (const { name, values } of rows) {
+    names.delete(name)
+    const old = before?.get(name)
+    const cells =
+      before === undefined
+        ? values.map(number)
+        : values.flatMap((value, index) =>
+            old === undefined
+              ? [`new → ${number(value)}`, '']
+              : [`${number(old[index])} → ${number(value)}`, percent(old[index], value)],
+          )
+    lines.push(`| \`${name}\` | ${cells.join(' | ')} |`)
   }
-  for (const name of before.keys()) lines.push(`| \`${name}\` | removed | | removed | |`)
-  return lines
+  for (const name of names)
+    lines.push(
+      `| \`${name}\` | ${headers
+        .slice(1)
+        .flatMap(() => ['removed', ''])
+        .join(' | ')} |`,
+    )
+  return lines.join('\n')
 }
 
-const plainTable = (rows: Row[]): string[] => [
-  '| Exports | Minified | Gzip |',
-  '| --- | ---: | ---: |',
-  ...rows.map((row) => `| \`${row.name}\` | ${number(row.minified)} | ${number(row.gzip)} |`),
-]
+/** The rows of a size table from bundle sizes. */
+export const sizeRows = (rows: readonly Row[]) =>
+  rows.map((row) => ({ name: row.name, values: [row.minified, row.gzip] }))
 
-assertFresh()
-await assertRemovable()
-const outputDirectory = path.resolve(
-  values.out ?? mkdtempSync(path.join(tmpdir(), 'reconcile-bundles-')),
-)
-mkdirSync(outputDirectory, { recursive: true })
-const rows: Row[] = []
-const sources = new Map<string, Uint8Array>()
-for (const names of selections()) {
-  const bytes = await bundle(`export {${names.join(',')}} from ${JSON.stringify(entry)}`)
-  const name = names.join('+')
-  writeFileSync(path.join(outputDirectory, `${name}.js`), bytes)
-  sources.set(name, bytes)
-  rows.push({ gzip: gzipSync(bytes, { level: 9 }).length, minified: bytes.length, name })
+/** The `lib` round's bundle check: the package's top-level code is removable, and every bundle
+ * keeps its exports' behavior. */
+async function main({ directory }: { readonly directory: string }): Promise<number> {
+  const entry = packageEntry(ROOT)
+  assertFresh(entry)
+  await assertRemovable(entry)
+  const { rows, sources } = await bundleExports(entry, directory)
+  await smoke(entry, sources)
+  console.log(sizeTable(sizeRows(rows), ['Exports', 'Minified', 'Gzip']))
+  console.log(`\nBundles and sizes.json written to ${directory}`)
+  return 0
 }
-if (values.smoke) await smoke(sources)
-const previous =
-  values.compare === undefined
-    ? undefined
-    : (JSON.parse(readFileSync(path.resolve(ROOT, values.compare), 'utf8')) as Sizes)
-const lines = previous === undefined ? plainTable(rows) : compareTable(rows, previous)
-writeFileSync(
-  path.join(outputDirectory, 'sizes.json'),
-  JSON.stringify(
-    {
-      entry: values.entry,
-      entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'),
-      esbuild: esbuild.version,
-      rows,
-      smoke: values.smoke,
-    },
-    null,
-    2,
-  ) + '\n',
-)
-console.log(lines.join('\n'))
-console.log(`\nBundles and sizes.json written to ${outputDirectory}`)
+
+await runEntry(import.meta.filename, main)

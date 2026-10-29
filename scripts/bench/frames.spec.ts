@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { attribute, type AttributionFrame } from '../../scripts/profile-attribution'
+import { attribute, type AttributionFrame } from './frames'
 
 const caller: AttributionFrame = {
   functionName: 'caller',
@@ -54,7 +54,7 @@ it('rejects malformed profile ancestry rather than silently dropping samples', (
 })
 
 it('retains unparsed bailout events and separates warmup from measured deoptimizations', async () => {
-  const { parseDeopts } = await import('../../scripts/profile-deopts')
+  const { parseDeopts } = await import('./frames')
   const event =
     '[bailout (kind: deopt-eager, reason: wrong map): begin. deoptimizing 0x0 <JSFunction work (sfi = 0x1)>]'
   const result = parseDeopts(
