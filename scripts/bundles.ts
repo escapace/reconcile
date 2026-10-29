@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
@@ -60,31 +60,8 @@ type Api = Record<string, (...arguments_: unknown[]) => unknown>
 const errorOfType = (type: string) => (error: unknown) =>
   (error as { cause?: { type?: string } }).cause?.type === type
 
-/** The nearest directory above the entry with a `package.json`: the tree that built it. */
-function packageRoot(file: string): string | undefined {
-  for (let directory = path.dirname(file); ; directory = path.dirname(directory)) {
-    if (existsSync(path.join(directory, 'package.json'))) return directory
-    if (path.dirname(directory) === directory) return undefined
-  }
-}
-
 /** The built package of a source tree. */
 export const packageEntry = (tree: string): string => path.join(tree, 'lib', 'neutral', 'index.js')
-
-/** Fails when an input of the entry's own build is newer than it: the sizes would be stale. */
-export function assertFresh(entry: string): void {
-  const root = packageRoot(entry)
-  if (root === undefined || !existsSync(path.join(root, 'src'))) return
-  const built = statSync(entry).mtimeMs
-  const sources = readdirSync(path.join(root, 'src'), { recursive: true, withFileTypes: true })
-    .filter((file) => file.isFile() && file.name.endsWith('.ts'))
-    .map((file) => path.join(file.parentPath, file.name))
-    .filter((file) => !file.includes(`${path.sep}__tests__${path.sep}`))
-  const stale = [...sources, path.join(root, 'scripts', 'constants.json')]
-    .filter((file) => existsSync(file))
-    .find((file) => statSync(file).mtimeMs > built)
-  assert.equal(stale, undefined, `${stale} is newer than ${entry}; build that tree first.`)
-}
 
 async function bundle(contents: string, plugins: unknown[] = []): Promise<Uint8Array> {
   const result = await esbuild().build({
@@ -327,8 +304,8 @@ export const sizeRows = (rows: readonly Row[]) =>
 /** The `lib` round's bundle check: the package's top-level code is removable, and every bundle
  * keeps its exports' behavior. */
 async function main({ directory }: { readonly directory: string }): Promise<number> {
+  // The round builds the package just before.
   const entry = packageEntry(ROOT)
-  assertFresh(entry)
   await assertRemovable(entry)
   const { rows, sources } = await bundleExports(entry, directory)
   await smoke(entry, sources)

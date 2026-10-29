@@ -1,14 +1,17 @@
-// The consumer bundle sizes of a built tree, against the control's when there is one, and the
-// bytes each source module adds to one bundle.
+// The consumer bundle sizes of a tree, which the round has just built, against the control's when
+// there is one, and the bytes each source module adds to one bundle. `plan.json` records the
+// sources measured, so that a report counts a comparison only for the sources it judges.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { assertFresh, bundleExports, packageEntry, sizeRows, sizeTable } from '../bundles'
+import { bundleExports, packageEntry, sizeRows, sizeTable } from '../bundles'
 import { loadEsbuild } from '../esbuild'
 import { entry } from '../framework/entry'
+import { writeJson } from '../framework/files'
+import { sourceHash } from './provenance'
 
 /** The configuration `pnpm bench size` passes. */
 interface Config {
-  /** The control's source tree, built by `pnpm bench control --build`. */
+  /** The control's source tree. */
   readonly control: string | undefined
   readonly directory: string
   /** The exports whose bundle to break down by source module. */
@@ -46,23 +49,19 @@ async function moduleBytes(tree: string, names: readonly string[]): Promise<Map<
   )
 }
 
-/** The built package of a tree, which must be newer than its sources. */
-function builtEntry(tree: string, hint: string): string {
+/** The built package of a tree, which the round's build step wrote. */
+function builtEntry(tree: string): string {
   const file = packageEntry(tree)
-  if (!existsSync(file)) throw new Error(`${tree} has no built package; ${hint}.`)
-  assertFresh(file)
+  if (!existsSync(file)) throw new Error(`${tree} has no built package after its build step.`)
   return file
 }
 
 async function sizes(config: Config): Promise<string> {
-  const tree = await bundleExports(
-    builtEntry(config.tree, 'build it first'),
-    path.join(config.directory, 'tree'),
-  )
+  const tree = await bundleExports(builtEntry(config.tree), path.join(config.directory, 'tree'))
   if (config.control === undefined)
     return sizeTable(sizeRows(tree.rows), ['Exports', 'Minified', 'Gzip'])
   const control = await bundleExports(
-    builtEntry(config.control, 'create the experiment with `pnpm bench control --build`'),
+    builtEntry(config.control),
     path.join(config.directory, 'control'),
   )
   const before = new Map(sizeRows(control.rows).map((row) => [row.name, row.values]))
@@ -83,8 +82,9 @@ async function modules(config: Config, names: readonly string[]): Promise<string
   try {
     control = await moduleBytes(config.control, names)
   } catch (error) {
-    // A control from before one of the exports has no bundle of them.
-    console.log(`The control does not bundle ${names.join('+')}: ${(error as Error).message}`)
+    // A control from before one of the exports has no bundle of them; any other failure stands.
+    if (!(error as Error).message.includes('No matching export')) throw error
+    console.log(`The control does not export all of ${names.join('+')}.`)
     control = new Map()
   }
   const before = new Map([...control].map(([name, bytes]) => [name, [bytes]]))
@@ -92,6 +92,13 @@ async function modules(config: Config, names: readonly string[]): Promise<string
 }
 
 async function main(config: Config): Promise<number> {
+  writeJson(path.join(config.directory, 'plan.json'), {
+    modules: config.modules ?? null,
+    sourceSha256: {
+      control: config.control === undefined ? null : sourceHash(config.control),
+      tree: sourceHash(config.tree),
+    },
+  })
   console.log(
     config.modules === undefined ? await sizes(config) : await modules(config, config.modules),
   )

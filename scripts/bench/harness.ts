@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { SourceMap, type SourceMapPayload } from 'node:module'
 import path from 'node:path'
 import { ROOT } from '../framework/paths'
@@ -155,6 +155,21 @@ function counterPlugins(options: HarnessOptions, counterSites: CounterSites) {
   ]
 }
 
+/** Fails when a bundle took a package from anywhere but this checkout's dependencies, which
+ * every tree is measured with: a `node_modules` above a control could otherwise supply its own. */
+function assertOwnDependencies(inputs: readonly string[]): void {
+  const own = `${realpathSync(path.join(ROOT, 'node_modules'))}${path.sep}`
+  const foreign = inputs
+    .filter((input) => input.split(/[/\\]/).includes('node_modules'))
+    .map((input) => realpathSync(path.resolve(input)))
+    .filter((input) => !input.startsWith(own))
+  assert.deepEqual(
+    foreign,
+    [],
+    "The harness bundled packages from outside this checkout's dependencies",
+  )
+}
+
 /**
  * Bundles the tree's frozen harness, with the tool-only overlays: the diagnostic registry when
  * the scenario is not frozen, phase markers and a timer outside the measured loop, and counters
@@ -171,9 +186,10 @@ export async function bundleHarness(options: HarnessOptions): Promise<Harness> {
   mkdirSync(options.directory, { recursive: true })
   writeFileSync(path.join(options.directory, 'harness-source.ts'), contents)
   const bundlePath = path.join(options.directory, 'harness.mjs')
-  await loadEsbuild().build({
+  const { metafile } = await loadEsbuild().build({
     bundle: true,
     format: 'esm',
+    metafile: true,
     nodePaths: [path.join(ROOT, 'node_modules')],
     outfile: bundlePath,
     platform: 'node',
@@ -182,6 +198,7 @@ export async function bundleHarness(options: HarnessOptions): Promise<Harness> {
     stdin: { contents, loader: 'ts', resolveDir: path.dirname(source), sourcefile: source },
     target: 'esnext',
   })
+  assertOwnDependencies(Object.keys(metafile?.inputs ?? {}))
   const map = JSON.parse(readFileSync(`${bundlePath}.map`, 'utf8')) as SourceMapPayload
   return { bundlePath, counterSites, root: options.tree, sourceMap: new SourceMap(map) }
 }

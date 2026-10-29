@@ -11,3 +11,8 @@ export const STATE =
 
 /** The lock every round holds, machine-wide, so that no two rounds overlap. */
 export const LOCK = process.env.RECONCILE_LOCK ?? '/tmp/reconcile-round.lock'
+
+/** A path a maintainer typed, resolved against the directory they ran the command in, which pnpm
+ * passes as INIT_CWD, since it runs every script from the package root. */
+export const fromUser = (value: string): string =>
+  path.resolve(process.env.INIT_CWD ?? process.cwd(), value)

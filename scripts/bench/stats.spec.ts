@@ -22,7 +22,14 @@ describe('summarize', () => {
       Object.keys(fixture.summary).map((scenario) => [scenario, fixture] as const),
     ),
   )('reproduces the Python summary of %s exactly', (scenario, { rows, summary }) => {
-    expect(summarize(rows, scenario)).toEqual(summary[scenario])
+    const summarized = summarize(rows, scenario)
+    expect(summarized).toMatchObject(summary[scenario])
+    const seconds = (label: string): number =>
+      rows
+        .filter((row) => row.scenario === scenario && row.label === label)
+        .map((row) => row.elapsedMs / 1000)
+        .toSorted((left, right) => left - right)[0]
+    expect(summarized.medianMeasuredSeconds!.tree).toBeGreaterThanOrEqual(seconds('tree'))
   })
 })
 

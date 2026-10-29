@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { rmSync } from 'node:fs'
+import { renameSync, rmSync } from 'node:fs'
 import { loadavg } from 'node:os'
 import path from 'node:path'
 import { UsageError, type Command, type Option, type Parsed } from '../framework/command'
 import { script } from '../framework/entry'
 import { withLock } from '../framework/lock'
-import { ROOT } from '../framework/paths'
+import { fromUser, ROOT, STATE } from '../framework/paths'
 import { runRound, stampedDirectory, type Step } from '../framework/round'
 import { EXPORTS } from '../bundles'
 import {
@@ -16,6 +16,7 @@ import {
   resolveExperiment,
   type Control,
 } from './experiments'
+import { assertSameWorkloads } from './provenance'
 import { report } from './report'
 import { SCENARIOS, selectScenarios, SETS } from './scenarios'
 
@@ -50,15 +51,26 @@ const WARMUP: Option = {
   type: 'string',
 }
 
-const OUT = { '--out': 'output is kept in the round directory the command prints' }
+/** The flags of the old benchmark tools, each with the spelling that replaced it. */
+const RETIRED = {
+  '--baseline': 'use --control <control>',
+  '--candidate': 'use --tree <dir>',
+  '--compare': 'use --control <control>',
+  '--entry': 'use --tree <dir>',
+  '--from': 'name the revision: pnpm bench control <revision>',
+  '--out': 'output is kept in the round directory the command prints',
+  '--round': 'name the set as an argument: pnpm bench ab small',
+  '--scenario': 'name scenarios as arguments: pnpm bench <command> <scenario...>',
+}
 
 /** The value of a string option. */
 const text = (parsed: Parsed, name: string): string | undefined =>
   parsed.values[name] as string | undefined
 
-/** An integer option, at least `minimum`. */
+/** An integer option, written in decimal digits, at least `minimum`. */
 function integer(parsed: Parsed, name: string, minimum: number): number {
-  const value = Number(text(parsed, name))
+  const written = text(parsed, name) ?? ''
+  const value = /^\d+$/.test(written) ? Number(written) : Number.NaN
   if (!Number.isSafeInteger(value) || value < minimum)
     throw new UsageError(
       `--${name} takes an integer of at least ${minimum}, not "${text(parsed, name)}"`,
@@ -66,7 +78,10 @@ function integer(parsed: Parsed, name: string, minimum: number): number {
   return value
 }
 
-const treeOf = (parsed: Parsed): string => path.resolve(ROOT, text(parsed, 'tree') ?? '.')
+const treeOf = (parsed: Parsed): string => {
+  const tree = text(parsed, 'tree')
+  return tree === undefined ? ROOT : fromUser(tree)
+}
 
 const controlOf = (parsed: Parsed): Control | undefined => {
   const value = text(parsed, 'control')
@@ -81,15 +96,17 @@ function warnLoad(): void {
 }
 
 /** Runs the steps as one round under the lock, their output shown as it runs, and keeps the
- * round under `rounds`, an experiment's, when there is one. */
+ * round under the experiment's `rounds` that `where` names, once it holds the lock, or with the
+ * other rounds. Returns the exit code and the round's directory. */
 async function measure(
   name: string,
-  rounds: string | undefined,
+  where: () => string | undefined,
   steps: (directory: string) => Step[],
-): Promise<number> {
+): Promise<{ code: number; directory: string }> {
   warnLoad()
   const invocation = ['pnpm bench', ...process.argv.slice(3)].join(' ')
   return await withLock(invocation, async (lock) => {
+    const rounds = where()
     const directory =
       rounds === undefined ? stampedDirectory(`bench-${name}`) : stampedDirectory(name, rounds)
     const result = await runRound({
@@ -100,7 +117,7 @@ async function measure(
       stream: true,
     })
     console.log(`\n${name}: ${result.status}; output and receipt in ${directory}`)
-    return result.exitCode
+    return { code: result.exitCode, directory }
   })
 }
 
@@ -120,57 +137,60 @@ function commitOf(revision: string): string {
 }
 
 /** What to try once an experiment exists. */
-const nextSteps = (name: string, tree: string, built: boolean): string =>
+const nextSteps = (name: string, tree: string): string =>
   [
     `\nExperiment ${name}; its control is ${tree}. Next:`,
     `  pnpm bench profile <scenario> --tree ${tree}   where the control spends its time`,
     `  pnpm bench counts <scenario> --control ${name}   after a change: the counters that moved`,
     `  pnpm bench ab default --control ${name}   then small, then <scenario> --decide twice`,
-    `  pnpm build && pnpm bench size --control ${name}${built ? '' : '   (after pnpm bench control --build)'}`,
+    `  pnpm bench size --control ${name}`,
     `  pnpm bench report ${name}`,
   ].join('\n')
 
 const control: Command = {
   description: [
     'The control is exported with `git archive`, or copied with --worktree, into the ' +
-      `experiment's \`tree/\` under ${EXPERIMENTS}. It runs and builds with this checkout's ` +
+      `experiment's \`tree/\` under ${EXPERIMENTS}, and pinned: a command refuses the experiment ` +
+      "once its sources or frozen workloads change. It runs and builds with this checkout's " +
       'dependencies, as the measured tree does.',
   ],
-  examples: ['pnpm bench control', 'pnpm bench control trunk --build'],
+  examples: ['pnpm bench control', 'pnpm bench control trunk'],
   name: 'control',
   options: {
-    build: {
-      description: 'Also build the control, which comparing bundle sizes needs.',
-      type: 'boolean',
-    },
     worktree: {
       description: 'Freeze the working tree with its uncommitted changes instead of a revision.',
       type: 'boolean',
     },
   },
+  retired: { ...RETIRED, '--build': '`pnpm bench size` builds both trees itself' },
   summary: 'Freeze a control and start an experiment against it.',
   usage: '[<revision>] [options]',
   async run(parsed) {
     const worktree = parsed.values.worktree === true
-    const build = parsed.values.build === true
     if (parsed.positionals.length > 1 || (worktree && parsed.positionals.length > 0))
       throw new UsageError('control takes one revision, or --worktree')
     const commit = commitOf(parsed.positionals[0] ?? 'HEAD')
-    const directory = createExperiment(`${commit.slice(0, 7)}${worktree ? '-worktree' : ''}`)
-    const tree = path.join(directory, 'tree')
-    const code = await measure('control', path.join(directory, 'rounds'), () => [
-      tool('control', { build, commit, directory, worktree }),
-      ...(build
-        ? [{ command: ['pnpm', 'run', '--silent', 'build'], cwd: tree, name: 'build' }]
-        : []),
-    ])
+    let experiment = ''
+    const { code, directory } = await measure(
+      'control',
+      () => {
+        experiment = createExperiment(`${commit.slice(0, 7)}${worktree ? '-worktree' : ''}`)
+        return path.join(experiment, 'rounds')
+      },
+      () => [tool('control', { commit, directory: experiment, worktree })],
+    )
     if (code !== 0) {
-      rmSync(directory, { force: true, recursive: true })
-      console.log('The control was not frozen, so its experiment was removed.')
+      // The failed round's logs and receipt join the other rounds; the experiment goes.
+      const kept = path.join(STATE, 'runs', path.basename(directory))
+      renameSync(directory, kept)
+      rmSync(experiment, { force: true, recursive: true })
+      console.log(
+        `The control was not frozen, so its experiment was removed; its round is in ${kept}.`,
+      )
       return code
     }
-    completeExperiment(directory, { commit, created: new Date().toISOString(), worktree })
-    console.log(nextSteps(path.basename(directory), tree, build))
+    completeExperiment(experiment, { commit, created: new Date().toISOString(), worktree })
+    console.log(nextSteps(path.basename(experiment), path.join(experiment, 'tree')))
     return 0
   },
 }
@@ -207,10 +227,9 @@ const profile: Command = {
     warmup: WARMUP,
   },
   retired: {
-    ...OUT,
+    ...RETIRED,
     '--baseline': 'compare counters with `pnpm bench counts <scenario> --control <control>`',
     '--bundle-only': 'bundles are built by the command that runs them',
-    '--candidate': 'use --tree',
     '--cpu-interval': 'use --interval',
     '--heap-interval': 'use --interval',
   },
@@ -234,9 +253,12 @@ const profile: Command = {
       tree: treeOf(parsed),
       warmup: integer(parsed, 'warmup', 0),
     }
-    return await measure('profile', undefined, (directory) => [
-      tool('profile', { ...config, directory }),
-    ])
+    const { code } = await measure(
+      'profile',
+      () => undefined,
+      (directory) => [tool('profile', { ...config, directory })],
+    )
+    return code
   },
 }
 
@@ -244,7 +266,7 @@ const counts: Command = {
   examples: ['pnpm bench counts reconcile', 'pnpm bench counts small --control latest'],
   name: 'counts',
   options: { batches: BATCHES, control: CONTROL, size: SIZE, tree: TREE, warmup: WARMUP },
-  retired: { ...OUT, '--baseline': 'use --control <control>', '--candidate': 'use --tree' },
+  retired: RETIRED,
   summary:
     'Which events, such as reads and constructions, does a scenario make, and which changed?',
   usage: '<scenario...> [options]',
@@ -260,21 +282,46 @@ const counts: Command = {
       tree: treeOf(parsed),
       warmup: integer(parsed, 'warmup', 0),
     }
-    return await measure('counts', against?.rounds, (directory) => [
-      tool('counts', { ...config, directory }),
-    ])
+    if (against !== undefined) assertSameWorkloads(against.tree, config.tree)
+    const { code } = await measure(
+      'counts',
+      () => against?.rounds,
+      (directory) => [tool('counts', { ...config, directory })],
+    )
+    return code
   },
 }
 
 /**
  * The protocol rule an A/B round serves: a deciding round has at least 32 pairs of a second or
- * more each; a default or small round is its set with at least 10 pairs. Any other round is
- * custom, and `ab` marks a round whose trees hold the same sources as an A/A round.
+ * more each, sized automatically; a default or small round is its set with at least 10 pairs.
+ * Any other round is custom, and a round whose trees hold the same sources is an A/A round.
  */
 function kindOf(names: readonly string[], decide: boolean, pairs: number, seconds: number): string {
   if (decide) return pairs >= 32 && seconds >= 1 ? 'deciding' : 'custom'
   const set = names.length === 0 ? 'default' : names.length === 1 ? names[0] : ''
   return Object.hasOwn(SETS, set) && pairs >= 10 ? set : 'custom'
+}
+
+/** The pairs and measured seconds per process of an A/B round; a deciding round sizes its
+ * batches and warmup itself, so that nothing shortens it. */
+function abSizing(parsed: Parsed, decide: boolean): { pairs: number; seconds: number } {
+  if (decide && (text(parsed, 'batches') !== 'auto' || text(parsed, 'warmup') !== 'auto'))
+    throw new UsageError(
+      'a deciding round sizes its batches and warmup itself; drop --batches and --warmup',
+    )
+  const pairs =
+    text(parsed, 'pairs') === undefined ? (decide ? 32 : 10) : integer(parsed, 'pairs', 2)
+  if (pairs % 2 !== 0)
+    throw new UsageError('--pairs takes an even count, so each order runs equally')
+  return { pairs, seconds: positive(text(parsed, 'seconds') ?? (decide ? '1' : '0.5')) }
+}
+
+/** A positive decimal number, such as the seconds a process measures. */
+function positive(written: string): number {
+  const value = /^\d+(?:\.\d+)?$/.test(written) ? Number(written) : Number.NaN
+  if (!(value > 0)) throw new UsageError('--seconds takes a positive number')
+  return value
 }
 
 /** An option of `ab` that takes a count or `auto`. */
@@ -297,7 +344,8 @@ const ab: Command = {
     },
     control: CONTROL,
     decide: {
-      description: 'A deciding round: 32 pairs of 1 second each, unless set.',
+      description:
+        'A deciding round: 32 pairs of 1 second each, unless set; its batches and warmup are sized automatically.',
       type: 'boolean',
     },
     pairs: {
@@ -319,13 +367,7 @@ const ab: Command = {
       type: 'string',
     },
   },
-  retired: {
-    ...OUT,
-    '--baseline': 'use --control <control>',
-    '--candidate': 'use --tree',
-    '--round': 'name the set as an argument: pnpm bench ab small',
-    '--scenario': 'name scenarios as arguments: pnpm bench ab <scenario...>',
-  },
+  retired: RETIRED,
   summary: 'Is it faster? Alternating fresh-process pairs against the control.',
   usage: '[default | small | <scenario>...] --control <control> [options]',
   async run(parsed) {
@@ -335,12 +377,7 @@ const ab: Command = {
         'ab needs --control <control>; start an experiment with `pnpm bench control`',
       )
     const decide = parsed.values.decide === true
-    const pairs =
-      text(parsed, 'pairs') === undefined ? (decide ? 32 : 10) : integer(parsed, 'pairs', 2)
-    if (pairs % 2 !== 0)
-      throw new UsageError('--pairs takes an even count, so each order runs equally')
-    const seconds = Number(text(parsed, 'seconds') ?? (decide ? 1 : 0.5))
-    if (!(seconds > 0)) throw new UsageError('--seconds takes a positive number')
+    const { pairs, seconds } = abSizing(parsed, decide)
     const config = {
       batches: automatic(parsed, 'batches', 1),
       control: against.tree,
@@ -354,19 +391,30 @@ const ab: Command = {
       tree: treeOf(parsed),
       warmup: automatic(parsed, 'warmup', 0),
     }
-    return await measure('ab', against.rounds, (directory) => [
-      tool('ab', { ...config, directory }),
-    ])
+    assertSameWorkloads(against.tree, config.tree)
+    const { code } = await measure(
+      'ab',
+      () => against.rounds,
+      (directory) => [tool('ab', { ...config, directory })],
+    )
+    return code
   },
 }
 
+/** Builds a tree's package with its own build and this checkout's dependencies. */
+const build = (name: string, tree: string): Step => ({
+  command: ['pnpm', 'run', '--silent', 'build'],
+  cwd: tree,
+  name,
+})
+
 const size: Command = {
   description: [
-    'The trees must be built: `pnpm build` builds this checkout, and `pnpm bench control ' +
-      "--build` an experiment's control. --modules builds from the sources instead.",
+    'The round builds each tree first, so the sizes are never those of a stale build; --modules ' +
+      'bundles from the sources instead.',
   ],
   examples: [
-    'pnpm build && pnpm bench size --control latest',
+    'pnpm bench size --control latest',
     'pnpm bench size --modules reconcile --control latest',
   ],
   name: 'size',
@@ -380,9 +428,8 @@ const size: Command = {
     tree: TREE,
   },
   retired: {
-    ...OUT,
-    '--compare': 'use --control <control>',
-    '--entry': 'use --tree <dir>, whose built package is measured',
+    ...RETIRED,
+    '--entry': 'use --tree <dir>, whose package the round builds and measures',
     '--no-smoke': '`pnpm check lib` runs the smoke tests',
   },
   summary: 'How large are the consumer bundles, and which modules make them so?',
@@ -396,9 +443,19 @@ const size: Command = {
         `--modules takes exports of ${EXPORTS.join(', ')}, not ${unknown.join(', ')}`,
       )
     const config = { control: against?.tree, modules, tree: treeOf(parsed) }
-    return await measure('size', against?.rounds, (directory) => [
-      tool('size', { ...config, directory }),
-    ])
+    const builds =
+      modules === undefined
+        ? [
+            build('build tree', config.tree),
+            ...(config.control === undefined ? [] : [build('build control', config.control)]),
+          ]
+        : []
+    const { code } = await measure(
+      'size',
+      () => against?.rounds,
+      (directory) => [...builds, tool('size', { ...config, directory })],
+    )
+    return code
   },
 }
 

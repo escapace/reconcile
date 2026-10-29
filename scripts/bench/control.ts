@@ -1,5 +1,6 @@
 // Freezes a control: exports a commit, or the working tree with its uncommitted changes, into an
-// experiment's `tree/`.
+// experiment's `tree/`, and links this checkout's dependencies into it, so that both trees build
+// and resolve their imports with the same ones.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, symlinkSync } from 'node:fs'
 import path from 'node:path'
@@ -9,8 +10,6 @@ import { copyTree } from '../framework/tree'
 
 /** The configuration `pnpm bench control` passes. */
 interface Config {
-  /** Links this checkout's dependencies into the tree, so that it can be built with them. */
-  readonly build: boolean
   readonly commit: string
   readonly directory: string
   readonly worktree: boolean
@@ -32,7 +31,7 @@ async function main(config: Config): Promise<number> {
   mkdirSync(tree, { recursive: true })
   if (config.worktree) copyTree(tree)
   else archive(config.commit, tree)
-  if (config.build) symlinkSync(path.join(ROOT, 'node_modules'), path.join(tree, 'node_modules'))
+  symlinkSync(path.join(ROOT, 'node_modules'), path.join(tree, 'node_modules'))
   return await Promise.resolve(0)
 }
 

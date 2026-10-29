@@ -10,8 +10,12 @@ export interface Esbuild {
   readonly version: string
   build: (options: Record<string, unknown>) => Promise<{
     outputFiles: Array<{ contents: Uint8Array }>
-    /** With `metafile: true`, the bytes each input adds to each output. */
-    metafile?: { outputs: Record<string, { inputs: Record<string, { bytesInOutput: number }> }> }
+    /** With `metafile: true`, every input, by its path from the working directory, and the
+     * bytes each input adds to each output. */
+    metafile?: {
+      inputs: Record<string, unknown>
+      outputs: Record<string, { inputs: Record<string, { bytesInOutput: number }> }>
+    }
   }>
 }
 

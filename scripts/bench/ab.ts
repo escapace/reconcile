@@ -2,18 +2,18 @@
 // once for the frozen scenarios and once for the rest, runs every scenario for a few batches,
 // sizes each scenario's batches (about `seconds` of measured work per process by default) and
 // stops if the round would not fit its budget. It then registers the design (scenarios, pairs,
-// batches, size, bundle hashes, Node version, tree commits and sources, frozen workload hashes)
-// before any sample is taken, and alternates the order of the tree and the control per pair, in
-// fresh Node processes. Every completed sample is kept at once. Each scenario reports the median
-// paired change (negative is faster), a bootstrap 90% interval from 10 pairs on, the count of
-// faster pairs and a reading.
-import { spawnSync } from 'node:child_process'
+// batches, size, bundle hashes, Node version, tree commits and sources, frozen and shared
+// workload hashes) before any sample is taken, and alternates the order of the tree and the
+// control per pair, in fresh Node processes. Every completed sample is kept at once. Each scenario
+// reports the median paired change (negative is faster), a bootstrap 90% interval from 10 pairs
+// on, the count of faster pairs, a reading and the seconds each process measured.
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { entry } from '../framework/entry'
-import { ROOT } from '../framework/paths'
+import { writeJson } from '../framework/files'
 import { bundleHarness, record, runHarness } from './harness'
+import { frozenHash, gitState, sharedHash, sourceHash } from './provenance'
 import { inOverlay } from './scenarios'
 import {
   batchCounts,
@@ -64,6 +64,9 @@ export interface ScenarioSummary {
   readonly pairedPercentChanges: number[]
   readonly reading: Reading
   readonly treeMedianUsPerOperation: number
+  /** The median seconds each tree's processes measured, which a round sizes to about the
+   * seconds it was asked for. */
+  readonly medianMeasuredSeconds?: Readonly<Record<Label, number>>
 }
 
 /** One timed run, as `samples.json` records it. */
@@ -75,35 +78,16 @@ export interface Row extends Sample {
 
 const sha256 = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex')
 
-/** A hash of the tree's library sources, which tells two rounds on the same code apart from
- * rounds on changed code. */
-export function sourceHash(tree: string): string {
-  const files = readdirSync(path.join(tree, 'src'), { recursive: true, withFileTypes: true })
-    .filter((file) => file.isFile() && !file.parentPath.includes('__tests__'))
-    .map((file) => path.relative(tree, path.join(file.parentPath, file.name)))
-    .toSorted()
-  return sha256(
-    files.map((file) => `${file}\0${sha256(readFileSync(path.join(tree, file)))}`).join('\n'),
-  )
-}
-
-/** A hash of the frozen workload files, which both trees must share. */
-function frozenHash(tree: string): string {
-  const hash = createHash('sha256')
-  for (const name of ['perf/scenarios.ts', 'perf/config.ts', 'perf/profile-harness.ts']) {
-    const file = path.join(tree, name)
-    hash.update(existsSync(file) ? readFileSync(file) : 'missing')
+/** What the round measures: each tree's sources and frozen workloads, and the shared workloads. */
+function provenanceOf(config: Config) {
+  return {
+    frozen: { control: frozenHash(config.control), tree: frozenHash(config.tree) },
+    shared: sharedHash(),
+    sources: { control: sourceHash(config.control), tree: sourceHash(config.tree) },
   }
-  return hash.digest('hex')
 }
 
-/** The commit and whether the tree has uncommitted changes, or null outside git. */
-function gitState(tree: string): { commit: string; dirty: boolean } | null {
-  const head = spawnSync('git', ['-C', tree, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-  if (head.status !== 0) return null
-  const status = spawnSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8' })
-  return { commit: head.stdout.trim(), dirty: status.stdout.trim() !== '' }
-}
+type Provenance = ReturnType<typeof provenanceOf>
 
 /** One timed run of a scenario in a fresh process. */
 function measure(bundle: string, scenario: string, counts: Counts, log: string, tree: string) {
@@ -141,25 +125,27 @@ async function bundles(config: Config): Promise<Record<Label, Record<string, str
 
 const signed = (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`
 
-/** One scenario's summary from the round's rows. */
+/** One scenario's summary from the round's rows; each tree's time per operation is its own. */
 export function summarize(rows: readonly Row[], scenario: string): ScenarioSummary {
   const samples = rows.filter((row) => row.scenario === scenario)
-  const elapsed = (label: Label): number[] =>
-    samples.filter((row) => row.label === label).map((row) => row.elapsedMs)
+  const of = (label: Label): Row[] => samples.filter((row) => row.label === label)
+  const elapsed = (label: Label): number[] => of(label).map((row) => row.elapsedMs)
+  const perOperation = (label: Label): number =>
+    (median(elapsed(label)) * 1000) / of(label)[0].operations
   const tree = elapsed('tree')
   const control = elapsed('control')
-  const { operations } = samples[0]
   const changes = tree.map((value, index) => 100 * (value / control[index] - 1))
   const bounds = interval(changes)
   const change = median(changes)
   return {
-    controlMedianUsPerOperation: (median(control) * 1000) / operations,
+    controlMedianUsPerOperation: perOperation('control'),
     fasterPairs: changes.filter((value) => value < 0).length,
+    medianMeasuredSeconds: { control: median(control) / 1000, tree: median(tree) / 1000 },
     medianPairedPercentChange: change,
     medianPairedPercentInterval: bounds ?? null,
     pairedPercentChanges: changes,
     reading: reading(change, bounds),
-    treeMedianUsPerOperation: (median(tree) * 1000) / operations,
+    treeMedianUsPerOperation: perOperation('tree'),
   }
 }
 
@@ -181,24 +167,19 @@ function table(summary: Readonly<Record<string, ScenarioSummary>>): string {
   return lines.join('\n')
 }
 
-const json = (value: unknown): string => `${JSON.stringify(value, undefined, 2)}\n`
-
 /** Writes the design of the round before any sample is taken. */
 function writePlan(
   config: Config,
   paths: Record<Label, Record<string, string>>,
   counts: Record<string, Counts>,
   estimate: number,
+  { frozen, shared, sources }: Provenance,
 ): void {
-  const frozen = { control: frozenHash(config.control), tree: frozenHash(config.tree) }
-  if (frozen.control !== frozen.tree)
-    console.log("Warning: the trees' perf/ workloads differ, so the scenarios are not the same.")
   const perLabel = <T>(read: (label: Label) => T): Record<Label, T> => ({
     control: read('control'),
     tree: read('tree'),
   })
-  const sources = perLabel((label) => sourceHash(config[label]))
-  const plan = {
+  writeJson(path.join(config.directory, 'plan.json'), {
     batches: counts,
     bundles: paths,
     estimatedSamplingSeconds: estimate,
@@ -206,9 +187,9 @@ function writePlan(
     git: perLabel((label) => gitState(config[label])),
     // A round of two trees with the same sources only measures noise.
     kind: sources.control === sources.tree ? 'aa' : config.kind,
-    measuredSecondsPerProcess: config.seconds,
     node: process.version,
     pairs: config.pairs,
+    requestedSecondsPerProcess: config.seconds,
     roots: perLabel((label) => config[label]),
     scenarios: config.scenarios,
     sha256: perLabel((label) =>
@@ -219,12 +200,12 @@ function writePlan(
         ]),
       ),
     ),
-    // The serialization and small workloads come from this checkout for both trees.
-    sharedWorkloadSha256: sha256(readFileSync(path.join(ROOT, 'scripts', 'bench-workloads.ts'))),
+    // The serialization and small workloads and the diagnostics come from this checkout for both
+    // trees.
+    sharedWorkloadSha256: shared,
     size: config.size,
     sourceSha256: sources,
-  }
-  writeFileSync(path.join(config.directory, 'plan.json'), json(plan))
+  })
 }
 
 /** Samples every pair, alternating which tree runs first, and keeps each sample at once. */
@@ -241,7 +222,7 @@ function sample(
         const log = path.join(config.directory, `${pair}-${scenario}-${label}.log`)
         const run = measure(paths[label][scenario], scenario, counts[scenario], log, config[label])
         rows.push({ label, pair, ...run })
-        writeFileSync(path.join(config.directory, 'samples.json'), json(rows))
+        writeJson(path.join(config.directory, 'samples.json'), rows)
       }
     console.log(`Completed pair ${pair + 1}/${config.pairs}`)
   }
@@ -254,6 +235,8 @@ async function main(config: Config): Promise<number> {
   if (!Number.isFinite(budgetMs))
     throw new Error('RECONCILE_DEADLINE is not set; run `pnpm bench ab`')
   const started = performance.now()
+  // The hashes describe what is bundled only when nothing changes while it is bundled.
+  const provenance = provenanceOf(config)
   const paths = await bundles(config)
   // One short run of every bundle, so a tree that lacks a scenario fails before any sample.
   const preflight = LABELS.flatMap((label) =>
@@ -277,12 +260,18 @@ async function main(config: Config): Promise<number> {
     )
     return 1
   }
-  writePlan(config, paths, counts, estimate)
+  if (JSON.stringify(provenanceOf(config)) !== JSON.stringify(provenance)) {
+    console.error(
+      'The sources or workloads changed while the round bundled them, so the bundles may not be ' +
+        'what the hashes describe; rerun the round.',
+    )
+    return 1
+  }
+  writePlan(config, paths, counts, estimate, provenance)
   const rows = sample(config, paths, counts)
   const summary = Object.fromEntries(
     config.scenarios.map((scenario) => [scenario, summarize(rows, scenario)]),
   )
-  writeFileSync(path.join(config.directory, 'summary.json'), json(summary))
   const report = table(summary)
   writeFileSync(
     path.join(config.directory, 'report.md'),
@@ -291,10 +280,12 @@ async function main(config: Config): Promise<number> {
       `A reading is faster when the interval is below zero and the median gains at least ${GAIN_PERCENT}%, ` +
       `slower when the interval is above zero and the median exceeds the ${GUARD_PERCENT}% guard, and ` +
       'slightly faster or slower when the interval excludes zero within those limits. Keeping a ' +
-      `change needs two independent faster rounds.\n\n${report}\n`,
+      `change needs two deciding rounds that read faster.\n\n${report}\n`,
   )
+  // The summary marks the round complete, so it is written last.
+  writeJson(path.join(config.directory, 'summary.json'), summary)
   console.log(report)
-  console.log('Negative is faster. Keeping a change needs two independent rounds that read faster.')
+  console.log('Negative is faster. Keeping a change needs two deciding rounds that read faster.')
   return 0
 }
 

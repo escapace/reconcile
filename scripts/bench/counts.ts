@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
-import { BATCH_SIZE } from '../../perf/config'
 import { entry } from '../framework/entry'
 import { bundleHarness, record, runHarness, type Counting } from './harness'
 import { inOverlay } from './scenarios'
@@ -485,7 +484,9 @@ async function count(config: Config, scenario: string, tree: string, directory: 
     tree,
   )
   const counts = record(output, 'RECONCILE_COUNTS ') as Counts
-  const result = countsResult(counts, harness.counterSites, config.batches * BATCH_SIZE)
+  // Each tree's harness reports the operations it ran, by its own frozen batch size.
+  const { operations } = record(output, 'RECONCILE_TIME ') as { operations: number }
+  const result = countsResult(counts, harness.counterSites, operations)
   writeFileSync(path.join(directory, 'counts.json'), `${JSON.stringify(result, undefined, 2)}\n`)
   return result
 }

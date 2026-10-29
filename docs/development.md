@@ -274,7 +274,7 @@ While editing, run the narrowest check:
 | Types, declarations or exports   | `pnpm typecheck`                                                  |
 | Finite algorithm or Lean         | `lake build <Module.Name>`, then `lake env lean lean/<Path>.lean` |
 | A runtime-to-Lean bridge         | `pnpm check lean <bridge>`, or the command a failure prints       |
-| Bundle, packaging or mangle list | `pnpm build`, then `pnpm bench size`                              |
+| Bundle, packaging or mangle list | `pnpm bench size`, which builds the tree first                    |
 
 At each checkpoint, run `pnpm check`. It runs, one after another, each _round_ that has not
 passed on its current inputs: `static`, `test`, `lib`, `temporal`, `lean` and `mutants`, which
@@ -334,8 +334,9 @@ through stand-ins.
 A command given `--control <experiment>` compares the measured tree with that control and keeps its
 rounds in the experiment, which `latest` names when it is the newest; `--control` also takes any
 source tree, such as a scratch copy, whose rounds no experiment keeps. `--tree` names the measured
-tree, this checkout by default. Both trees run with this checkout's dependencies, and `--build`
-also builds the control with them, which comparing bundle sizes needs.
+tree, this checkout by default. Both trees run and build with this checkout's dependencies, and
+both must hold the same frozen workloads in `perf/`. An experiment pins its control: once the
+control's sources or frozen workloads change, commands refuse the experiment.
 
 - A _default round_ is `pnpm bench ab default --control <experiment>` over the six default
   scenarios, and a _small round_ is `pnpm bench ab small` over the ten small ones. Each guards
@@ -344,6 +345,10 @@ also builds the control with them, which comparing bundle sizes needs.
   about a second. Two deciding rounds are two separate runs.
 - An _A/A round_ passes the control's own tree, `tree/` in the experiment, as `--tree`, to check
   noise.
+- `pnpm bench report` judges together only rounds that measured the same things: rounds that
+  passed, against the control as it was frozen, with the same frozen workloads in both trees. A
+  diagnostic's readings combine only across rounds of the same shared workloads and `--size`, and a
+  size comparison counts only for the sources judged.
 
 The header of `scripts/bench-workloads.ts` says what each scenario runs. The serialization and small
 workloads live outside `perf/`, so they run against any control. The `diag-*` diagnostics in
@@ -352,7 +357,7 @@ a new shape instead of changing a frozen workload. `pnpm bench --help` lists eve
 
 ### Protocol
 
-1. **Freeze a control** with `pnpm bench control`, adding `--build` to compare bundle sizes.
+1. **Freeze a control** with `pnpm bench control`.
 2. **Write down the hypothesis** before measuring: which repeated work disappears, which counters
    fall or stay equal, and the expected effect, checked with the cost screen below. For an idea
    taken from another library, read its original change and later fixes, and find out who owns
@@ -374,7 +379,7 @@ a new shape instead of changing a frozen workload. `pnpm bench --help` lists eve
    and cycles; `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts`
    help. Plant a mutant for each new guard to confirm that a test kills it.
 7. **Time it** with a default round, a small round and two deciding rounds on the target, and
-   **measure bundles** with `pnpm build`, then `pnpm bench size --control <experiment>`.
+   **measure bundles** with `pnpm bench size --control <experiment>`, which builds both trees.
 8. **Run the checkpoint and report** the outcome alongside the change: each workload's reading
    against the control, which `pnpm bench report` gathers, and the bundle-size change. Keep
    one-off scripts outside the repository.

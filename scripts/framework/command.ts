@@ -114,8 +114,9 @@ const parseOption = ({ default: value, multiple, short, type }: Option) => ({
 function parse(command: Command, arguments_: readonly string[]): Parsed {
   for (const argument of arguments_) {
     const flag = argument.split('=')[0]
-    const replacement = command.retired?.[flag]
-    if (replacement !== undefined) throw new UsageError(`${flag} no longer exists: ${replacement}`)
+    const retired = command.retired ?? {}
+    if (flag.startsWith('--') && Object.hasOwn(retired, flag))
+      throw new UsageError(`${flag} no longer exists: ${retired[flag]}`)
   }
   const options = Object.fromEntries(
     optionsOf(command).map(([name, option]) => [name, parseOption(option)]),
