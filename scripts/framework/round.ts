@@ -69,8 +69,9 @@ export interface RoundResult {
 
 const seconds = (since: number): number => Math.round((performance.now() - since) / 100) / 10
 
-/** A new directory for one round's logs and receipt, under `parent`. */
-export function roundDirectory(name: string, parent = path.join(STATE, 'runs')): string {
+/** A new directory under `parent` named after the time and `name`, such as one for a round's
+ * logs and receipt. */
+export function stampedDirectory(name: string, parent = path.join(STATE, 'runs')): string {
   const stamp = new Date().toISOString().replaceAll(/[:.]/g, '-')
   const base = path.join(parent, `${stamp}-${name.replaceAll(/[^a-z0-9]+/gi, '-')}`)
   mkdirSync(path.dirname(base), { recursive: true })
@@ -280,7 +281,7 @@ export async function runRound(round: Round): Promise<RoundResult> {
   const budgetSeconds = budgetOf(round)
   const started = performance.now()
   const startedAt = new Date().toISOString()
-  const directory = round.directory ?? roundDirectory(round.name)
+  const directory = round.directory ?? stampedDirectory(round.name)
   mkdirSync(directory, { recursive: true })
   const deadline = started + budgetSeconds * 1000 - SHUTDOWN_RESERVE_MS
   const { cancelled, steps } = await runSteps(round, directory, deadline)

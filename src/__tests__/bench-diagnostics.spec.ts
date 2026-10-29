@@ -1,13 +1,6 @@
 import { it } from 'vitest'
-import { createDiagnostic, diagnosticNames } from './diagnostics'
-import {
-  deserialize,
-  produce,
-  reconcile,
-  requiredMaxBytes,
-  serialize,
-  snapshot,
-} from '../../src/index'
+import { createDiagnostic, diagnosticNames } from '../../scripts/bench/diagnostics'
+import { deserialize, produce, reconcile, requiredMaxBytes, serialize, snapshot } from '../index'
 
 it.each(diagnosticNames)('validates repeated diagnostic operations: %s', (name) => {
   const scenario = createDiagnostic(

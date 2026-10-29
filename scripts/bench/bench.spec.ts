@@ -51,8 +51,9 @@ describe('pnpm bench', () => {
     [['profile', 'nothing'], 'unknown scenarios: nothing'],
     [['counts'], 'counts takes at least one scenario'],
     [['counts', 'reconcile', '--batches', '0'], '--batches takes an integer of at least 1'],
-    [['ab', 'default'], 'ab needs --control <experiment>'],
-    [['ab', '--control', 'nowhere'], 'no experiment "nowhere"'],
+    [['ab', 'default'], 'ab needs --control <control>'],
+    [['ab', '--control', 'nowhere'], 'no experiment or source tree "nowhere"'],
+    [['ab', '--control', '.', '--pairs', '3'], '--pairs takes an even count'],
     [['ab', '--control', 'latest', '--pairs', '3'], '--pairs takes an even count'],
     [['ab', '--control', 'latest', '--seconds', '0'], '--seconds takes a positive number'],
     [['ab', '--scenario', 'reconcile'], 'pnpm bench ab <scenario...>'],
@@ -70,6 +71,6 @@ describe('pnpm bench', () => {
   it('reports an experiment without rounds', async () => {
     const result = await cli('report')
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain('No A/B round yet')
+    expect(result.stdout).toContain('No A/B round of a change yet')
   })
 })

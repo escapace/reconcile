@@ -44,7 +44,8 @@ export interface Config {
   /** The control's source tree. */
   readonly control: string
   readonly directory: string
-  /** default, small, deciding or custom: which rule of the protocol the round serves. */
+  /** default, small, deciding or custom: which rule of the protocol the round serves; a round
+   * of two trees with the same sources is recorded as `aa`. */
   readonly kind: string
   readonly pairs: number
   readonly scenarios: readonly string[]
@@ -196,13 +197,15 @@ function writePlan(
     control: read('control'),
     tree: read('tree'),
   })
+  const sources = perLabel((label) => sourceHash(config[label]))
   const plan = {
     batches: counts,
     bundles: paths,
     estimatedSamplingSeconds: estimate,
     frozenWorkloadSha256: frozen,
     git: perLabel((label) => gitState(config[label])),
-    kind: config.kind,
+    // A round of two trees with the same sources only measures noise.
+    kind: sources.control === sources.tree ? 'aa' : config.kind,
     measuredSecondsPerProcess: config.seconds,
     node: process.version,
     pairs: config.pairs,
@@ -219,7 +222,7 @@ function writePlan(
     // The serialization and small workloads come from this checkout for both trees.
     sharedWorkloadSha256: sha256(readFileSync(path.join(ROOT, 'scripts', 'bench-workloads.ts'))),
     size: config.size,
-    sourceSha256: perLabel((label) => sourceHash(config[label])),
+    sourceSha256: sources,
   }
   writeFileSync(path.join(config.directory, 'plan.json'), json(plan))
 }
@@ -246,7 +249,11 @@ function sample(
 }
 
 async function main(config: Config): Promise<number> {
-  const deadline = Number(process.env.RECONCILE_DEADLINE)
+  // The round's deadline is wall-clock time; the rest of the round measures with a monotonic clock.
+  const budgetMs = Number(process.env.RECONCILE_DEADLINE) - Date.now()
+  if (!Number.isFinite(budgetMs))
+    throw new Error('RECONCILE_DEADLINE is not set; run `pnpm bench ab`')
+  const started = performance.now()
   const paths = await bundles(config)
   // One short run of every bundle, so a tree that lacks a scenario fails before any sample.
   const preflight = LABELS.flatMap((label) =>
@@ -262,7 +269,7 @@ async function main(config: Config): Promise<number> {
   )
   const counts = batchCounts(preflight, config.batches, config.warmup, config.seconds)
   const estimate = estimateSeconds(preflight, config.pairs, counts)
-  const remaining = (deadline - Date.now()) / 1000 - RESERVE_SECONDS
+  const remaining = (budgetMs - (performance.now() - started)) / 1000 - RESERVE_SECONDS
   if (estimate * ESTIMATE_MARGIN > remaining) {
     console.error(
       `The round needs about ${estimate.toFixed(0)} s of sampling but ${remaining.toFixed(0)} s ` +

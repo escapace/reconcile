@@ -284,12 +284,12 @@ bit of every file of the working tree that `scripts/check/rounds.ts` does not ex
 tracked or untracked but not ignored, plus the platform, the Node version, the installed
 dependencies and `NODE_OPTIONS`.
 
-Each round, and each `pnpm bench` command, runs within a 295-second budget and holds a
-machine-wide lock, so no two of them overlap. Other commands take no lock, so run a round only
+Each round, and each `pnpm bench` command but `report`, runs within a 295-second budget and
+holds a machine-wide lock, so no two of them overlap. Other commands take no lock, so run a round only
 when nothing else is running. A round stops every process it started when it ends, runs out of
 budget or is interrupted; if the round itself is killed, the next round stops what it left
 running. It keeps its logs and a receipt under `$XDG_STATE_HOME/reconcile/runs`, by default
-`~/.local/state/reconcile/runs`. A round that runs out of budget exits with 124: its result is
+`~/.local/state/reconcile/runs`, or in the experiment of a `pnpm bench` command that names one. A round that runs out of budget exits with 124: its result is
 incomplete, not a pass, so rerun the whole round. A cold `lake build` takes most of a round's
 budget, so load on the machine can time out the first round that builds the proofs, usually
 `temporal`.
@@ -314,9 +314,10 @@ through stand-ins.
 `pnpm bench control` freezes a _control_: it exports a revision, `HEAD` by default, or with
 `--worktree` the working tree, into a new _experiment_ under `$XDG_STATE_HOME/reconcile/experiments`.
 A command given `--control <experiment>` compares the measured tree with that control and keeps its
-rounds in the experiment; `latest` names the newest experiment. `--tree` names the measured tree,
-this checkout by default. Both trees use this checkout's dependencies, and `--build` also builds
-the control, which `size --control` needs.
+rounds in the experiment, which `latest` names when it is the newest; `--control` also takes any
+source tree, such as a scratch copy, whose rounds no experiment keeps. `--tree` names the measured
+tree, this checkout by default. Both trees run with this checkout's dependencies, and `--build`
+also builds the control with them, which comparing bundle sizes needs.
 
 - A _default round_ is `pnpm bench ab default --control <experiment>` over the six default
   scenarios, and a _small round_ is `pnpm bench ab small` over the ten small ones. Each guards
@@ -355,7 +356,7 @@ a new shape instead of changing a frozen workload. `pnpm bench --help` lists eve
    and cycles; `randomSource` and `graphsEqual` in `src/__tests__/fixtures/public-api-fuzz.ts`
    help. Plant a mutant for each new guard to confirm that a test kills it.
 7. **Time it** with a default round, a small round and two deciding rounds on the target, and
-   **measure bundles** with `pnpm bench size --control <experiment>`.
+   **measure bundles** with `pnpm build`, then `pnpm bench size --control <experiment>`.
 8. **Run the checkpoint and report** the outcome alongside the change: each workload's reading
    against the control, which `pnpm bench report` gathers, and the bundle-size change. Keep
    one-off scripts outside the repository.
@@ -378,13 +379,15 @@ cost elsewhere, `new / old ≈ (1 − f) + f / s + h`. A region taking 3% cannot
 ### Reading results
 
 `pnpm bench --help` and `pnpm bench <command> --help` list the commands, scenarios and flags. Each
-command prints the directory that keeps its output and receipt.
+command but `report` prints the directory that keeps its output and receipt.
 
 - **`ab`** prints its table and writes it, with its reading legend, to `report.md`, beside
   `plan.json`, which records the design before the first sample, and `samples.json`. Explicit
   `--batches` and `--warmup` override the automatic sizing, as a heavy diagnostic size needs.
-- **`report`** gathers an experiment's `ab` rounds on the measured tree's latest sources: each
-  workload's readings, what the acceptance rule concludes, and the rounds still missing.
+- **`report`** gathers an experiment's `ab` rounds of this checkout's sources, or else of the
+  latest sources measured: each workload's readings, what the acceptance rule concludes for it as
+  a target and as a guard, and which of the default and small rounds and the size comparison are
+  missing. A round whose trees hold the same sources is an A/A round, which it counts apart.
 - **`profile`** writes `summary.json`, the raw artifact (under `raw/`) and the bundle with its
   source map:
   - `--mode cpu` (the default) and `--mode heap` sample time or allocation and attribute frames
@@ -434,8 +437,9 @@ The `lib` round also bundles an import that uses nothing with `sideEffects` igno
 must be empty, which is the check that catches an unannotated top-level call.
 
 To find which module grew, `pnpm bench size --modules <exports> --control <experiment>` lists the
-bytes each source module adds to that bundle, built from the sources with the package's renaming
-of internal properties. Profile and `ab` bundles are unmangled, so take sizes only from `size`.
+bytes each source module adds to the bundle of those exports, built from the sources as the
+package build does, internal properties renamed; its total is close to the package bundle's, not
+equal. Profile and `ab` bundles are unmangled, so take sizes only from `size`.
 Gzip removes repetition, so only removing distinct logic saves bytes.
 
 ## JavaScript engine notes

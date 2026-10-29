@@ -2,15 +2,7 @@
 // bytes each source module adds to one bundle.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import {
-  assertFresh,
-  bundleExports,
-  OPERATIONS,
-  OTHERS,
-  packageEntry,
-  sizeRows,
-  sizeTable,
-} from '../bundles'
+import { assertFresh, bundleExports, packageEntry, sizeRows, sizeTable } from '../bundles'
 import { loadEsbuild } from '../esbuild'
 import { entry } from '../framework/entry'
 
@@ -23,9 +15,6 @@ interface Config {
   readonly modules: readonly string[] | undefined
   readonly tree: string
 }
-
-/** The exports a selection may name. */
-export const EXPORTS: readonly string[] = [...OPERATIONS, ...OTHERS]
 
 /** The bytes each source module adds to the bundle of `names` from the tree's sources, built
  * with the package's renaming of internal properties, as `scripts/build.ts` builds it. */
@@ -52,6 +41,7 @@ async function moduleBytes(tree: string, names: readonly string[]): Promise<Map<
   return new Map(
     Object.entries(output.inputs)
       .map(([file, { bytesInOutput }]) => [file, bytesInOutput] as const)
+      .filter(([, bytes]) => bytes > 0)
       .toSorted((left, right) => right[1] - left[1]),
   )
 }
@@ -89,12 +79,16 @@ async function modules(config: Config, names: readonly string[]): Promise<string
     `${JSON.stringify(rows, undefined, 2)}\n`,
   )
   if (config.control === undefined) return sizeTable(rows, ['Module', 'Bytes'])
-  const control = await moduleBytes(config.control, names)
-  return sizeTable(
-    rows,
-    ['Module', 'Bytes'],
-    new Map([...control].map(([name, bytes]) => [name, [bytes]])),
-  )
+  let control: Map<string, number>
+  try {
+    control = await moduleBytes(config.control, names)
+  } catch (error) {
+    // A control from before one of the exports has no bundle of them.
+    console.log(`The control does not bundle ${names.join('+')}: ${(error as Error).message}`)
+    control = new Map()
+  }
+  const before = new Map([...control].map(([name, bytes]) => [name, [bytes]]))
+  return sizeTable(rows, ['Module', 'Bytes'], before)
 }
 
 async function main(config: Config): Promise<number> {

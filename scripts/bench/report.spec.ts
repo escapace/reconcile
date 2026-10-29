@@ -18,11 +18,18 @@ function round(kind: string, reading: Reading): AbRound {
 }
 
 describe('verdict', () => {
-  it('keeps a change only after two deciding rounds read faster', () => {
-    expect(verdict([round('deciding', 'faster')], 'a')).toMatch(/^1 of 1 deciding rounds/)
+  it('keeps a change only when two deciding rounds or more all read faster', () => {
+    expect(verdict([round('deciding', 'faster')], 'a')).toMatch(/^no loss; as the target/)
     expect(verdict([round('deciding', 'faster'), round('deciding', 'faster')], 'a')).toMatch(
-      /^meets the acceptance rule/,
+      /^faster/,
     )
+    const retried = ['faster', 'unresolved', 'faster'] as const
+    expect(
+      verdict(
+        retried.map((reading) => round('deciding', reading)),
+        'a',
+      ),
+    ).toMatch(/^no loss/)
   })
 
   it('rejects a change that a deciding round reads slower', () => {

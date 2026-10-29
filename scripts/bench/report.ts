@@ -1,4 +1,4 @@
-// Reads an experiment's A/B rounds and states, for the tree's latest sources, each workload's
+// Reads an experiment's A/B rounds and states, for the sources measured, each workload's
 // readings against the control, what the acceptance rule concludes and which rounds are missing.
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -11,6 +11,7 @@ import type { Reading } from './stats'
 export interface AbRound {
   readonly kind: string
   readonly name: string
+  /** The measured tree's sources. */
   readonly source: string
   readonly summary: Readonly<Record<string, ScenarioSummary>>
 }
@@ -51,20 +52,22 @@ const readingsOf = (
       : [],
   )
 
+const slower = (reading: Reading): boolean => reading === 'slower' || reading === 'slightly slower'
+
 /**
- * What the protocol concludes for one workload: a deciding round that reads slower rejects the
- * tree, two deciding rounds that read faster keep it, and a guard round (default, small or
- * custom) that reads slower or slightly slower needs a deciding round of the workload's own.
+ * What the protocol concludes for one workload. A deciding round that reads slower rejects the
+ * change. As the change's target, a workload keeps it only when it has two deciding rounds or
+ * more and every one reads faster. As a guard, a workload whose default, small or custom round
+ * reads slower or slightly slower needs a deciding round of its own.
  */
 export function verdict(rounds: readonly AbRound[], scenario: string): string {
   const deciding = readingsOf(rounds, scenario, ['deciding'])
-  const faster = deciding.filter((reading) => reading === 'faster').length
   if (deciding.includes('slower')) return 'rejected: a deciding round reads slower'
-  if (faster >= 2) return 'meets the acceptance rule: two deciding rounds read faster'
+  if (deciding.length >= 2 && deciding.every((reading) => reading === 'faster'))
+    return 'faster: every deciding round, two or more, reads faster'
   if (deciding.length > 0)
-    return `${faster} of ${deciding.length} deciding rounds read faster; keeping a change needs two`
-  const guard = readingsOf(rounds, scenario, ['default', 'small', 'custom'])
-  if (guard.some((reading) => reading === 'slower' || reading === 'slightly slower'))
+    return 'no loss; as the target it needs two deciding rounds or more, every one faster'
+  if (readingsOf(rounds, scenario, ['default', 'small', 'custom']).some(slower))
     return 'needs a deciding round: a guard round reads slower'
   return 'no loss in its rounds'
 }
@@ -72,43 +75,68 @@ export function verdict(rounds: readonly AbRound[], scenario: string): string {
 const shown = (entry: ScenarioSummary): string =>
   `${entry.reading} ${entry.medianPairedPercentChange >= 0 ? '+' : ''}${entry.medianPairedPercentChange.toFixed(2)}%`
 
-/** The report of an experiment, as `pnpm bench report` prints it. */
-export function report(experiment: Experiment): string {
-  const { record } = experiment
-  const lines = [
-    `Experiment ${experiment.name}: control ${record.commit.slice(0, 12)}` +
-      `${record.worktree ? ' with uncommitted changes' : ''}, frozen ${record.created}.`,
-  ]
-  const rounds = abRounds(experiment)
-  const latest = rounds.at(-1)
-  if (latest === undefined)
-    return [...lines, 'No A/B round yet: `pnpm bench ab default --control <experiment>`.'].join(
-      '\n',
-    )
-  const current = rounds.filter((round) => round.source === latest.source)
-  const scenarios = [...new Set(current.flatMap((round) => Object.keys(round.summary)))]
+/** The verdict of each workload measured in `rounds`, with its readings. */
+function verdicts(rounds: readonly AbRound[]): string[] {
+  const scenarios = [...new Set(rounds.flatMap((round) => Object.keys(round.summary)))]
   const width = Math.max(...scenarios.map((scenario) => scenario.length)) + 2
-  lines.push(
-    '',
-    `Verdicts from the ${current.length === 1 ? 'round' : `${current.length} rounds`} on the tree's latest sources (${latest.source.slice(0, 12)}), ` +
-      'each with its readings, oldest first:',
-    ...scenarios.map((scenario) => {
-      const readings = current.flatMap((round) =>
-        scenario in round.summary ? [`${round.kind} ${shown(round.summary[scenario])}`] : [],
-      )
-      return `  ${scenario.padEnd(width)}${verdict(current, scenario)}: ${readings.join(', ')}`
-    }),
-  )
-  const missing = [
+  return scenarios.map((scenario) => {
+    const readings = rounds.flatMap((round) =>
+      scenario in round.summary ? [`${round.kind} ${shown(round.summary[scenario])}`] : [],
+    )
+    return `  ${scenario.padEnd(width)}${verdict(rounds, scenario)}: ${readings.join(', ')}`
+  })
+}
+
+/** The rounds that the protocol asks for and that `rounds` lack. */
+function missing(rounds: readonly AbRound[], experiment: Experiment): string[] {
+  return [
     ...(['default', 'small'] as const)
-      .filter((kind) => !current.some((round) => round.kind === kind))
+      .filter((kind) => !rounds.some((round) => round.kind === kind))
       .map((kind) => `a ${kind} round`),
     ...(hasSizes(experiment) ? [] : ['a size comparison']),
   ]
-  if (missing.length > 0) lines.push('', `Missing: ${missing.join(', ')}.`)
-  if (rounds.length > current.length)
-    lines.push(`${rounds.length - current.length} older rounds measured other sources.`)
-  if (sourceHash(ROOT) !== latest.source)
-    lines.push("This checkout's sources differ from the latest round's.")
+}
+
+/** The sources to judge: this checkout's when a round measured them, else the latest measured. */
+const judgedSource = (measured: readonly AbRound[], checkout: string): string | undefined =>
+  measured.some((round) => round.source === checkout) ? checkout : measured.at(-1)?.source
+
+function headline({ name, record }: Experiment): string {
+  const changes = record.worktree ? ' with uncommitted changes' : ''
+  return `Experiment ${name}: control ${record.commit.slice(0, 12)}${changes}, frozen ${record.created}.`
+}
+
+const noise = (count: number): string[] =>
+  count === 0 ? [] : [`${count} A/A ${count === 1 ? 'round measures' : 'rounds measure'} noise.`]
+
+function verdictsHeading(count: number, source: string, checkout: string): string {
+  const rounds = count === 1 ? 'the round' : `the ${count} rounds`
+  const sources =
+    source === checkout
+      ? "this checkout's sources"
+      : `sources ${source.slice(0, 12)}, not this checkout's`
+  return `Verdicts from ${rounds} of ${sources}, each with its readings, oldest first:`
+}
+
+/**
+ * The report of an experiment, as `pnpm bench report` prints it. It judges the rounds that
+ * measured this checkout's sources, or else the latest measured sources; A/A rounds, which
+ * measure noise, are counted apart.
+ */
+export function report(experiment: Experiment): string {
+  const rounds = abRounds(experiment)
+  const measured = rounds.filter((round) => round.kind !== 'aa')
+  const checkout = sourceHash(ROOT)
+  const source = judgedSource(measured, checkout)
+  const lines = [headline(experiment), ...noise(rounds.length - measured.length)]
+  if (source === undefined)
+    return [
+      ...lines,
+      'No A/B round of a change yet: `pnpm bench ab default --control <experiment>`.',
+    ].join('\n')
+  const current = measured.filter((round) => round.source === source)
+  lines.push('', verdictsHeading(current.length, source, checkout), ...verdicts(current))
+  const absent = missing(current, experiment)
+  if (absent.length > 0) lines.push('', `Missing: ${absent.join(', ')}.`)
   return lines.join('\n')
 }

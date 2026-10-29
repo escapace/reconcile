@@ -1,7 +1,7 @@
 import { UsageError, type Command, type Parsed } from '../framework/command'
 import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/tree'
 import { withLock, type Lock } from '../framework/lock'
-import { BUDGET_SECONDS, roundDirectory, runRound, type Status } from '../framework/round'
+import { BUDGET_SECONDS, stampedDirectory, runRound, type Status } from '../framework/round'
 import { STATE } from '../framework/paths'
 import { mutantNames } from './mutants'
 import { findPass, latestPass, recordPass, type Pass } from './passes'
@@ -116,7 +116,7 @@ async function runOne(
   }
   process.stdout.write(`${round.name}: running (${why})\n`)
   const narrowed = round.narrowed(options)
-  const directory = roundDirectory(`check-${round.name}`)
+  const directory = stampedDirectory(`check-${round.name}`)
   const result = await runRound({
     directory,
     lock,

@@ -33,7 +33,12 @@ export const OTHERS = [
   'RECONCILE_ERROR_TYPES',
   'ReconcileError',
 ] as const
-const esbuild = loadEsbuild()
+
+/** Every runtime export, as selections name them. */
+export const EXPORTS: readonly string[] = [...OPERATIONS, ...OTHERS]
+let loaded: ReturnType<typeof loadEsbuild> | undefined
+/** The esbuild the build uses, loaded on first use so that the CLI starts without it. */
+const esbuild = (): ReturnType<typeof loadEsbuild> => (loaded ??= loadEsbuild())
 const options = {
   bundle: true,
   format: 'esm',
@@ -82,7 +87,11 @@ export function assertFresh(entry: string): void {
 }
 
 async function bundle(contents: string, plugins: unknown[] = []): Promise<Uint8Array> {
-  const result = await esbuild.build({ ...options, plugins, stdin: { contents, resolveDir: ROOT } })
+  const result = await esbuild().build({
+    ...options,
+    plugins,
+    stdin: { contents, resolveDir: ROOT },
+  })
   return result.outputFiles[0].contents
 }
 
@@ -248,7 +257,10 @@ export async function bundleExports(
   mkdirSync(directory, { recursive: true })
   const rows: Row[] = []
   const sources = new Map<string, Uint8Array>()
+  // A package from before an export was added lacks the bundles that need it.
+  const exported = new Set(Object.keys((await import(pathToFileURL(entry).href)) as object))
   for (const names of selections()) {
+    if (!names.every((name) => exported.has(name))) continue
     const bytes = await bundle(`export {${names.join(',')}} from ${JSON.stringify(entry)}`)
     const name = names.join('+')
     writeFileSync(path.join(directory, `${name}.js`), bytes)
@@ -257,14 +269,16 @@ export async function bundleExports(
   }
   writeFileSync(
     path.join(directory, 'sizes.json'),
-    `${JSON.stringify({ entry, entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'), esbuild: esbuild.version, rows }, undefined, 2)}\n`,
+    `${JSON.stringify({ entry, entrySha256: createHash('sha256').update(readFileSync(entry)).digest('hex'), esbuild: esbuild().version, rows }, undefined, 2)}\n`,
   )
   return { rows, sources }
 }
 
 const number = (value: number): string => value.toLocaleString('en-US')
 const percent = (before: number, after: number): string =>
-  `${after >= before ? '+' : ''}${((100 * (after - before)) / before).toFixed(2)}%`
+  before === 0
+    ? ''
+    : `${after >= before ? '+' : ''}${((100 * (after - before)) / before).toFixed(2)}%`
 
 /** A table of sizes, or of the change from `before` to `after` when there is a before. */
 export function sizeTable(

@@ -36,7 +36,8 @@ const GUIDES = ['AGENTS.md', 'docs/']
 /** The README and the guides. Only `static` reads them, and `lib` the README, whose API section
  * the build regenerates. */
 const DOCS = ['README.md', ...GUIDES]
-/** The measurement tooling and the frozen workloads, which only `static` and `test` read. */
+/** The measurement tooling and the frozen workloads, which `temporal`, `lean` and `mutants` never
+ * read. */
 const BENCH = ['perf/', 'scripts/bench/', 'scripts/bench-workloads.ts']
 
 /** The specs that run only with a native `Temporal`. */
@@ -133,7 +134,8 @@ export const ROUNDS: readonly RoundDefinition[] = [
     ],
   },
   {
-    exclude: [...LEAN, ...GUIDES, ...BENCH],
+    // The library suite runs the diagnostics, so `lib` reads the workloads they build on.
+    exclude: [...LEAN, ...GUIDES, 'perf/'],
     name: 'lib',
     narrowed: whole,
     outputs: ['README.md'],
