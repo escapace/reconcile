@@ -8,9 +8,11 @@ import {
 } from 'node:fs'
 import { constants } from 'node:os'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { interrupted, onInterrupt, outputOpen } from './interrupt'
 import type { Lock } from './lock'
 import { ROOT, STATE } from './paths'
-import { stopGroup } from './processes'
+import { killHolders, outputsOf, stopGroup } from './processes'
 
 /** Every round's budget: the 300 seconds a round may take, less a margin for shutdown. */
 export const BUDGET_SECONDS = 295
@@ -18,22 +20,30 @@ export const BUDGET_SECONDS = 295
 /** The part of the budget kept back for stopping the last step's processes. */
 const SHUTDOWN_RESERVE_MS = 2000
 
-/** How a round or step ended. */
-export type Status = 'cancelled' | 'failed' | 'passed' | 'timed_out'
+/** How long a step's output may stay open after its process group has been stopped. */
+const CLOSE_GRACE_MS = 1000
 
-/** The exit code of a round with each status: a timeout is incomplete, not a failure. A step's
- * own exit code is kept in the receipt. */
-const EXIT_CODES: Record<Status, number> = { cancelled: 130, failed: 1, passed: 0, timed_out: 124 }
+/** How a round or step ended: `blocked` when a step's command could not be started at all. */
+export type Status = 'blocked' | 'cancelled' | 'failed' | 'passed' | 'timed_out'
+
+/** The exit code of a round with each status: a timeout is incomplete, not a failure, and a
+ * command that could not start judged nothing. A step's own exit code is kept in the receipt. */
+export const EXIT_CODES: Record<Status, number> = {
+  blocked: 3,
+  cancelled: 130,
+  failed: 1,
+  passed: 0,
+  timed_out: 124,
+}
 
 /** One command of a round, run in its own process group. */
 export interface Step {
   readonly command: readonly string[]
   readonly name: string
   readonly cwd?: string
-  /** Variables added to the environment; a function is called when the step starts, within the
-   * round's budget, and a step whose function throws fails. Every step also gets
-   * `RECONCILE_DEADLINE`, the time in epoch milliseconds by which it must have ended. */
-  readonly env?: (() => Readonly<Record<string, string>>) | Readonly<Record<string, string>>
+  /** Variables added to the environment. Every step also gets `RECONCILE_DEADLINE`, the time in
+   * epoch milliseconds by which it must have ended. */
+  readonly env?: Readonly<Record<string, string>>
 }
 
 export interface StepResult {
@@ -92,73 +102,106 @@ function tail(file: string, lines = 40): string {
   return text.split('\n').slice(-lines).join('\n')
 }
 
-/** What a round's steps share: whether it was cancelled, the group of the step running now and
- * the lock that records that group. */
-interface Control {
-  cancelled: boolean
-  group: number | undefined
-  readonly lock: Lock | undefined
+/** Writes to the CLI's own output while a reader is there to see it. */
+const show = (stream: NodeJS.WriteStream, text: string | Buffer): void => {
+  if (outputOpen()) stream.write(text)
 }
 
-const setGroup = (control: Control, group: number | undefined): void => {
-  control.group = group
-  control.lock?.setGroup(group)
+/** What a round's steps share: whether it was cancelled, and how to stop the running step. */
+interface Control {
+  cancelled: boolean
+  readonly lock: Lock | undefined
+  stop: ((now: boolean) => void) | undefined
 }
 
 interface Ending {
+  readonly blocked: boolean
   readonly code: number | null
   readonly signal: NodeJS.Signals | null
 }
 
+/** A step's process: how it ended, and the means to stop it with everything it started. */
+interface Running {
+  readonly ended: Promise<Ending>
+  readonly group: number | undefined
+  /** Stops the step's process group, then whatever outside it still holds the step's output. */
+  readonly stop: (now: boolean) => Promise<void>
+}
+
 /** Starts a step in its own process group, writing its output to `output` and, when `echo` is
- * set, to this process's own. */
-function launch(
-  step: Step,
-  output: WriteStream,
-  echo: boolean,
-  deadline: number,
-): { ended: Promise<Ending>; group: number | undefined } {
-  let environment: NodeJS.ProcessEnv
-  try {
-    environment = {
-      ...process.env,
-      ...(typeof step.env === 'function' ? step.env() : step.env),
-      RECONCILE_DEADLINE: String(Math.round(Date.now() + deadline - performance.now())),
-    }
-  } catch (error) {
-    output.write(`${(error as Error).message}\n`)
-    return { ended: Promise.resolve({ code: 1, signal: null }), group: undefined }
-  }
+ * set, to this process's own. A command that cannot be started at all ends `blocked`. */
+function launch(step: Step, output: WriteStream, echo: boolean, deadline: number): Running {
   const child = spawn(step.command[0], step.command.slice(1), {
     cwd: step.cwd ?? ROOT,
     detached: true,
-    env: environment,
+    env: {
+      ...process.env,
+      ...step.env,
+      RECONCILE_DEADLINE: String(Math.round(Date.now() + deadline - performance.now())),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  const group = child.pid
+  const outputs = outputsOf(group)
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  const stop = async (now: boolean): Promise<void> => {
+    await stopGroup(group, now)
+    // A descendant that left the group can hold the output open, and with it `close`.
+    if (await Promise.race([closed.then(() => true), sleep(CLOSE_GRACE_MS).then(() => false)]))
+      return
+    const killed = killHolders(outputs)
+    output.write(
+      killed > 0
+        ? `\nstopped ${killed} processes that left the step's process group\n`
+        : `\nclosed the step's output; processes outside its process group may remain\n`,
+    )
+    child.stdout.destroy()
+    child.stderr.destroy()
+    await closed
+  }
   const ended = new Promise<Ending>((resolve) => {
-    child.once('error', (error) => {
+    child.once('error', (error: NodeJS.ErrnoException) => {
       output.write(`cannot run ${step.command[0]}: ${error.message}\n`)
-      resolve({ code: 127, signal: null })
+      resolve({
+        blocked: error.code === 'ENOENT' || error.code === 'EACCES',
+        code: 127,
+        signal: null,
+      })
     })
-    child.once('close', (code, signal) => resolve({ code, signal }))
+    child.once('exit', (code, signal) => {
+      // Whatever the step left running is stopped, so that its output can close.
+      void stop(false).then(() => resolve({ blocked: false, code, signal }))
+    })
   })
-  // Descendants that keep the pipes open would otherwise hold `close` back after the step exits.
-  child.once('exit', () => void stopGroup(child.pid))
   child.stdout.on('data', (chunk: Buffer) => {
     output.write(chunk)
-    if (echo) process.stdout.write(chunk)
+    if (echo) show(process.stdout, chunk)
   })
   child.stderr.on('data', (chunk: Buffer) => {
     output.write(chunk)
-    if (echo) process.stderr.write(chunk)
+    if (echo) show(process.stderr, chunk)
   })
-  return { ended, group: child.pid }
+  return { ended, group, stop }
 }
 
-function stepStatus(code: number | null, timedOut: boolean, cancelled: boolean): Status {
+function stepStatus(ending: Ending, timedOut: boolean, cancelled: boolean): Status {
+  if (ending.blocked) return 'blocked'
   if (cancelled) return 'cancelled'
   if (timedOut) return 'timed_out'
-  return code === 0 ? 'passed' : 'failed'
+  return ending.code === 0 ? 'passed' : 'failed'
+}
+
+/** Records the step's process group in the lock, so that whoever takes over an abandoned lock
+ * can stop it. The lock is held either way, so a failure to record only warns. */
+function recordGroup(lock: Lock | undefined, group: number | undefined): void {
+  try {
+    lock?.setGroup(group)
+  } catch (error) {
+    show(
+      process.stderr,
+      `warning: the lock does not name the running step: ${(error as Error).message}\n`,
+    )
+  }
 }
 
 /** Runs one step in its own process group until it ends, the deadline passes or the round is
@@ -172,33 +215,35 @@ async function runStep(
 ): Promise<StepResult> {
   const started = performance.now()
   const output = createWriteStream(log)
-  const { ended, group } = launch(step, output, echo, deadline)
-  setGroup(control, group)
+  const { ended, group, stop } = launch(step, output, echo, deadline)
   let timedOut = false
   const timer = setTimeout(
     () => {
       timedOut = true
-      void stopGroup(group)
+      void stop(false)
     },
     Math.max(0, deadline - performance.now()),
   )
-  const { code, signal } = await ended
+  control.stop = (now) => void stop(now)
+  recordGroup(control.lock, group)
+  const ending = await ended
   clearTimeout(timer)
-  await stopGroup(group)
-  setGroup(control, undefined)
+  control.stop = undefined
+  recordGroup(control.lock, undefined)
   await new Promise<void>((resolve) => output.end(resolve))
-  const status = stepStatus(code, timedOut, control.cancelled)
+  const { code, signal } = ending
   return {
     command: step.command,
     elapsedSeconds: seconds(started),
     exitCode: code ?? 128 + (signal === null ? 0 : constants.signals[signal]),
     log,
     name: step.name,
-    status,
+    status: stepStatus(ending, timedOut, control.cancelled),
   }
 }
 
 const verdicts: Record<Status, string> = {
+  blocked: 'COULD NOT START',
   cancelled: 'CANCELLED',
   failed: 'FAILED',
   passed: 'ok',
@@ -215,28 +260,26 @@ async function reportStep(
   round: Round,
 ): Promise<StepResult> {
   if (round.stream === true) return await runStep(step, log, deadline, control, true)
-  process.stdout.write(`  ${step.name} ... `)
+  show(process.stdout, `  ${step.name} ... `)
   const result = await runStep(step, log, deadline, control, false)
-  process.stdout.write(`${verdicts[result.status]} (${result.elapsedSeconds} s)\n`)
-  if (result.status === 'failed') process.stdout.write(`${tail(log)}\nLog: ${log}\n`)
+  show(process.stdout, `${verdicts[result.status]} (${result.elapsedSeconds} s)\n`)
+  if (result.status === 'failed' || result.status === 'blocked')
+    show(process.stdout, `${tail(log)}\nLog: ${log}\n`)
   return result
 }
 
-const SIGNALS = ['SIGHUP', 'SIGINT', 'SIGTERM'] as const
-
-/** Runs the steps in order until one does not pass, the deadline passes or a signal cancels the
- * round. */
+/** Runs the steps in order until one does not pass, the deadline passes or an interrupt cancels
+ * the round. */
 async function runSteps(
   round: Round,
   directory: string,
   deadline: number,
 ): Promise<{ cancelled: boolean; steps: StepResult[] }> {
-  const control: Control = { cancelled: false, group: undefined, lock: round.lock }
-  const cancel = (): void => {
+  const control: Control = { cancelled: interrupted(), lock: round.lock, stop: undefined }
+  const forget = onInterrupt((urgent) => {
     control.cancelled = true
-    void stopGroup(control.group)
-  }
-  for (const signal of SIGNALS) process.on(signal, cancel)
+    control.stop?.(urgent)
+  })
   const steps: StepResult[] = []
   try {
     for (const [index, step] of round.steps.entries()) {
@@ -250,7 +293,7 @@ async function runSteps(
       if (result.status !== 'passed') break
     }
   } finally {
-    for (const signal of SIGNALS) process.off(signal, cancel)
+    forget()
   }
   return { cancelled: control.cancelled, steps }
 }

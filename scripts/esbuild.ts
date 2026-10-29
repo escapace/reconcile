@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 
@@ -70,12 +68,7 @@ export async function bundleWithHooks(
     write: false,
   })
   assert.equal(hooked, 1, `one source matches ${String(file)}`)
-  const directory = mkdtempSync(path.join(tmpdir(), 'reconcile-hooks-'))
-  try {
-    const bundle = path.join(directory, 'index.mjs')
-    writeFileSync(bundle, result.outputFiles[0].contents)
-    return (await import(pathToFileURL(bundle).href)) as unknown
-  } finally {
-    rmSync(directory, { force: true, recursive: true })
-  }
+  // Imported from memory, the bundle leaves no file behind, however its process ends.
+  const source = Buffer.from(result.outputFiles[0].contents).toString('base64')
+  return (await import(`data:text/javascript;base64,${source}`)) as unknown
 }

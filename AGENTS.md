@@ -27,8 +27,8 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
   `scripts/bench-workloads.ts`. Freeze a control and the counted-work hypothesis before optimizing.
   Never overlap a benchmark or profiler with any other work. Report each workload against the
   control or trunk directly, never as an aggregate or multiplied ratios.
-- Take validation and measurement evidence only from `pnpm check` and `pnpm bench`. A timeout
-  (exit 124) is incomplete evidence, not a pass, and is not split into chunks.
+- Take validation and measurement evidence only from `pnpm check` and `pnpm bench`. An incomplete
+  round (exit 124) is not a pass, and is not split into chunks.
 - CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and Prettier on
   staged files, and its build type-checks only `src/`. Before committing, run `pnpm check`; keep
   it out of the hook.

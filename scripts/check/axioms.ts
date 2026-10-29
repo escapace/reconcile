@@ -3,8 +3,7 @@
 // after `lake build`; the modules share one imported environment. The control audits four
 // modules with no axiom allowed and must be rejected, after it found their private declarations.
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { entry } from '../framework/entry'
 import { ROOT } from '../framework/paths'
@@ -92,30 +91,35 @@ export function auditSource(
   ].join('\n')
 }
 
-/** Runs `source` with the project's Lean environment; returns its exit code and output. */
-function runLean(source: string, echo: boolean): { output: string; status: number } {
-  const directory = mkdtempSync(path.join(tmpdir(), 'reconcile-axioms-'))
-  try {
-    const file = path.join(directory, 'Audit.lean')
-    writeFileSync(file, source)
-    const result = spawnSync('lake', ['env', 'lean', file], {
-      cwd: ROOT,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    const output = `${result.stdout}${result.stderr}`
-    if (echo) process.stdout.write(output)
-    return { output, status: result.status ?? 1 }
-  } finally {
-    rmSync(directory, { force: true, recursive: true })
-  }
+/** Runs `source`, kept as `file`, with the project's Lean environment; returns its exit code
+ * and output. */
+function runLean(file: string, source: string, echo: boolean): { output: string; status: number } {
+  writeFileSync(file, source)
+  const result = spawnSync('lake', ['env', 'lean', file], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const output = `${result.stdout}${result.stderr}`
+  if (echo) process.stdout.write(output)
+  return { output, status: result.status ?? 1 }
 }
 
-/** The audit, or with `control` the audit that must reject a standard axiom. */
-async function main({ control }: { readonly control?: boolean }): Promise<number> {
-  if (control !== true)
-    return await Promise.resolve(runLean(auditSource(configuredModules(ROOT)), true).status)
-  const { output, status } = runLean(auditSource(CONTROL, [], true), false)
+/** The audit, or with `control` the audit that must reject a standard axiom. Each program is
+ * kept in the round's directory beside its log, so the audit leaves nothing elsewhere. */
+async function main({
+  control,
+  directory,
+}: {
+  readonly directory: string
+  readonly control?: boolean
+}): Promise<number> {
+  if (control !== true) {
+    const source = auditSource(configuredModules(ROOT))
+    return await Promise.resolve(runLean(path.join(directory, 'Audit.lean'), source, true).status)
+  }
+  const file = path.join(directory, 'AuditControl.lean')
+  const { output, status } = runLean(file, auditSource(CONTROL, [], true), false)
   if (status !== 0 && /Unexpected axiom: (?:propext|Classical\.choice|Quot\.sound)/.test(output)) {
     console.log(
       'The audit rejects a standard axiom when none is allowed, after finding private declarations.',

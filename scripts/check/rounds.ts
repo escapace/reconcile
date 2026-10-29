@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -70,40 +69,25 @@ function withElan(PATH: string): string {
 
 /** The environment of the Lean steps: the toolchain on PATH, the C compiler that skips
  * optimizing the oracle's imported dependencies, and no artifact cache, whose objects were built
- * with other settings. A round resolves it once, when its first Lean step starts. */
-function leanEnvironment(): () => Record<string, string> {
-  let environment: Record<string, string> | undefined
-  return () => {
-    if (environment !== undefined) return environment
-    const PATH = withElan(process.env.PATH ?? '')
-    const prefix = spawnSync('lean', ['--print-prefix'], {
-      encoding: 'utf8',
-      env: { ...process.env, PATH },
-      timeout: 30_000,
-    })
-    if (prefix.status !== 0) throw new Error(`lean --print-prefix failed: ${prefix.stderr}`)
-    environment = {
-      LAKE_ARTIFACT_CACHE: 'false',
-      LEAN_CC: path.join(ROOT, 'scripts', 'check', 'cc.sh'),
-      LEAN_SYSROOT: prefix.stdout.trim(),
-      PATH,
-    }
-    return environment
-  }
-}
+ * with other settings. */
+const leanEnvironment = (): Record<string, string> => ({
+  LAKE_ARTIFACT_CACHE: 'false',
+  LEAN_CC: path.join(ROOT, 'scripts', 'check', 'cc.sh'),
+  PATH: withElan(process.env.PATH ?? ''),
+})
 
 /** The first Lean step: elan installs the version `lean-toolchain` names, if it lacks it, within
  * the round's budget. */
 const toolchain = (): Step => ({
   command: ['lean', '--version'],
-  env: { PATH: withElan(process.env.PATH ?? '') },
+  env: leanEnvironment(),
   name: 'lean toolchain',
 })
 
 /** Builds the proofs and the oracle with warnings as errors. */
-const lakeBuild = (environment: () => Record<string, string>): Step => ({
+const lakeBuild = (): Step => ({
   command: ['lake', 'build', '--wfail'],
-  env: environment,
+  env: leanEnvironment(),
   name: 'lake build',
 })
 
@@ -225,7 +209,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
         pnpm('build', 'run', '--silent', 'build'),
         specs('package', 'vitest-library.config.ts'),
         toolchain(),
-        lakeBuild(environment),
+        lakeBuild(),
         {
           command: script('scripts/check/lean.ts', { families: [] }, ['--harmony-temporal']),
           env: environment,
@@ -239,7 +223,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
     name: 'lean',
     summary: 'The gate: proofs without warnings or extra axioms, and every runtime-to-Lean bridge.',
     validate: validateLean,
-    steps: (options) => {
+    steps: (options, directory) => {
       const environment = leanEnvironment()
       const { batch, dump, features, names: families, seeds } = options
       const bridges = {
@@ -248,17 +232,17 @@ export const ROUNDS: readonly RoundDefinition[] = [
         name: 'bridges',
       }
       // A narrowed run is for one bridge's failures; the proofs need no audit for it.
-      if (narrowed(options)) return [toolchain(), lakeBuild(environment), bridges]
+      if (narrowed(options)) return [toolchain(), lakeBuild(), bridges]
       return [
         toolchain(),
-        lakeBuild(environment),
+        lakeBuild(),
         {
-          command: script('scripts/check/axioms.ts', {}),
+          command: script('scripts/check/axioms.ts', { directory }),
           env: environment,
           name: 'axiom audit',
         },
         {
-          command: script('scripts/check/axioms.ts', { control: true }),
+          command: script('scripts/check/axioms.ts', { control: true, directory }),
           env: environment,
           name: 'axiom audit control',
         },
@@ -273,7 +257,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
     validate: validateMutants,
     steps: ({ names, seeds }) => [
       toolchain(),
-      lakeBuild(leanEnvironment()),
+      lakeBuild(),
       {
         command: script('scripts/check/mutants.ts', { names, seeds: seeds ?? AUDIT_SEEDS }),
         name: 'audit',

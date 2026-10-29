@@ -1,7 +1,14 @@
 import { UsageError, type Command, type Parsed } from '../framework/command'
 import { changedEnvironment, changedFiles, inputs, type Inputs } from '../framework/tree'
 import { withLock, type Lock } from '../framework/lock'
-import { BUDGET_SECONDS, stampedDirectory, runRound, type Status } from '../framework/round'
+import { interrupted } from '../framework/interrupt'
+import {
+  BUDGET_SECONDS,
+  EXIT_CODES,
+  stampedDirectory,
+  runRound,
+  type Status,
+} from '../framework/round'
 import { STATE } from '../framework/paths'
 import { BRIDGES } from './bridges'
 import { parseSeeds } from './bridges/selection'
@@ -43,10 +50,8 @@ function decide(
   return { pass, why: pass === undefined ? reason(round, current) : '' }
 }
 
-/** The exit code of an interrupted round. */
-const EXIT_CANCELLED = 130
-
 const verdicts: Record<Status, string> = {
+  blocked: 'COULD NOT START',
   cancelled: 'CANCELLED',
   failed: 'FAILED',
   passed: 'passed',
@@ -74,32 +79,38 @@ function plan(rounds: readonly RoundDefinition[], options: RoundOptions, fresh: 
   return 0
 }
 
-/** Records a pass on the inputs the round leaves behind, unless a file it does not declare as
- * its output changed while it ran. */
-function record(round: RoundDefinition, before: Inputs, receipt: string): void {
-  const after = inputs(round.exclude)
-  const environment = changedEnvironment(before.environment, after.environment)
-  if (environment.length > 0) {
-    process.stdout.write(
-      `${round.name}: the environment changed while it ran (${list(environment)}); no pass recorded\n`,
-    )
-    return
-  }
-  const changed = changedFiles(before.files, after.files)
+/** What changed while a round ran, besides the files it declares as its outputs, which it may
+ * rewrite; empty when nothing did. */
+function changedWhileRunning(round: RoundDefinition, before: Inputs, after: Inputs): string[] {
   const outputs = round.outputs ?? []
+  const changed = changedFiles(before.files, after.files)
   const rewritten = changed.filter((file) => outputs.includes(file))
-  const foreign = changed.filter((file) => !outputs.includes(file))
   if (rewritten.length > 0)
     process.stdout.write(
       `${round.name}: the round rewrote ${list(rewritten)}; review and commit it\n`,
     )
-  if (foreign.length > 0) {
+  return [
+    ...changed.filter((file) => !outputs.includes(file)),
+    ...changedEnvironment(before.environment, after.environment).map(
+      (key) => `the ${key} environment`,
+    ),
+  ]
+}
+
+/** The outcome of a round that passed: complete, and recorded as a pass unless it was narrowed,
+ * when its inputs are those it started with; incomplete when they changed while it ran, since it
+ * then validated a tree that no longer exists. */
+function settle(round: RoundDefinition, before: Inputs, receipt: string, partial: boolean): number {
+  const after = inputs(round.exclude)
+  const changed = changedWhileRunning(round, before, after)
+  if (changed.length > 0) {
     process.stdout.write(
-      `${round.name}: files changed while it ran (${list(foreign)}); no pass recorded\n`,
+      `${round.name}: INCOMPLETE: ${list(changed)} changed while it ran; rerun it\n`,
     )
-    return
+    return EXIT_CODES.timed_out
   }
-  recordPass(round.name, after, receipt)
+  if (!partial) recordPass(round.name, after, receipt)
+  return 0
 }
 
 /** Runs one round unless it passed on identical inputs; returns its exit code. */
@@ -109,6 +120,7 @@ async function runOne(
   fresh: boolean,
   lock: Lock,
 ): Promise<number> {
+  if (interrupted()) return EXIT_CODES.cancelled
   const before = inputs(round.exclude)
   const { pass, why } = decide(round, options, fresh, before)
   if (pass !== undefined) {
@@ -127,11 +139,12 @@ async function runOne(
     // A narrowed run is for reading a bridge's or a mutant's output, such as a dump.
     stream: partial,
   })
-  if (result.status === 'passed' && !partial) record(round, before, result.receipt)
   process.stdout.write(
     `${round.name}: ${verdicts[result.status]} in ${result.elapsedSeconds} s; receipt ${result.receipt}\n`,
   )
-  return result.exitCode
+  return result.status === 'passed'
+    ? settle(round, before, result.receipt, partial)
+    : result.exitCode
 }
 
 /** The options of a run, which only a named round that takes them may narrow. */
@@ -158,8 +171,21 @@ function optionsFor(
   return options
 }
 
-/** Runs the rounds in order and returns the first failure's exit code; stops there unless
- * `keepGoing` is set. */
+/** The exit codes of rounds by how much they say: an interrupt, then a failure, a round that
+ * could not run, an incomplete one and a pass. */
+const SEVERITY = [
+  EXIT_CODES.cancelled,
+  EXIT_CODES.failed,
+  EXIT_CODES.blocked,
+  EXIT_CODES.timed_out,
+  EXIT_CODES.passed,
+]
+
+const mostSevere = (codes: readonly number[]): number =>
+  SEVERITY.find((code) => codes.includes(code)) ?? EXIT_CODES.passed
+
+/** Runs the rounds in order and returns the most severe exit code; stops at the first round that
+ * does not pass unless `keepGoing` is set, and at an interrupt in any case. */
 async function runAll(
   rounds: readonly RoundDefinition[],
   options: RoundOptions,
@@ -168,14 +194,13 @@ async function runAll(
 ): Promise<number> {
   const invocation = ['pnpm check', ...process.argv.slice(3)].join(' ')
   return await withLock(invocation, async (lock) => {
-    let failed = 0
+    const codes: number[] = []
     for (const round of rounds) {
       const code = await runOne(round, options, fresh, lock)
-      if (failed === 0) failed = code
-      // An interrupted round stops the run, --keep-going or not.
-      if (code === EXIT_CANCELLED || (code !== 0 && !keepGoing)) break
+      codes.push(code)
+      if (interrupted() || (code !== 0 && !keepGoing)) break
     }
-    return failed
+    return mostSevere(codes)
   })
 }
 
@@ -200,8 +225,10 @@ export const check: Command = {
       '`--plan` shows what changed. The run stops at the first round that does not pass.',
     `Each round runs within a ${BUDGET_SECONDS}-second budget and holds a machine-wide lock, so ` +
       `no two rounds of check or bench overlap. Receipts and logs are kept under ${STATE}/runs.`,
-    'Exit codes: 0 passed, 1 failed, 2 usage error, 3 could not start, 124 out of budget ' +
-      '(incomplete; rerun the whole round), 130 interrupted.',
+    'Exit codes: 0 passed, 1 failed, 2 usage error, 3 could not run (nothing was judged), 124 ' +
+      'incomplete (out of budget, or its files changed while it ran; rerun the whole round). An ' +
+      'interrupt stops the round and ends the command by its signal, 130 for Ctrl-C; a second ' +
+      'one stops the steps at once. With --keep-going the most severe code is returned.',
   ],
   examples: [
     'pnpm check                  # every round that has not passed on its current inputs',

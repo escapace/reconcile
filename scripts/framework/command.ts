@@ -46,8 +46,8 @@ export class UsageError extends Error {
   invocation: string | undefined
 }
 
-/** A round that cannot start, such as when another round holds the lock or a tool is missing:
- * exit code 3. */
+/** A command that cannot run, such as when another round holds the lock or a tool is missing:
+ * exit code 3, as for any error of the tooling itself, since nothing was judged. */
 export class Blocked extends Error {}
 
 const HELP: Option = { description: 'Show this help.', short: 'h', type: 'boolean' }
@@ -188,7 +188,8 @@ async function dispatch(
   }
 }
 
-/** Reports a usage error or a round that could not start, and returns its exit code. */
+/** Reports a usage error, a command that could not run or an error of the tooling itself, and
+ * returns its exit code. An unexpected error keeps its stack, to show where the tooling failed. */
 function report(error: unknown, invocation: string): number {
   if (error instanceof UsageError) {
     process.stderr.write(
@@ -196,15 +197,18 @@ function report(error: unknown, invocation: string): number {
     )
     return 2
   }
-  if (!(error instanceof Blocked)) throw error
-  process.stderr.write(`error: ${error.message}\n`)
+  const text =
+    error instanceof Blocked
+      ? error.message
+      : `the tooling failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
+  process.stderr.write(`error: ${text}\n`)
   return 3
 }
 
 /**
  * Runs the command `argv` names, as `pnpm <name> ...`, and returns its exit code: 0 when it
- * passed, 1 when a check failed, 2 for a usage error, 3 when it could not start, 124 when a round
- * ran out of budget and 130 when it was interrupted.
+ * passed, 1 when a check failed, 2 for a usage error, 3 when it could not run, 124 when a round's
+ * result is incomplete and 130 when it was interrupted.
  */
 export async function main(commands: readonly Command[], argv: readonly string[]): Promise<number> {
   const [name, ...arguments_] = argv

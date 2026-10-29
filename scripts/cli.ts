@@ -3,5 +3,7 @@
 import { bench } from './bench/bench'
 import { check } from './check/check'
 import { main } from './framework/command'
+import { finish, handleInterrupts } from './framework/interrupt'
 
-process.exitCode = await main([check, bench], process.argv.slice(2))
+handleInterrupts()
+finish(await main([check, bench], process.argv.slice(2)))

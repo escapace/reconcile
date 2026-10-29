@@ -1,9 +1,10 @@
 import { linkSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { Blocked } from './command'
 import { LOCK } from './paths'
-import { startTime, stopGroup } from './processes'
+import { groupAlive, identity, stopGroup } from './processes'
 
-/** A process told apart from a later one that reuses its number. */
+/** A process told apart from a later one that reuses its number: `started` is its identity,
+ * undefined when it had already ended when it was recorded. */
 export interface Process {
   readonly pid: number
   readonly started: string | undefined
@@ -37,13 +38,35 @@ export class LockBusy extends Blocked {
 /** The guard a process holds while it takes over an abandoned lock. */
 const GUARD = `${LOCK}.takeover`
 
-const running = (owner: Process): boolean => startTime(owner.pid) === owner.started
+const running = (owner: Process): boolean =>
+  owner.started !== undefined && identity(owner.pid) === owner.started
+
+/**
+ * Whether the abandoned step's process group still runs: its leader is the process recorded, or
+ * the leader is gone but members remain. While any member remains, the kernel gives no new
+ * process the group's number, so those members are the step's.
+ */
+function stepRuns(group: Process): boolean {
+  const leader = identity(group.pid)
+  return leader === undefined ? groupAlive(group.pid) : leader === group.started
+}
 
 /** Writes `holder` to a file of this process's own, so that the lock file appears complete. */
 function staged(holder: Holder): string {
   const file = `${LOCK}.${process.pid}`
   writeFileSync(file, JSON.stringify(holder))
   return file
+}
+
+/** Replaces `file` with `holder` at once, so that a reader never sees it half written. */
+function replace(file: string, holder: Holder): void {
+  const source = staged(holder)
+  try {
+    renameSync(source, file)
+  } catch (error) {
+    rmSync(source, { force: true })
+    throw error
+  }
 }
 
 /** Creates `file` holding `holder` unless it exists. */
@@ -79,27 +102,48 @@ function read(file: string): Holder | null | undefined {
 const sameHolder = (left: Holder | null | undefined, right: Holder): boolean =>
   left?.process.pid === right.process.pid && left.process.started === right.process.started
 
+/** Removes `file` if it still records `holder`. Moving it aside first makes the check and the
+ * removal one step: a file another process wrote meanwhile is put back. */
+function removeIf(file: string, holder: Holder): void {
+  const aside = `${file}.${process.pid}.removed`
+  try {
+    renameSync(file, aside)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  if (!sameHolder(read(aside), holder))
+    try {
+      linkSync(aside, file)
+    } catch {
+      // A newer file took its place; that one stands.
+    }
+  rmSync(aside, { force: true })
+}
+
 /** Removes a lock whose holder died, after stopping its last step, unless another process is
  * already taking it over. */
 async function takeOver(abandoned: Holder, holder: Holder): Promise<void> {
   if (!create(GUARD, holder)) {
     const guard = read(GUARD)
-    if (guard !== null && guard !== undefined && running(guard.process))
+    if (guard === undefined) return
+    if (guard === null)
+      throw new Blocked(
+        `the takeover guard ${GUARD} is unreadable; remove it if no round is running`,
+      )
+    if (running(guard.process))
       throw new Blocked('another round is taking over an abandoned lock; try again')
-    rmSync(GUARD, { force: true })
+    // A taker that died left its guard.
+    removeIf(GUARD, guard)
     return
   }
   try {
     if (!sameHolder(read(LOCK), abandoned)) return
     const group = abandoned.group
-    if (group !== undefined && running(group)) await stopGroup(group.pid)
-    else if (group !== undefined)
-      process.stderr.write(
-        `The abandoned round's last step, process group ${group.pid}, may have left processes.\n`,
-      )
-    rmSync(LOCK, { force: true })
+    if (group !== undefined && stepRuns(group)) await stopGroup(group.pid)
+    removeIf(LOCK, abandoned)
   } finally {
-    rmSync(GUARD, { force: true })
+    removeIf(GUARD, holder)
   }
 }
 
@@ -122,22 +166,21 @@ async function acquire(holder: Holder): Promise<void> {
  * `LockBusy`.
  */
 export async function withLock<T>(command: string, body: (lock: Lock) => Promise<T>): Promise<T> {
-  const self = { pid: process.pid, started: startTime(process.pid) }
+  const self = { pid: process.pid, started: identity(process.pid) }
   let holder: Holder = { command, group: undefined, process: self, since: new Date().toISOString() }
   await acquire(holder)
   const lock: Lock = {
     setGroup(group) {
       holder = {
         ...holder,
-        group: group === undefined ? undefined : { pid: group, started: startTime(group) },
+        group: group === undefined ? undefined : { pid: group, started: identity(group) },
       }
-      // A rename replaces the lock at once, so a reader never sees it half written.
-      renameSync(staged(holder), LOCK)
+      replace(LOCK, holder)
     },
   }
   try {
     return await body(lock)
   } finally {
-    if (sameHolder(read(LOCK), holder)) rmSync(LOCK, { force: true })
+    removeIf(LOCK, holder)
   }
 }

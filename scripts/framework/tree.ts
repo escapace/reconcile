@@ -10,6 +10,7 @@ import {
   type Stats,
 } from 'node:fs'
 import path from 'node:path'
+import { Blocked } from './command'
 import { ROOT } from './paths'
 
 // The working tree as the tooling sees it: its files, their fingerprint and copies of it.
@@ -43,7 +44,8 @@ function treeFiles(root = ROOT): string[] {
       encoding: 'utf8',
     },
   )
-  if (listed.status !== 0) throw new Error(`git ls-files failed in ${root}: ${listed.stderr}`)
+  if (listed.error !== undefined) throw new Blocked(`cannot run git: ${listed.error.message}`)
+  if (listed.status !== 0) throw new Blocked(`git ls-files failed in ${root}: ${listed.stderr}`)
   return [...new Set(listed.stdout.split('\0').filter((file) => file !== ''))].sort()
 }
 

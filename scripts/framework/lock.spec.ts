@@ -10,7 +10,7 @@ const lockFile = path.join(directory, 'round.lock')
 process.env.RECONCILE_LOCK = lockFile
 const { Blocked } = await import('./command')
 const { LockBusy, withLock } = await import('./lock')
-const { startTime } = await import('./processes')
+const { identity } = await import('./processes')
 
 /** Whether a process still runs: a killed one may linger as a zombie until it is reaped. */
 const alive = (pid: number): boolean => {
@@ -62,18 +62,60 @@ describe('withLock', () => {
   })
 
   it('refuses a lock that a live process holds, and one it cannot read', async () => {
-    writeLock(process.pid, startTime(process.pid))
+    writeLock(process.pid, identity(process.pid))
     await expect(run()).rejects.toThrow(LockBusy)
+    // A caller in another time zone sees the same holder.
+    const zone = process.env.TZ
+    process.env.TZ = 'Pacific/Kiritimati'
+    try {
+      await expect(run()).rejects.toThrow(LockBusy)
+    } finally {
+      if (zone === undefined) delete process.env.TZ
+      else process.env.TZ = zone
+    }
     writeFileSync(lockFile, '{"comm')
     await expect(run()).rejects.toThrow(Blocked)
   })
 
   it('takes over a lock whose holder died, after stopping its last step', async () => {
     const group = step()
-    writeLock(deadPid(), 'then', group, startTime(group))
+    writeLock(deadPid(), 'then', group, identity(group))
     expect(await run()).toBe(true)
     for (let waited = 0; waited < 2000 && alive(group); waited += 50) await sleep(50)
     expect(alive(group)).toBe(false)
+  })
+
+  it('stops what remains of the last step when its leader died before its supervisor', async () => {
+    const leader = spawn('sh', ['-c', 'sleep 60 & echo $!'], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const member = Number(
+      await new Promise<string>((resolve) => leader.stdout.once('data', resolve)),
+    )
+    const started = identity(leader.pid!)
+    await new Promise((resolve) => leader.once('close', resolve))
+    writeLock(deadPid(), 'then', leader.pid, started)
+    expect(await run()).toBe(true)
+    for (let waited = 0; waited < 2000 && alive(member); waited += 50) await sleep(50)
+    expect(alive(member)).toBe(false)
+  })
+
+  it('removes the guard of a takeover whose process died, and refuses one it cannot read', async () => {
+    writeLock(deadPid(), 'then')
+    writeFileSync(
+      `${lockFile}.takeover`,
+      JSON.stringify({ process: { pid: deadPid(), started: 'then' } }),
+    )
+    expect(await run()).toBe(true)
+    expect(existsSync(`${lockFile}.takeover`)).toBe(false)
+    writeLock(deadPid(), 'then')
+    writeFileSync(`${lockFile}.takeover`, '{"proc')
+    try {
+      await expect(run()).rejects.toThrow(/takeover guard .* is unreadable/)
+    } finally {
+      rmSync(`${lockFile}.takeover`, { force: true })
+    }
   })
 
   it('takes over a lock whose number another process now holds', async () => {

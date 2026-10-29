@@ -286,14 +286,31 @@ tracked or untracked but not ignored, plus the platform, the Node version, the i
 dependencies and `NODE_OPTIONS`.
 
 Each round, and each `pnpm bench` command but `report`, runs within a 295-second budget and
-holds a machine-wide lock, so no two of them overlap. Other commands take no lock, so run a round only
-when nothing else is running. A round stops every process it started when it ends, runs out of
-budget or is interrupted; if the round itself is killed, the next round stops what it left
-running. It keeps its logs and a receipt under `$XDG_STATE_HOME/reconcile/runs`, by default
-`~/.local/state/reconcile/runs`, or in the experiment of a `pnpm bench` command that names one. A round that runs out of budget exits with 124: its result is
-incomplete, not a pass, so rerun the whole round. A cold `lake build` takes most of a round's
-budget, so load on the machine can time out the first round that builds the proofs, usually
-`temporal`.
+holds a machine-wide lock, so no two of them overlap. Other commands take no lock, so run a round
+only when nothing else is running. A round stops every process it started when it ends, runs out
+of budget or is interrupted, including a descendant that left its process group but holds the
+step's output; if the round itself is killed, the next round stops what it left running. It keeps
+its logs and a receipt under `$XDG_STATE_HOME/reconcile/runs`, by default
+`~/.local/state/reconcile/runs`, or in the experiment of a `pnpm bench` command that names one.
+`RECONCILE_STATE` moves that state directory, which also holds the recorded passes, and
+`RECONCILE_LOCK` the lock, by default `/tmp/reconcile-round.lock`.
+
+The exit code says what a run established, and with `--keep-going` the most severe code counts:
+
+- 0: every round passed.
+- 1: a check failed.
+- 2: a usage error.
+- 3: nothing was judged: a tool is missing, another round holds the lock or the tooling itself
+  failed.
+- 124: incomplete, not a pass: a round ran out of budget, or files it reads changed while it ran.
+  Rerun the whole round.
+- An interrupt (Ctrl-C, SIGTERM or SIGHUP) stops the round, keeps its receipt and ends the command
+  by that signal, which a shell reports as 130 for Ctrl-C; a second interrupt stops the steps at
+  once. Node restores SIGHUP's default action when it starts, so `nohup` does not keep a run alive
+  after logout; `setsid` or a terminal multiplexer does.
+
+A cold `lake build` takes most of a round's budget, so load on the machine can time out the first
+round that builds the proofs, usually `temporal`.
 
 `pnpm test` runs every spec in the neutral project, and again in the poisoned project all except
 those that run no library code in their own process; the poisoned project's setup file,
