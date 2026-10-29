@@ -84,7 +84,7 @@ function leanEnvironment(): () => Record<string, string> {
     if (prefix.status !== 0) throw new Error(`lean --print-prefix failed: ${prefix.stderr}`)
     environment = {
       LAKE_ARTIFACT_CACHE: 'false',
-      LEAN_CC: path.join(ROOT, 'scripts', 'lean-cc.py'),
+      LEAN_CC: path.join(ROOT, 'scripts', 'check', 'cc.sh'),
       LEAN_SYSROOT: prefix.stdout.trim(),
       PATH,
     }
@@ -252,11 +252,15 @@ export const ROUNDS: readonly RoundDefinition[] = [
       return [
         toolchain(),
         lakeBuild(environment),
-        { command: ['python3', 'scripts/check-axioms.py'], env: environment, name: 'axiom audit' },
         {
-          command: ['python3', 'scripts/test-axioms.py'],
-          name: 'axiom audit self-test',
-          env: () => ({ ...environment(), PYTHONDONTWRITEBYTECODE: '1' }),
+          command: script('scripts/check/axioms.ts', {}),
+          env: environment,
+          name: 'axiom audit',
+        },
+        {
+          command: script('scripts/check/axioms.ts', { control: true }),
+          env: environment,
+          name: 'axiom audit control',
         },
         bridges,
       ]
