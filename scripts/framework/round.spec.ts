@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 const state = mkdtempSync(path.join(tmpdir(), 'reconcile-round-spec-'))
 process.env.RECONCILE_STATE = state
@@ -13,12 +13,15 @@ const shell = (name: string, script: string) => ({ command: ['sh', '-c', script]
 
 /** Whether a process still runs: a killed one may linger as a zombie until it is reaped. */
 const alive = (pid: number): boolean => {
-  try {
-    return !/^\d+ \(.*\) Z/.test(readFileSync(`/proc/${pid}/stat`, 'utf8'))
-  } catch {
-    return false
-  }
+  const stat = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], {
+    encoding: 'utf8',
+  }).stdout.trim()
+  return stat !== '' && !stat.startsWith('Z')
 }
+
+afterAll(() => {
+  rmSync(state, { force: true, recursive: true })
+})
 
 const receiptOf = (file: string): Record<string, unknown> =>
   JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
@@ -36,14 +39,33 @@ describe('runRound', () => {
     expect(receiptOf(result.receipt)).toMatchObject({ budgetSeconds: 295, status: 'passed' })
   })
 
-  it('stops at the first step that fails and keeps its exit code', async () => {
+  it("stops at the first step that fails, exits 1 and keeps the step's code in the receipt", async () => {
     const result = await runRound({
       name: 'fail',
       steps: [shell('failing', 'exit 3'), shell('never', 'echo never')],
     })
     expect(result.status).toBe('failed')
-    expect(result.exitCode).toBe(3)
+    expect(result.exitCode).toBe(1)
     expect(result.steps).toHaveLength(1)
+    expect(result.steps[0].exitCode).toBe(3)
+  })
+
+  it("resolves a step's environment when it starts, and fails the step when that throws", async () => {
+    const result = await runRound({
+      name: 'environment',
+      steps: [
+        { ...shell('resolved', 'echo "$VALUE"'), env: () => ({ VALUE: 'resolved' }) },
+        {
+          ...shell('unresolved', 'echo never'),
+          env: () => {
+            throw new Error('no toolchain')
+          },
+        },
+      ],
+    })
+    expect(readFileSync(result.steps[0].log, 'utf8')).toBe('resolved\n')
+    expect(result.status).toBe('failed')
+    expect(readFileSync(result.steps[1].log, 'utf8')).toBe('no toolchain\n')
   })
 
   it('stops a step that outlives the budget, with every process it started', async () => {

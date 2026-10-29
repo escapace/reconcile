@@ -1,9 +1,10 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
-process.env.RECONCILE_STATE = mkdtempSync(path.join(tmpdir(), 'reconcile-check-spec-'))
+const state = mkdtempSync(path.join(tmpdir(), 'reconcile-check-spec-'))
+process.env.RECONCILE_STATE = state
 const { main } = await import('../framework/command')
 const { inputs } = await import('../framework/fingerprint')
 const { check } = await import('./check')
@@ -29,6 +30,10 @@ async function cli(...argv: string[]): Promise<{ code: number; stderr: string; s
   }
 }
 
+afterAll(() => {
+  rmSync(state, { force: true, recursive: true })
+})
+
 describe('pnpm check', () => {
   it('refuses an unknown round, and mutant names or seeds for any round but mutants', async () => {
     const unknown = await cli('nothing')
@@ -39,6 +44,15 @@ describe('pnpm check', () => {
     )
     expect((await cli('static', '--seeds', '10')).stderr).toContain('--seeds applies only')
     expect((await cli('mutants', '--seeds', '0')).stderr).toContain('positive integer')
+    const mutant = await cli('mutants', 'no-such-mutant')
+    expect(mutant.code).toBe(2)
+    expect(mutant.stderr).toContain('unknown mutants: no-such-mutant')
+  })
+
+  it('prints its help for `help` as for `--help`', async () => {
+    const help = await cli('help')
+    expect(help.code).toBe(0)
+    expect(help.stdout).toContain('Rounds:')
   })
 
   it('plans to run every round without a recorded pass, and to reuse one with a pass', async () => {
@@ -52,7 +66,7 @@ describe('pnpm check', () => {
   })
 
   it('records no pass for a narrowed mutants run', async () => {
-    expect((await cli('mutants', 'some-mutant', '--plan')).stdout).toContain('narrowed run')
+    expect((await cli('mutants', 'readback-skipped', '--plan')).stdout).toContain('narrowed run')
     expect((await cli('mutants', '--seeds', '10', '--plan')).stdout).toContain('narrowed run')
     expect((await cli('mutants', '--seeds', '1500', '--plan')).stdout).not.toContain('narrowed run')
   })

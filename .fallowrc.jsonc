@@ -86,7 +86,8 @@
   },
 
   "health": {
-    // CRAP needs real coverage; `pnpm test` writes this file, so run the tests before linting.
+    // CRAP needs real coverage: `pnpm test` writes this file, and the `test` round runs fallow
+    // after it.
     "coverage": "coverage/coverage-final.json",
     // perf/ holds the frozen benchmark workloads (AGENTS.md); their findings cannot be acted on.
     // The standard-prototypes and hardened-kinds drivers run in a child process, where coverage

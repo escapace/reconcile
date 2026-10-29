@@ -166,6 +166,7 @@ async function dispatchLeaf(
   if (command.run === undefined) return printHelp(invocation, command)
   if (command.passthrough === true)
     return await command.run({ positionals: arguments_, values: {} })
+  if (arguments_[0] === 'help') return printHelp(invocation, command)
   const parsed = parse(command, arguments_)
   if (parsed.values.help === true) return printHelp(invocation, command)
   return await command.run(parsed)

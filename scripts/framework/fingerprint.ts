@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync, type Stats } from 'node:fs'
 import path from 'node:path'
 import { ROOT } from './paths'
 
@@ -42,13 +42,15 @@ const digest = (data: string | Buffer): string => createHash('sha256').update(da
 /** A file's content hash, marked when the file is executable; a tracked file that was deleted
  * counts as such. */
 function contentOf(file: string): string {
-  let mode: number
+  let stats: Stats
   try {
-    ;({ mode } = statSync(file))
+    stats = statSync(file)
   } catch {
     return 'deleted'
   }
-  return `${digest(readFileSync(file)).slice(0, 16)}${(mode & 0o111) === 0 ? '' : '+x'}`
+  // git lists an untracked nested repository as its directory.
+  if (stats.isDirectory()) return 'directory'
+  return `${digest(readFileSync(file)).slice(0, 16)}${(stats.mode & 0o111) === 0 ? '' : '+x'}`
 }
 
 /** What a round depends on besides the files: the Node runtime and the options it runs with,

@@ -22,7 +22,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { constants, tmpdir } from 'node:os'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { treeFiles } from '../framework/fingerprint'
@@ -258,15 +258,11 @@ const ORACLE = path.join('.lake', 'build', 'bin', 'reconcile-oracle')
  * the installed dependencies and the built oracle are linked, not copied.
  */
 function copyTree(): string {
-  const oracle = path.join(ROOT, ORACLE)
-  if (!existsSync(oracle)) {
-    console.error(`The oracle ${oracle} is missing; the round builds it first.`)
-    process.exit(3)
-  }
   const copy = mkdtempSync(path.join(tmpdir(), 'reconcile-mutants-'))
   for (const file of treeFiles()) {
     const from = path.join(ROOT, file)
-    if (!existsSync(from)) continue
+    // A nested repository is listed as its directory; deleted files are listed too.
+    if (file.endsWith('/') || !existsSync(from)) continue
     const to = path.join(copy, file)
     mkdirSync(path.dirname(to), { recursive: true })
     copyFileSync(from, to)
@@ -274,14 +270,26 @@ function copyTree(): string {
   }
   symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'))
   mkdirSync(path.join(copy, path.dirname(ORACLE)), { recursive: true })
-  symlinkSync(oracle, path.join(copy, ORACLE))
+  symlinkSync(path.join(ROOT, ORACLE), path.join(copy, ORACLE))
   return copy
 }
 
-/** One bridge run in the copy. It saw nothing when it finished with the bridge's report of no
- * difference; a mutant that throws inside the runtime is caught as well, since the bridge reports
- * errors. A run takes some seconds; one that loops is cut off well inside the round. The run
- * stays in the round's process group, so that the round can stop it. */
+/** The process groups of the bridge runs in progress, which the audit stops when it ends. */
+const running = new Set<number>()
+
+const killGroup = (group: number | undefined): void => {
+  if (group === undefined) return
+  try {
+    process.kill(-group, 'SIGKILL')
+  } catch {
+    // The group has already exited.
+  }
+}
+
+/** One bridge run in the copy, in a process group of its own. It saw nothing when it finished
+ * with the bridge's report of no difference; a mutant that throws inside the runtime is caught
+ * as well, since the bridge reports errors. A run takes some seconds; one that loops is cut off,
+ * with its oracle, well inside the round. */
 async function runBridge(
   copy: string,
   bridge: Bridge,
@@ -292,8 +300,10 @@ async function runBridge(
     const child = spawn(
       process.execPath,
       ['--import', 'tsx', ...bridge.command, ...seedArguments(bridge, seeds), ...flags],
-      { cwd: copy, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: copy, detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
     )
+    const group = child.pid
+    if (group !== undefined) running.add(group)
     let output = ''
     let hung = false
     const collect = (chunk: string): void => {
@@ -303,14 +313,17 @@ async function runBridge(
     child.stderr.setEncoding('utf8').on('data', collect)
     const timer = setTimeout(() => {
       hung = true
-      child.kill('SIGKILL')
+      killGroup(group)
     }, 30_000)
-    child.on('error', () => {
+    // An oracle left running would hold the pipes open and `close` back.
+    child.once('exit', () => killGroup(group))
+    child.once('error', () => {
       clearTimeout(timer)
       resolve('hung')
     })
-    child.on('close', (status) => {
+    child.once('close', (status) => {
       clearTimeout(timer)
+      if (group !== undefined) running.delete(group)
       if (hung) resolve('hung')
       else resolve(status === 0 && output.includes(bridge.agreed) ? 'survived' : 'killed')
     })
@@ -338,25 +351,9 @@ async function audit(copy: string, mutant: Mutant, seeds: number): Promise<Verdi
   }
 }
 
-const { positionals, values } = parseArgs({
-  allowPositionals: true,
-  options: { seeds: { default: '1500', type: 'string' } },
-})
-const unknown = positionals.filter((name) => !MUTANTS.some((mutant) => mutant.name === name))
-if (unknown.length > 0) {
-  console.error(`Unknown mutants: ${unknown.join(', ')}.`)
-  process.exit(2)
-}
-const selected = MUTANTS.filter((m) => positionals.length === 0 || positionals.includes(m.name))
-const seeds = Number(values.seeds)
-const copy = copyTree()
-// The round stops this process with SIGTERM on timeout or interruption; the copy goes with it.
-process.once('SIGTERM', () => {
-  rmSync(copy, { force: true, recursive: true })
-  process.exit(143)
-})
-let surprises = 0
-try {
+/** Runs every bridge the mutants need on the unmutated copy, which must agree, then each mutant;
+ * returns the exit code. */
+async function auditAll(copy: string, selected: readonly Mutant[], seeds: number): Promise<number> {
   // An unmutated run that does not agree means the copy, not a mutant, is broken: every mutant
   // would then read as killed.
   const started = Date.now()
@@ -368,12 +365,13 @@ try {
   if (broken.length > 0) {
     console.error(
       `The unmutated copy does not agree (${broken.map(([name, verdict]) => `${name}: ${verdict}`).join(', ')}): ` +
-        'the audit cannot judge any mutant.',
+        'the audit cannot judge any mutant. A run that hangs here usually means a loaded machine.',
     )
-    process.exit(1)
+    return 1
   }
   const seconds = Math.round((Date.now() - started) / 1000)
   console.log(`control: ${needed.join(', ')} agree on the unmutated copy in ${seconds} s`)
+  let surprises = 0
   for (const mutant of selected) {
     const begun = Date.now()
     const verdict = await audit(copy, mutant, seeds)
@@ -385,8 +383,42 @@ try {
       `${expected ? verdict : `UNEXPECTED ${verdict}`} ${mutant.name} in ${elapsed} s${note}`,
     )
   }
-} finally {
-  rmSync(copy, { force: true, recursive: true })
+  console.log(`${selected.length - surprises} of ${selected.length} verdicts as expected`)
+  return surprises > 0 ? 1 : 0
 }
-console.log(`${selected.length - surprises} of ${selected.length} verdicts as expected`)
-if (surprises > 0) process.exitCode = 1
+
+/** The names `pnpm check mutants` accepts. */
+export const mutantNames: readonly string[] = MUTANTS.map((mutant) => mutant.name)
+
+async function main(): Promise<number> {
+  const { positionals, values } = parseArgs({
+    allowPositionals: true,
+    options: { seeds: { default: '1500', type: 'string' } },
+  })
+  const selected = MUTANTS.filter(
+    (mutant) => positionals.length === 0 || positionals.includes(mutant.name),
+  )
+  if (!existsSync(path.join(ROOT, ORACLE))) {
+    console.error(`The oracle ${ORACLE} is missing; the round builds it first.`)
+    return 1
+  }
+  const copy = copyTree()
+  const stop = (): void => {
+    for (const group of running) killGroup(group)
+    rmSync(copy, { force: true, recursive: true })
+  }
+  // The round stops this process with SIGTERM on timeout or interruption.
+  for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const)
+    process.once(signal, () => {
+      stop()
+      process.exit(128 + constants.signals[signal])
+    })
+  try {
+    return await auditAll(copy, selected, Number(values.seeds))
+  } finally {
+    stop()
+  }
+}
+
+// The mutants round runs this file; `pnpm check` imports it only for the mutant names.
+if (path.resolve(process.argv[1] ?? '') === import.meta.filename) process.exitCode = await main()

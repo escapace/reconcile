@@ -26,8 +26,8 @@ const fixtures = [
   ['ZonedDateTime', '2025-01-02T03:04:05.123456789+00:00[UTC]', '2026-01-02T03:04+00:00[UTC]'],
 ] as const
 
-// Native Temporal is optional. On the experimental Node runtime, run this file with
-// --config vitest.config.neutral.ts --execArgv=--harmony-temporal.
+// Native Temporal is optional; `pnpm check temporal` runs this file with Node's experimental
+// flag.
 describe.skipIf(temporal === undefined)('Temporal values', () => {
   for (const [name, input, changed] of fixtures) {
     it(`${name} snapshots preserve aliases and distinct equal objects`, () => {

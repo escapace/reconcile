@@ -2,13 +2,20 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { changedFiles, inputs, matches } from './fingerprint'
+
+const roots: string[] = []
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true })
+})
 
 /** A git repository with a tracked file in each of two directories, an ignored file and an
  * untracked one. */
 function repository(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'reconcile-fingerprint-spec-'))
+  roots.push(root)
   const write = (file: string, text: string): void => {
     mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
     writeFileSync(path.join(root, file), text)
@@ -63,5 +70,12 @@ describe('inputs', () => {
     expect(executable.hash).not.toBe(edited.hash)
     rmSync(path.join(root, 'src/a.ts'))
     expect(inputs(['docs/'], root).files['src/a.ts']).toBe('deleted')
+  })
+
+  it('counts an untracked nested repository as a directory', () => {
+    const root = repository()
+    execFileSync('git', ['init', '-q', path.join(root, 'nested')])
+    writeFileSync(path.join(root, 'nested', 'file.txt'), 'nested')
+    expect(inputs([], root).files['nested/']).toBe('directory')
   })
 })

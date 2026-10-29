@@ -81,12 +81,13 @@ aliases.
 ## Running the gate
 
 `pnpm check lean` (the _gate_) runs `lake build --wfail`, so a warning fails it, then audits axioms
-and runs every bridge against one oracle process. Its budget and receipt are in
-[Checks and time budget](development.md#checks-and-time-budget).
+and runs every bridge against one oracle process.
+[Checks and time budget](development.md#checks-and-time-budget) gives its budget and receipt, and
+the commands to use while editing.
 
-`pnpm check temporal` runs the bridges again with Node's native Temporal values, which the
-`NativeValue` and `SpecialValues` bridges otherwise skip and say so. For the commands to use while
-editing, see [Checks and time budget](development.md#checks-and-time-budget).
+The `NativeValue` and `SpecialValues` bridges skip Node's native Temporal values, and say so. The
+`temporal` round runs the Temporal specs and every bridge again with those values.
+
 Only the `Spec` bridges and the CollectionWrites bridge, which the mutation audit runs, have
 standalone entries: the outcome bridge, the phase bridge, the enumeration and
 `check-collection-writes-runtime.ts`. Each script's header lists its flags, _Spec agreement_, _Spec
@@ -901,16 +902,16 @@ Read the table with these limits:
 The _mutation audit_, `pnpm check mutants`, checks that the `Spec` bridges and the CollectionWrites
 bridge detect runtime defects. It works on a copy of the working tree, where it first runs every
 bridge it needs on the unmutated sources, which must agree. Then it applies one deliberate defect,
-a _mutant_, at a time to the copy's runtime sources and runs the bridge without flags, with `--writes` and with `--writes
---hazards` at once, and reports the first of these runs, in that order, that shows a difference or
-does not end. A mutant that only the runtime's discovery or decisions show runs the phase bridge
+a _mutant_, at a time to the copy's runtime sources and runs the bridge without flags, with
+`--writes` and with `--writes --hazards` at once, and reports the first of these runs, in that
+order, that shows a difference or does not end. A mutant that only the runtime's discovery or decisions show runs the phase bridge
 instead, with `--binary`, without flags and with `--hazards`. A mutant that only the writes to a
 kept `Map` or `Set` show runs the CollectionWrites bridge, once over its fixed corpus. It restores
 the copy's sources after each mutant. A mutant the bridge does not detect marks a case the generator
 does not produce or a difference the comparison does not see; `scripts/check/mutants.ts` lists the
 mutants it expects to go undetected, each with the gap it stands for. `pnpm check mutants <name>...`
-runs only the named mutants and `--seeds <n>` changes the 1500 seeds per run; either run records
-no pass.
+runs only the named mutants, and `--seeds <n>` sets the seeds of each `Spec` bridge run, 1500 by
+default; a run of named mutants or of other seeds records no pass.
 
 After `pnpm check lean` has built the oracle, you can run one family by hand. The request needs both
 fields, `input` empty for a family that reads none; the reply is the oracle's JSON between

@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { Blocked } from '../framework/command'
 import { ROOT } from '../framework/paths'
 import type { Step } from '../framework/round'
 
@@ -36,21 +35,25 @@ const GUIDES = ['AGENTS.md', 'docs/']
 /** The README and the guides. Only `static` reads them, and `lib` the README, whose API section
  * the build regenerates. */
 const DOCS = ['README.md', ...GUIDES]
-/** The performance tooling and the frozen workloads, which only `static` and `test` read. */
+/** The measurement tooling, which only `static` and `test` read. */
 const BENCH = [
   'perf/',
   'scripts/ab-time.py',
-  'scripts/bench-workloads.ts',
   'scripts/bench/',
-  'scripts/bundle-size.ts',
   'scripts/profile-attribution.ts',
   'scripts/profile-counts.ts',
   'scripts/profile-deopts.ts',
   'scripts/profile-frames.ts',
-  'scripts/profile-scenarios.ts',
   'scripts/profile-summary.ts',
   'scripts/profile.ts',
   'scripts/test-ab-time.py',
+]
+/** What `lib` reads of the measurement tooling besides: the workloads and diagnostics, which
+ * `profile-scenarios.spec.ts` runs against the package, and the bundle checks. */
+const LIB_TOOLING = [
+  'scripts/bench-workloads.ts',
+  'scripts/bundle-size.ts',
+  'scripts/profile-scenarios.ts',
 ]
 
 /** The specs that run only with a native `Temporal`. */
@@ -81,30 +84,40 @@ function withElan(PATH: string): string {
     : PATH
 }
 
-/** The environment of every Lean step: the toolchain on PATH, the C compiler that skips
+/** The environment of the Lean steps: the toolchain on PATH, the C compiler that skips
  * optimizing the oracle's imported dependencies, and no artifact cache, whose objects were built
- * with other settings. */
-function leanEnvironment(): Record<string, string> {
-  const PATH = withElan(process.env.PATH ?? '')
-  const prefix = spawnSync('lean', ['--print-prefix'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH },
-  })
-  if (prefix.status !== 0)
-    throw new Blocked(
-      'the Lean toolchain was not found. Install elan (https://github.com/leanprover/elan); ' +
-        'lean-toolchain names the version it installs.',
-    )
-  return {
-    LAKE_ARTIFACT_CACHE: 'false',
-    LEAN_CC: path.join(ROOT, 'scripts', 'lean-cc.py'),
-    LEAN_SYSROOT: prefix.stdout.trim(),
-    PATH,
+ * with other settings. A round resolves it once, when its first Lean step starts. */
+function leanEnvironment(): () => Record<string, string> {
+  let environment: Record<string, string> | undefined
+  return () => {
+    if (environment !== undefined) return environment
+    const PATH = withElan(process.env.PATH ?? '')
+    const prefix = spawnSync('lean', ['--print-prefix'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH },
+      timeout: 30_000,
+    })
+    if (prefix.status !== 0) throw new Error(`lean --print-prefix failed: ${prefix.stderr}`)
+    environment = {
+      LAKE_ARTIFACT_CACHE: 'false',
+      LEAN_CC: path.join(ROOT, 'scripts', 'lean-cc.py'),
+      LEAN_SYSROOT: prefix.stdout.trim(),
+      PATH,
+    }
+    return environment
   }
 }
 
+/** The first Lean step: elan installs the version `lean-toolchain` names, if it lacks it, within
+ * the round's budget. */
+const toolchain = (): Step => ({
+  command: ['lean', '--version'],
+  env: { PATH: withElan(process.env.PATH ?? '') },
+  name: 'lean toolchain',
+})
+
 /** Builds the proofs and the oracle with warnings as errors. */
-const lakeBuild = (environment: Record<string, string>): Step => ({
+const lakeBuild = (environment: () => Record<string, string>): Step => ({
   command: ['lake', 'build', '--wfail'],
   env: environment,
   name: 'lake build',
@@ -137,7 +150,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
     ],
   },
   {
-    exclude: [...LEAN, ...BENCH.filter((file) => file !== 'scripts/bundle-size.ts'), ...GUIDES],
+    exclude: [...LEAN, ...GUIDES, ...BENCH],
     name: 'lib',
     narrowed: whole,
     outputs: ['README.md'],
@@ -149,7 +162,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
     ],
   },
   {
-    exclude: [...DOCS, ...BENCH],
+    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
     name: 'temporal',
     narrowed: whole,
     summary:
@@ -171,6 +184,7 @@ export const ROUNDS: readonly RoundDefinition[] = [
         specs('sources', 'vitest.config.neutral.ts'),
         pnpm('build', 'run', '--silent', 'build'),
         specs('package', 'vitest-library.config.ts'),
+        toolchain(),
         lakeBuild(environment),
         {
           ...tsx('bridges', 'scripts/check-lean.ts', [], ['--harmony-temporal']),
@@ -180,30 +194,32 @@ export const ROUNDS: readonly RoundDefinition[] = [
     },
   },
   {
-    exclude: [...DOCS, ...BENCH],
+    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
     name: 'lean',
     narrowed: whole,
     summary: 'The gate: proofs without warnings or extra axioms, and every runtime-to-Lean bridge.',
     steps: () => {
       const environment = leanEnvironment()
       return [
+        toolchain(),
         lakeBuild(environment),
         { command: ['python3', 'scripts/check-axioms.py'], env: environment, name: 'axiom audit' },
         {
           command: ['python3', 'scripts/test-axioms.py'],
-          env: { ...environment, PYTHONDONTWRITEBYTECODE: '1' },
           name: 'axiom audit self-test',
+          env: () => ({ ...environment(), PYTHONDONTWRITEBYTECODE: '1' }),
         },
         { ...tsx('bridges', 'scripts/check-lean.ts'), env: environment },
       ]
     },
   },
   {
-    exclude: [...DOCS, ...BENCH],
+    exclude: [...DOCS, ...BENCH, ...LIB_TOOLING],
     name: 'mutants',
     summary: 'The mutation audit: every deliberate runtime defect the bridges must detect.',
     narrowed: ({ names, seeds }) => names.length > 0 || (seeds !== undefined && seeds !== '1500'),
     steps: ({ names, seeds }) => [
+      toolchain(),
       lakeBuild(leanEnvironment()),
       tsx('audit', 'scripts/check/mutants.ts', ['--seeds', seeds ?? '1500', ...names]),
     ],

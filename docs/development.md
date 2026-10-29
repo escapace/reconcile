@@ -147,8 +147,9 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
 - **Behavior fix.** Write a failing test that states the contract, then fix the code. A changed
   expectation needs a contract argument, not agreement with the new implementation. Do not turn
   an expected failure (`it.fails`) or a skipped test into a passing one, or the reverse, without
-  stating the contract change. Run `pnpm check lean` as well, because a bridge can encode the old
-  behavior; [Checks and failures](lean.md#checks-and-failures) says how to resolve a mismatch.
+  stating the contract change. A bridge can encode the old behavior too, so the checkpoint's
+  `lean` round can fail; [Checks and failures](lean.md#checks-and-failures) says how to resolve a
+  mismatch.
 - **Finite algorithm or new feature.** Work proof first, following [Adding or changing a
   model](lean.md#adding-or-changing-a-model); the reference models (`Spec.Reconcile`,
   `scripts/lean-spec-bridge.ts`) are the worked example. Then implement. Run these tests early,
@@ -195,7 +196,7 @@ A new kind changes every operation's contract and bundle.
    snapshot walk if the kind is observed inline, and for serialization a wire tag with its
    facets, size charge, Lean format and README entries, or else `serialize` rejects it.
 5. **Check** with `builtin-recognition.spec.ts` and `builtin-facets.spec.ts`, then `pnpm check`,
-   `pnpm bench size` and a default round.
+   `pnpm bench size` and a default `ab` round.
 
 ### Changing the wire format
 
@@ -210,8 +211,8 @@ earlier version stops decoding.
 3. Update every spec with a hand-written wire document, including `serialization*.spec.ts`,
    `deserialize-limit.spec.ts` and `arktype-contract.spec.ts`, and the corpus of
    `scripts/check-serialization-lean.ts`.
-4. Run `pnpm check`, `pnpm bench size`, and `ab` on `serialize` and `deserialize`; those workloads measure value to text and back, so they compare across a
-   format change.
+4. Run `pnpm check`, `pnpm bench size`, and `ab` on `serialize` and `deserialize`; those
+   workloads measure value to text and back, so they compare across a format change.
 
 ### Couplings that fail silently
 
@@ -274,19 +275,24 @@ While editing, run the narrowest check:
 | Finite algorithm or Lean         | `lake build <Module.Name>`, then `lake env lean lean/<Path>.lean` |
 | Bundle, packaging or mangle list | `pnpm build`, then `pnpm bench size`                              |
 
-At each checkpoint, run `pnpm check`. It runs, one after another, every _round_ whose inputs
-changed since it last passed: `static`, `test`, `lib`, `temporal`, `lean` and `mutants`, which
-`pnpm check --help` describes. `pnpm check <round>` runs one, `--plan` says what would run and
-why, and `--fresh` runs a round even when it already passed. A round's inputs are the content of
-every file of the working tree it does not exclude, tracked or untracked but not ignored, plus the
-Node version, the installed dependencies and `NODE_OPTIONS`.
+At each checkpoint, run `pnpm check`. It runs, one after another, each _round_ that has not
+passed on its current inputs: `static`, `test`, `lib`, `temporal`, `lean` and `mutants`, which
+`pnpm check --help` describes. It stops at the first round that does not pass, unless given
+`--keep-going`. `pnpm check <round>` runs one round, `--plan` says what would run and why, and
+`--fresh` runs a round even when it has passed. A round's inputs are the content and executable
+bit of every file of the working tree that `scripts/check/rounds.ts` does not exclude for it,
+tracked or untracked but not ignored, plus the platform, the Node version, the installed
+dependencies and `NODE_OPTIONS`.
 
-Each round, and each `pnpm bench` command, runs within a 295-second budget and holds a lock, so
-no two of them overlap. It stops every process it started when it ends, runs out of budget or is
-interrupted, and keeps its logs and a receipt under `~/.local/state/reconcile/runs`. A round that
-runs out of budget exits with 124: its result is incomplete, not a pass, so rerun the whole round.
-The `lean` round builds the proofs first and uses most of its budget on a cold build, so load on
-the machine can time it out.
+Each round, and each `pnpm bench` command, runs within a 295-second budget and holds a
+machine-wide lock, so no two of them overlap. Other commands take no lock, so run a round only
+when nothing else is running. A round stops every process it started when it ends, runs out of
+budget or is interrupted; if the round itself is killed, the next round stops what it left
+running. It keeps its logs and a receipt under `$XDG_STATE_HOME/reconcile/runs`, by default
+`~/.local/state/reconcile/runs`. A round that runs out of budget exits with 124: its result is
+incomplete, not a pass, so rerun the whole round. A cold `lake build` takes most of a round's
+budget, so load on the machine can time out the first round that builds the proofs, usually
+`temporal`.
 
 `pnpm test` runs every spec in the neutral project, and again in the poisoned project all except
 those that run no library code in their own process; the poisoned project's setup file,

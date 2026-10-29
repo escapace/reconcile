@@ -8,9 +8,9 @@ import {
 } from 'node:fs'
 import { constants } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import type { Lock } from './lock'
 import { ROOT, STATE } from './paths'
+import { stopGroup } from './processes'
 
 /** Every round's budget: the 300 seconds a round may take, less a margin for shutdown. */
 export const BUDGET_SECONDS = 295
@@ -21,23 +21,18 @@ const SHUTDOWN_RESERVE_MS = 2000
 /** How a round or step ended. */
 export type Status = 'cancelled' | 'failed' | 'passed' | 'timed_out'
 
-/** The exit code of every status but a failure, which keeps its step's: a timeout is
- * incomplete, not a failure. */
-const EXIT_CODES: Record<Exclude<Status, 'failed'>, number> = {
-  cancelled: 130,
-  passed: 0,
-  timed_out: 124,
-}
-
-const exitCodeOf = (status: Status, failure: number): number =>
-  status === 'failed' ? failure : EXIT_CODES[status]
+/** The exit code of a round with each status: a timeout is incomplete, not a failure. A step's
+ * own exit code is kept in the receipt. */
+const EXIT_CODES: Record<Status, number> = { cancelled: 130, failed: 1, passed: 0, timed_out: 124 }
 
 /** One command of a round, run in its own process group. */
 export interface Step {
   readonly command: readonly string[]
   readonly name: string
   readonly cwd?: string
-  readonly env?: Readonly<Record<string, string>>
+  /** Variables added to the environment; a function is called when the step starts, within the
+   * round's budget, and a step whose function throws fails. */
+  readonly env?: (() => Readonly<Record<string, string>>) | Readonly<Record<string, string>>
 }
 
 export interface StepResult {
@@ -72,32 +67,6 @@ export interface RoundResult {
 }
 
 const seconds = (since: number): number => Math.round((performance.now() - since) / 100) / 10
-
-const groupAlive = (group: number): boolean => {
-  try {
-    process.kill(-group, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-const signalGroup = (group: number, signal: NodeJS.Signals): void => {
-  try {
-    process.kill(-group, signal)
-  } catch {
-    // The group has already exited.
-  }
-}
-
-/** Stops every process left in a step's group: SIGTERM, then SIGKILL half a second later. */
-async function stopGroup(group: number | undefined): Promise<void> {
-  if (group === undefined || !groupAlive(group)) return
-  signalGroup(group, 'SIGTERM')
-  await sleep(500)
-  signalGroup(group, 'SIGKILL')
-  for (let waited = 0; waited < 1000 && groupAlive(group); waited += 50) await sleep(50)
-}
 
 /** A new directory for one round's logs and receipt. */
 export function roundDirectory(name: string): string {
@@ -146,15 +115,22 @@ function launch(
   output: WriteStream,
   echo: boolean,
 ): { ended: Promise<Ending>; group: number | undefined } {
+  let environment: NodeJS.ProcessEnv
+  try {
+    environment = { ...process.env, ...(typeof step.env === 'function' ? step.env() : step.env) }
+  } catch (error) {
+    output.write(`${(error as Error).message}\n`)
+    return { ended: Promise.resolve({ code: 1, signal: null }), group: undefined }
+  }
   const child = spawn(step.command[0], step.command.slice(1), {
     cwd: step.cwd ?? ROOT,
     detached: true,
-    env: { ...process.env, ...step.env },
+    env: environment,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const ended = new Promise<Ending>((resolve) => {
     child.once('error', (error) => {
-      output.write(`${error.message}\n`)
+      output.write(`cannot run ${step.command[0]}: ${error.message}\n`)
       resolve({ code: 127, signal: null })
     })
     child.once('close', (code, signal) => resolve({ code, signal }))
@@ -208,7 +184,7 @@ async function runStep(
   return {
     command: step.command,
     elapsedSeconds: seconds(started),
-    exitCode: exitCodeOf(status, code ?? 128 + (signal === null ? 0 : constants.signals[signal])),
+    exitCode: code ?? 128 + (signal === null ? 0 : constants.signals[signal]),
     log,
     name: step.name,
     status,
@@ -303,7 +279,7 @@ export async function runRound(round: Round): Promise<RoundResult> {
   const deadline = started + budgetSeconds * 1000 - SHUTDOWN_RESERVE_MS
   const { cancelled, steps } = await runSteps(round, directory, deadline)
   const status = roundStatus(steps, round.steps.length, cancelled)
-  const exitCode = exitCodeOf(status, steps.at(-1)?.exitCode ?? 1)
+  const exitCode = EXIT_CODES[status]
   const elapsedSeconds = seconds(started)
   const receipt = path.join(directory, 'receipt.json')
   const fields = {
