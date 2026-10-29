@@ -1,23 +1,28 @@
+import { existsSync } from 'node:fs'
 import { defineConfig, mergeConfig } from 'vitest/config'
 import type { ViteUserConfig } from 'vitest/config'
 import configShared from './vitest.config.ts'
 
-/** Specs that run no library code in their own process: they test scripts or drive a child
- * process, so the poisoned and library projects would repeat the neutral run. */
+/** Specs that run no library code in their own process: the tooling's specs beside it in
+ * `scripts/`, and these, which test scripts or drive a child process. The poisoned and library
+ * projects would repeat the neutral run of them. */
 export const scriptSpecs = [
+  'scripts/**',
   'src/__tests__/ab-time.spec.ts',
   'src/__tests__/bench-workloads.spec.ts',
-  'src/__tests__/bounded-check.spec.ts',
   'src/__tests__/profile-attribution.spec.ts',
   'src/__tests__/profile-counts.spec.ts',
   'src/__tests__/standard-prototypes.spec.ts',
 ]
+// A renamed spec would otherwise run in every project without a word.
+for (const spec of scriptSpecs)
+  if (!spec.includes('*') && !existsSync(spec)) throw new Error(`${spec} does not exist`)
 
 const config = mergeConfig(
   configShared,
   defineConfig({
     test: {
-      include: ['src/**/*.spec.ts'],
+      include: ['scripts/**/*.spec.ts', 'src/**/*.spec.ts'],
       name: 'neutral',
       sequence: {
         hooks: 'list',

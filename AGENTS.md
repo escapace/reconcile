@@ -27,13 +27,11 @@ Only rules that are easy to miss and costly to break. Procedures, commands and e
   `scripts/bench-workloads.ts`. Freeze a control and the counted-work hypothesis before optimizing.
   Never overlap a benchmark or profiler with any other work. Report each workload against the
   control or trunk directly, never as an aggregate or multiplied ratios.
-- Each complete validation or measurement round finishes within 300 seconds, child processes
-  included. A timeout is incomplete evidence, not a pass, and is not split into chunks. Reuse a
-  pass only after checking that its inputs are unchanged.
+- Take validation and measurement evidence only from `pnpm check` and `pnpm bench`. A timeout
+  (exit 124) is incomplete evidence, not a pass, and is not split into chunks.
 - CI runs only build, typecheck and `pnpm test`; the pre-commit hook adds ESLint and Prettier on
-  staged files, and its build type-checks only `src/`. Before committing, run `pnpm typecheck` and
-  whichever of `pnpm lint`, `pnpm check:lean`, `pnpm test:lib` and `pnpm bench size` your change
-  needs. Keep those four checks out of the hook.
+  staged files, and its build type-checks only `src/`. Before committing, run `pnpm check`, and
+  `pnpm bench size` when a bundle may change. Keep both out of the hook.
 - Documentation is `README.md` for users plus these two guides; add no other docs, notes or
   reports. The README follows the TSDoc voice, gives each limitation one home and puts advanced
   material after the common case. Change it minimally, through independent editorial and

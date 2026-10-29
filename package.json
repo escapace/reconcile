@@ -58,16 +58,14 @@
   },
   "repository": "escapace/reconcile",
   "scripts": {
-    "bench": "tsx scripts/bench.ts",
+    "bench": "node --import tsx scripts/cli.ts bench",
     "build": "tsx scripts/build.ts && prettier --log-level warn --write README.md",
-    "check:lean": "python3 scripts/check-lean.py",
-    "lint": "pnpm run ls-lint && fallow --fail-on-issues && eslint --concurrency auto",
+    "check": "node --import tsx scripts/cli.ts check",
     "ls-lint": "ls-lint --config .ls-lint.yaml",
     "pack": "pnpm-pack package --pack-destination lib",
     "prepare": "lefthook install",
     "syncpack": "syncpack fix && syncpack format",
     "test": "vitest --no-watch --coverage --coverage.reporter=json --coverage.reporter=text-summary",
-    "test:lib": "vitest --no-watch --config vitest-library.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "sideEffects": false,

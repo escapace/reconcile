@@ -147,7 +147,7 @@ Every change ends with its checkpoint in [Checks and time budget](#checks-and-ti
 - **Behavior fix.** Write a failing test that states the contract, then fix the code. A changed
   expectation needs a contract argument, not agreement with the new implementation. Do not turn
   an expected failure (`it.fails`) or a skipped test into a passing one, or the reverse, without
-  stating the contract change. Run `pnpm check:lean` as well, because a bridge can encode the old
+  stating the contract change. Run `pnpm check lean` as well, because a bridge can encode the old
   behavior; [Checks and failures](lean.md#checks-and-failures) says how to resolve a mismatch.
 - **Finite algorithm or new feature.** Work proof first, following [Adding or changing a
   model](lean.md#adding-or-changing-a-model); the reference models (`Spec.Reconcile`,
@@ -194,8 +194,8 @@ A new kind changes every operation's contract and bundle.
 4. **Update the couplings** below: the counter rules in `scripts/profile-counts.ts`, the
    snapshot walk if the kind is observed inline, and for serialization a wire tag with its
    facets, size charge, Lean format and README entries, or else `serialize` rejects it.
-5. **Check** with `builtin-recognition.spec.ts` and `builtin-facets.spec.ts`, then the combined
-   round, `pnpm check:lean`, `pnpm bench size` and a default round.
+5. **Check** with `builtin-recognition.spec.ts` and `builtin-facets.spec.ts`, then `pnpm check`,
+   `pnpm bench size` and a default round.
 
 ### Changing the wire format
 
@@ -210,14 +210,13 @@ earlier version stops decoding.
 3. Update every spec with a hand-written wire document, including `serialization*.spec.ts`,
    `deserialize-limit.spec.ts` and `arktype-contract.spec.ts`, and the corpus of
    `scripts/check-serialization-lean.ts`.
-4. Run the combined round, `pnpm check:lean`, `pnpm bench size`, and `ab` on `serialize` and
-   `deserialize`; those workloads measure value to text and back, so they compare across a
+4. Run `pnpm check`, `pnpm bench size`, and `ab` on `serialize` and `deserialize`; those workloads measure value to text and back, so they compare across a
    format change.
 
 ### Couplings that fail silently
 
 Some code and tooling must change together, and `pnpm test` does not catch a mismatch: it breaks
-`pnpm check:lean`, the counters, the measurements, the package or an invariant. Change both
+`pnpm check lean`, the counters, the measurements, the package or an invariant. Change both
 sides together.
 
 - **Profile harness.** `scripts/profile.ts` rewrites `perf/profile-harness.ts` by exact text (the
@@ -234,17 +233,17 @@ sides together.
   `builtins.ts` gets none.
 - **Test fixtures in the tooling.** `scripts/check-compact-immutable-runtime.ts` imports
   `src/__tests__/fixtures/compact-immutable.ts`, so changing that fixture for a test also changes
-  a `pnpm check:lean` corpus.
+  a `pnpm check lean` corpus.
 - **Hooked bridges.** The DeferredOrder, phase, SpecialValues and CollectionWrites bridges bundle
   the sources with recorder calls after exact statements: three in the preflight of
   `types/shared/property-publication.ts`, two in `publishGraph`
   (`publication/publication-engine.ts`), one after the first line of `chooseSpecial`
   (`graph/provenance.ts`), and two in `types/shared/collection.ts`, one after the signature of
   `collectionSurface` and one after the statement that sets `note.unchanged`. Editing, moving or
-  duplicating one of those statements, or renaming one of those files, breaks `pnpm check:lean`.
+  duplicating one of those statements, or renaming one of those files, breaks `pnpm check lean`.
 - **Lean names in comments.** Source comments name their Lean theorems, and nothing checks them.
 - **Serialization bridges.** `scripts/check-serialization-lean.ts` requires Lean's re-emission to
-  equal every `serialize` output in its corpus, so a wire change fails `pnpm check:lean` until
+  equal every `serialize` output in its corpus, so a wire change fails `pnpm check lean` until
   `Positional.lean` changes too. `check-serialization-collection-runtime.ts` calls the production
   `map` and `set` decoders with a hand-built `DecodeContext`. The record, array, literal and
   bigint charges exist three times: in `facets/*.ts`, in `Size.lean`'s `tableCharges`, and in the
@@ -259,62 +258,48 @@ sides together.
 - **Head shortcut.** Identity restoration tries `immutableHead`'s mask before searching, because
   the head theorem proves it comes first.
 - **Mangle list.** A name in `scripts/constants.json` that is also read on an application or
-  native object, or is public, breaks only the built package, which `pnpm test:lib` tests.
+  native object, or is public, breaks only the built package, which `pnpm check lib` tests.
 - **Library tests.** `vitest-library.config.ts` redirects only imports of the entry modules it
   names to `lib/neutral/index.js`; a test that imports another source module tests the sources
-  under `pnpm test:lib`.
+  under `pnpm check lib`.
 
 ## Checks and time budget
 
-| Change                           | While editing                                                     | At the checkpoint                      |
-| -------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
-| Runtime behavior                 | `pnpm exec vitest run src/__tests__/<file>.spec.ts`               | Combined round, then `pnpm check:lean` |
-| Types, declarations or exports   | `pnpm typecheck`                                                  | Combined round and `pnpm test:lib`     |
-| Finite algorithm or Lean         | `lake build <Module.Name>`, then `lake env lean lean/<Path>.lean` | `pnpm check:lean`                      |
-| Bundle, packaging or mangle list | `pnpm build`, then `pnpm bench size`                              | `pnpm test:lib` and `pnpm bench size`  |
+While editing, run the narrowest check:
 
-The combined round is one bounded command:
+| Change                           | While editing                                                     |
+| -------------------------------- | ----------------------------------------------------------------- |
+| Runtime behavior                 | `pnpm exec vitest run src/__tests__/<file>.spec.ts`               |
+| Types, declarations or exports   | `pnpm typecheck`                                                  |
+| Finite algorithm or Lean         | `lake build <Module.Name>`, then `lake env lean lean/<Path>.lean` |
+| Bundle, packaging or mangle list | `pnpm build`, then `pnpm bench size`                              |
 
-```sh
-python3 scripts/bounded-check.py --seconds 295 --receipt /tmp/check-<unique>.json -- \
-  bash -c 'pnpm typecheck && pnpm build && pnpm test && pnpm lint'
-```
+At each checkpoint, run `pnpm check`. It runs, one after another, every _round_ whose inputs
+changed since it last passed: `static`, `test`, `lib`, `temporal`, `lean` and `mutants`, which
+`pnpm check --help` describes. `pnpm check <round>` runs one, `--plan` says what would run and
+why, and `--fresh` runs a round even when it already passed. A round's inputs are the content of
+every file of the working tree it does not exclude, tracked or untracked but not ignored, plus the
+Node version, the installed dependencies and `NODE_OPTIONS`.
+
+Each round, and each `pnpm bench` command, runs within a 295-second budget and holds a lock, so
+no two of them overlap. It stops every process it started when it ends, runs out of budget or is
+interrupted, and keeps its logs and a receipt under `~/.local/state/reconcile/runs`. A round that
+runs out of budget exits with 124: its result is incomplete, not a pass, so rerun the whole round.
+The `lean` round builds the proofs first and uses most of its budget on a cold build, so load on
+the machine can time it out.
 
 `pnpm test` runs every spec in the neutral project, and again in the poisoned project all except
 those that run no library code in their own process; the poisoned project's setup file,
-`src/__tests__/fixtures/poisoned-prototypes.ts`, says what it catches. Run each checkpoint as its
-own round, never two at once, and only when nothing else is running. fallow's CRAP score reads the
-coverage map that `pnpm test` writes, so run the tests before linting, and again after edits that
-move source lines. [Running the gate](lean.md#running-the-gate) describes `pnpm check:lean`, and
+`src/__tests__/fixtures/poisoned-prototypes.ts`, says what it catches.
+[Running the gate](lean.md#running-the-gate) describes the `lean` round, and
 [Checks and failures](lean.md#checks-and-failures) says how to resolve a failure.
 
 **Optional native features.** The Temporal cases, including serialization of the eight Temporal
-classes, skip without a global `Temporal`. Run them with Node's experimental flag, on sources and
-then on the built package:
-
-```sh
-pnpm exec vitest run --config vitest.config.neutral.ts src/__tests__/temporal.spec.ts --execArgv=--harmony-temporal
-pnpm build
-pnpm exec vitest run --config vitest-library.config.ts src/__tests__/temporal.spec.ts --execArgv=--harmony-temporal
-```
-
-This checks the available implementation, not conformance. Without native `Uint8Array` base64
-the binary codec takes a fallback path; `src/__tests__/serialization-boundaries.spec.ts` checks
-its validation through stand-ins.
-
-### Time budget
-
-`pnpm check:lean` and every `pnpm bench` command also run under `scripts/bounded-check.py`, with a
-295-second budget; it stops the whole process tree and writes a receipt. The combined round uses
-most of its budget, so load on the machine can time it out.
-
-A receipt records the command and its outcome, not its inputs. Beside it, save
-`git rev-parse HEAD` and a hash of all staged, unstaged and untracked changes, and reuse a passing
-result only while both still match:
-
-```sh
-{ git diff --binary HEAD; git ls-files -oz --exclude-standard | xargs -0r sha256sum; } | sha256sum
-```
+classes, skip without a global `Temporal`. `pnpm check temporal` runs them with Node's
+experimental flag on the sources, on the built package and through the bridges. This checks the
+available implementation, not conformance. Without native `Uint8Array` base64 the binary codec
+takes a fallback path; `src/__tests__/serialization-boundaries.spec.ts` checks its validation
+through stand-ins.
 
 ## Performance work
 

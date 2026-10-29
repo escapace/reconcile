@@ -1,9 +1,10 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
 
-  // Development tooling that no package.json field or built-in plugin reveals: scripts that
-  // scripts/bench.ts and the Python wrappers launch by path, and the profiling harness that
-  // profile.ts bundles by path. The support role keeps them out of the shipped-code checks.
+  // Development tooling that no package.json field or built-in plugin reveals: the maintainer
+  // CLI, the scripts and the library test configuration its rounds launch by path, and the
+  // profiling harness that profile.ts bundles by path. The support role keeps them out of the
+  // shipped-code checks.
   "framework": [
     {
       // Loaded by syncpack; the built-in syncpack plugin does not detect the .mjs name.
@@ -11,12 +12,13 @@
       // The scripts run through tsx.
       "enablers": ["tsx"],
       "entryPoints": [
-        // Run by hand; docs/lean.md describes it.
-        "scripts/spec-mutants.ts",
+        "scripts/cli.ts",
+        "scripts/check/mutants.ts",
         "scripts/profile.ts",
         "scripts/check-lean.ts",
         "scripts/bundle-size.ts",
         "perf/profile-harness.ts",
+        "vitest-library.config.ts",
       ],
       "name": "repository-tooling",
     },

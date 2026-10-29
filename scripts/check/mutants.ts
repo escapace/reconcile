@@ -1,27 +1,43 @@
-// Sensitivity audit of the Spec bridges and the collection-writes bridge: applies one deliberate
-// defect at a time to the runtime sources, runs the reconcile bridge, or the phase or
-// collection-writes bridge where a mutant names it, in a child process and expects it to fail. A
-// mutant that survives names a case the generator does not produce or a difference the comparison
-// does not see; a mutant expected to survive names the gap it stands for, and a verdict that
-// differs from the expectation, in either direction, fails the audit. The sources are restored
-// after every mutant, whatever happens.
+// The mutation audit: checks that the Spec bridges and the collection-writes bridge detect runtime
+// defects. It copies the working tree, runs every bridge it needs on the unmutated copy, which
+// must agree, then applies one deliberate defect, a mutant, at a time to the copy's runtime
+// sources and runs the reconcile bridge, or the phase or collection-writes bridge where a mutant
+// names it, expecting it to fail. A mutant that survives names a case the generator does not
+// produce or a difference the comparison does not see; a mutant expected to survive names the gap
+// it stands for, and a verdict that differs from the expectation, in either direction, fails the
+// audit. The working tree itself is never written.
 //
-//   pnpm exec tsx scripts/spec-mutants.ts [--seeds N] [--only NAME]
+//   pnpm check mutants [name...] [--seeds N]
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { parseArgs } from 'node:util'
+import { treeFiles } from '../framework/fingerprint'
+import { ROOT } from '../framework/paths'
 
 interface Mutant {
+  readonly file: string
+  /** The exact source text, present once, that the defect replaces. */
+  readonly find: string
+  readonly name: string
+  readonly replace: string
   /** The bridge that must see the defect: the outcome bridge unless it names the phase bridge,
    * for a defect only the runtime's discovery or decisions show, or the collection-writes bridge,
    * for one only the writes to a kept `Map` or `Set` show. */
   readonly bridge?: 'collections' | 'phases'
-  /** The exact source text, present once, that the defect replaces. */
-  readonly file: string
-  readonly find: string
-  readonly name: string
-  readonly replace: string
   /** Why the bridge is expected not to see this mutant: the gap it stands for. */
   readonly survives?: string
 }
@@ -234,23 +250,49 @@ type Bridge = (typeof BRIDGES)[keyof typeof BRIDGES]
 const seedArguments = (bridge: Bridge, seeds: number): string[] =>
   bridge.seeded ? ['--seeds', String(seeds)] : []
 
-/** One bridge run in its own process group. It saw nothing when it finished with the bridge's
- * report of no difference; a mutant that throws inside the runtime is caught as well, since the
- * bridge reports errors. A run takes some seconds; one that loops is cut off, with every process
- * it started, well inside the round. */
+/** The oracle every bridge runs, built by the round's first step. */
+const ORACLE = path.join('.lake', 'build', 'bin', 'reconcile-oracle')
+
+/**
+ * A copy of the working tree, tracked and untracked files alike, in which mutants are applied:
+ * the installed dependencies and the built oracle are linked, not copied.
+ */
+function copyTree(): string {
+  const oracle = path.join(ROOT, ORACLE)
+  if (!existsSync(oracle)) {
+    console.error(`The oracle ${oracle} is missing; the round builds it first.`)
+    process.exit(3)
+  }
+  const copy = mkdtempSync(path.join(tmpdir(), 'reconcile-mutants-'))
+  for (const file of treeFiles()) {
+    const from = path.join(ROOT, file)
+    if (!existsSync(from)) continue
+    const to = path.join(copy, file)
+    mkdirSync(path.dirname(to), { recursive: true })
+    copyFileSync(from, to)
+    chmodSync(to, statSync(from).mode)
+  }
+  symlinkSync(path.join(ROOT, 'node_modules'), path.join(copy, 'node_modules'))
+  mkdirSync(path.join(copy, path.dirname(ORACLE)), { recursive: true })
+  symlinkSync(oracle, path.join(copy, ORACLE))
+  return copy
+}
+
+/** One bridge run in the copy. It saw nothing when it finished with the bridge's report of no
+ * difference; a mutant that throws inside the runtime is caught as well, since the bridge reports
+ * errors. A run takes some seconds; one that loops is cut off well inside the round. The run
+ * stays in the round's process group, so that the round can stop it. */
 async function runBridge(
+  copy: string,
   bridge: Bridge,
   seeds: number,
   flags: readonly string[],
 ): Promise<Verdict> {
   return await new Promise((resolve) => {
     const child = spawn(
-      'pnpm',
-      ['exec', 'tsx', ...bridge.command, ...seedArguments(bridge, seeds), ...flags],
-      {
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
+      process.execPath,
+      ['--import', 'tsx', ...bridge.command, ...seedArguments(bridge, seeds), ...flags],
+      { cwd: copy, stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let output = ''
     let hung = false
@@ -261,7 +303,7 @@ async function runBridge(
     child.stderr.setEncoding('utf8').on('data', collect)
     const timer = setTimeout(() => {
       hung = true
-      process.kill(-child.pid!, 'SIGKILL')
+      child.kill('SIGKILL')
     }, 30_000)
     child.on('error', () => {
       clearTimeout(timer)
@@ -277,40 +319,74 @@ async function runBridge(
 
 /** The bridge's runs, all at once: the verdict is the first run, in order, that did not end or
  * saw a difference, as running them one after another until one does would find. */
-async function runAll(bridge: Bridge, seeds: number): Promise<Verdict> {
+async function runAll(copy: string, bridge: Bridge, seeds: number): Promise<Verdict> {
   const verdicts = await Promise.all(
-    bridge.runs.map(async (flags) => await runBridge(bridge, seeds, flags)),
+    bridge.runs.map(async (flags) => await runBridge(copy, bridge, seeds, flags)),
   )
   return verdicts.find((verdict) => verdict !== 'survived') ?? 'survived'
 }
 
-async function audit(mutant: Mutant, seeds: number): Promise<Verdict> {
-  const original = readFileSync(mutant.file, 'utf8')
+async function audit(copy: string, mutant: Mutant, seeds: number): Promise<Verdict> {
+  const file = path.join(copy, mutant.file)
+  const original = readFileSync(file, 'utf8')
   assert.equal(original.split(mutant.find).length, 2, `${mutant.name}: find text not present once`)
-  writeFileSync(mutant.file, original.replace(mutant.find, mutant.replace))
+  writeFileSync(file, original.replace(mutant.find, mutant.replace))
   try {
-    return await runAll(BRIDGES[mutant.bridge ?? 'outcome'], seeds)
+    return await runAll(copy, BRIDGES[mutant.bridge ?? 'outcome'], seeds)
   } finally {
-    writeFileSync(mutant.file, original)
+    writeFileSync(file, original)
   }
 }
 
-const { values } = parseArgs({
-  options: { only: { type: 'string' }, seeds: { default: '1500', type: 'string' } },
+const { positionals, values } = parseArgs({
+  allowPositionals: true,
+  options: { seeds: { default: '1500', type: 'string' } },
 })
-const selected = MUTANTS.filter((m) => values.only === undefined || m.name === values.only)
-assert.ok(selected.length > 0, 'no mutant selected')
+const unknown = positionals.filter((name) => !MUTANTS.some((mutant) => mutant.name === name))
+if (unknown.length > 0) {
+  console.error(`Unknown mutants: ${unknown.join(', ')}.`)
+  process.exit(2)
+}
+const selected = MUTANTS.filter((m) => positionals.length === 0 || positionals.includes(m.name))
+const seeds = Number(values.seeds)
+const copy = copyTree()
+// The round stops this process with SIGTERM on timeout or interruption; the copy goes with it.
+process.once('SIGTERM', () => {
+  rmSync(copy, { force: true, recursive: true })
+  process.exit(143)
+})
 let surprises = 0
-for (const mutant of selected) {
+try {
+  // An unmutated run that does not agree means the copy, not a mutant, is broken: every mutant
+  // would then read as killed.
   const started = Date.now()
-  const verdict = await audit(mutant, Number(values.seeds))
-  const expected = (verdict === 'survived') === (mutant.survives !== undefined)
-  if (!expected) surprises += 1
-  const note = mutant.survives === undefined ? '' : ` (expected to survive: ${mutant.survives})`
-  const seconds = Math.round((Date.now() - started) / 1000)
-  console.log(
-    `${expected ? verdict : `UNEXPECTED ${verdict}`} ${mutant.name} in ${seconds} s${note}`,
+  const needed = [...new Set(selected.map((mutant) => mutant.bridge ?? 'outcome'))]
+  const controls = await Promise.all(
+    needed.map(async (name) => [name, await runAll(copy, BRIDGES[name], seeds)] as const),
   )
+  const broken = controls.filter(([, verdict]) => verdict !== 'survived')
+  if (broken.length > 0) {
+    console.error(
+      `The unmutated copy does not agree (${broken.map(([name, verdict]) => `${name}: ${verdict}`).join(', ')}): ` +
+        'the audit cannot judge any mutant.',
+    )
+    process.exit(1)
+  }
+  const seconds = Math.round((Date.now() - started) / 1000)
+  console.log(`control: ${needed.join(', ')} agree on the unmutated copy in ${seconds} s`)
+  for (const mutant of selected) {
+    const begun = Date.now()
+    const verdict = await audit(copy, mutant, seeds)
+    const expected = (verdict === 'survived') === (mutant.survives !== undefined)
+    if (!expected) surprises += 1
+    const note = mutant.survives === undefined ? '' : ` (expected to survive: ${mutant.survives})`
+    const elapsed = Math.round((Date.now() - begun) / 1000)
+    console.log(
+      `${expected ? verdict : `UNEXPECTED ${verdict}`} ${mutant.name} in ${elapsed} s${note}`,
+    )
+  }
+} finally {
+  rmSync(copy, { force: true, recursive: true })
 }
 console.log(`${selected.length - surprises} of ${selected.length} verdicts as expected`)
 if (surprises > 0) process.exitCode = 1
